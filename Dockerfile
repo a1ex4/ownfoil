@@ -5,7 +5,7 @@ RUN mkdir /app
 RUN mkdir /games
 
 COPY ./libs /app
-COPY ./nginx.conf /etc/nginx/conf.d/default.conf
+COPY ./nginx.conf /etc/nginx/http.d/default.conf
 RUN touch /etc/nginx/.htpasswd
 
 RUN apk add --update --no-cache openssl python3 && ln -sf python3 /usr/bin/python
