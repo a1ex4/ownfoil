@@ -5,13 +5,10 @@ services:
     container_name: ownfoil
     image: a1ex4/ownfoil
     volumes:
-      - C:\Users\apuli\Downloads\switch:/games
-      # - /your/game/directory:/games
+      - /your/game/directory:/games
       # Uncomment if you want to edit and persist the app configuration
       # - ./app:/app
       # Uncomment to setup basic auth
-    #   - ./nginx/htpasswd:/etc/nginx/.htpasswd
-      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf
+      # - ./nginx:/etc/nginx
     ports:
       - "8000:80"
-    entrypoint: sleep infinity
