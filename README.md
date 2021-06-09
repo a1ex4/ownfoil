@@ -1,11 +1,13 @@
 # Ownfoil
-Badges:
- - docker hub (pulls)
- - latest tag
- - Tinfoil version
- - Awoo version
+![Docker Image Version (latest semver)](https://img.shields.io/docker/v/a1ex4/ownfoil?sort=semver)
+![Docker Pulls](https://img.shields.io/docker/pulls/a1ex4/ownfoil)
+![Docker Image Size (latest semver)](https://img.shields.io/docker/image-size/a1ex4/ownfoil)
+![Tinfoil Version](https://img.shields.io/badge/Tinfoil-v12.00-green)
+![Awoo Version](https://img.shields.io/badge/Awoo-v1.3.4-red)
 
-Ownfoil is a simple webserver aimed at running your own Tinfoil/Awoo shop from your local library, with full shop customisation and authentication. It is designed to periodically scan your library (default every 5 minutes), generate Tinfoil index file and serve it all over HTTP/S.
+Ownfoil is a simple webserver aimed at running your own Tinfoil/Awoo shop from your local library, with full shop customisation and authentication. It is designed to periodically scan your library (default every 5 minutes), generate Tinfoil index file and serve it all over HTTP/S. This makes it easy to manage your library and have your personal collection available at any time.
+
+Why this project ? I wanted a lightweight, dead simple, no dependancy and private personal Shop, without having to rely on other proprietary services (Google, 1fichier...) and having to maintain their implementation.
 
 # Table of Contents
 - [Usage](#usage)
@@ -84,3 +86,13 @@ You can execute these commands as many times as you want to create users. With t
 - Initial release
 
 # Similar Projects
+If you want to create your personal NSP Shop then check out these other similar projects:
+- [eXhumer/pyTinGen](https://github.com/eXhumer/pyTinGen)
+- [JackInTheShop/FT-SCEP](https://github.com/JackInTheShop/FT-SCEP)
+- [gianemi2/tinson-node](https://github.com/gianemi2/tinson-node)
+- [BigBrainAFK/tinfoil_gdrive_generator](https://github.com/BigBrainAFK/tinfoil_gdrive_generator)
+- [ibnux/php-tinfoil-server](https://github.com/ibnux/php-tinfoil-server)
+- [ramdock/nut-server](https://github.com/ramdock/nut-server)
+- [Myster-Tee/TinfoilWebServer](https://github.com/Myster-Tee/TinfoilWebServer)
+- [DevYukine/rustfoil](https://github.com/DevYukine/rustfoil)
+- [Orygin/gofoil](https://github.com/Orygin/gofoil)
