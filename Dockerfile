@@ -1,5 +1,5 @@
 # a1ex4/ownfoil:1.0.0
-FROM alpine:latest
+FROM alpine:3.13.5
 
 RUN mkdir /app
 RUN mkdir /games
