@@ -22,8 +22,8 @@ def getDirsAndFiles(path):
         if os.path.isdir(fullPath):
             allDirs.append(fullPath)
             dirs, files = getDirsAndFiles(fullPath)
-            allDirs = allDirs + dirs
-            allFiles = allFiles + files
+            allDirs += dirs
+            allFiles += files
         else:
             if fullPath.split('.')[-1] in valid_ext:
                 allFiles.append(fullPath)
@@ -47,18 +47,20 @@ while True:
             logging.warning(f'Error parsing template file {template_file}, will use default shop template, error was:\n{e}')
 
     dirs, files = getDirsAndFiles(path)
+    rel_dirs = [os.path.join('..', os.path.relpath(s, path)) for s in dirs]
+    rel_files = [os.path.join('..', os.path.relpath(s, path)) for s in files]
 
     logging.info(f'Found {len(dirs)} directories, {len(files)} game files')
 
-    for game in files:
+    for game, rel_path in zip(files, rel_files):
         size = round(os.path.getsize(game))
         games.append(
             {
-                'url': game,
+                'url': rel_path,
                 'size': size
             })
 
-    shop['directories'] = dirs
+    shop['directories'] = rel_dirs
     shop['files'] = games
 
     for a in ['json', 'tfl']:
@@ -67,7 +69,7 @@ while True:
             with open(out_file, 'w') as f:
                 json.dump(shop, f, indent=4)
             logging.info(f'Successfully wrote {out_file}')
-            
+
         except Exception as e:
             logging.error(f'Failed to write {out_file}, error was:\n{e}')
 
