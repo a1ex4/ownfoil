@@ -81,6 +81,9 @@ Edit the `nginx/http.d/default.conf` file and uncomment the two lines starting w
 You can execute these commands as many times as you want to create users. With the volume mounted these files will be persisted on your host machine and used accross container restart/recreation.
 
 # Changelog
+
+## 1.0.1
+- Fix shop.tfl generation: use path relative to the index file (fixes #1)
 ## 1.0.0
 
 - Initial release
