@@ -1,7 +1,7 @@
 # Default configuration variables
 
 # Files with these extensions will be added to the shop
-valid_ext = ['nsp', 'nsz', 'xci']
+valid_ext = ['nsp', 'nsz', 'xci', 'zip']
 
 # Shop template file to use
 template_name = 'shop_template.jsonc'
