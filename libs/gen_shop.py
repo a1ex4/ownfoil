@@ -50,7 +50,7 @@ while True:
     rel_dirs = [os.path.join('..', os.path.relpath(s, path)) for s in dirs]
     rel_files = [os.path.join('..', os.path.relpath(s, path)) for s in files]
 
-    logging.info(f'Found {len(dirs)} directories, {len(files)} game files')
+    logging.info(f'Found {len(dirs)} directories, {len(files)} game/save files')
 
     for game, rel_path in zip(files, rel_files):
         size = round(os.path.getsize(game))
