@@ -8,7 +8,7 @@ COPY ./nginx.conf /etc/nginx/http.d/default.conf
 RUN touch /etc/nginx/.htpasswd
 
 RUN apk add --update --no-cache nginx openssl
-RUN pip3 install --no-cache --upgrade pip setuptools jsonc-parser
+RUN pip3 install --no-cache --upgrade jsonc-parser
 
 RUN set -e \
       && ln -sf /dev/stdout /var/log/nginx/access.log \
