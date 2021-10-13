@@ -1,5 +1,4 @@
-# a1ex4/ownfoil:1.0.0
-FROM alpine:3.13.5
+FROM python:3.9-alpine
 
 RUN mkdir /app
 RUN mkdir /games
@@ -8,12 +7,8 @@ COPY ./libs /app
 COPY ./nginx.conf /etc/nginx/http.d/default.conf
 RUN touch /etc/nginx/.htpasswd
 
-RUN apk add --update --no-cache openssl python3 && ln -sf python3 /usr/bin/python
-RUN python3 -m ensurepip
+RUN apk add --update --no-cache nginx openssl
 RUN pip3 install --no-cache --upgrade pip setuptools jsonc-parser
-
-RUN set -e \
-      && apk add --update --no-cache nginx
 
 RUN set -e \
       && mkdir /run/nginx \
