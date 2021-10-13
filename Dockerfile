@@ -11,7 +11,6 @@ RUN apk add --update --no-cache nginx openssl
 RUN pip3 install --no-cache --upgrade pip setuptools jsonc-parser
 
 RUN set -e \
-      && mkdir /run/nginx \
       && ln -sf /dev/stdout /var/log/nginx/access.log \
       && ln -sf /dev/stderr /var/log/nginx/error.log
 
