@@ -4,11 +4,14 @@ services:
   ownfoil:
     container_name: ownfoil
     image: a1ex4/ownfoil
-    volumes:
-      - /your/game/directory:/games
-      # Uncomment if you want to edit and persist the app configuration
-      # - ./app:/app
+    environment:
+      # For write permission of /games directory
+      - PUID=1000
+      - PGID=1000
       # Uncomment to setup basic auth
-      # - ./nginx:/etc/nginx
+      # - USERNAME=a1ex
+      # - PASSWORD=
+    volumes:
+      - /storage/media/games/switch:/games
     ports:
       - "8000:80"

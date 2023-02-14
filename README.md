@@ -21,6 +21,8 @@ Ownfoil is shipped as a Docker container for simplicity and compatibility. You f
 
 Then, there are two ways to start the container, with `docker run` or `docker-compose`.
 
+Use the `PUID` and `PGID` environment variables to make sure the app will have write access to your game directory.
+
 ## Docker run
 
 Running this command will start the shop on port `8000` with the library in `/your/game/directory` :
@@ -38,12 +40,15 @@ services:
   ownfoil:
     container_name: ownfoil
     image: a1ex4/ownfoil
-    volumes:
-      - /your/game/directory:/games
-      # Uncomment if you want to edit and persist the app configuration
-      # - ./app:/app
+    environment:
+      # For write permission of /games directory
+      - PUID=1000
+      - PGID=1000
       # Uncomment to setup basic auth
-      # - ./nginx:/etc/nginx
+      # - USERNAME=a1ex
+      # - PASSWORD=
+    volumes:
+      - /storage/media/games/switch:/games
     ports:
       - "8000:80"
 ```
@@ -55,30 +60,12 @@ You can then create and start the container with the command (executed in the sa
 This is usefull if you don't want to remember the `docker run` command and have a persistent and reproductible container configuration.
 
 # Shop Customization
-All [Tinfoil shop index keys](https://blawar.github.io/tinfoil/custom_index/) are configurable : simply download the [shop_template.jsonc](./shop_template.jsonc) (__*with the same name*__) to your library directory and fill in the keys. Be careful with the formatting of the file, especially of commas separating the keys.
+All [Tinfoil shop index keys](https://blawar.github.io/tinfoil/custom_index/) are configurable - at the first run of Ownfoil, a `shop_template.jsonc` will be created in your games directory, just fill in the keys to customize your shop.
+
+Be careful with the formatting of the file, especially of commas separating the keys.
 
 # Setup Authentication
-First, uncomment the "nginx" volume mount in the `docker-compose.yml` file and re-create the container (`docker-compose up -d`). You should now have a `nginx` folder next to the compose file: this folder is mounted inside the container (in `/etc/nginx`) so any changes to this folder will be reflected in the container.
-
-Edit the `nginx/http.d/default.conf` file and uncomment the two lines starting with "auth_basic", so that the file looks like that:
-```
-...
-    location / {
-        autoindex on;
-        root /games;
-        # Uncomment to enable Basic Authentication
-        auth_basic "Restricted Content";
-        auth_basic_user_file /etc/nginx/.htpasswd;
-    }
-...
-```
- Then, execute the following commands to generate credential for the user *alex*, the second will prompt you for a password:
-
-    docker exec -it ownfoil sh -c "echo -n 'alex:' >> /etc/nginx/.htpasswd"
-    docker exec -it ownfoil sh -c "openssl passwd -apr1 >> /etc/nginx/.htpasswd"
-    docker exec -it ownfoil sh -c "nginx -s reload"
-
-You can execute these commands as many times as you want to create users. With the volume mounted these files will be persisted on your host machine and used accross container restart/recreation.
+If the `USERNAME` and `PASSWORD` environment variables are defined inside the docker container, then basic authentication will be automatically setup.
 
 # Changelog
 
