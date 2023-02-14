@@ -3,11 +3,11 @@ FROM python:3.9-alpine
 RUN mkdir /app
 RUN mkdir /games
 
-COPY ./libs /app
-COPY ./nginx.conf /etc/nginx/http.d/default.conf
-RUN touch /etc/nginx/.htpasswd
+COPY ./app /app
+COPY ./conf/nginx.conf /etc/nginx/http.d/default.conf
 
-RUN apk add --update --no-cache nginx openssl
+RUN apk add --update --no-cache bash nginx openssl apache2-utils sudo
+
 RUN pip3 install --no-cache --upgrade jsonc-parser
 
 RUN set -e \
@@ -15,5 +15,4 @@ RUN set -e \
       && ln -sf /dev/stderr /var/log/nginx/error.log
 
 EXPOSE 80
-
-ENTRYPOINT nginx -g "daemon on;" && python /app/gen_shop.py /games
+ENTRYPOINT [ "/app/run.sh" ]
