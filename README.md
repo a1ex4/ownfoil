@@ -84,6 +84,9 @@ To enable shop authentication, simply define and set the `USERNAME` and `PASSWOR
 
 # Changelog
 
+## 1.1.1
+ - Fixes typo in run.sh script, fixes #5
+
 ## 1.1.0
  - Container now support PUID/PGID to have the same permissions as the host user
  - Rewrote Authentication setup to simplify it
