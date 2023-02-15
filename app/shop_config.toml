@@ -14,3 +14,37 @@ valid_ext = [
 
 template = "shop_template.toml"
 
+[saves]
+
+# Enable or disable automatic saves backup
+enabled = true
+
+# Default local saves path if not specified for a specific Switch.
+# Final path would be root_sir/local_saves_folder, i.e. /games/Saves
+local_saves_folder = "Saves"
+
+# Interval to retrieve saves, in minutes.
+interval = 60
+
+# Default JKSV and Tinfoil save folders, can be specified per Switch.
+# You can comment to disable retrieval for JKSV or Tinfoil
+jksv_folder = "/JKSV"
+tinfoil_folder = "/switch/tinfoil/saves/common"
+
+# Switches configuration for save retrieval.
+# If user and pass are empty/not specified, use anonymous connection
+# Alex's Switch
+[[saves.switches]]
+host = "192.168.1.200"
+port = "5000"
+local_saves_folder = "Saves/alex"
+
+# Another Switch
+# [[saves.switches]]
+# host = "192.168.1.150"
+# port = "5002"
+# user = "username"
+# pass = "password"
+# local_saves_folder = "Saves/Malcolm"
+# jksv_folder = "/JKSV"
+# tinfoil_folder = "/switch/tinfoil/saves/common"
