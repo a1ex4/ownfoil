@@ -1,18 +1,9 @@
-# Usage:
-# python gen_shop.py <directory to scan>
-# Generate a 'shop.tfl' Tinfoil index file
-# as well as 'shop.json', same content but viewable in the browser
-
 import os, json, sys, time
-from consts import *
-from jsonc_parser.parser import JsoncParser
+from utils import *
 import logging
+logger = logging.getLogger(__name__)
 
-logging.basicConfig(format='%(asctime)s | %(levelname)s: %(message)s', level=logging.DEBUG)
-
-path = sys.argv[1]
-
-def getDirsAndFiles(path):
+def getDirsAndFiles(path, valid_ext):
     entries = os.listdir(path)
     allFiles = list()
     allDirs = list()
@@ -21,7 +12,7 @@ def getDirsAndFiles(path):
         fullPath = os.path.join(path, entry)
         if os.path.isdir(fullPath):
             allDirs.append(fullPath)
-            dirs, files = getDirsAndFiles(fullPath)
+            dirs, files = getDirsAndFiles(fullPath, valid_ext)
             allDirs += dirs
             allFiles += files
         else:
@@ -29,28 +20,15 @@ def getDirsAndFiles(path):
                 allFiles.append(fullPath)
     return allDirs, allFiles
 
-while True:
-    logging.info(f'Start scanning directory "{path}"')
-
+def get_shop_dirs_and_file(path, valid_ext):
     dirs = []
     games = []
 
-    shop = default_shop
-    template_file = os.path.join(path, template_name)
-
-    if not os.path.isfile(template_file):
-        logging.warning(f'Template file {template_file} not found, will use default shop template')
-    else:
-        try:
-            shop = JsoncParser.parse_file(template_file)
-        except Exception as e:
-            logging.warning(f'Error parsing template file {template_file}, will use default shop template, error was:\n{e}')
-
-    dirs, files = getDirsAndFiles(path)
+    dirs, files = getDirsAndFiles(path, valid_ext)
     rel_dirs = [os.path.join('..', os.path.relpath(s, path)) for s in dirs]
     rel_files = [os.path.join('..', os.path.relpath(s, path)) for s in files]
 
-    logging.info(f'Found {len(dirs)} directories, {len(files)} game/save files')
+    logger.info(f'Found {len(dirs)} directories, {len(files)} game/save files')
 
     for game, rel_path in zip(files, rel_files):
         size = round(os.path.getsize(game))
@@ -59,18 +37,25 @@ while True:
                 'url': rel_path,
                 'size': size
             })
+    return rel_dirs, games
 
-    shop['directories'] = rel_dirs
-    shop['files'] = games
+def init_shop(path):
+    return read_config(path + "/shop_template.toml")
+
+def gen_shop(path, valid_ext):
+
+    shop = init_shop(path)
+
+    shop_dir, shop_file = get_shop_dirs_and_file(path, valid_ext)
+    shop['directories'] = shop_dir
+    shop['files'] = shop_file
 
     for a in ['json', 'tfl']:
         out_file = os.path.join(path, f'shop.{a}')
         try:
             with open(out_file, 'w') as f:
                 json.dump(shop, f, indent=4)
-            logging.info(f'Successfully wrote {out_file}')
+            logger.info(f'Successfully wrote {out_file}')
 
         except Exception as e:
-            logging.error(f'Failed to write {out_file}, error was:\n{e}')
-
-    time.sleep(scan_interval * 60)
+            logger.error(f'Failed to write {out_file}, error was:\n{e}')

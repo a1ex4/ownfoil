@@ -1,0 +1,16 @@
+root_dir = "/games"
+
+[shop]
+# Scan interval, in minutes
+scan_interval = 5
+
+# Files with these extensions will be added to the shop
+valid_ext = [
+    'nsp',
+    'nsz',
+    'xci',
+    'zip'
+]
+
+template = "shop_template.toml"
+

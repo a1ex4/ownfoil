@@ -5,12 +5,13 @@ services:
     container_name: ownfoil
     image: a1ex4/ownfoil
     environment:
-      # For write permission of /games directory
+      # For write permission in /games directory
       - PUID=1000
       - PGID=1000
       # Uncomment to setup basic auth
       # - USERNAME=a1ex
       # - PASSWORD=
+      # - ROOT_DIR=/games
     volumes:
       - /storage/media/games/switch:/games
     ports:
