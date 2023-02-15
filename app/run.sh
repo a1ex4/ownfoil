@@ -25,4 +25,4 @@ fi
 # Start nginx and app
 echo "Starting ownfoil"
 nginx -g "daemon off;" &
-sudo -u app python /app/ownfoil.py $root_dir/shop_config.toml
+sudo -u app python /app/app.py $root_dir/shop_config.toml
