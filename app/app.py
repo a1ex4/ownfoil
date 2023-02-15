@@ -15,7 +15,9 @@ logger = logging.getLogger("main")
 CONFIG_KEYS = {
     "ROOT_DIR": "root_dir",
     "SCAN_INTERVAL": "shop.scan_interval",
-    "SHOP_TEMPLATE": "shop.template"
+    "SHOP_TEMPLATE": "shop.template",
+    "SAVE_INTERVAL": "saves.interval",
+    "LOCAL_SAVES_FOLDER": "saves.local_saves_folder"
 }
 
 
