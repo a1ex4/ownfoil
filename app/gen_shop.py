@@ -3,7 +3,7 @@ from utils import *
 import logging
 logger = logging.getLogger(__name__)
 
-def getDirsAndFiles(path, valid_ext):
+def getDirsAndFiles(path):
     entries = os.listdir(path)
     allFiles = list()
     allDirs = list()
@@ -12,19 +12,19 @@ def getDirsAndFiles(path, valid_ext):
         fullPath = os.path.join(path, entry)
         if os.path.isdir(fullPath):
             allDirs.append(fullPath)
-            dirs, files = getDirsAndFiles(fullPath, valid_ext)
+            dirs, files = getDirsAndFiles(fullPath)
             allDirs += dirs
             allFiles += files
         else:
-            if fullPath.split('.')[-1] in valid_ext:
+            if fullPath.split('.')[-1] in config["shop"]["valid_ext"]:
                 allFiles.append(fullPath)
     return allDirs, allFiles
 
-def get_shop_dirs_and_file(path, valid_ext):
+def get_shop_dirs_and_file(path):
     dirs = []
     games = []
 
-    dirs, files = getDirsAndFiles(path, valid_ext)
+    dirs, files = getDirsAndFiles(path)
     rel_dirs = [os.path.join('..', os.path.relpath(s, path)) for s in dirs]
     rel_files = [os.path.join('..', os.path.relpath(s, path)) for s in files]
 
@@ -42,11 +42,11 @@ def get_shop_dirs_and_file(path, valid_ext):
 def init_shop(path):
     return read_config(path + "/shop_template.toml")
 
-def gen_shop(path, valid_ext):
+def gen_shop(path):
 
     shop = init_shop(path)
 
-    shop_dir, shop_file = get_shop_dirs_and_file(path, valid_ext)
+    shop_dir, shop_file = get_shop_dirs_and_file(path)
     shop['directories'] = shop_dir
     shop['files'] = shop_file
 

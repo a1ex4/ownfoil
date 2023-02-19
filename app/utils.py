@@ -14,8 +14,8 @@ CONFIG_KEYS = {
     "ROOT_DIR": "root_dir",
     "SCAN_INTERVAL": "shop.scan_interval",
     "SHOP_TEMPLATE": "shop.template",
-    "SAVE_INTERVAL": "saves.interval",
-    "LOCAL_SAVES_FOLDER": "saves.local_saves_folder"
+    "SAVE_ENABLED": "saves.enabled",
+    "SAVE_INTERVAL": "saves.interval"
 }
 
 def toml_path_to_dict_access(key):
@@ -32,7 +32,6 @@ def read_config(toml_file):
         config = tomllib.load(fp)
     return config
 
-# config_path = '/storage/media/games/switch/shop_config.toml'
 config_path = os.environ["OWNFOIL_CONFIG"] 
 config = read_config(config_path)
 update_conf_from_env(CONFIG_KEYS, config)
