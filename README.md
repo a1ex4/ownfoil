@@ -155,6 +155,7 @@ Planned feature, in no particular order.
    - ditch nginx
    - dynamically set server config like auth, port
  - [ ] Integrate torrent indexer Jackett to download updates automatically
+ - [ ] Saves manager: automatically discover Swicth device based on Tinfoil connection
 
 # Changelog
 
