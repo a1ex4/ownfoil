@@ -142,6 +142,10 @@ In the example above the Tinfoil saves will be saved under `./Saves/Tinfoil`
 
 # Changelog
 
+## 1.2.0
+ - Add Saves manager to automatically backup and serve saves
+ - Setup base scheduler to periodically run jobs
+
 ## 1.1.1
  - Fixes typo in run.sh script, fixes #5
 
