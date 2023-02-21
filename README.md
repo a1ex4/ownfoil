@@ -158,6 +158,9 @@ Planned feature, in no particular order.
 
 # Changelog
 
+## 1.2.1
+ - ci: Add automated multi arch docker build
+
 ## 1.2.0
  - Add Saves manager to automatically backup and serve saves
  - Setup base scheduler to periodically run jobs
