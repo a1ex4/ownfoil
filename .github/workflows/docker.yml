@@ -36,8 +36,11 @@ jobs:
         uses: docker/metadata-action@v3
         with:
           images: a1ex4/ownfoil
+          flavor: |
+            latest=auto
           tags: |
             type=ref,event=branch
+            type=ref,event=tag
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}}
