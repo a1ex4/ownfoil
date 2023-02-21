@@ -143,7 +143,7 @@ In the example above the Tinfoil saves will be saved under `./Saves/Tinfoil`
 
 # Roadmap
 Planned feature, in no particular order.
- - [ ] Multi arch Docker image
+ - [x] Multi arch Docker image: currently supported platforms: `linux/amd64`, `linux/arm64`, `linux/arm/v7`, `linux/arm/v6`
  - [ ] Multiple user authentication
  - [ ] Support emulator Roms
  - [ ] Automatic nsp/xci -> nsz conversion
