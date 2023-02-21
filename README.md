@@ -2,10 +2,12 @@
 [![Docker Image Version (latest semver)](https://img.shields.io/docker/v/a1ex4/ownfoil?sort=semver)](https://github.com/a1ex4/ownfoil/releases/latest)
 [![Docker Pulls](https://img.shields.io/docker/pulls/a1ex4/ownfoil)](https://hub.docker.com/r/a1ex4/ownfoil)
 [![Docker Image Size (latest semver)](https://img.shields.io/docker/image-size/a1ex4/ownfoil)](https://hub.docker.com/r/a1ex4/ownfoil/tags)
-![Tinfoil Version](https://img.shields.io/badge/Tinfoil-v15.00-green)
-![Awoo Version](https://img.shields.io/badge/Awoo-v1.3.4-red)
+[![Tinfoil Version](https://img.shields.io/badge/Tinfoil-v15.00-green)](https://tinfoil.io)
+[![Awoo Version](https://img.shields.io/badge/Awoo-v1.3.4-red)](https://github.com/Huntereb/Awoo-Installer)
 
 Ownfoil is a simple webserver aimed at running your own Tinfoil/Awoo shop from your local library, with full shop customisation and authentication. It is designed to periodically scan your library (default every 5 minutes), generate Tinfoil index file and serve it all over HTTP/S. This makes it easy to manage your library and have your personal collection available at any time.
+
+Ownfoil can also be used to backup saves from multiple Switch devices, and make them available in your shop so you can use Tinfoil to reinstall them.
 
 Why this project? I wanted a lightweight, dead simple, no dependancy and private personal Shop, without having to rely on other proprietary services (Google, 1fichier...) and having to maintain their implementation.
 
@@ -14,6 +16,7 @@ Why this project? I wanted a lightweight, dead simple, no dependancy and private
 - [Configuration](#configuration)
 - [Shop Customization](#shop-customization)
 - [Setup Authentication](#setup-authentication)
+- [Saves Manager](#saves-manager)
 - [Changelog](#changelog)
 - [Similar Projects](#similar-projects)
 
@@ -49,8 +52,9 @@ services:
       - USERNAME=a1ex
       - PASSWORD=pass
       # - ROOT_DIR=/games
+      # - SAVE_ENABLED=true
     volumes:
-      - /storage/media/games/switch:/games
+      - /your/game/directory:/games
     ports:
       - "8000:80"
 ```
@@ -74,13 +78,67 @@ On the first run of Ownfoil, a `shop_config.toml` file will be created in your g
 
 All settings are described in the comments of the [default configuration file](./app/shop_config.toml).
 
-Some settings can be overridden by using environment variables in the container, [see here](./app/app.py) for the list.
+Some settings can be overridden by using environment variables in the container, [see here](./app/utils.py#L13-L19) for the list.
 
 # Shop Customization
 All [Tinfoil shop index keys](https://blawar.github.io/tinfoil/custom_index/) are configurable - at the first run of Ownfoil, a `shop_template.toml` will be created in your games directory, just fill in the keys to customize your shop.
 
 # Setup Authentication
 To enable shop authentication, simply define and set the `USERNAME` and `PASSWORD` environment variables inside the container. See the [docker-compose](#docker-compose) example.
+
+# Saves Manager
+Ownfoil can be configured to backup saves from multiple Switch device and make them available in your shop, so that you can install them with Tinfoil. It uses FTP to periodically retrieve the saves.
+
+Follow the guide below to enable an FTP server on your Switch and configure Ownfoil.
+
+## Setup sys-ftpd on the Switch
+ * Install [sys-ftpd](https://github.com/cathery/sys-ftpd) - available as `sys ftpd light` in the Homebrew Menu
+ * Install [ovl-sysmodule](https://github.com/WerWolv/ovl-sysmodules) from Homebrew Menu - optional but recommended
+
+Follow the [sys-ftpd](https://github.com/cathery/sys-ftpd#how-to-use) configuration to set up the user, password and port used for the FTP connection. Note these for Ownfoil configuration, as well as the IP of your Switch. If you installed ovl-sysmodule you can toggle on/off the FTP server using the Tesla overlay.
+
+It is recommended to test the FTP connection at least once with a regular FTP Client to make sure everything is working as expected on the switch.
+
+## Extract saves on the Switch
+Using JKSV or Tinfoil (or any other saves manager), periodically extract your saves so that they can be retrieved by Ownfoil.
+
+Note the folders where the saves are extracted. If you didn't change these settings, the default paths are:
+ * Tinfoil: `/switch/tinfoil/saves/common`
+ * JKSV: `/JKSV`
+
+## Ownfoil configuration
+In your shop [configuration file](#configuration), the save manager settings available are:
+
+```
+[saves]
+# Enable or disable automatic saves backup
+enabled = true
+
+# Interval to retrieve saves, in minutes.
+interval = 60
+```
+Make sure these settings are present if you are updating from a version < `1.2.0`.
+
+See the default [shop default configuration file](./app/shop_config.toml) for a working configuration.
+
+Then multiple switch can be configured, with the FTP connection details and saves directories to retrieve:
+```
+# Switches configuration for save retrieval.
+# If user and pass are not specified, use anonymous connection
+# Alex's Switch
+[[saves.switches]]
+host = "192.168.1.200"
+port = "5000"
+# user = "username"
+# pass = "password"
+folders = [
+    {local = "Saves/Tinfoil", remote = "/switch/tinfoil/saves/common"},
+    {local = "Saves/JKSV", remote = "/JKSV"}
+]
+```
+The directories will be saved under your `games` directory so that the saves can be indexed by Ownfoil and made available in Tinfoil.
+
+In the example above the Tinfoil saves will be saved under `./Saves/Tinfoil`
 
 # Changelog
 
