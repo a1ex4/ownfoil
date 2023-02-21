@@ -17,6 +17,7 @@ Why this project? I wanted a lightweight, dead simple, no dependancy and private
 - [Shop Customization](#shop-customization)
 - [Setup Authentication](#setup-authentication)
 - [Saves Manager](#saves-manager)
+- [Roadmap](#roadmap)
 - [Changelog](#changelog)
 - [Similar Projects](#similar-projects)
 
@@ -139,6 +140,21 @@ folders = [
 The directories will be saved under your `games` directory so that the saves can be indexed by Ownfoil and made available in Tinfoil.
 
 In the example above the Tinfoil saves will be saved under `./Saves/Tinfoil`
+
+# Roadmap
+Planned feature, in no particular order.
+ - [ ] Multi arch Docker image
+ - [ ] Multiple user authentication
+ - [ ] Support emulator Roms
+ - [ ] Automatic nsp/xci -> nsz conversion
+ - [ ] Web UI
+   - list of available games/saves
+   - list of available updates/DLC not present on the shop, based on currently present games.
+   - operation on files
+ - [ ] Use a Python webserver framework instead of nginx
+   - ditch nginx
+   - dynamically set server config like auth, port
+ - [ ] Integrate torrent indexer Jackett to download updates automatically
 
 # Changelog
 
