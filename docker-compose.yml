@@ -12,7 +12,8 @@ services:
       # - USERNAME=a1ex
       # - PASSWORD=
       # - ROOT_DIR=/games
+      # - SAVE_ENABLED=true
     volumes:
-      - /storage/media/games/switch:/games
+      - /your/game/directory:/games
     ports:
       - "8000:80"
