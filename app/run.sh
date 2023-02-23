@@ -8,12 +8,12 @@ uid=${PUID:-1000}
 # Setup non root user
 if [ $(getent group $gid) ]
 then
-    gt_group=$(getent group $gid  | cut -d: -f1)
+    gt_group=$(getent group $gid | cut -d: -f1)
     echo "Group ${gt_group} with GID ${gid} already exists, skip creation"
 else
     echo "Creating group app with GID ${gid}"
     addgroup -g ${gid} -S app
-    gt_group=$(getent group $gid)
+    gt_group=$(getent group $gid | cut -d: -f1)
 fi
 
 if [ $(getent passwd $uid) ]
