@@ -1,4 +1,4 @@
-root_dir = "/games"
+games_dir = "/games"
 
 [shop]
 # Scan interval, in minutes

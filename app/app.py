@@ -21,11 +21,11 @@ logger = logging.getLogger("main")
 if __name__ == "__main__":
     scheduler = BlockingScheduler()
     # Get config
-    root_dir = config["root_dir"]
+    games_dir = config["games_dir"]
     scan_interval = int(config["shop"]["scan_interval"])
 
     # Add scheduled jobs
-    job_gen_shop = scheduler.add_job(gen_shop, 'interval', args=[root_dir], minutes=scan_interval, id='gen_shop', name='Generate shop', next_run_time=datetime.now())
+    job_gen_shop = scheduler.add_job(gen_shop, 'interval', args=[games_dir], minutes=scan_interval, id='gen_shop', name='Generate shop', next_run_time=datetime.now())
     try:
         save_interval = int(config["saves"]["interval"])
         if config['saves']['enabled']:

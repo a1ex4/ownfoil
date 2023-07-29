@@ -52,9 +52,9 @@ services:
       # Setup auth
       - USERNAME=a1ex
       - PASSWORD=pass
-      # - ROOT_DIR=/games
       # - SAVE_ENABLED=true
     volumes:
+      - /your/config/directory:/config
       - /your/game/directory:/games
     ports:
       - "8000:80"

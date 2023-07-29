@@ -192,7 +192,7 @@ def backup_saves():
             continue
         logger.info(f'Successfully connected to Switch device on host {host}.')
         for folder in switch_conf['folders']:
-            switch_ftp.retrieve_saves(config['root_dir'] + '/' + folder['local'], folder['remote'])
+            switch_ftp.retrieve_saves(config['games_dir'] + '/' + folder['local'], folder['remote'])
 
 
 # PyFTPclient license from https://github.com/keepitsimple/pyFTPclient/blob/master/LICENSE

@@ -11,7 +11,6 @@ logger.basicConfig(format='%(asctime)s - %(levelname)s %(name)s: %(message)s', l
 
 # Set environment variables to override properties from configuration file
 CONFIG_KEYS = {
-    "ROOT_DIR": "root_dir",
     "SCAN_INTERVAL": "shop.scan_interval",
     "SHOP_TEMPLATE": "shop.template",
     "SAVE_ENABLED": "saves.enabled",
