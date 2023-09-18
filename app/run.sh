@@ -26,6 +26,7 @@ else
 fi
 
 chown -R ${uid}:${gid} /app
+chown -R ${uid}:${gid} $root_dir/games
 
 # Copy the shop config and template if it does not already exists
 cp -np /app/shop_config.toml $root_dir/shop_config.toml
