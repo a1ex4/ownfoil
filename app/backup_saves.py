@@ -2,7 +2,7 @@ import threading
 import logging
 import socket
 import time
-from ftplib import FTP
+from ftplib import FTP, error_perm
 import time
 
 from utils import *
@@ -89,17 +89,24 @@ class PyFTPclient:
         logger.debug('Attempt reconnecting after 10s')
         self.connect()
 
+    def get_files(self, path):
+        try:
+            files = self.ftp.nlst(path)
+            return files
+        except error_perm:
+            logger.error(f'The path {path} does not exists on the remote')
+            return []
 
     def retrieve_saves(self, local_save_folder, remote_folder, children = []):
         logger.debug(f'Retrieving saves from {remote_folder} to {local_save_folder}...')
-        files = children if len(children) else self.ftp.nlst(remote_folder)
+        files = children if len(children) else self.get_files(remote_folder)
         # Create local folder if it's not empty on remote
         if len(files):
             mk_local_dir(local_save_folder)
 
         downloaded_files = 0
         for file in files[:]:
-            children = self.ftp.nlst(file)
+            children = self.get_files(file)
             # Found a file, download
             if children == [file]:
                 logger.debug(f'Retrieving {file}')
