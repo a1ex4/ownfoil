@@ -82,9 +82,7 @@ def get_all_titles():
         info.update(library_status)
         games_info.append(info)
 
-    # d = [y for x in titles if (y := get_game_info(x)) is not None]
-    games_info = sorted(games_info, key=lambda x: (x['name']) )
-    return games_info
+    return sorted(games_info, key=lambda x: (x['name']) )
 
 @app.route('/api/get_game/<int:id>')
 def serve_game(id):

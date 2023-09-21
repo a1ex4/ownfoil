@@ -15,8 +15,8 @@ version_regex = r"\[v(\d+)\]"
 
 def getDirsAndFiles(path):
     entries = os.listdir(path)
-    allFiles = list()
-    allDirs = list()
+    allFiles = []
+    allDirs = []
 
     for entry in entries:
         fullPath = os.path.join(path, entry)
@@ -25,24 +25,17 @@ def getDirsAndFiles(path):
             dirs, files = getDirsAndFiles(fullPath)
             allDirs += dirs
             allFiles += files
-        else:
-            if fullPath.split('.')[-1] in ["nsp", "nsz"]:
-                allFiles.append(fullPath)
+        elif fullPath.split('.')[-1] in ["nsp", "nsz"]:
+            allFiles.append(fullPath)
     return allDirs, allFiles
 
 def get_app_id_from_filename(filename):
-    app_id = None
     app_id_match = re.search(app_id_regex, filename)
-    if app_id_match is not None:
-        app_id = app_id_match.group(1)
-    return app_id
+    return app_id_match[1] if app_id_match is not None else None
 
 def get_version_from_filename(filename):
-    version = None
     version_match = re.search(version_regex, filename)
-    if version_match is not None:
-        version = version_match.group(1)
-    return version
+    return version_match[1] if version_match is not None else None
 
 def get_file_size(filepath):
     return os.path.getsize(filepath)
@@ -92,11 +85,11 @@ def identify_file(filepath):
     extension = filename.split('.')[-1]
     try:
         title_id, app_type = identify_appId(app_id)
-    except:
+    except Exception:
         print(filename, app_id)
         return None
 
-    file_app = {
+    return {
         'filepath': filepath,
         'filedir': filedir,
         'filename': filename,
@@ -108,48 +101,42 @@ def identify_file(filepath):
         'size': get_file_size(filepath),
     }
 
-    return file_app
-
 
 def get_game_info(title_id):
     try:
         title_info = [titles_db[t] for t in list(titles_db.keys()) if titles_db[t]['id'] == title_id][0]
-        d = {
+        return {
             'name': title_info['name'],
             'bannerUrl': title_info['bannerUrl'],
             'iconUrl': title_info['iconUrl'],
             'id': title_info['id'],
             'category': title_info['category'],
         }
-        return d
-    except:
-        print("Title ID not found in titledb: " + title_id)
+    except Exception:
+        print(f"Title ID not found in titledb: {title_id}")
         return None
 
 def convert_nin_version(version):
     return int(version)//65536
 
 def get_game_latest_version(all_existing_versions):
-    return max([v['version'] for v in all_existing_versions])
+    return max(v['version'] for v in all_existing_versions)
 
 def get_all_existing_versions(titleid):
     titleid = titleid.lower()
     if titleid not in versions_db:
-        print('Title ID not in versions.json: ' + titleid.upper())
+        print(f'Title ID not in versions.json: {titleid.upper()}')
         return None
-    
-    all_existing_versions = []
-    versions_from_db = versions_db[titleid].keys()
-    for version_from_db in versions_from_db:
-        all_existing_versions.append(
-            {
-                'version': int(version_from_db),
-                'human_version': convert_nin_version(version_from_db),
-                'release_date': versions_db[titleid][str(version_from_db)]
-            }
-        )
 
-    return all_existing_versions
+    versions_from_db = versions_db[titleid].keys()
+    return [
+        {
+            'version': int(version_from_db),
+            'human_version': convert_nin_version(version_from_db),
+            'release_date': versions_db[titleid][str(version_from_db)],
+        }
+        for version_from_db in versions_from_db
+    ]
 
 
 

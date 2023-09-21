@@ -33,14 +33,12 @@ class User(UserMixin, db.Model):
 def add_to_titles_db(library, file_info):
     filepath = file_info["filepath"]
     filedir = file_info["filedir"].replace(library, '')
-    exists = db.session.query(
+    if exists := db.session.query(
         db.session.query(Files).filter_by(filepath=filepath).exists()
-    ).scalar()
-
-    if exists:
+    ).scalar():
         return
-    
-    print('New file to add: ' + filepath)
+
+    print(f'New file to add: {filepath}')
     new_title = Files(
         filepath = filepath,
         library = library,
@@ -54,16 +52,14 @@ def add_to_titles_db(library, file_info):
         size = file_info["size"],
     )
     db.session.add(new_title)
-    
+
     db.session.commit()
 
 def get_all_titles_from_db():
     results = db.session.query(Files.title_id).distinct()
-    titles = [row[0] for row in results.all()]
-    return titles
+    return [row[0] for row in results.all()]
 
 def get_all_title_files(title_id):
     title_id = title_id.upper()
     results = db.session.query(Files).filter_by(title_id=title_id).all()
-    title_files = [to_dict(r) for r in results]
-    return title_files
+    return [to_dict(r) for r in results]
