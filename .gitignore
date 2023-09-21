@@ -1,4 +1,5 @@
 __pycache__
-.json
-.tfl
-*.zip
+instance
+venv
+config
+data

@@ -1,0 +1,435 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="container-fluid setting-body">
+    <div class="row">
+        <!-- <div class="col-3">
+            <div class="settings-nav container">
+                <ul>
+                    <li>Library</li>
+                    <li>Shop</li>
+                    <li>Authentication</li>
+                </ul>
+            </div>
+        </div> -->
+        <div class="col">
+            <div class="settings-container container mt-3">
+
+                <!-- <h1>Settings</h1> -->
+
+                <h2>Authentication</h2>
+                <table class="table table-hover caption-top" id="userTable">
+                    <caption>List of users:</caption>
+                    <thead>
+                        <tr>
+                            <th scope="col">User</th>
+                            <th scope="col">Role</th>
+                            <th scope="col">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    </tbody>
+                </table>
+                <form class="row g-3">
+                    <div class="col-auto">
+                        <label for="inputNewUser" class="visually-hidden">Email</label>
+                        <input type="text" class="form-control" id="inputNewUser" placeholder="Username">
+                    </div>
+                    <div class="col-auto">
+                        <label for="inputNewUserPassword" class="visually-hidden">Password</label>
+                        <input type="password" class="form-control" id="inputNewUserPassword" placeholder="Password">
+                    </div>
+                    <div class="col-auto">
+                        <select id="selectNewUserRole" class="form-select" aria-label="User role">
+                            <option selected>Role...</option>
+                            <option value="admin">Admin</option>
+                            <option value="user">User</option>
+                        </select>
+                    </div>
+                    <div class="col-auto">
+                        <button type="button" class="btn btn-primary mb-3" onClick='submitNewUser()'>Submit</button>
+                    </div>
+                </form>
+                <hr>
+
+                <h2>Library</h2>
+                <div class="mb-3">
+                    <label for="libraryPathInput" class="form-label">Library path:</label>
+                    <input class="form-control" id="libraryPathInput" aria-describedby="libraryPathHelp">
+                    <div id="libraryPathHelp" class="form-text">Path of directory containing your games.</div>
+                </div>
+
+                <div class="row mb-3">
+                    <div class="col">
+                        <label for="selectRegion" class="form-label">Library Region:</label>
+                        <select id="selectRegion" class="form-select" aria-label="Select library region">
+                        </select>
+                    </div>
+                    <div class="col">
+                        <label for="selectLanguage" class="form-label">Library Language:</label>
+                        <select id="selectLanguage" class="form-select" aria-label="Select library language">
+                        </select>
+                    </div>
+                    <div id="selectRegionLanguageHelp" class="form-text">Region and Language used to get games
+                        informations.</div>
+                </div>
+
+                <div class="mb-3">
+                    <button type="button" id="submit-library" class="btn btn-primary"
+                        onClick='submitLibrarySettings()'>Submit</button>
+                </div>
+                </form>
+                <hr>
+
+                <h2>Shop</h2>
+                <p>Customize your shop, using Tinfoil's special parameters.</p>
+                <div class="mb-3 form-check">
+                    <input type="checkbox" class="form-check-input" id="encryptShopCheck"
+                        aria-describedby="encryptShopCheckHelp">
+                    <label class="form-check-label" for="encryptShopCheck">Encrypt shop</label>
+                    <div id="encryptShopCheckHelp" class="form-text">Path of directory containing your games.</div>
+                </div>
+
+                <div class="mb-3">
+                    <label for="motdTextArea" class="form-label">Message of the day</label>
+                    <textarea class="form-control" id="motdTextArea" rows="3"></textarea>
+                    <div id="motdTextAreaHelp" class="form-text">Message presented when opening Tinfoil after
+                        successfully loading your shop.</div>
+                </div>
+                <hr>
+
+                <h2>Authentication</h2>
+                <p>This is an example paragraph.</p>
+                <div class="mb-3 form-check">
+                    <input type="checkbox" class="form-check-input" id="privateShopCheck"
+                        aria-describedby="privateShopCheckHelp">
+                    <label class="form-check-label" for="privateShopCheck">Private shop</label>
+                    <div id="privateShopCheckHelp" class="form-text">Path of directory containing your games.</div>
+                </div>
+                <button type="submit" class="btn btn-primary">Submit</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+
+    settings_map = {
+        'library/path': 'libraryPathInput'
+    };
+
+
+    // allUsers = [];
+
+    function getInputVal(inputId) {
+        return $("#" + inputId).val();
+    };
+
+    function setInputVal(inputId, value) {
+        return $("#" + inputId).val(value);
+    };
+
+    function fillUserTable() {
+        $('#userTable tbody').empty();
+        $.getJSON("/api/users", function (result) {
+            allUsers = result;
+            allUsernames = [];
+            result.forEach(user => {
+                allUsernames.push(user['user']);
+                $('#userTable tbody').append(
+                    '<tr><td>' + user['user'] + '</td><td>' + user['role'] + '</td><td>'+ 
+                    '<button type="button" class="btn btn-outline-info btn-sm"><i class="bi bi-pencil-square"></i></button> ' +
+                    '<button type="button" class="btn btn-outline-danger btn-sm" onClick=\'deleteUser(' + user['id'] + ')\'><i class="bi bi-x-circle"></i></button>' +
+                    '</td></tr>');
+            });
+        })
+
+    }
+
+    function deleteUser(userId) {
+        data = {
+            user_id: userId
+        }
+        $.ajax({
+            url: "/api/user",
+            type: 'DELETE',
+            data: JSON.stringify(data),
+            contentType: "application/json",
+            success: function (result) {
+                if (result['success']) {
+                    fillUserTable();
+                }
+            }
+        });
+    }
+    function submitNewUser() {
+        formOk = true;
+        role = getInputVal("selectNewUserRole")
+        user = getInputVal("inputNewUser")
+        password = getInputVal("inputNewUserPassword")
+
+        if (role == 'Role...') {
+            $('#selectNewUserRole').addClass('is-invalid');
+            formOk = false;
+        } else {
+            $('#selectNewUserRole').removeClass('is-invalid');
+        }
+
+        if (password == '') {
+            $('#inputNewUserPassword').addClass('is-invalid');
+            formOk = false;
+        } else {
+            $('#inputNewUserPassword').removeClass('is-invalid');
+        }
+
+        if (allUsernames.includes(user)) {
+            $('#inputNewUser').addClass('is-invalid');
+            formOk = false;
+        } else {
+            $('#inputNewUser').removeClass('is-invalid');
+        }
+
+        if (formOk) {
+            data = {
+                user: user,
+                password: password,
+                role: role
+            }
+
+            $.ajax({
+                url: "/api/user/signup",
+                type: 'POST',
+                data: JSON.stringify(data),
+                contentType: "application/json",
+                success: function (result) {
+                    console.log(result)
+                    if (result['success']) {
+                        console.log('Signup Success!');
+                        setInputVal("selectNewUserRole", "Role...")
+                        setInputVal("inputNewUser", "")
+                        setInputVal("inputNewUserPassword", "")
+                        fillUserTable();
+                    }
+                }
+            });
+        }
+    }
+
+    function submitLibrarySettings() {
+        data = {
+            path: getInputVal("libraryPathInput"),
+            region: getInputVal("selectRegion"),
+            language: getInputVal("selectLanguage"),
+        }
+        console.log(data)
+
+        $.ajax({
+            url: "/api/settings/library",
+            type: 'POST',
+            data: JSON.stringify(data),
+            contentType: "application/json",
+            success: function (result) {
+                console.log(result)
+                if (!result['success']) {
+                    console.log('Not Success!');
+                    result['errors'].forEach(error => {
+                        path = error['path'];
+                        formId = settings_map[path];
+                        console.log(formId);
+                        form = $('#' + formId);
+                        form.addClass('is-invalid');
+                        formTextElement = form.attr('aria-describedby');
+                        $("#" + formTextElement).addClass('invalid-feedback');
+                        $("#" + formTextElement).text(error['error']);
+                    });
+                }
+            }
+        });
+    }
+
+    $(document).ready(function () {
+        fillUserTable();
+        
+        $.getJSON("/api/settings", function (result) {
+            Object.keys(languages).forEach(function (key) {
+                $('#selectRegion').append(`<option value="${key}">${key}</option>`);
+            });
+
+            $('#selectRegion').on('change', function () {
+                $('#selectLanguage').empty()
+                region = $(this).find(":selected").val();
+                availableLanguages = languages[region];
+                availableLanguages.forEach(function (key) {
+                    $('#selectLanguage').append(`<option value="${key}">${key}</option>`);
+                });
+            });
+
+
+            // Library settings
+            librarySettings = result['library'];
+            setInputVal("libraryPathInput", librarySettings['path']);
+            setInputVal("selectRegion", librarySettings['region']);
+            $('#selectRegion').trigger('change');
+            setInputVal("selectLanguage", librarySettings['language']);
+
+            // Shop settings
+            shopSettings = result['shop'];
+            setInputVal("motdTextArea", shopSettings['motd']);
+        });
+
+    });
+    languages = {
+        "AR": [
+            "en",
+            "es"
+        ],
+        "AT": [
+            "de"
+        ],
+        "AU": [
+            "en"
+        ],
+        "BE": [
+            "fr",
+            "nl"
+        ],
+        "BG": [
+            "en"
+        ],
+        "BR": [
+            "en",
+            "pt"
+        ],
+        "CA": [
+            "en",
+            "fr"
+        ],
+        "CH": [
+            "fr",
+            "de",
+            "it"
+        ],
+        "CL": [
+            "en",
+            "es"
+        ],
+        "CN": [
+            "zh"
+        ],
+        "CO": [
+            "en",
+            "es"
+        ],
+        "CY": [
+            "en"
+        ],
+        "CZ": [
+            "en"
+        ],
+        "DE": [
+            "de"
+        ],
+        "DK": [
+            "en"
+        ],
+        "EE": [
+            "en"
+        ],
+        "ES": [
+            "es"
+        ],
+        "FI": [
+            "en"
+        ],
+        "FR": [
+            "fr"
+        ],
+        "GB": [
+            "en"
+        ],
+        "GR": [
+            "en"
+        ],
+        "HK": [
+            "zh"
+        ],
+        "HR": [
+            "en"
+        ],
+        "HU": [
+            "en"
+        ],
+        "IE": [
+            "en"
+        ],
+        "IT": [
+            "it"
+        ],
+        "JP": [
+            "ja"
+        ],
+        "KR": [
+            "ko"
+        ],
+        "LT": [
+            "en"
+        ],
+        "LU": [
+            "fr",
+            "de"
+        ],
+        "LV": [
+            "en"
+        ],
+        "MT": [
+            "en"
+        ],
+        "MX": [
+            "en",
+            "es"
+        ],
+        "NL": [
+            "nl"
+        ],
+        "NO": [
+            "en"
+        ],
+        "NZ": [
+            "en"
+        ],
+        "PE": [
+            "en",
+            "es"
+        ],
+        "PL": [
+            "en"
+        ],
+        "PT": [
+            "pt"
+        ],
+        "RO": [
+            "en"
+        ],
+        "RU": [
+            "ru"
+        ],
+        "SE": [
+            "en"
+        ],
+        "SI": [
+            "en"
+        ],
+        "SK": [
+            "en"
+        ],
+        "US": [
+            "en",
+            "es"
+        ],
+        "ZA": [
+            "en"
+        ]
+    }
+</script>
+
+{% endblock %}
