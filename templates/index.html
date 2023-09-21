@@ -1,0 +1,406 @@
+{% extends "base.html" %}
+<!DOCTYPE html>
+<html>
+
+<head>
+
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #2a3a4f;
+            /* Dark blue background */
+            margin: 0;
+            padding: 20px;
+            color: #8d97ad;
+        }
+
+        /* .grid-container { */
+        /* display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            grid-gap: 20px; */
+        /* display: flex; */
+        /* flex-wrap: wrap; */
+        /* Ensure flex items wrap when filtering */
+        /* } */
+
+        .grid-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(calc(33.33% - 20px), 1fr));
+            grid-gap: 20px;
+        }
+
+        .game-card {
+            /* flex: 0 0 calc(33.33% - 20px); */
+            /* 3 cards per row */
+            /* margin-right: 20px;
+            margin-bottom: 20px; */
+            /* Add some margin between cards */
+            position: relative;
+            /* Add relative positioning for proper positioning of tags-container */
+            height: 300px;
+            background-size: cover;
+            border-radius: 8px 8px 8px 8px;
+            box-sizing: border-box;
+            overflow: hidden;
+            cursor: pointer;
+        }
+
+        /* .game-card {
+            position: relative;
+            border-radius: 8px;
+            padding: 0; */
+        /* Padding is set to 0px */
+        /* box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+            /* Adjust the height as needed */
+        /* display: flex;
+            flex-direction: column;
+            justify-content: flex-end;
+            background-image: linear-gradient(to top, rgba(0, 0, 0, 0.7), transparent), url('https://tinfoil.media/thi/01007EF00011E000/0/0/'); */
+        /* Gradient and background image */
+        /* }  */
+
+        .game-title {
+            font-size: 18px;
+            font-weight: bold;
+            margin-bottom: 5px;
+            color: white;
+        }
+
+        .game-description {
+            font-size: 14px;
+        }
+
+        /* Floating cog wheel */
+        .floating-icon {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background-color: #3498db;
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            text-align: center;
+            font-size: 20px;
+            cursor: pointer;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+        }
+
+        /* Popup styles */
+        .popup {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.7);
+            justify-content: center;
+            align-items: center;
+            z-index: 9999;
+        }
+
+        .popup-content {
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            max-width: 80%;
+            max-height: 80%;
+            overflow: auto;
+            position: relative;
+            /* Add position relative for absolute positioning */
+        }
+
+        /* Close button */
+        .close-button {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            cursor: pointer;
+        }
+
+        /* Buttons container at the bottom */
+        .popup-buttons {
+            display: flex;
+            justify-content: flex-end;
+            margin-top: 20px;
+        }
+
+        .popup-button {
+            background-color: #3498db;
+            color: white;
+            padding: 8px 16px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-left: 10px;
+        }
+
+        /* Filtering buttons */
+        .filter-buttons {
+            margin-bottom: 20px;
+        }
+
+        .filter-button {
+            background-color: #3498db;
+            color: white;
+            padding: 8px 16px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-right: 10px;
+        }
+
+        /* Active filter button style */
+        .active-filter {
+            background-color: #2ecc71;
+        }
+
+        /* Animated transition */
+        .game-card {
+            transition: opacity 0.3s ease-in-out, transform 0.3s ease-in-out;
+        }
+
+        .game-info {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            /* background-image: linear-gradient(to top, rgba(7, 0, 91, 0.49), #003aa800); */
+            background-image: linear-gradient(to top, rgba(7, 0, 91, 0.71), #001233a1);
+            height: 22%;
+            padding: 10px;
+            text-align: left;
+            border-radius: 0 0 8px 8px;
+            box-sizing: border-box;
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-end;
+            border-top: 1px solid #d5d5d5bd;
+        }
+
+        .tags-container {
+            position: absolute;
+            bottom: 10px;
+            right: 10px;
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: flex-end;
+        }
+
+        .game-tag {
+            background-color: #3498db;
+            color: white;
+            padding: 4px 8px;
+            border-radius: 20px;
+            font-size: 12px;
+            margin-right: 5px;
+            margin-bottom: 5px;
+        }
+    </style>
+</head>
+
+<body>
+    {% block content %}
+    <!-- Filtering buttons container -->
+    <div class="filter-buttons">
+        <!-- Filter buttons will be dynamically generated here -->
+        <!-- Reset filter button -->
+        <button class="filter-button" onclick="resetFilters()">Reset Filters</button>
+        <input type="text" id="textFilter" placeholder="Search titles..." style="height: 26px;">
+    </div>
+    <div class="grid-container" id="gridContainer">
+        <!-- Add more game cards here -->
+        <div class="row row-cols-1 row-cols-md-3 g-4">
+            {% for game in games %}
+            <div class="col">
+                <div class="card text-bg-dark game-card">
+                    <img src="{{ game.bannerUrl }}" class="card-img">
+                    <div class="card-img-overlay game-info">
+                        <h5 class="card-title game-title">{{ game.name }}</h5>
+                        <!-- <p class="card-text">This is a wider card with supporting text below as a natural lead-in to additional content. This content is a little bit longer.</p> -->
+                        <p class="card-text game-description"><small>{{ game.id }}</small></p>
+                        <div class="tags-container">
+                            {% if game.has_latest_version %}
+                                <span class="badge rounded-pill text-bg-success game-tag">Up to date</span>
+                            {% else %}
+                                <span class="badge rounded-pill text-bg-warning game-tag">Outdated</span>
+                            {% endif %}
+                        </div> 
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+
+    </div>
+
+    <!-- Popup container -->
+    <div class="popup" id="popup">
+        <div class="popup-content">
+            <h2 id="popup-title"></h2>
+            <table id="popup-table">
+                <!-- Table content will be dynamically added here -->
+            </table>
+            <!-- Buttons container at the bottom -->
+            <div class="popup-buttons">
+                <button class="popup-button" onclick="closePopup()"><i class="fas fa-times"></i> Close</button>
+                <button class="popup-button" onclick="doSomething()"><i class="fas fa-check"></i> Do Something</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Example data structure from API response
+        $(document).ready(function () {
+
+            // $.getJSON("/api/titles", function (result) {
+            //     generateGameCards(result);
+            generateFilterButtons();
+            // });
+            // console.log(gamesData[0]);
+
+
+            // Function to filter cards based on input text
+            function filterByAttribute(attributeText) {
+                console.log("hey");
+                console.log(attributeText);
+                const gameCards = $(".game-card");
+                const lowerCaseAttributeText = attributeText.toLowerCase();
+
+                gameCards.each(function () {
+                    const card = $(this);
+                    const gameTitle = card.find(".game-title").text().toLowerCase();
+                    const gameDescription = card.find(".game-description").text().toLowerCase();
+
+                    if (gameTitle.includes(lowerCaseAttributeText) || gameDescription.includes(lowerCaseAttributeText)) {
+                        card.show(); // Show matching card
+                    } else {
+                        card.hide(); // Hide non-matching card
+                    }
+                });
+            }
+
+            // Listen to input changes in the text filter input
+            $("#textFilter").on("input", function () {
+                console.log("hi");
+                const attributeText = $(this).val();
+                console.log(attributeText);
+                filterByAttribute(attributeText);
+            });
+
+            function generateFilterButtons() {
+                // Extract tags from game cards and generate filter buttons
+                const allTags = new Set();
+                const filterButtonsContainer = $('.filter-buttons');
+
+                document.querySelectorAll('.game-tag').forEach(tag => {
+                    allTags.add(tag.textContent.trim());
+                });
+
+                allTags.forEach(tag => {
+                    console.log(tag);
+                    const filterButton = document.createElement('button');
+                    filterButton.className = 'filter-button btn btn-primary';
+                    filterButton.textContent = tag;
+                    filterButton.addEventListener('click', () => toggleFilter(tag));
+                    filterButtonsContainer.append(filterButton);
+                });
+            }
+
+            // Set to store active filters
+            const activeFilters = new Set();
+
+            // Function to toggle filter and apply filters
+            function toggleFilter(tag) {
+                if (activeFilters.has(tag)) {
+                    activeFilters.delete(tag);
+                } else {
+                    activeFilters.add(tag);
+                }
+                applyFilters(); // Apply filters to show/hide game cards
+            }
+
+            // Function to apply filters and show/hide game cards with animation
+            function applyFilters() {
+                const gameCards = $(".game-card");
+                gameCards.each(function () {
+                    const card = $(this);
+                    const tagsContainer = card.find('.tags-container');
+                    console.log(tagsContainer);
+                    const tags = tagsContainer.find('.game-tag');
+                    tagsText = [];
+                    console.log(tags);
+                    tags.each(function () {
+                        const tt = $(this);
+                        console.log(tt.text());
+                        tagsText.push(tt.text());
+                    })
+                    // const tagsText = tags.map(tagEl => tagEl.text());
+                    console.log(tagsText);
+                    if (activeFilters.size === 0 || Array.from(activeFilters).some(tag => tagsText.includes(tag))) {
+                        // card.style.opacity = 1;
+                        // card.css("transform",'scale(1)'); // Show the card with animation
+                        card.show()
+                    } else {
+                        // card.style.opacity = 0;
+                        // card.css("transform", 'scale(0.8)'); // Hide the card with animation
+                        card.hide()
+                    }
+                });
+
+                // Update active filter buttons
+                const filterButtons = document.querySelectorAll('.filter-button');
+                filterButtons.forEach(button => {
+                    const tag = button.innerText;
+                    if (activeFilters.has(tag)) {
+                        button.classList.add('active-filter'); // Add active class
+                    } else {
+                        button.classList.remove('active-filter'); // Remove active class
+                    }
+                });
+            }
+
+            // Function to reset filters and show all game cards
+            function resetFilters() {
+                activeFilters.clear(); // Clear active filters
+                applyFilters(); // Apply filters again to display all cards
+            }
+
+        })
+
+        // Function to open the popup and populate with game info
+        function openPopup(title, info) {
+            $("#popup-title").html(title);
+
+            // Populate the table with game info
+            const popupTable = document.getElementById("popup-table");
+            popupTable.innerHTML = ""; // Clear previous content
+
+            for (const key in info) {
+                const row = popupTable.insertRow();
+                const cell1 = row.insertCell(0);
+                const cell2 = row.insertCell(1);
+                cell1.innerHTML = key;
+                cell2.innerHTML = info[key];
+            }
+
+            // Show the popup
+            const popup = $("#popup");
+            popup.css("display", "flex");
+        }
+
+        // Function to close the popup
+        function closePopup() {
+            const popup = $("#popup");
+            popup.css("display", "none");
+        }
+
+
+    </script>
+    {% endblock %}
+</body>
+
+</html>
