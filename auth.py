@@ -22,7 +22,7 @@ def role_required(role: str):
 def roles_required(roles: list, require_all=False):
     def _roles_required(f):
         def decorated_view(*args, **kwargs):
-            if len(roles) == 0:
+            if not roles:
                 raise ValueError('Empty list used when requiring a role.')
             if not current_user.is_authenticated:
                 return login_manager.unauthorized()
@@ -31,7 +31,9 @@ def roles_required(roles: list, require_all=False):
             elif not require_all and not any(current_user.has_role(role) for role in roles):
                 return 'Forbidden', 403
             return f(*args, **kwargs)
+
         return decorated_view
+
     return _roles_required
 
 auth_blueprint = Blueprint('auth', __name__)
@@ -48,7 +50,7 @@ def login_post():
     # login code goes here
     username = request.form.get('user')
     password = request.form.get('password')
-    remember = True if request.form.get('remember') else False
+    remember = bool(request.form.get('remember'))
 
     user = User.query.filter_by(user=username).first()
 
@@ -71,10 +73,10 @@ def profile():
 @auth_blueprint.route('/api/users')
 @role_required('admin')
 def get_users():
-    all_users = []
-    for db_user in db.session.query(User.id, User.user, User.role).all():
-        all_users.append(dict(db_user._mapping))
-
+    all_users = [
+        dict(db_user._mapping)
+        for db_user in db.session.query(User.id, User.user, User.role).all()
+    ]
     return jsonify(all_users)
 
 @auth_blueprint.route('/api/user', methods=['DELETE'])
