@@ -2,7 +2,7 @@ import threading
 import logging
 import socket
 import time
-from ftplib import FTP
+from ftplib import FTP, error_perm
 import time
 
 from utils import *
@@ -89,41 +89,40 @@ class PyFTPclient:
         logger.debug('Attempt reconnecting after 10s')
         self.connect()
 
-    def get_dirs(self, path):
-        dirs = []
-        res = self.ftp.retrlines(f'NLST {path}', lambda x: dirs.append(x))
-        dir_list = [d for d in dirs if '.' not in d and '_TRASH_' not in d]
-        return dir_list
-
     def get_files(self, path):
-        files = []
-        res = self.ftp.retrlines(f'NLST {path}', lambda x: files.append(x))
-        return files
+        try:
+            files = self.ftp.nlst(path)
+            return files
+        except error_perm:
+            logger.error(f'The path {path} does not exists on the remote')
+            return []
 
-    def retrieve_saves(self, local_save_folder, remote_folder):
-        logger.info(f'Retrieving saves from {remote_folder} to {local_save_folder}')
-        mk_local_dir(local_save_folder)
-        dirs = self.get_dirs(remote_folder)
-        for dir in dirs[:]:
+    def retrieve_saves(self, local_save_folder, remote_folder, children = []):
+        logger.debug(f'Retrieving saves from {remote_folder} to {local_save_folder}...')
+        files = children if len(children) else self.get_files(remote_folder)
+        # Create local folder if it's not empty on remote
+        if len(files):
+            mk_local_dir(local_save_folder)
 
-            logger.info(f'Scanning {dir}')
-            dir_files = self.get_files(dir)
-            if not len(dir_files):
-                continue
-
-            logger.debug(f'Found {len(dir_files)} saves')
-            local_folder = local_save_folder + '/' + dir.replace(remote_folder, '')
-            mk_local_dir(local_folder)
-
-            downloaded_game_saves = 0
-            for save in dir_files:
-                logger.debug(f'Retrieving {save}...')
-                res = self.DownloadFile(save, local_save_folder + '/' + save.replace(remote_folder, ''))
+        downloaded_files = 0
+        for file in files[:]:
+            children = self.get_files(file)
+            # Found a file, download
+            if children == [file]:
+                logger.debug(f'Retrieving {file}')
+                res = self.DownloadFile(file, local_save_folder + file.replace(remote_folder, ''))
                 if res:
-                    downloaded_game_saves += 1
-            logger.info(f'Retrieved {downloaded_game_saves} saves')
-
-
+                    downloaded_files += res
+            # Empty folder, ignore
+            elif not len(children):
+                logger.debug(f'{file} is an empty folder, ignoring')
+                continue
+            # Folder with files, recurse
+            else:
+                local_folder = local_save_folder + file.replace(remote_folder, '')
+                downloaded_files += self.retrieve_saves(local_folder, file, children)
+        return downloaded_files
+    
     def DownloadFile(self, dst_filename, local_filename = None):
         res = ''
         if local_filename is None:
@@ -148,6 +147,11 @@ class PyFTPclient:
                 except:
                     self.reconnect()
 
+            if not dst_filesize:
+                logger.debug(f'Downloaded file {dst_filename} is empty.')
+                self.ftp.close()
+                return 1
+
             mon = monitor()
             while dst_filesize > f.tell():
                 try:
@@ -170,7 +174,7 @@ class PyFTPclient:
             # self.ftp.close()
 
             if not res.startswith('226'):
-                logger.error('Downloaded file {0} is not full.'.format(dst_filename))
+                logger.error(f'Downloaded file {dst_filename} is not full.')
                 # os.remove(local_filename)
                 return None
 
@@ -192,7 +196,10 @@ def backup_saves():
             continue
         logger.info(f'Successfully connected to Switch device on host {host}.')
         for folder in switch_conf['folders']:
-            switch_ftp.retrieve_saves(config['root_dir'] + '/' + folder['local'], folder['remote'])
+            logger.info(f'Retrieving saves from from {folder["remote"]} to {folder["local"]}')
+            start_time = time.time()
+            r = switch_ftp.retrieve_saves(config['root_dir'] + '/' + folder['local'], folder['remote'])
+            logger.info(f'Retrieved {r} saves in {"{:.3f}s".format(time.time() - start_time)} - from {folder["remote"]} to {folder["local"]}')
 
 
 # PyFTPclient license from https://github.com/keepitsimple/pyFTPclient/blob/master/LICENSE
