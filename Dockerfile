@@ -1,6 +1,6 @@
 FROM python:3.11-alpine
 
-RUN apk update && apk add bash sudo
+RUN apk update && apk add build-base bash sudo
 
 RUN mkdir /app
 
