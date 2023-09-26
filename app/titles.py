@@ -3,6 +3,7 @@ import os
 import re
 import json
 import hashlib
+from constants import *
 
 title_db_url_template = "https://github.com/blawar/titledb/blob/master/{region}.{language}.json"
 version_db_url = "https://github.com/blawar/titledb/blob/master/versions.json"
@@ -69,13 +70,13 @@ def identify_appId(app_id):
     return title_id, app_type
 
 
-with open('./data/cnmts.json') as f:
+with open(os.path.join(DATA_DIR, 'cnmts.json')) as f:
     cnmts_db = json.load(f)
 
-with open('./data/US.en.json') as f:
+with open(os.path.join(DATA_DIR, 'US.en.json')) as f:
     titles_db = json.load(f)
 
-with open('./data/versions.json') as f:
+with open(os.path.join(DATA_DIR, 'versions.json')) as f:
     versions_db = json.load(f)
 
 def identify_file(filepath):
