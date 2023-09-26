@@ -4,7 +4,6 @@ charset-normalizer==3.2.0
 click==8.1.7
 flask==2.3.3
 Flask-Login==0.6.2
-Flask-Silk==0.2
 flask-sqlalchemy==3.0.5
 future==0.18.3
 greenlet==2.0.2
