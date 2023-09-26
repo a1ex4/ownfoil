@@ -1,6 +1,6 @@
 FROM python:3.11-alpine
 
-RUN apk update && apk add build-base bash sudo
+RUN apk update && apk add --no-cache build-base bash sudo
 
 RUN mkdir /app
 
@@ -9,7 +9,7 @@ COPY ./docker/run.sh /app/run.sh
 
 COPY requirements.txt /tmp/
 
-RUN pip install --requirement /tmp/requirements.txt && rm /tmp/requirements.txt
+RUN pip install --no-cache-dir --requirement /tmp/requirements.txt && rm /tmp/requirements.txt
 
 RUN mkdir /app/data
 ADD https://raw.githubusercontent.com/blawar/titledb/master/cnmts.json /app/data/cnmts.json

@@ -1,7 +1,5 @@
 flask==2.3.3
 Flask-Login==0.6.2
 flask-sqlalchemy==3.0.5
-# future==0.18.3
-# importlib-metadata==6.8.0
 PyYAML==6.0.1
 requests==2.31.0
