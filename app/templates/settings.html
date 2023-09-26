@@ -50,6 +50,12 @@
                         <button type="button" class="btn btn-primary mb-3" onClick='submitNewUser()'>Submit</button>
                     </div>
                 </form>
+                <div class="mb-3 form-check">
+                    <input type="checkbox" class="form-check-input" id="privateShopCheck"
+                        aria-describedby="privateShopCheckHelp">
+                    <label class="form-check-label" for="privateShopCheck">Private shop</label>
+                    <div id="privateShopCheckHelp" class="form-text">Shop access from Tinfoil requires authentication.</div>
+                </div>
                 <hr>
 
                 <h2>Library</h2>
@@ -96,17 +102,7 @@
                     <div id="motdTextAreaHelp" class="form-text">Message presented when opening Tinfoil after
                         successfully loading your shop.</div>
                 </div>
-                <hr>
 
-                <h2>Authentication</h2>
-                <p>This is an example paragraph.</p>
-                <div class="mb-3 form-check">
-                    <input type="checkbox" class="form-check-input" id="privateShopCheck"
-                        aria-describedby="privateShopCheckHelp">
-                    <label class="form-check-label" for="privateShopCheck">Private shop</label>
-                    <div id="privateShopCheckHelp" class="form-text">Path of directory containing your games.</div>
-                </div>
-                <button type="submit" class="btn btn-primary">Submit</button>
             </div>
         </div>
     </div>
@@ -137,7 +133,7 @@
             result.forEach(user => {
                 allUsernames.push(user['user']);
                 $('#userTable tbody').append(
-                    '<tr><td>' + user['user'] + '</td><td>' + user['role'] + '</td><td>'+ 
+                    '<tr><td>' + user['user'] + '</td><td>' + user['role'] + '</td><td>' +
                     '<button type="button" class="btn btn-outline-info btn-sm"><i class="bi bi-pencil-square"></i></button> ' +
                     '<button type="button" class="btn btn-outline-danger btn-sm" onClick=\'deleteUser(' + user['id'] + ')\'><i class="bi bi-x-circle"></i></button>' +
                     '</td></tr>');
@@ -249,7 +245,7 @@
 
     $(document).ready(function () {
         fillUserTable();
-        
+
         $.getJSON("/api/settings", function (result) {
             Object.keys(languages).forEach(function (key) {
                 $('#selectRegion').append(`<option value="${key}">${key}</option>`);
