@@ -9,16 +9,15 @@ from db import *
 from shop import *
 from auth import *
 
-
 def init():
     global app_settings
-    os.makedirs(CONFIG_DIR, exist_ok=True)
-    os.makedirs(DATA_DIR, exist_ok=True)
     reload_conf()
 
-app = Flask(__name__)
+os.makedirs(CONFIG_DIR, exist_ok=True)
+os.makedirs(DATA_DIR, exist_ok=True)
 
-app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///ownfoil.db"
+app = Flask(__name__)
+app.config["SQLALCHEMY_DATABASE_URI"] = OWNFOIL_DB
 app.config['SECRET_KEY'] = '8accb915665f11dfa15c2db1a4e8026905f57716'
 
 db.init_app(app)
