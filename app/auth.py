@@ -4,19 +4,19 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from db import *
 from flask_login import LoginManager
 
-def role_required(role: str):
-    def _role_required(f):
+def access_required(access: str):
+    def _access_required(f):
         def decorated_view(*args, **kwargs):
             if not current_user.is_authenticated:
-                if len(User.query.filter_by(role='admin').all()):
+                if len(User.query.filter_by(admin_access=True).all()):
                     return login_manager.unauthorized()
                 else:
                     return f(*args, **kwargs)
-            if not current_user.has_role(role):
+            if not current_user.has_access(access):
                 return 'Forbidden', 403
             return f(*args, **kwargs)
         return decorated_view
-    return _role_required
+    return _access_required
 
 
 def roles_required(roles: list, require_all=False):
@@ -71,11 +71,11 @@ def profile():
     return render_template('profile.html')
 
 @auth_blueprint.route('/api/users')
-@role_required('admin')
+@access_required('admin')
 def get_users():
     all_users = [
         dict(db_user._mapping)
-        for db_user in db.session.query(User.id, User.user, User.role).all()
+        for db_user in db.session.query(User.id, User.user, User.admin_access, User.shop_access, User.backup_access).all()
     ]
     return jsonify(all_users)
 
@@ -103,17 +103,19 @@ def signup_post():
 
     username = data['user']
     password = data['password']
-    role = data['role']
-    print(username, password, role)
+    shop_access = data['shop_access']
+    backup_access = data['backup_access']
+    admin_access = data['admin_access']
 
     user = User.query.filter_by(user=username).first() # if this returns a user, then the email already exists in database
     
     if user: # if a user is found, we want to redirect back to signup page so user can try again
         print('user already exists')
+        # Todo redirect to incoming page or return success: false
         return redirect(url_for('auth.signup'))
 
     # create a new user with the form data. Hash the password so the plaintext version isn't saved.
-    new_user = User(user=username, password=generate_password_hash(password, method='scrypt'), role=role)
+    new_user = User(user=username, password=generate_password_hash(password, method='scrypt'), admin_access=admin_access, shop_access=shop_access, backup_access=backup_access)
 
     # add the new user to the database
     db.session.add(new_user)

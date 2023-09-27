@@ -25,10 +25,27 @@ class User(UserMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user = db.Column(db.String(100), unique=True)
     password = db.Column(db.String(100))
-    role = db.Column(db.String(100))
+    admin_access = db.Column(db.Boolean)
+    shop_access = db.Column(db.Boolean)
+    backup_access = db.Column(db.Boolean)
 
-    def has_role(self, role):
-        return role == self.role
+    def has_shop_access(self):
+        return self.shop_access
+
+    def has_backup_access(self):
+        return self.backup_access
+    
+    def has_admin_access(self):
+        return self.admin_access
+
+    def has_access(self, access):
+        if access == 'admin':
+            return self.has_admin_access()
+        elif access == 'shop':
+            return self.has_shop_access()
+        elif access == 'shop':
+            return self.has_backup_access()
+
 
 def add_to_titles_db(library, file_info):
     filepath = file_info["filepath"]

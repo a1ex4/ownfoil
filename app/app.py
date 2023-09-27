@@ -48,7 +48,7 @@ def index():
     return render_template('index.html', games=get_all_titles())
 
 @app.route('/settings')
-@role_required('admin')
+@access_required('admin')
 def settings_page():
     return render_template('settings.html')
 
@@ -94,6 +94,9 @@ def serve_game(id):
 def scan_library():
     library = app_settings['library']['path']
     print('Scanning library...')
+    if not os.path.isdir(library):
+        print(f'Library path {library} does not exists.')
+        return
     _, files = getDirsAndFiles(library)
     for filepath in files:
         file_info = identify_file(filepath)
