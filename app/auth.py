@@ -1,11 +1,13 @@
 from flask import Blueprint, render_template, redirect, url_for, request, jsonify
 from flask_login import login_user, login_required, logout_user, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
+from functools import wraps
 from db import *
 from flask_login import LoginManager
 
 def access_required(access: str):
     def _access_required(f):
+        @wraps(f)
         def decorated_view(*args, **kwargs):
             if not current_user.is_authenticated:
                 if len(User.query.filter_by(admin_access=True).all()):
@@ -21,6 +23,7 @@ def access_required(access: str):
 
 def roles_required(roles: list, require_all=False):
     def _roles_required(f):
+        @wraps(f)
         def decorated_view(*args, **kwargs):
             if not roles:
                 raise ValueError('Empty list used when requiring a role.')
@@ -67,6 +70,7 @@ def login_post():
 
 @auth_blueprint.route('/profile')
 @login_required
+@access_required('backup')
 def profile():
     return render_template('profile.html')
 
@@ -80,6 +84,8 @@ def get_users():
     return jsonify(all_users)
 
 @auth_blueprint.route('/api/user', methods=['DELETE'])
+@login_required
+@access_required('admin')
 def delete_user():
     success = True
     try:
@@ -97,6 +103,7 @@ def delete_user():
     return jsonify(resp)
 
 @auth_blueprint.route('/api/user/signup', methods=['POST'])
+@access_required('admin')
 def signup_post():
     signup_success = True
     data = request.json
