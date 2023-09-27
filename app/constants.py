@@ -1,7 +1,10 @@
-CONFIG_DIR = './config'
-DATA_DIR = './data'
+import os
 
-OWNFOIL_DB = 'ownfoil.db'
+APP_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR = os.path.join(APP_DIR, 'data')
+CONFIG_DIR = os.path.join(APP_DIR, 'config')
+
+OWNFOIL_DB = 'sqlite:////' + CONFIG_DIR + '/ownfoil.db'
 
 DEFAULT_SETTINGS = {
     "library": {
