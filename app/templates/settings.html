@@ -17,48 +17,76 @@
 
                 <!-- <h1>Settings</h1> -->
 
-                <h2>Authentication</h2>
+                <h2 class="pb-3">Authentication</h2>
+
+                <div class="mb-3 form-check">
+                    <input type="checkbox" class="form-check-input" id="privateShopCheck"
+                        aria-describedby="privateShopCheckHelp">
+                    <label class="form-check-label" for="privateShopCheck">Private shop</label>
+                    <div id="privateShopCheckHelp" class="form-text">Shop access from Tinfoil requires authentication.
+                    </div>
+                </div>
+
                 <table class="table table-hover caption-top" id="userTable">
                     <caption>List of users:</caption>
                     <thead>
                         <tr>
                             <th scope="col">User</th>
-                            <th scope="col">Role</th>
+                            <th scope="col">Permissions</th>
                             <th scope="col">Action</th>
                         </tr>
                     </thead>
                     <tbody>
                     </tbody>
                 </table>
-                <form class="row g-3">
-                    <div class="col-auto">
-                        <label for="inputNewUser" class="visually-hidden">Email</label>
-                        <input type="text" class="form-control" id="inputNewUser" placeholder="Username">
+
+                <p class="d-inline-flex gap-1">
+                    <button class="btn btn-primary" type="button" data-bs-toggle="collapse"
+                        data-bs-target="#collapseNewUser" aria-expanded="false" aria-controls="collapseNewUser">
+                        Add new user
+                    </button>
+                </p>
+                <div class="collapse" id="collapseNewUser">
+                    <div class="card card-body">
+                        <label class="form-label">Add a new user:</label>
+                        <form class="row g-3">
+                            <div class="col-auto">
+                                <label for="inputNewUser" class="visually-hidden">Email</label>
+                                <input type="text" class="form-control" id="inputNewUser" placeholder="Username">
+                            </div>
+                            <div class="col-auto">
+                                <label for="inputNewUserPassword" class="visually-hidden">Password</label>
+                                <input type="password" class="form-control" id="inputNewUserPassword"
+                                    placeholder="Password">
+                            </div>
+                            <div class="col-auto p-2">
+                                <div class="form-check form-check-inline">
+                                    <input class="form-check-input" type="checkbox" id="checkboxNewUserShopAccess"
+                                        checked>
+                                    <label class="form-check-label" for="checkboxNewUserShopAccess">Shop Access</label>
+                                </div>
+                                <div class="form-check form-check-inline">
+                                    <input class="form-check-input" type="checkbox" id="checkboxNewUserBackupAccess">
+                                    <label class="form-check-label" for="checkboxNewUserBackupAccess">Backup
+                                        Access</label>
+                                </div>
+                                <div class="form-check form-check-inline">
+                                    <input class="form-check-input" type="checkbox" id="checkboxNewUserAdminAccess">
+                                    <label class="form-check-label" for="checkboxNewUserAdminAccess">Admin
+                                        Access</label>
+                                </div>
+                            </div>
+                            <div class="col-auto">
+                                <button type="button" class="btn btn-primary mb-3"
+                                    onClick='submitNewUser()'>Submit</button>
+                            </div>
+                        </form>
                     </div>
-                    <div class="col-auto">
-                        <label for="inputNewUserPassword" class="visually-hidden">Password</label>
-                        <input type="password" class="form-control" id="inputNewUserPassword" placeholder="Password">
-                    </div>
-                    <div class="col-auto">
-                        <select id="selectNewUserRole" class="form-select" aria-label="User role">
-                            <option selected>Role...</option>
-                            <option value="admin">Admin</option>
-                            <option value="user">User</option>
-                        </select>
-                    </div>
-                    <div class="col-auto">
-                        <button type="button" class="btn btn-primary mb-3" onClick='submitNewUser()'>Submit</button>
-                    </div>
-                </form>
-                <div class="mb-3 form-check">
-                    <input type="checkbox" class="form-check-input" id="privateShopCheck"
-                        aria-describedby="privateShopCheckHelp">
-                    <label class="form-check-label" for="privateShopCheck">Private shop</label>
-                    <div id="privateShopCheckHelp" class="form-text">Shop access from Tinfoil requires authentication.</div>
                 </div>
+
                 <hr>
 
-                <h2>Library</h2>
+                <h2 class="pb-3">Library</h2>
                 <div class="mb-3">
                     <label for="libraryPathInput" class="form-label">Library path:</label>
                     <input class="form-control" id="libraryPathInput" aria-describedby="libraryPathHelp">
@@ -87,7 +115,7 @@
                 </form>
                 <hr>
 
-                <h2>Shop</h2>
+                <h2 class="pb-3">Shop</h2>
                 <p>Customize your shop, using Tinfoil's special parameters.</p>
                 <div class="mb-3 form-check">
                     <input type="checkbox" class="form-check-input" id="encryptShopCheck"
@@ -125,15 +153,51 @@
         return $("#" + inputId).val(value);
     };
 
+    function getCheckboxStatus(checkboxId) {
+        return $('#' + checkboxId).is(":checked")
+    }
+
     function fillUserTable() {
         $('#userTable tbody').empty();
         $.getJSON("/api/users", function (result) {
             allUsers = result;
             allUsernames = [];
-            result.forEach(user => {
-                allUsernames.push(user['user']);
+            if (!result.length) {
                 $('#userTable tbody').append(
-                    '<tr><td>' + user['user'] + '</td><td>' + user['role'] + '</td><td>' +
+                    '<tr><td>-</td><td>-</td><td>-</td></tr>');
+            }
+            result.forEach(user => {
+                console.log(user)
+                allUsernames.push(user['user']);
+                base_input = '<input class="form-check-input" type="checkbox" onclick="return false" checked>';
+                shop_input = base_input;
+                backup_input = base_input;
+                admin_input = base_input;
+                if (!user['shop_access']) {
+                    shop_input = shop_input.replace(' checked', '');
+                }
+                if (!user['backup_access']) {
+                    backup_input = backup_input.replace(' checked', '');
+                }
+                if (!user['admin_access']) {
+                    admin_input = shop_input.replace(' checked', '');
+                }
+                $('#userTable tbody').append(
+                    '<tr><td>' + user['user'] + '</td><td>'
+                    + `
+                        <div class="form-check form-check-inline">`
+                    + shop_input + `
+                            <label class="form-check-label">Shop</label>
+                        </div>
+                        <div class="form-check form-check-inline">`
+                    + backup_input + `
+                            <label class="form-check-label">Backup</label>
+                        </div>
+                        <div class="form-check form-check-inline">`
+                    + admin_input + `
+                            <label class="form-check-label">Admin</label>
+                        </div>`
+                    + '</td><td>' +
                     '<button type="button" class="btn btn-outline-info btn-sm"><i class="bi bi-pencil-square"></i></button> ' +
                     '<button type="button" class="btn btn-outline-danger btn-sm" onClick=\'deleteUser(' + user['id'] + ')\'><i class="bi bi-x-circle"></i></button>' +
                     '</td></tr>');
@@ -160,15 +224,20 @@
     }
     function submitNewUser() {
         formOk = true;
-        role = getInputVal("selectNewUserRole")
         user = getInputVal("inputNewUser")
         password = getInputVal("inputNewUserPassword")
+        shop_access = getCheckboxStatus("checkboxNewUserShopAccess")
+        backup_access = getCheckboxStatus("checkboxNewUserBackupAccess")
+        admin_access = getCheckboxStatus("checkboxNewUserAdminAccess")
 
-        if (role == 'Role...') {
-            $('#selectNewUserRole').addClass('is-invalid');
+        if (user == '') {
+            $('#inputNewUser').addClass('is-invalid');
+            formOk = false;
+        } else if (allUsernames.includes(user)) {
+            $('#inputNewUser').addClass('is-invalid');
             formOk = false;
         } else {
-            $('#selectNewUserRole').removeClass('is-invalid');
+            $('#inputNewUser').removeClass('is-invalid');
         }
 
         if (password == '') {
@@ -178,18 +247,14 @@
             $('#inputNewUserPassword').removeClass('is-invalid');
         }
 
-        if (allUsernames.includes(user)) {
-            $('#inputNewUser').addClass('is-invalid');
-            formOk = false;
-        } else {
-            $('#inputNewUser').removeClass('is-invalid');
-        }
 
         if (formOk) {
             data = {
                 user: user,
                 password: password,
-                role: role
+                shop_access: shop_access,
+                backup_access: backup_access,
+                admin_access: admin_access,
             }
 
             $.ajax({
@@ -198,10 +263,8 @@
                 data: JSON.stringify(data),
                 contentType: "application/json",
                 success: function (result) {
-                    console.log(result)
                     if (result['success']) {
                         console.log('Signup Success!');
-                        setInputVal("selectNewUserRole", "Role...")
                         setInputVal("inputNewUser", "")
                         setInputVal("inputNewUserPassword", "")
                         fillUserTable();
@@ -217,7 +280,6 @@
             region: getInputVal("selectRegion"),
             language: getInputVal("selectLanguage"),
         }
-        console.log(data)
 
         $.ajax({
             url: "/api/settings/library",
@@ -225,13 +287,11 @@
             data: JSON.stringify(data),
             contentType: "application/json",
             success: function (result) {
-                console.log(result)
                 if (!result['success']) {
                     console.log('Not Success!');
                     result['errors'].forEach(error => {
                         path = error['path'];
                         formId = settings_map[path];
-                        console.log(formId);
                         form = $('#' + formId);
                         form.addClass('is-invalid');
                         formTextElement = form.attr('aria-describedby');
