@@ -5,8 +5,8 @@ import json
 import hashlib
 from constants import *
 
-title_db_url_template = "https://github.com/blawar/titledb/blob/master/{region}.{language}.json"
-version_db_url = "https://github.com/blawar/titledb/blob/master/versions.json"
+title_db_url_template = "https://github.com/blawar/titledb/raw/master/{region}.{language}.json"
+version_db_url = "https://github.com/blawar/titledb/raw/master/versions.json"
 
 cnmts_url = "https://github.com/blawar/titledb/raw/master/cnmts.json"
 data_dir = './data'
