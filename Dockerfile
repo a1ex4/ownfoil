@@ -11,7 +11,7 @@ COPY requirements.txt /tmp/
 
 RUN pip install --no-cache-dir --requirement /tmp/requirements.txt && rm /tmp/requirements.txt
 
-RUN mkdir /app/data
+RUN mkdir -p /app/data
 ADD https://raw.githubusercontent.com/blawar/titledb/master/cnmts.json /app/data/cnmts.json
 ADD https://raw.githubusercontent.com/blawar/titledb/master/versions.json /app/data/versions.json
 ADD https://raw.githubusercontent.com/blawar/titledb/master/US.en.json /app/data/US.en.json
