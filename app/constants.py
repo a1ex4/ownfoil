@@ -29,3 +29,10 @@ tinfoil_headers = [
     'Hauth',
     'Uauth'
 ]
+
+ALLOWED_EXTENSIONS = [
+    'nsp',
+    'nsz',
+    'xci',
+    'xcz',
+]
