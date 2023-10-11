@@ -66,8 +66,19 @@ def identify_appId(app_id):
                 else:
                     base_id = app_id[:-4]
                     title_id = [t for t in list(cnmts_db.keys()) if t.startswith(base_id)][0].upper()
+
+    else:
+        if app_id.endswith('000'):
+            app_type = 'dlc'
+            title_id = app_id
+        elif app_id.endswith('800'):
+            app_type = 'base'
+            title_id = app_id[:-3] + '000'
+        else:
+            app_type = 'dlc'
+            title_id = app_id[:-3] + '000'
     
-    return title_id, app_type
+    return title_id.upper(), app_type
 
 
 with open(os.path.join(DATA_DIR, 'cnmts.json')) as f:
@@ -86,8 +97,9 @@ def identify_file(filepath):
     extension = filename.split('.')[-1]
     try:
         title_id, app_type = identify_appId(app_id)
-    except Exception:
-        print(filename, app_id)
+    except Exception as e:
+        print(f'Unable to identify file {filename}, app ID: {app_id}. The error was:')
+        print(e)
         return None
 
     return {
