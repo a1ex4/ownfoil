@@ -159,6 +159,12 @@ Planned feature, in no particular order.
 
 # Changelog
 
+## 1.2.3
+ - Saves manager: fixed multiple issues with remote folders (#42)
+
+## 1.2.2
+ - Docker image: fix already existing user
+
 ## 1.2.1
  - ci: Add automated multi arch docker build
 
