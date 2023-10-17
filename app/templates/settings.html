@@ -76,6 +76,33 @@
                     </div>
                 </div>
 
+                <!-- Button trigger modal -->
+                <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#deleteUserModal">
+                    Launch demo modal
+                </button>
+                <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#deleteUserModal"
+                    data-bs-user="Alex">Delete user Alex</button>
+                <!-- Delete User Modal -->
+                <div class="modal fade" id="deleteUserModal" tabindex="-1" aria-labelledby="deleteUserModalLabel"
+                    aria-hidden="true">
+                    <div class="modal-dialog modal-dialog-centered">
+                        <div class="modal-content">
+                            <div class="modal-header">
+                                <h1 class="modal-title fs-5" id="deleteUserModalLabel">Delete user</h1>
+                                <button type="button" class="btn-close" data-bs-dismiss="modal"
+                                    aria-label="Close"></button>
+                            </div>
+                            <div class="modal-body">
+                                ...
+                            </div>
+                            <div class="modal-footer">
+                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                                <button type="button" class="btn btn-danger" data-bs-dismiss="modal">Delete</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <hr>
 
                 <h2 class="pb-3">Library</h2>
@@ -113,7 +140,8 @@
                     <input type="checkbox" class="form-check-input" id="publicShopCheck"
                         aria-describedby="publicShopCheckHelp">
                     <label class="form-check-label" for="publicShopCheck">Public shop</label>
-                    <div id="publicShopCheckHelp" class="form-text">If enabled, Shop access from Tinfoil does not require authentication.
+                    <div id="publicShopCheckHelp" class="form-text">If enabled, Shop access from Tinfoil does not
+                        require authentication.
                     </div>
                 </div>
                 <div class="mb-3 form-check">
@@ -203,11 +231,35 @@
                         </div>`
                     + '</td><td>' +
                     '<button type="button" class="btn btn-outline-info btn-sm"><i class="bi bi-pencil-square"></i></button> ' +
-                    '<button type="button" class="btn btn-outline-danger btn-sm" onClick=\'deleteUser(' + user['id'] + ')\'><i class="bi bi-x-circle"></i></button>' +
+                    '<button type="button" class="btn btn-outline-danger btn-sm" data-bs-toggle="modal" data-bs-target="#deleteUserModal" data-bs-id="' + user['id'] + '" data-bs-user="' + user['user'] + '"\'><i class="bi bi-x-circle"></i></button>' +
                     '</td></tr>');
             });
         })
 
+    }
+
+    const deleteUserModal = $('#deleteUserModal')
+    if (deleteUserModal) {
+        deleteUserModal.on('show.bs.modal', event => {
+            // Button that triggered the modal
+            const button = event.relatedTarget
+            // Extract info from data-bs-* attributes
+            const user = button.getAttribute('data-bs-user')
+            const id = button.getAttribute('data-bs-id')
+            // If necessary, you could initiate an Ajax request here
+            // and then do the updating in a callback.
+
+            // Update the modal's content.
+            // const modalTitle = deleteUserModal.querySelector('.modal-title')
+            const modalBody = deleteUserModal.find('.modal-body')
+            const deleteBtn = deleteUserModal.find('.btn-danger')
+
+
+            deleteBtn.attr('onClick', 'deleteUser(' + id + ');');
+
+            // modalTitle.textContent = `New message to ${recipient}`
+            modalBody.text("Delete user " + user + " ?")
+        })
     }
 
     function deleteUser(userId) {
@@ -311,7 +363,7 @@
         data = {
             public: getCheckboxStatus("publicShopCheck"),
             encrypt: getCheckboxStatus("encryptShopCheck"),
-            motd: $('#motdTextArea').val() ,
+            motd: $('#motdTextArea').val(),
         }
 
         $.ajax({
@@ -369,7 +421,7 @@
         });
 
     });
-    languages = {{ languages_from_titledb|tojson|safe }}
+    languages = {{ languages_from_titledb | tojson | safe }}
 </script>
 
 {% endblock %}
