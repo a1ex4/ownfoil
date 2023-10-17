@@ -12,7 +12,7 @@ COPY requirements.txt /tmp/
 RUN pip install --no-cache-dir --requirement /tmp/requirements.txt && rm /tmp/requirements.txt
 
 RUN mkdir -p /app/data
-RUN git clone --depth=1 --no-checkout https://github.com/blawar/titledb.git /app/data/titledb
+# RUN git clone --depth=1 --no-checkout https://github.com/blawar/titledb.git /app/data/titledb
 
 WORKDIR /app
 
