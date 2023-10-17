@@ -163,24 +163,6 @@
             transition: opacity 0.3s ease-in-out, transform 0.3s ease-in-out;
         }
 
-        .game-info {
-            position: absolute;
-            bottom: 0;
-            left: 0;
-            width: 100%;
-            /* background-image: linear-gradient(to top, rgba(7, 0, 91, 0.49), #003aa800); */
-            background-image: linear-gradient(to top, rgba(7, 0, 91, 0.71), #001233a1);
-            height: 22%;
-            padding: 10px;
-            text-align: left;
-            border-radius: 0 0 8px 8px;
-            box-sizing: border-box;
-            display: flex;
-            flex-direction: column;
-            justify-content: flex-end;
-            border-top: 1px solid #d5d5d5bd;
-        }
-
         .tags-container {
             position: absolute;
             bottom: 10px;
@@ -204,37 +186,47 @@
 
 <body>
     {% block content %}
-    <!-- Filtering buttons container -->
-    <div class="filter-buttons">
-        <!-- Filter buttons will be dynamically generated here -->
-        <!-- Reset filter button -->
-        <button class="filter-button" onclick="resetFilters()">Reset Filters</button>
-        <input type="text" id="textFilter" placeholder="Search titles..." style="height: 26px;">
-    </div>
-    <div class="grid-container" id="gridContainer">
-        <!-- Add more game cards here -->
-        <div class="row row-cols-1 row-cols-md-3 g-4">
-            {% for game in games %}
-            <div class="col">
-                <div class="card text-bg-dark game-card">
-                    <img src="{{ game.bannerUrl }}" class="card-img">
-                    <div class="card-img-overlay game-info">
-                        <h5 class="card-title game-title">{{ game.name }}</h5>
-                        <!-- <p class="card-text">This is a wider card with supporting text below as a natural lead-in to additional content. This content is a little bit longer.</p> -->
-                        <p class="card-text game-description"><small>{{ game.id }}</small></p>
-                        <div class="tags-container">
-                            {% if game.has_latest_version %}
-                                <span class="badge rounded-pill text-bg-success game-tag">Up to date</span>
-                            {% else %}
-                                <span class="badge rounded-pill text-bg-warning game-tag">Outdated</span>
-                            {% endif %}
-                        </div> 
-                    </div>
-                </div>
-            </div>
-            {% endfor %}
+    <div id="content" class="container-fluid text-center mt-3">
+        
+        <div class="btn-group" role="group" aria-label="Basic outlined example">
+            <button type="button" class="btn btn-primary active"><i class="bi bi-card-heading"></i></button>
+            <button type="button" class="btn btn-primary"><i class="bi bi-grid-fill"></i></button>
+            <button type="button" class="btn btn-primary"><i class="bi bi-list-ul"></i></button>
         </div>
 
+        <!-- Filtering buttons container -->
+        <div class="filter-buttons">
+            <!-- Filter buttons will be dynamically generated here -->
+            <!-- Reset filter button -->
+            <button class="filter-button" onclick="resetFilters()">Reset Filters</button>
+            <input type="text" id="textFilter" placeholder="Search titles..." style="height: 26px;">
+        </div>
+
+        <div class="grid-container" id="gridContainer">
+            <!-- Add more game cards here -->
+            <div class="row row-cols-1 row-cols-md-3 g-4">
+                {% for game in games %}
+                <div class="col">
+                    <div class="card text-bg-dark game-card">
+                        <img src="{{ game.bannerUrl }}" class="card-img">
+                        <div class="card-img-overlay game-info">
+                            <h5 class="card-title game-title">{{ game.name }}</h5>
+                            <!-- <p class="card-text">This is a wider card with supporting text below as a natural lead-in to additional content. This content is a little bit longer.</p> -->
+                            <p class="card-text game-description"><small>{{ game.id }}</small></p>
+                            <div class="tags-container">
+                                {% if game.has_latest_version %}
+                                    <span class="badge rounded-pill text-bg-success game-tag">Up to date</span>
+                                {% else %}
+                                    <span class="badge rounded-pill text-bg-warning game-tag">Outdated</span>
+                                {% endif %}
+                            </div> 
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+
+        </div>
     </div>
 
     <!-- Popup container -->
