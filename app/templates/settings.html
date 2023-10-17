@@ -19,14 +19,6 @@
 
                 <h2 class="pb-3">Authentication</h2>
 
-                <div class="mb-3 form-check">
-                    <input type="checkbox" class="form-check-input" id="privateShopCheck"
-                        aria-describedby="privateShopCheckHelp">
-                    <label class="form-check-label" for="privateShopCheck">Private shop</label>
-                    <div id="privateShopCheckHelp" class="form-text">Shop access from Tinfoil requires authentication.
-                    </div>
-                </div>
-
                 <table class="table table-hover caption-top" id="userTable">
                     <caption>List of users:</caption>
                     <thead>
@@ -118,6 +110,13 @@
                 <h2 class="pb-3">Shop</h2>
                 <p>Customize your shop, using Tinfoil's special parameters.</p>
                 <div class="mb-3 form-check">
+                    <input type="checkbox" class="form-check-input" id="publicShopCheck"
+                        aria-describedby="publicShopCheckHelp">
+                    <label class="form-check-label" for="publicShopCheck">Public shop</label>
+                    <div id="publicShopCheckHelp" class="form-text">If enabled, Shop access from Tinfoil does not require authentication.
+                    </div>
+                </div>
+                <div class="mb-3 form-check">
                     <input type="checkbox" class="form-check-input" id="encryptShopCheck"
                         aria-describedby="encryptShopCheckHelp">
                     <label class="form-check-label" for="encryptShopCheck">Encrypt shop</label>
@@ -129,6 +128,11 @@
                     <textarea class="form-control" id="motdTextArea" rows="3"></textarea>
                     <div id="motdTextAreaHelp" class="form-text">Message presented when opening Tinfoil after
                         successfully loading your shop.</div>
+                </div>
+
+                <div class="mb-3">
+                    <button type="button" id="submit-shop" class="btn btn-primary"
+                        onClick='submitShopSettings()'>Submit</button>
                 </div>
 
             </div>
@@ -303,6 +307,35 @@
         });
     }
 
+    function submitShopSettings() {
+        data = {
+            public: getCheckboxStatus("publicShopCheck"),
+            encrypt: getCheckboxStatus("encryptShopCheck"),
+            motd: $('#motdTextArea').val() ,
+        }
+
+        $.ajax({
+            url: "/api/settings/shop",
+            type: 'POST',
+            data: JSON.stringify(data),
+            contentType: "application/json",
+            success: function (result) {
+                if (!result['success']) {
+                    console.log('Not Success!');
+                    result['errors'].forEach(error => {
+                        path = error['path'];
+                        formId = settings_map[path];
+                        form = $('#' + formId);
+                        form.addClass('is-invalid');
+                        formTextElement = form.attr('aria-describedby');
+                        $("#" + formTextElement).addClass('invalid-feedback');
+                        $("#" + formTextElement).text(error['error']);
+                    });
+                }
+            }
+        });
+    }
+
     $(document).ready(function () {
         fillUserTable();
 
@@ -331,6 +364,8 @@
             // Shop settings
             shopSettings = result['shop'];
             setInputVal("motdTextArea", shopSettings['motd']);
+            $("#publicShopCheck").prop("checked", shopSettings['public']);
+            $("#encryptShopCheck").prop("checked", shopSettings['encrypt']);
         });
 
     });

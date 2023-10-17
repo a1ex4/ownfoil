@@ -4,7 +4,6 @@ import yaml
 from markupsafe import escape
 from constants import *
 from settings import *
-from titles import *
 from db import *
 from shop import *
 from auth import *
@@ -15,6 +14,8 @@ def init():
 
 os.makedirs(CONFIG_DIR, exist_ok=True)
 os.makedirs(DATA_DIR, exist_ok=True)
+
+from titles import *
 
 app = Flask(__name__)
 app.config["SQLALCHEMY_DATABASE_URI"] = OWNFOIL_DB
@@ -34,6 +35,24 @@ app.register_blueprint(auth_blueprint)
 with app.app_context():
     db.create_all()
 
+def tinfoil_error(error):
+    return jsonify({
+        'error': error
+    })
+
+def serve_tinfoil_shop():
+    shop = gen_shop(db, app_settings)
+    return jsonify(shop)
+
+def access_tinfoil_shop(request):
+    if not app_settings['shop']['public']:
+        # Shop is private
+        success, error = basic_auth(request)
+        if not success:
+            return tinfoil_error(error)
+
+    return serve_tinfoil_shop()
+
 @app.route('/')
 def index():
     scan_library()
@@ -42,8 +61,8 @@ def index():
     if all(header in request_headers for header in tinfoil_headers):
     # if True:
         print(f"Tinfoil connection from {request.remote_addr}")
-        shop = gen_shop(db, app_settings)
-        return jsonify(shop)
+        return access_tinfoil_shop(request) 
+
     return render_template('index.html', games=get_all_titles())
 
 @app.route('/settings')

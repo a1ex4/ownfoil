@@ -39,6 +39,33 @@ def roles_required(roles: list, require_all=False):
 
     return _roles_required
 
+def basic_auth(request):
+    success = True
+    error = ''
+
+    auth = request.authorization
+    if auth is None:
+        success = False
+        error = 'Shop requires authentication.'
+        return success, error
+
+    username = auth.username
+    password = auth.password
+    user = User.query.filter_by(user=username).first()
+    if user is None:
+        success = False
+        error = f'Unknown user "{username}".'
+    
+    elif not check_password_hash(user.password, password):
+        success = False
+        error = f'Incorrect password for user "{username}".'
+
+    elif not user.has_shop_access():
+        success = False
+        error = f'User "{username}" does not have access to the shop.'
+
+    return success, error
+
 auth_blueprint = Blueprint('auth', __name__)
 
 login_manager = LoginManager()
