@@ -139,11 +139,11 @@
         }
 
         /* Filtering buttons */
-        .filter-buttons {
+        /* .filter-buttons {
             margin-bottom: 20px;
-        }
+        } */
 
-        .filter-button {
+        /* .filter-button {
             background-color: #3498db;
             color: white;
             padding: 8px 16px;
@@ -151,7 +151,7 @@
             border-radius: 4px;
             cursor: pointer;
             margin-right: 10px;
-        }
+        } */
 
         /* Active filter button style */
         .active-filter {
@@ -187,19 +187,30 @@
 <body>
     {% block content %}
     <div id="content" class="container-fluid text-center mt-3">
-        
-        <div class="btn-group" role="group" aria-label="Basic outlined example">
-            <button type="button" class="btn btn-primary active"><i class="bi bi-card-heading"></i></button>
-            <button type="button" class="btn btn-primary"><i class="bi bi-grid-fill"></i></button>
-            <button type="button" class="btn btn-primary"><i class="bi bi-list-ul"></i></button>
+
+        <div class="row gy-2 gx-3 align-items-center justify-content-md-center">
+
+            <div class="col-auto">
+                <button onclick="resetFilters()" type="button" class="btn btn-primary filter-button">Clear
+                    filters</button>
+            </div>
+
+            <div class="col-auto">
+                <input type="text" id="textFilter" class="form-control" id="autoSizingInput"
+                    placeholder="Search titles...">
+            </div>
+            <div class="col-auto">
+                <div class="btn-group" role="group">
+                    <button type="button" class="btn btn-primary active"><i class="bi bi-card-heading"></i></button>
+                    <button type="button" class="btn btn-primary"><i class="bi bi-grid-fill"></i></button>
+                    <button type="button" class="btn btn-primary"><i class="bi bi-list-ul"></i></button>
+                </div>
+            </div>
         </div>
 
-        <!-- Filtering buttons container -->
-        <div class="filter-buttons">
-            <!-- Filter buttons will be dynamically generated here -->
-            <!-- Reset filter button -->
-            <button class="filter-button" onclick="resetFilters()">Reset Filters</button>
-            <input type="text" id="textFilter" placeholder="Search titles..." style="height: 26px;">
+        <div class="row mt-3 align-items-center justify-content-md-center">
+            <div class="col-auto filter-buttons">
+            </div>
         </div>
 
         <div class="grid-container" id="gridContainer">
@@ -215,11 +226,11 @@
                             <p class="card-text game-description"><small>{{ game.id }}</small></p>
                             <div class="tags-container">
                                 {% if game.has_latest_version %}
-                                    <span class="badge rounded-pill text-bg-success game-tag">Up to date</span>
+                                <span class="badge rounded-pill text-bg-success game-tag">Up to date</span>
                                 {% else %}
-                                    <span class="badge rounded-pill text-bg-warning game-tag">Outdated</span>
+                                <span class="badge rounded-pill text-bg-warning game-tag">Outdated</span>
                                 {% endif %}
-                            </div> 
+                            </div>
                         </div>
                     </div>
                 </div>
