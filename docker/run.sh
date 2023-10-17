@@ -9,6 +9,7 @@ GROUP=$(getent group "${gid}" | cut -d ":" -f 1)
 ! getent passwd "${uid}" && adduser -u "${uid}" -G "${GROUP}" -S ownfoil
 
 chown -R ${uid}:${gid} /app
+chown -R ${uid}:${gid} /root
 
 echo "Starting ownfoil"
 

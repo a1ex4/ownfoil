@@ -150,10 +150,10 @@ def get_all_existing_versions(titleid):
 
 
 def set_titledb_default_files():
-    os.system(f"cd {TITLEDB_DIR} && git sparse-checkout set {'./' + ' ./'.join(TITLEDB_DEFAULT_FILES)} --no-cone > /dev/null")
+    os.system(f"cd {TITLEDB_DIR} && git sparse-checkout set {'/' + ' /'.join(TITLEDB_DEFAULT_FILES)} --no-cone > /dev/null")
 
 def set_titledb_lang_file(region, language):
-    os.system(f'cd {TITLEDB_DIR} && git sparse-checkout add {region}.{language}.json > /dev/null')
+    os.system(f'cd {TITLEDB_DIR} && git sparse-checkout add /{region}.{language}.json > /dev/null')
 
 def git_fetch_and_pull():
     os.system(f'cd {TITLEDB_DIR} && git checkout master > /dev/null 2>&1')
