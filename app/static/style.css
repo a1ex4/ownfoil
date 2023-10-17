@@ -25,6 +25,10 @@
     /* linear-gradient(to top, rgba(0, 0, 0, 0.7), transparent 50%), */
 }
 
+.card-img {
+    mask-image: linear-gradient(to bottom, rgba(7, 0, 91, 0.71), #001233ed 50%);
+}
+
 .game-title {
     font-size: 18px;
     font-weight: bold;
