@@ -11,6 +11,7 @@
 .game-info {
     bottom: 0;
     left: 0;
+    text-align: left !important;
     /* background-image: linear-gradient(to top, rgba(7, 0, 91, 0.49), #003aa800); */
     background-image: linear-gradient(to top, rgba(7, 0, 91, 0.71), #001233a1);
     padding: 10px;
