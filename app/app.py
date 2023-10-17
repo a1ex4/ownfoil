@@ -7,10 +7,12 @@ from settings import *
 from db import *
 from shop import *
 from auth import *
+from titles import *
 
 def init():
     global app_settings
     reload_conf()
+    update_titledb(app_settings)
 
 os.makedirs(CONFIG_DIR, exist_ok=True)
 os.makedirs(DATA_DIR, exist_ok=True)
@@ -68,7 +70,10 @@ def index():
 @app.route('/settings')
 @access_required('admin')
 def settings_page():
-    return render_template('settings.html')
+    with open(os.path.join(TITLEDB_DIR, 'languages.json')) as f:
+        languages = json.load(f)
+        languages = dict(sorted(languages.items()))
+    return render_template('settings.html', languages_from_titledb=languages)
 
 @app.get('/api/settings')
 def get_settings_api():
@@ -82,6 +87,9 @@ def set_settings_api(section=None):
     if settings_valid:
         set_settings(section, data)
         reload_conf()
+        if section == 'library':
+            update_titledb_files(app_settings)
+            load_titledb(app_settings)
     resp = {
         'success': settings_valid,
         'errors': errors

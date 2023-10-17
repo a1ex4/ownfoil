@@ -5,12 +5,6 @@ import json
 import hashlib
 from constants import *
 
-title_db_url_template = "https://github.com/blawar/titledb/raw/master/{region}.{language}.json"
-version_db_url = "https://github.com/blawar/titledb/raw/master/versions.json"
-
-cnmts_url = "https://github.com/blawar/titledb/raw/master/cnmts.json"
-data_dir = './data'
-
 app_id_regex = r"\[([0-9A-Fa-f]{16})\]"
 version_regex = r"\[v(\d+)\]"
 
@@ -80,15 +74,18 @@ def identify_appId(app_id):
     
     return title_id.upper(), app_type
 
+def load_titledb(app_settings):
+    global cnmts_db
+    global titles_db
+    global versions_db
+    with open(os.path.join(TITLEDB_DIR, 'cnmts.json')) as f:
+        cnmts_db = json.load(f)
 
-with open(os.path.join(DATA_DIR, 'cnmts.json')) as f:
-    cnmts_db = json.load(f)
+    with open(os.path.join(TITLEDB_DIR, f"{app_settings['library']['region']}.{app_settings['library']['language']}.json")) as f:
+        titles_db = json.load(f)
 
-with open(os.path.join(DATA_DIR, 'US.en.json')) as f:
-    titles_db = json.load(f)
-
-with open(os.path.join(DATA_DIR, 'versions.json')) as f:
-    versions_db = json.load(f)
+    with open(os.path.join(TITLEDB_DIR, 'versions.json')) as f:
+        versions_db = json.load(f)
 
 def identify_file(filepath):
     filedir, filename = os.path.split(filepath)
@@ -152,4 +149,25 @@ def get_all_existing_versions(titleid):
     ]
 
 
+def set_titledb_default_files():
+    os.system(f'cd {TITLEDB_DIR} && git sparse-checkout set {" ".join(TITLEDB_DEFAULT_FILES)} > /dev/null')
 
+def set_titledb_lang_file(region, language):
+    os.system(f'cd {TITLEDB_DIR} && git sparse-checkout add {region}.{language}.json > /dev/null')
+
+def git_fetch_and_pull():
+    os.system(f'cd {TITLEDB_DIR} && git checkout master > /dev/null 2>&1')
+    os.system(f'cd {TITLEDB_DIR} && git fetch > /dev/null 2>&1 && git pull > /dev/null 2>&1')
+
+def update_titledb_files(app_settings):
+    set_titledb_default_files()
+    set_titledb_lang_file(app_settings['library']['region'], app_settings['library']['language'])
+    
+def update_titledb(app_settings):
+    if not os.path.isdir(TITLEDB_DIR):
+        print('Retrieving titledb for the first time...')
+        os.system(f'git clone --depth=1 --no-checkout {TITLEDB_URL} {TITLEDB_DIR}')
+
+    update_titledb_files(app_settings)
+    git_fetch_and_pull()
+    load_titledb(app_settings)

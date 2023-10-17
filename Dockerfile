@@ -1,6 +1,6 @@
 FROM python:3.11-alpine
 
-RUN apk update && apk add --no-cache build-base bash sudo
+RUN apk update && apk add --no-cache build-base bash sudo git
 
 RUN mkdir /app
 
@@ -12,9 +12,7 @@ COPY requirements.txt /tmp/
 RUN pip install --no-cache-dir --requirement /tmp/requirements.txt && rm /tmp/requirements.txt
 
 RUN mkdir -p /app/data
-ADD https://raw.githubusercontent.com/blawar/titledb/master/cnmts.json /app/data/cnmts.json
-ADD https://raw.githubusercontent.com/blawar/titledb/master/versions.json /app/data/versions.json
-ADD https://raw.githubusercontent.com/blawar/titledb/master/US.en.json /app/data/US.en.json
+RUN git clone --depth=1 --no-checkout https://github.com/blawar/titledb.git /app/data/titledb
 
 WORKDIR /app
 
