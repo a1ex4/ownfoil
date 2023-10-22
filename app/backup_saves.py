@@ -149,7 +149,6 @@ class PyFTPclient:
 
             if not dst_filesize:
                 logger.debug(f'Downloaded file {dst_filename} is empty.')
-                self.ftp.close()
                 return 1
 
             mon = monitor()
