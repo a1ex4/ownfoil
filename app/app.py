@@ -60,7 +60,7 @@ def index():
     scan_library()
 
     request_headers = request.headers
-    if all(header in request_headers for header in tinfoil_headers):
+    if all(header in request_headers for header in TINFOIL_HEADERS):
     # if True:
         print(f"Tinfoil connection from {request.remote_addr}")
         return access_tinfoil_shop(request) 
@@ -149,7 +149,9 @@ def get_library_status(title_id):
     if available_versions is None:
         return {
             'has_base': has_base,
-            }
+            'has_latest_version': True,
+            'version': []
+        }
     game_latest_version = get_game_latest_version(available_versions)
 
     for version in available_versions:
@@ -166,8 +168,6 @@ def get_library_status(title_id):
         'version': available_versions
     }
     return library_status
-    
-    print(json.dumps(available_versions, indent=4))
 
 
 if __name__ == '__main__':

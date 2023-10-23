@@ -8,7 +8,8 @@ TITLEDB_URL = 'https://github.com/blawar/titledb.git'
 TITLEDB_DEFAULT_FILES = [
     'cnmts.json',
     'versions.json',
-    'languages.json'
+    'versions.txt',
+    'languages.json',
 ]
 
 OWNFOIL_DB = 'sqlite:////' + os.path.join(CONFIG_DIR, 'ownfoil.db')
@@ -28,7 +29,7 @@ DEFAULT_SETTINGS = {
     }
 }
 
-tinfoil_headers = [
+TINFOIL_HEADERS = [
     'Theme',
     'Uid',
     'Version',
