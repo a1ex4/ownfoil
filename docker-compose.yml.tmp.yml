@@ -3,7 +3,7 @@ version: "3"
 services:
   ownfoil:
     container_name: ownfoil
-    image: a1ex4/ownfoil
+    image: ac1dburn/ownfoil
     environment:
       # For write permission in /games directory
       - PUID=1000
