@@ -88,54 +88,12 @@
             box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
         }
 
-        /* Popup styles */
-        .popup {
-            display: none;
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background-color: rgba(0, 0, 0, 0.7);
-            justify-content: center;
-            align-items: center;
-            z-index: 9999;
-        }
-
-        .popup-content {
-            background-color: white;
-            padding: 20px;
-            border-radius: 8px;
-            max-width: 80%;
-            max-height: 80%;
-            overflow: auto;
-            position: relative;
-            /* Add position relative for absolute positioning */
-        }
-
         /* Close button */
         .close-button {
             position: absolute;
             top: 10px;
             right: 10px;
             cursor: pointer;
-        }
-
-        /* Buttons container at the bottom */
-        .popup-buttons {
-            display: flex;
-            justify-content: flex-end;
-            margin-top: 20px;
-        }
-
-        .popup-button {
-            background-color: #3498db;
-            color: white;
-            padding: 8px 16px;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-            margin-left: 10px;
         }
 
         /* Filtering buttons */
@@ -191,7 +149,7 @@
         <div class="row gy-2 gx-3 align-items-center justify-content-md-center">
 
             <div class="col-auto">
-                <button onclick="resetFilters()" type="button" class="btn btn-primary filter-button">Clear
+                <button id="btnResetFilters" type="button" class="btn btn-primary filter-button">Clear
                     filters</button>
             </div>
 
@@ -208,16 +166,14 @@
             </div>
         </div>
 
-        <div class="row mt-3 align-items-center justify-content-md-center">
-            <div class="col-auto filter-buttons">
-            </div>
+        <div class="d-grid gap-2 d-md-flex justify-content-md-center mt-3 filter-buttons">
         </div>
 
         <div class="grid-container" id="gridContainer">
             <!-- Add more game cards here -->
             <div class="row row-cols-1 row-cols-md-3 g-4">
                 {% for game in games %}
-                <div class="col">
+                <div class="col game-col">
                     <div class="card text-bg-dark game-card">
                         <img src="{{ game.bannerUrl }}" class="card-img">
                         <div class="card-img-overlay game-info">
@@ -226,9 +182,11 @@
                             <p class="card-text game-description"><small>{{ game.id }}</small></p>
                             <div class="tags-container">
                                 {% if game.has_latest_version %}
-                                <span class="badge rounded-pill text-bg-success game-tag">Up to date</span>
+                                <span class="badge rounded-pill text-bg-success game-tag" data-bs-tag="Up to date"><i
+                                        class="bi bi-box-seam-fill"></i></span>
                                 {% else %}
-                                <span class="badge rounded-pill text-bg-warning game-tag">Outdated</span>
+                                <span class="badge rounded-pill text-bg-warning game-tag" data-bs-tag="Outdated"><i
+                                        class="bi bi-box-seam-fill"></i></span>
                                 {% endif %}
                             </div>
                         </div>
@@ -240,36 +198,14 @@
         </div>
     </div>
 
-    <!-- Popup container -->
-    <div class="popup" id="popup">
-        <div class="popup-content">
-            <h2 id="popup-title"></h2>
-            <table id="popup-table">
-                <!-- Table content will be dynamically added here -->
-            </table>
-            <!-- Buttons container at the bottom -->
-            <div class="popup-buttons">
-                <button class="popup-button" onclick="closePopup()"><i class="fas fa-times"></i> Close</button>
-                <button class="popup-button" onclick="doSomething()"><i class="fas fa-check"></i> Do Something</button>
-            </div>
-        </div>
-    </div>
-
     <script>
         // Example data structure from API response
         $(document).ready(function () {
 
-            // $.getJSON("/api/titles", function (result) {
-            //     generateGameCards(result);
             generateFilterButtons();
-            // });
-            // console.log(gamesData[0]);
-
 
             // Function to filter cards based on input text
             function filterByAttribute(attributeText) {
-                console.log("hey");
-                console.log(attributeText);
                 const gameCards = $(".game-card");
                 const lowerCaseAttributeText = attributeText.toLowerCase();
 
@@ -279,18 +215,17 @@
                     const gameDescription = card.find(".game-description").text().toLowerCase();
 
                     if (gameTitle.includes(lowerCaseAttributeText) || gameDescription.includes(lowerCaseAttributeText)) {
-                        card.show(); // Show matching card
+                        card.parent().removeClass('d-none'); // Show matching card
                     } else {
-                        card.hide(); // Hide non-matching card
+                        card.parent().addClass('d-none'); // Hide non-matching card
                     }
                 });
             }
 
             // Listen to input changes in the text filter input
             $("#textFilter").on("input", function () {
-                console.log("hi");
+                $('.game-col').removeClass('d-none');
                 const attributeText = $(this).val();
-                console.log(attributeText);
                 filterByAttribute(attributeText);
             });
 
@@ -300,16 +235,24 @@
                 const filterButtonsContainer = $('.filter-buttons');
 
                 document.querySelectorAll('.game-tag').forEach(tag => {
-                    allTags.add(tag.textContent.trim());
+                    allTags.add(tag.getAttribute('data-bs-tag'));
                 });
 
                 allTags.forEach(tag => {
-                    console.log(tag);
-                    const filterButton = document.createElement('button');
-                    filterButton.className = 'filter-button btn btn-primary';
-                    filterButton.textContent = tag;
-                    filterButton.addEventListener('click', () => toggleFilter(tag));
-                    filterButtonsContainer.append(filterButton);
+                    inputId = 'btn-tag-' + tag.replaceAll(' ', '-');
+                    $('<input>', {
+                        type: 'checkbox',
+                        class: 'btn-check',
+                        id: inputId,
+                        autocomplete: 'off',
+                    }).appendTo(filterButtonsContainer);
+                    $('#' + inputId).on('click', () => toggleFilter(tag));
+
+                    $('<label>', {
+                        class: 'btn btn-outline-primary btn-sm',
+                        for: inputId,
+                        text: tag,
+                    }).appendTo(filterButtonsContainer);
                 });
             }
 
@@ -332,74 +275,34 @@
                 gameCards.each(function () {
                     const card = $(this);
                     const tagsContainer = card.find('.tags-container');
-                    console.log(tagsContainer);
                     const tags = tagsContainer.find('.game-tag');
                     tagsText = [];
-                    console.log(tags);
                     tags.each(function () {
                         const tt = $(this);
-                        console.log(tt.text());
-                        tagsText.push(tt.text());
+                        tagsText.push(tt.attr('data-bs-tag'));
                     })
-                    // const tagsText = tags.map(tagEl => tagEl.text());
-                    console.log(tagsText);
                     if (activeFilters.size === 0 || Array.from(activeFilters).some(tag => tagsText.includes(tag))) {
-                        // card.style.opacity = 1;
-                        // card.css("transform",'scale(1)'); // Show the card with animation
-                        card.show()
+                        card.parent().removeClass('d-none');
                     } else {
-                        // card.style.opacity = 0;
-                        // card.css("transform", 'scale(0.8)'); // Hide the card with animation
-                        card.hide()
+                        card.parent().addClass('d-none');
                     }
                 });
 
-                // Update active filter buttons
-                const filterButtons = document.querySelectorAll('.filter-button');
-                filterButtons.forEach(button => {
-                    const tag = button.innerText;
-                    if (activeFilters.has(tag)) {
-                        button.classList.add('active-filter'); // Add active class
-                    } else {
-                        button.classList.remove('active-filter'); // Remove active class
-                    }
-                });
             }
 
             // Function to reset filters and show all game cards
             function resetFilters() {
                 activeFilters.clear(); // Clear active filters
                 applyFilters(); // Apply filters again to display all cards
+
+                $(".filter-buttons input").each(function (index) {
+                    $(this).prop("checked", false)
+                });
             }
+
+            $('#btnResetFilters').on('click', resetFilters);
 
         })
-
-        // Function to open the popup and populate with game info
-        function openPopup(title, info) {
-            $("#popup-title").html(title);
-
-            // Populate the table with game info
-            const popupTable = document.getElementById("popup-table");
-            popupTable.innerHTML = ""; // Clear previous content
-
-            for (const key in info) {
-                const row = popupTable.insertRow();
-                const cell1 = row.insertCell(0);
-                const cell2 = row.insertCell(1);
-                cell1.innerHTML = key;
-                cell2.innerHTML = info[key];
-            }
-
-            // Show the popup
-            const popup = $("#popup");
-            popup.css("display", "flex");
-        }
-
-        // Function to close the popup
-        function closePopup() {
-            const popup = $("#popup");
-            popup.css("display", "none");
-        }
 
 
     </script>
