@@ -20,6 +20,10 @@
     top: unset;
 }
 
+.game-tag {
+    font-size: 1em;
+}
+
 .card {
     border-radius: 8px !important;
     /* linear-gradient(to top, rgba(0, 0, 0, 0.7), transparent 50%), */
@@ -50,4 +54,9 @@ p.game-description {
 
 .btn-outline-info {
     --bs-btn-hover-color: #fff;
+}
+
+.text-bg-warning {
+    color: #fff !important;
+    background-color: RGBA(var(--bs-warning-rgb),var(--bs-bg-opacity,1)) !important;
 }

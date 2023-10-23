@@ -124,7 +124,13 @@ def get_game_info(title_id):
         }
     except Exception:
         print(f"Title ID not found in titledb: {title_id}")
-        return None
+        return {
+            'name': 'Unrecognized',
+            'bannerUrl': '//placehold.it/400x200',
+            'iconUrl': '',
+            'id': title_id + ' not found in titledb',
+            'category': '',
+        }
 
 def convert_nin_version(version):
     return int(version)//65536
@@ -135,7 +141,7 @@ def get_game_latest_version(all_existing_versions):
 def get_all_existing_versions(titleid):
     titleid = titleid.lower()
     if titleid not in versions_db:
-        print(f'Title ID not in versions.json: {titleid.upper()}')
+        # print(f'Title ID not in versions.json: {titleid.upper()}')
         return None
 
     versions_from_db = versions_db[titleid].keys()
