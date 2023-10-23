@@ -26,7 +26,9 @@
 }
 
 .card-img {
-    mask-image: linear-gradient(to bottom, rgba(7, 0, 91, 0.71), #001233ed 50%);
+    mask-image: linear-gradient(to top, rgba(7, 0, 91, 0.71), #001233ed);
+    border-bottom-right-radius: 8px;
+    border-bottom-left-radius: 8px;
 }
 
 .game-title {
