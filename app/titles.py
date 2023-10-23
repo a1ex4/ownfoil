@@ -63,10 +63,10 @@ def identify_appId(app_id):
 
     else:
         if app_id.endswith('000'):
-            app_type = 'dlc'
+            app_type = 'base'
             title_id = app_id
         elif app_id.endswith('800'):
-            app_type = 'base'
+            app_type = 'patch'
             title_id = app_id[:-3] + '000'
         else:
             app_type = 'dlc'
@@ -164,6 +164,7 @@ def update_titledb_files(app_settings):
     set_titledb_lang_file(app_settings['library']['region'], app_settings['library']['language'])
     
 def update_titledb(app_settings):
+    print('Updating titledb...')
     if not os.path.isdir(TITLEDB_DIR):
         print('Retrieving titledb for the first time...')
         os.system(f'git clone --depth=1 --no-checkout {TITLEDB_URL} {TITLEDB_DIR}')
@@ -171,3 +172,4 @@ def update_titledb(app_settings):
     update_titledb_files(app_settings)
     git_fetch_and_pull()
     load_titledb(app_settings)
+    print('titledb update done.')
