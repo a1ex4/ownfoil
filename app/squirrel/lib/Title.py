@@ -6,7 +6,7 @@ import json
 import Titles
 import Print
 
-from bs4 import BeautifulSoup
+# from bs4 import BeautifulSoup
 import requests
 import time
 import datetime
@@ -16,10 +16,10 @@ import Nsps
 import urllib.request
 import Config
 
-try:
-	from PIL import Image
-except ImportError:
-	import Image
+# try:
+# 	from PIL import Image
+# except ImportError:
+# 	import Image
 
 global grabUrlInit
 global urlCache

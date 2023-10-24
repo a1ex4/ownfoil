@@ -38,7 +38,7 @@ from Crypto.Cipher import AES
 import io
 # import nutdb
 import textwrap
-from PIL import Image
+# from PIL import Image
 from Utils import bytes2human
 
 class SectionTableEntry:

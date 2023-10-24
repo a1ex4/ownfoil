@@ -25,10 +25,10 @@ from Fs.BaseFs import BaseFs
 from Fs.Ticket import Ticket
 from Fs.Nacp import Nacp
 import sq_tools
-import pykakasi
+# import pykakasi
 from Fs.pyNCA3 import NCA3
 import io
-from googletrans import Translator
+# from googletrans import Translator
 import sq_settings
 
 MEDIA_SIZE = 0x200

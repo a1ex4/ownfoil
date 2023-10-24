@@ -11,6 +11,6 @@ tqdm
 # bs4
 # Image
 chardet
-pykakasi
-googletrans
+# pykakasi
+# googletrans
 zstandard

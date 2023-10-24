@@ -6,7 +6,7 @@ import Print
 
 import Keys
 import re
-import pykakasi
+# import pykakasi
 import io
 indent = 1
 tabs = '\t' * indent

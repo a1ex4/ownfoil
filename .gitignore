@@ -1,5 +1,12 @@
 __pycache__
-instance
-venv
 config
 data
+
+# venv
+/bin
+/venv
+/include
+/lib
+/lib64
+/pyvenv.cfg
+/share

@@ -37,7 +37,7 @@ from Crypto.Cipher import AES
 import io
 # import nutdb
 import textwrap
-from PIL import Image
+# from PIL import Image
 import zstandard
 from Crypto.Cipher import AES
 from Crypto.Util import Counter
