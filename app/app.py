@@ -73,7 +73,7 @@ def settings_page():
     with open(os.path.join(TITLEDB_DIR, 'languages.json')) as f:
         languages = json.load(f)
         languages = dict(sorted(languages.items()))
-    return render_template('settings.html', languages_from_titledb=languages)
+    return render_template('settings.html', languages_from_titledb=languages, valid_keys=valid_keys)
 
 @app.get('/api/settings')
 def get_settings_api():
@@ -100,12 +100,19 @@ def set_settings_api(section=None):
 def get_all_titles():
     titles = get_all_titles_from_db()
     games_info = []
-    for title_id in titles:
-        info = get_game_info(title_id)
-        if info is None:
+    for title in titles:
+        if title['type'] == APP_TYPE_UPD:
             continue
-        library_status = get_library_status(title_id)
-        info.update(library_status)
+        info = get_game_info(title['app_id'])
+        if info is None:
+            info = get_game_info(title['title_id'])
+        if info is None:
+            print(f'Info not found for game:')
+            print(title)
+            continue
+        if title['type'] == APP_TYPE_BASE:
+            library_status = get_library_status(title['app_id'])
+            info.update(library_status)
         games_info.append(info)
 
     return sorted(games_info, key=lambda x: (x['name']) )
@@ -124,10 +131,13 @@ def scan_library():
         print(f'Library path {library} does not exists.')
         return
     _, files = getDirsAndFiles(library)
-    for filepath in files:
+    for n, filepath in enumerate(files):
+        file = filepath.replace(library, "")
+        print(f'Identifiying file ({n+1}/{len(files)}): {file}')
         file_info = identify_file(filepath)
 
         if file_info is None:
+            print(f'Failed to identify file: {file}')
             # TODO add warning
             continue
         add_to_titles_db(library, file_info)
@@ -142,7 +152,7 @@ def get_library_status(title_id):
     has_latest_version = False
 
     title_files = get_all_title_files(title_id)
-    if len(list(filter(lambda x: x.get('type') == 'base', title_files))):
+    if len(list(filter(lambda x: x.get('type') == APP_TYPE_BASE, title_files))):
         has_base = True
 
     available_versions = get_all_existing_versions(title_id)
@@ -155,7 +165,7 @@ def get_library_status(title_id):
     game_latest_version = get_game_latest_version(available_versions)
 
     for version in available_versions:
-        if len(list(filter(lambda x: x.get('type') == 'patch' and str(x.get('version')) == str(version['version']), title_files))):
+        if len(list(filter(lambda x: x.get('type') == APP_TYPE_UPD and str(x.get('version')) == str(version['version']), title_files))):
             version['has_version'] = True
             if str(version['version'])  == str(game_latest_version):
                 has_latest_version = True
