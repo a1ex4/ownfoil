@@ -3,7 +3,7 @@ import re
 from binascii import hexlify as hx, unhexlify as uhx
 from pathlib import Path
 my_file = Path(__file__).parent.parent.parent.resolve() / 'config/keys.txt'
-my_file2 = Path('ztools\\keys.txt')	
+my_file2 = Path(__file__).parent.parent.parent.resolve() / 'config/keys.txt.tmp'
 
 class Keys(dict):
 	def __init__(self, keys_type):
@@ -15,7 +15,7 @@ class Keys(dict):
 			if my_file.is_file():
 				f = open(my_file, 'r')
 			if my_file2.is_file():
-				f = open('ztools\\keys.txt', 'r')
+				f = open(my_file2, 'r')
 		except FileNotFoundError:
 			try:
 				f = open(path.join(path.dirname(path.abspath(__file__)), '%s' % self.keys_type), 'r')
@@ -34,7 +34,7 @@ class Keys(dict):
 
 class ProdKeys(Keys):
 	def __init__(self):
-		super(ProdKeys, self).__init__('keys.txt')
+		super(ProdKeys, self).__init__(my_file)
 		if 'header_key' in self:
 			self['nca_header_key'] = self.pop('header_key')
 

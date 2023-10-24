@@ -65,7 +65,7 @@ def index():
         print(f"Tinfoil connection from {request.remote_addr}")
         return access_tinfoil_shop(request) 
 
-    return render_template('index.html', games=get_all_titles())
+    return render_template('index.html', games=get_all_titles(), valid_keys=app_settings['valid_keys'])
 
 @app.route('/settings')
 @access_required('admin')
@@ -73,7 +73,7 @@ def settings_page():
     with open(os.path.join(TITLEDB_DIR, 'languages.json')) as f:
         languages = json.load(f)
         languages = dict(sorted(languages.items()))
-    return render_template('settings.html', languages_from_titledb=languages, valid_keys=valid_keys)
+    return render_template('settings.html', languages_from_titledb=languages, valid_keys=app_settings['valid_keys'])
 
 @app.get('/api/settings')
 def get_settings_api():
@@ -92,6 +92,37 @@ def set_settings_api(section=None):
             load_titledb(app_settings)
     resp = {
         'success': settings_valid,
+        'errors': errors
+    } 
+    return jsonify(resp)
+
+def allowed_file(filename):
+    return '.' in filename and \
+           filename.rsplit('.', 1)[1].lower() in ['keys', 'txt']
+
+@app.post('/api/upload')
+def upload_file():
+    errors = []
+    success = False
+
+    file = request.files['file']
+    if file and allowed_file(file.filename):
+        # filename = secure_filename(file.filename)
+        file.save(KEYS_FILE + '.tmp')
+        print(f'Validating {file.filename}...')
+        valid, invalid_keys = validate_keys(KEYS_FILE + '.tmp')
+        if valid:
+            os.rename(KEYS_FILE + '.tmp', KEYS_FILE)
+            success = True
+            print('Successfully saved valid keys.txt')
+            reload_conf()
+        else:
+            os.remove(KEYS_FILE + '.tmp')
+            errors = invalid_keys
+            print('Invalid keys from keys.txt: ' + ', '.join(invalid_keys))
+
+    resp = {
+        'success': success,
         'errors': errors
     } 
     return jsonify(resp)
@@ -152,6 +183,8 @@ def scan_library():
 def reload_conf():
     global app_settings
     app_settings = load_settings()
+    valid_keys, _ = validate_keys()
+    app_settings['valid_keys'] = valid_keys
 
 def get_library_status(title_id):
     has_base = False
