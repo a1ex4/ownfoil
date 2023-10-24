@@ -3,9 +3,6 @@ import yaml
 import os
 
 
-
-CONFIG_FILE = os.path.join(CONFIG_DIR, 'settings.yaml')
-
 def load_settings():
     if os.path.exists(CONFIG_FILE):
         print('reading conf file')

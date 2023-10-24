@@ -3,6 +3,8 @@ import os
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(APP_DIR, 'data')
 CONFIG_DIR = os.path.join(APP_DIR, 'config')
+CONFIG_FILE = os.path.join(CONFIG_DIR, 'settings.yaml')
+KEYS_FILE = os.path.join(CONFIG_DIR, 'keys.txt')
 TITLEDB_DIR = os.path.join(DATA_DIR, 'titledb')
 TITLEDB_URL = 'https://github.com/blawar/titledb.git'
 TITLEDB_DEFAULT_FILES = [
@@ -45,3 +47,7 @@ ALLOWED_EXTENSIONS = [
     'xci',
     'xcz',
 ]
+
+APP_TYPE_BASE = 'BASE'
+APP_TYPE_UPD = 'UPDATE'
+APP_TYPE_DLC = 'DLC'

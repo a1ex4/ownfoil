@@ -55,7 +55,7 @@ def add_to_titles_db(library, file_info):
     ).scalar():
         return
 
-    print(f'New file to add: {filepath}')
+    # print(f'New file to add: {filepath}')
     new_title = Files(
         filepath = filepath,
         library = library,
@@ -73,8 +73,10 @@ def add_to_titles_db(library, file_info):
     db.session.commit()
 
 def get_all_titles_from_db():
-    results = db.session.query(Files.title_id).distinct()
-    return [row[0] for row in results.all()]
+    # results = db.session.query(Files.title_id).distinct()
+    # return [row[0] for row in results]
+    results = db.session.query(Files).all()
+    return [to_dict(r) for r in results]
 
 def get_all_title_files(title_id):
     title_id = title_id.upper()

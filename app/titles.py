@@ -1,5 +1,6 @@
 import requests
 import os
+import sys
 import re
 import json
 import hashlib
@@ -7,6 +8,24 @@ from constants import *
 
 app_id_regex = r"\[([0-9A-Fa-f]{16})\]"
 version_regex = r"\[v(\d+)\]"
+
+## Squirrel stuff
+valid_keys = False
+if os.path.isfile(KEYS_FILE):
+    try:
+        sys.path.insert(0, './squirrel/lib')
+        sys.path.insert(0, './squirrel/Fs')
+        sys.path.insert(0, './squirrel')
+
+        import Nsp as nsp
+
+        valid_keys = True
+    except Exception as e:
+        print('Provided keys.txt invalid.')
+        print(e)
+
+if not valid_keys:
+    print('Invalid or non existing keys.txt, title identification fallback to filename only.')
 
 def getDirsAndFiles(path):
     entries = os.listdir(path)
@@ -44,17 +63,17 @@ def identify_appId(app_id):
             app = cnmts_db[app_id][app_id_keys[-1]]
             
             if app['titleType'] == 128:
-                app_type = 'base'
+                app_type = APP_TYPE_BASE
                 title_id = app_id.upper()
             elif app['titleType'] == 129:
-                app_type = 'patch'
+                app_type = APP_TYPE_UPD
                 if 'otherApplicationId' in app:
                     title_id = app['otherApplicationId'].upper()
                 else:
                     base_id = app_id[:-3]
                     title_id = [t for t in list(cnmts_db.keys()) if t.startswith(base_id)][0].upper()
             elif app['titleType'] == 130:
-                app_type = 'dlc'
+                app_type = APP_TYPE_DLC
                 if 'otherApplicationId' in app:
                     title_id = app['otherApplicationId'].upper()
                 else:
@@ -62,14 +81,15 @@ def identify_appId(app_id):
                     title_id = [t for t in list(cnmts_db.keys()) if t.startswith(base_id)][0].upper()
 
     else:
+        print(f'WARNING {app_id} not in cnmts_db, fallback to default identification.')
         if app_id.endswith('000'):
-            app_type = 'base'
+            app_type = APP_TYPE_BASE
             title_id = app_id
         elif app_id.endswith('800'):
-            app_type = 'patch'
+            app_type = APP_TYPE_UPD
             title_id = app_id[:-3] + '000'
         else:
-            app_type = 'dlc'
+            app_type = APP_TYPE_DLC
             title_id = app_id[:-3] + '000'
     
     return title_id.upper(), app_type
@@ -89,15 +109,22 @@ def load_titledb(app_settings):
 
 def identify_file(filepath):
     filedir, filename = os.path.split(filepath)
-    app_id = get_app_id_from_filename(filename)
-    version = get_version_from_filename(filename)
     extension = filename.split('.')[-1]
-    try:
+    if valid_keys:
+        f = nsp.Nsp(filepath, 'r+b')
+        app_id = f.getnspid()
+        app_type = f.nsptype()
+        version = f.getVersion()
+        if app_type != APP_TYPE_BASE:
+            # need to get the title ID from cnmts
+            title_id, app_type = identify_appId(app_id)
+        else:
+            title_id = app_id
+
+    else:
+        app_id = get_app_id_from_filename(filename)
+        version = get_version_from_filename(filename)
         title_id, app_type = identify_appId(app_id)
-    except Exception as e:
-        print(f'Unable to identify file {filename}, app ID: {app_id}. The error was:')
-        print(e)
-        return None
 
     return {
         'filepath': filepath,
