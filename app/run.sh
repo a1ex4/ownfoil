@@ -27,6 +27,10 @@ fi
 
 chown -R ${uid}:${gid} /app
 
+# Update ROOT_DIR in config files
+sed -i "s#/games#$root_dir#g" /etc/nginx/http.d/default.conf
+sed -i "s#/games#$root_dir#g" /app/shop_config.toml
+
 # Copy the shop config and template if it does not already exists
 cp -np /app/shop_config.toml $root_dir/shop_config.toml
 cp -np /app/shop_template.toml $root_dir/shop_template.toml
