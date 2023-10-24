@@ -3,3 +3,6 @@ instance
 venv
 config
 data
+
+# squirrel
+app/squirrel/keys.txt
