@@ -29,7 +29,7 @@ import DBmodule
 import io
 # import nutdb
 import textwrap
-from PIL import Image
+# from PIL import Image
 
 MEDIA_SIZE = 0x200
 RSA_PUBLIC_EXPONENT = 65537
