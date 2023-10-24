@@ -6,26 +6,28 @@ import json
 import hashlib
 from constants import *
 
+sys.path.append(APP_DIR + '/squirrel/lib')
+sys.path.append(APP_DIR + '/squirrel/Fs')
+sys.path.append(APP_DIR + '/squirrel')
+
 app_id_regex = r"\[([0-9A-Fa-f]{16})\]"
 version_regex = r"\[v(\d+)\]"
 
-## Squirrel stuff
-valid_keys = False
-if os.path.isfile(KEYS_FILE):
+def validate_keys(key_file=KEYS_FILE):
+    valid = False
+    invalid_keys = []
     try:
-        sys.path.insert(0, './squirrel/lib')
-        sys.path.insert(0, './squirrel/Fs')
-        sys.path.insert(0, './squirrel')
+        if os.path.isfile(key_file):
+            import sq_tools
+            valid, invalid_keys = sq_tools.verify_nkeys(key_file)
+            return valid, invalid_keys
 
-        import Nsp as nsp
-
-        valid_keys = True
     except Exception as e:
-        print('Provided keys.txt invalid.')
+        print('Provided keys.txt invalid:')
         print(e)
+    return valid, invalid_keys
 
-if not valid_keys:
-    print('Invalid or non existing keys.txt, title identification fallback to filename only.')
+valid_keys, _ = validate_keys()
 
 def getDirsAndFiles(path):
     entries = os.listdir(path)
@@ -110,7 +112,10 @@ def load_titledb(app_settings):
 def identify_file(filepath):
     filedir, filename = os.path.split(filepath)
     extension = filename.split('.')[-1]
+    valid_keys, _ = validate_keys()
     if valid_keys:
+        import Nsp as nsp
+
         f = nsp.Nsp(filepath, 'r+b')
         app_id = f.getnspid()
         app_type = f.nsptype()
@@ -122,6 +127,7 @@ def identify_file(filepath):
             title_id = app_id
 
     else:
+        print('Invalid or non existing keys.txt, title identification fallback to filename only.')
         app_id = get_app_id_from_filename(filename)
         version = get_version_from_filename(filename)
         title_id, app_type = identify_appId(app_id)
