@@ -180,13 +180,16 @@ class NcaHeader(File):
 
 
 		if self.hasTitleRights():
-			if self.titleId.upper() in Titles.keys() and Titles.get(self.titleId.upper()).key:
-				rid=self.titleId.upper()
-				if not str(self.titleId).endswith('0'):
-					if str(nca.header.contentType) == 'Content.PROGRAM' or str(nca.header.contentType) == 'Content.DATA':
-						rid=str(self.titleId.upper())[:-1]+'0'
-				self.titleKeyDec = Keys.decryptTitleKey(uhx(Titles.get(rid).key), self.masterKey)
-			else:
+			try:
+				if self.titleId.upper() in Titles.keys() and Titles.get(self.titleId.upper()).key:
+					rid=self.titleId.upper()
+					if not str(self.titleId).endswith('0'):
+						if str(nca.header.contentType) == 'Content.PROGRAM' or str(nca.header.contentType) == 'Content.DATA':
+							rid=str(self.titleId.upper())[:-1]+'0'
+					self.titleKeyDec = Keys.decryptTitleKey(uhx(Titles.get(rid).key), self.masterKey)
+				else:
+					pass
+			except:
 				pass
 				#Print.info('could not find title key!')
 		else:

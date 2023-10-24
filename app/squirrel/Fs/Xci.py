@@ -31,7 +31,7 @@ from operator import itemgetter, attrgetter, methodcaller
 import shutil
 import DBmodule
 import io
-import nutdb
+# import nutdb
 import textwrap
 from PIL import Image
 import zstandard

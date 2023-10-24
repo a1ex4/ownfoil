@@ -133,7 +133,7 @@ def load(fileName):
 			pass
 
 if sq_settings.key_system =="production":
-	raw_keys_file = Path('keys.txt')
+	raw_keys_file = Path(__file__).parent.parent.parent.resolve() / 'config/keys.txt'
 	raw_keys_file2 = Path('ztools\\keys.txt')
 	raw_keys_file3 = Path('ztools/keys.txt')
 else:

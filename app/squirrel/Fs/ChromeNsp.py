@@ -36,7 +36,7 @@ if sys.platform == 'win32':
 from operator import itemgetter, attrgetter, methodcaller
 from Crypto.Cipher import AES
 import io
-import nutdb
+# import nutdb
 import textwrap
 from PIL import Image
 import zstandard

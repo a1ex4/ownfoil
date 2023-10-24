@@ -47,20 +47,24 @@ import Status
 
 # SET ENVIRONMENT
 squirrel_dir=os.path.abspath(os.curdir)
-NSCB_dir=os.path.abspath('../'+(os.curdir))
+# NSCB_dir=os.path.abspath('../'+(os.curdir))
 
-if os.path.exists(os.path.join(squirrel_dir,'ztools')):
-	NSCB_dir=squirrel_dir
-	zconfig_dir=os.path.join(NSCB_dir, 'zconfig')
-	ztools_dir=os.path.join(NSCB_dir,'ztools')
-	squirrel_dir=ztools_dir
-elif os.path.exists(os.path.join(NSCB_dir,'ztools')):
-	squirrel_dir=squirrel_dir
-	ztools_dir=os.path.join(NSCB_dir, 'ztools')
-	zconfig_dir=os.path.join(NSCB_dir, 'zconfig')
-else:
-	ztools_dir=os.path.join(NSCB_dir, 'ztools')
-	zconfig_dir=os.path.join(NSCB_dir, 'zconfig')
+# if os.path.exists(os.path.join(squirrel_dir,'ztools')):
+# 	NSCB_dir=squirrel_dir
+# 	zconfig_dir=os.path.join(NSCB_dir, 'zconfig')
+# 	ztools_dir=os.path.join(NSCB_dir,'ztools')
+# 	squirrel_dir=ztools_dir
+# elif os.path.exists(os.path.join(NSCB_dir,'ztools')):
+# 	squirrel_dir=squirrel_dir
+# 	ztools_dir=os.path.join(NSCB_dir, 'ztools')
+# 	zconfig_dir=os.path.join(NSCB_dir, 'zconfig')
+# else:
+# 	ztools_dir=os.path.join(NSCB_dir, 'ztools')
+# 	zconfig_dir=os.path.join(NSCB_dir, 'zconfig')
+
+NSCB_dir = squirrel_dir
+zconfig_dir = os.path.join(NSCB_dir, 'config')
+ztools_dir = NSCB_dir
 
 if os.path.exists(zconfig_dir):
 	DATABASE_folder=os.path.join(zconfig_dir, 'DB')
@@ -6565,7 +6569,7 @@ if __name__ == '__main__':
 		#parser.add_argument('-dlcrn','--dlcrname', help="If false keeps base name in dlcs")
 
 		if args.renamef:
-			import nutdb
+			# import nutdb
 			languetag=''
 			if args.romanize:
 				for input in args.romanize:

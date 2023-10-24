@@ -35,7 +35,7 @@ if sys.platform == 'win32':
 from operator import itemgetter, attrgetter, methodcaller
 from Crypto.Cipher import AES
 import io
-import nutdb
+# import nutdb
 import textwrap
 from PIL import Image
 import zstandard
@@ -102,9 +102,8 @@ class Nsp(Pfs0):
 			self.setPath(path)
 			#if files:
 			#	self.pack(files)
-
-		if self.titleId and self.isUnlockable():
-			Print.info('unlockable title found ' + self.path)
+		# if self.titleId and self.isUnlockable():
+		# 	Print.info('unlockable title found ' + self.path)
 		#	self.unlock()
 
 	def loadCsv(self, line, map = ['id', 'path', 'version', 'timestamp', 'hasValidTicket']):
@@ -136,9 +135,11 @@ class Nsp(Pfs0):
 
 	def title(self):
 
-
-		if self.titleId in Titles.keys():
-			return Titles.get(self.titleId)
+		try:
+			if self.titleId in Titles.keys():
+				return Titles.get(self.titleId)
+		except:
+			pass
 
 		t = Title.Title()
 		t.setId(self.titleId)

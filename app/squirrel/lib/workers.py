@@ -53,7 +53,7 @@ def back_check_files():
 	import sys	
 	sys.stdout = open(templog, 'w')
 	sys.stderr = sys.stdout
-	import nutdb
+	# import nutdb
 	nutdb.check_files()
 	sys.stdout=open(os.devnull, 'w')
 	sys.stderr=sys.stdout

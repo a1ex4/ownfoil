@@ -2,7 +2,7 @@ import os.path as path
 import re
 from binascii import hexlify as hx, unhexlify as uhx
 from pathlib import Path
-my_file = Path('keys.txt')
+my_file = Path(__file__).parent.parent.parent.resolve() / 'config/keys.txt'
 my_file2 = Path('ztools\\keys.txt')	
 
 class Keys(dict):
@@ -13,7 +13,7 @@ class Keys(dict):
 								\s*([a-fA-F0-9]*)\s* # key''', re.X)
 		try:
 			if my_file.is_file():
-				f = open('keys.txt', 'r')
+				f = open(my_file, 'r')
 			if my_file2.is_file():
 				f = open('ztools\\keys.txt', 'r')
 		except FileNotFoundError:
