@@ -73,6 +73,7 @@ def get_otherurl(tfile,dbname):
 if os.path.exists(zconfig_dir):
 	DATABASE_folder=os.path.join(zconfig_dir, 'DB')
 	nutdbfile=os.path.join(DATABASE_folder,'nutdb.json')	
+	print(nutdbfile)
 	urlconfig=os.path.join(zconfig_dir,'NUT_DB_URL.txt')
 	urlregions=os.path.join(zconfig_dir,'NUT_DB_REGIONS_URL.txt')
 	urlconfig_mirror=os.path.join(zconfig_dir,'NUT_DB_URL_mirror.txt')
@@ -151,6 +152,7 @@ def get_DBfolder():
 	
 def getnutdb():
 	try:
+		print(json_url)
 		response = requests.get(json_url, stream=True)
 	except BaseException as e:
 		Print.error('Exception: ' + str(e))	

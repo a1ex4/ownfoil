@@ -16,7 +16,7 @@ import sq_tools
 import os
 import ast
 import Print
-import nutdb
+# import nutdb
 from subprocess import call 
 import File_chunk2 as file_chunk
 import csv

@@ -442,7 +442,7 @@ def dump_title(input_folder,output=None,ofolder=None,root_r_PATH=False):
 	titleid=cnmt_dict['titleid']	
 	version=cnmt_dict['titleversion']		
 	if title_name==None:
-		import nutdb
+		# import nutdb
 		title_name=nutdb.get_dlcname(titleid)			
 	nsx_name=f"{title_name} [{titleid}][v{version}].nsx"
 	print(nsx_name)

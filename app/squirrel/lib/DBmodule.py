@@ -194,7 +194,7 @@ class FWDB():
 		
 	def detect_xci_fw(filepath,doprint=True,remote=False):
 		import sq_tools	
-		import nutdb
+		# import nutdb
 		nutdb.check_other_file(urlconfig,'fw',nutdb=False)
 		FW=None;dump={}
 		if remote==False:

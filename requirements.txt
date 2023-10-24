@@ -5,11 +5,11 @@ PyYAML==6.0.1
 requests==2.31.0
 Werkzeug==2.3.7
 
-## squirrel
+# Squirrel
 pycryptodome
 tqdm
-bs4
-Image
+# bs4
+# Image
 chardet
 pykakasi
 googletrans
