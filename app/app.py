@@ -103,19 +103,21 @@ def get_all_titles():
     for title in titles:
         if title['type'] == APP_TYPE_UPD:
             continue
-        info = get_game_info(title['app_id'])
-        if info is None:
-            info = get_game_info(title['title_id'])
-        if info is None:
+        info_from_titledb = get_game_info(title['app_id'])
+        if info_from_titledb is None:
             print(f'Info not found for game:')
             print(title)
             continue
+        title.update(info_from_titledb)
         if title['type'] == APP_TYPE_BASE:
             library_status = get_library_status(title['app_id'])
-            info.update(library_status)
-        games_info.append(info)
-
-    return sorted(games_info, key=lambda x: (x['name']) )
+            title.update(library_status)
+            title['title_id_name'] = title['name']
+        if title['type'] == APP_TYPE_DLC:
+            titleid_info = get_game_info(title['title_id'])
+            title['title_id_name'] = titleid_info['name']
+        games_info.append(title)
+    return sorted(games_info, key=lambda x: (x['title_id_name'] + x['app_id']) )
 
 @app.route('/api/get_game/<int:id>')
 def serve_game(id):
@@ -132,6 +134,10 @@ def scan_library():
         return
     _, files = getDirsAndFiles(library)
     for n, filepath in enumerate(files):
+        if exists := db.session.query(
+            db.session.query(Files).filter_by(filepath=filepath).exists()
+        ).scalar():
+            continue
         file = filepath.replace(library, "")
         print(f'Identifiying file ({n+1}/{len(files)}): {file}')
         file_info = identify_file(filepath)
@@ -163,7 +169,6 @@ def get_library_status(title_id):
             'version': []
         }
     game_latest_version = get_game_latest_version(available_versions)
-
     for version in available_versions:
         if len(list(filter(lambda x: x.get('type') == APP_TYPE_UPD and str(x.get('version')) == str(version['version']), title_files))):
             version['has_version'] = True

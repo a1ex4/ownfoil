@@ -177,16 +177,33 @@
                     <div class="card text-bg-dark game-card">
                         <img src="{{ game.bannerUrl }}" class="card-img">
                         <div class="card-img-overlay game-info">
+                            {% if game.title_id_name is defined %}
+                            <h5 class="card-title game-title">{{ game.title_id_name }}</h5>
+                            {% else %}
                             <h5 class="card-title game-title">{{ game.name }}</h5>
-                            <!-- <p class="card-text">This is a wider card with supporting text below as a natural lead-in to additional content. This content is a little bit longer.</p> -->
-                            <p class="card-text game-description"><small>{{ game.id }}</small></p>
+                            {% endif %}
+                            <p class="card-text game-description">
+                                {% if 'DLC' == game.type %}
+                                <small>
+                                    {{ game.name }} | 
+                                </small>
+                                {% endif %}
+                                <small>
+                                    {{ game.id }}
+                                </small>
+                            </p>
                             <div class="tags-container">
+                                <!-- App type -->
+                                <span class="badge rounded-pill text-bg-info game-tag" data-bs-tag="{{ game.type }}">{{ game.type }}</span>
+                                <!-- version up to date or outdated -->
+                                {% if game.has_latest_version is defined %}
                                 {% if game.has_latest_version %}
                                 <span class="badge rounded-pill text-bg-success game-tag" data-bs-tag="Up to date"><i
                                         class="bi bi-box-seam-fill"></i></span>
                                 {% else %}
                                 <span class="badge rounded-pill text-bg-warning game-tag" data-bs-tag="Outdated"><i
                                         class="bi bi-box-seam-fill"></i></span>
+                                {% endif %}
                                 {% endif %}
                             </div>
                         </div>

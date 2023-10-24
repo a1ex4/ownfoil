@@ -60,3 +60,9 @@ p.game-description {
     color: #fff !important;
     background-color: RGBA(var(--bs-warning-rgb),var(--bs-bg-opacity,1)) !important;
 }
+
+.text-bg-info {
+    color: #fff !important;
+    background-color: RGBA(var(--bs-info-rgb),var(--bs-bg-opacity,1)) !important;
+    font-weight: normal;
+  }
