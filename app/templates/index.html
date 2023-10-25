@@ -146,6 +146,19 @@
     {% block content %}
     <div id="content" class="container-fluid mt-3">
 
+        {% if admin_account_created == false %}
+        <div class="alert alert-danger" role="alert">
+            <h4 class="alert-heading">Missing admin account!</h4>
+            <p>Ownfoil requires an admin account to enable authentication. Until an account with admin rights is
+                created, <strong>authentication is disabled, anyone can access and change the configuration of your
+                    shop!</strong>
+                <br>
+                Add an admin account <a href="/settings#Authentication" class="alert-link">in the Setting page, under
+                    Authentication</a>.
+            </p>
+        </div>
+        {% endif %}
+
         {% if valid_keys == false %}
         <div class="alert alert-warning alert-dismissible fade show" role="alert">
             <h4 class="alert-heading">Missing console keys!</h4>

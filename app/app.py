@@ -55,6 +55,13 @@ def access_tinfoil_shop(request):
 
     return serve_tinfoil_shop()
 
+def access_shop():
+    return render_template('index.html', games=get_all_titles(), admin_account_created=admin_account_created(), valid_keys=app_settings['valid_keys'])
+
+@access_required('shop')
+def access_shop_auth():
+    return access_shop()
+
 @app.route('/')
 def index():
     scan_library()
@@ -63,9 +70,11 @@ def index():
     if all(header in request_headers for header in TINFOIL_HEADERS):
     # if True:
         print(f"Tinfoil connection from {request.remote_addr}")
-        return access_tinfoil_shop(request) 
-
-    return render_template('index.html', games=get_all_titles(), valid_keys=app_settings['valid_keys'])
+        return access_tinfoil_shop(request)
+    
+    if not app_settings['shop']['public']:
+        return access_shop_auth()
+    return access_shop()
 
 @app.route('/settings')
 @access_required('admin')
@@ -73,7 +82,7 @@ def settings_page():
     with open(os.path.join(TITLEDB_DIR, 'languages.json')) as f:
         languages = json.load(f)
         languages = dict(sorted(languages.items()))
-    return render_template('settings.html', languages_from_titledb=languages, valid_keys=app_settings['valid_keys'])
+    return render_template('settings.html', languages_from_titledb=languages, admin_account_created=admin_account_created(), valid_keys=app_settings['valid_keys'])
 
 @app.get('/api/settings')
 def get_settings_api():

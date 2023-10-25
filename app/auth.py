@@ -5,12 +5,24 @@ from functools import wraps
 from db import *
 from flask_login import LoginManager
 
+def admin_account_created():
+    return len(User.query.filter_by(admin_access=True).all())
+
+def unauthorized_json():
+    response = login_manager.unauthorized()
+    resp = {
+        'success': False,
+        'status_code': response.status_code,
+        'location': response.location
+    }
+    return jsonify(resp)
+
 def access_required(access: str):
     def _access_required(f):
         @wraps(f)
         def decorated_view(*args, **kwargs):
             if not current_user.is_authenticated:
-                if len(User.query.filter_by(admin_access=True).all()):
+                if admin_account_created():
                     return login_manager.unauthorized()
                 else:
                     return f(*args, **kwargs)
@@ -141,12 +153,14 @@ def signup_post():
     backup_access = data['backup_access']
     admin_access = data['admin_access']
 
-    user = User.query.filter_by(user=username).first() # if this returns a user, then the email already exists in database
+    user = User.query.filter_by(user=username).first() # if this returns a user, then the user already exists in database
     
     if user: # if a user is found, we want to redirect back to signup page so user can try again
         print('user already exists')
         # Todo redirect to incoming page or return success: false
         return redirect(url_for('auth.signup'))
+    
+    existing_admin = admin_account_created()
 
     # create a new user with the form data. Hash the password so the plaintext version isn't saved.
     new_user = User(user=username, password=generate_password_hash(password, method='scrypt'), admin_access=admin_access, shop_access=shop_access, backup_access=backup_access)
@@ -158,6 +172,12 @@ def signup_post():
     resp = {
         'success': signup_success
     } 
+
+    if not existing_admin and admin_access:
+        # First admin account created
+        resp['status_code'] = 302,
+        resp['location'] = '/settings'
+    
     return jsonify(resp)
 
 
