@@ -180,7 +180,10 @@ def scan_library():
             continue
         file = filepath.replace(library, "")
         print(f'Identifiying file ({n+1}/{len(files)}): {file}')
-        file_info = identify_file(filepath)
+        if not app_settings['valid_keys']:
+            print('Invalid or non existing keys.txt, title identification fallback to filename only.')
+
+        file_info = identify_file(filepath, valid_keys=app_settings['valid_keys'])
 
         if file_info is None:
             print(f'Failed to identify file: {file}')

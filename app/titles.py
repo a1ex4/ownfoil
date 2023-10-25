@@ -109,10 +109,9 @@ def load_titledb(app_settings):
     with open(os.path.join(TITLEDB_DIR, 'versions.json')) as f:
         versions_db = json.load(f)
 
-def identify_file(filepath):
+def identify_file(filepath, valid_keys=False):
     filedir, filename = os.path.split(filepath)
     extension = filename.split('.')[-1]
-    valid_keys, _ = validate_keys()
     if valid_keys:
         import Nsp as nsp
 
@@ -127,7 +126,6 @@ def identify_file(filepath):
             title_id = app_id
 
     else:
-        print('Invalid or non existing keys.txt, title identification fallback to filename only.')
         app_id = get_app_id_from_filename(filename)
         version = get_version_from_filename(filename)
         title_id, app_type = identify_appId(app_id)
