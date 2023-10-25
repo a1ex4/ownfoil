@@ -17,7 +17,20 @@
 
                 <!-- <h1>Settings</h1> -->
 
-                
+                {% if admin_account_created == false %}
+                <div class="alert alert-danger" role="alert">
+                    <h4 class="alert-heading">Missing admin account!</h4>
+                    <p>Ownfoil requires an admin account to enable authentication. Until an account with admin rights is
+                        created, <strong>authentication is disabled, anyone can access and change the configuration of
+                            your shop!</strong>
+                        <br>
+                        Add an admin account <a href="/settings#Authentication" class="alert-link">in the Setting page,
+                            under
+                            Authentication</a>.
+                    </p>
+                </div>
+                {% endif %}
+
                 {% if valid_keys == false %}
                 <div id="missingKeysAlert" class="alert alert-warning alert-dismissible fade show" role="alert">
                     <h4 class="alert-heading">Missing console keys!</h4>
@@ -35,7 +48,7 @@
                 </div>
                 {% endif %}
 
-                <h2 class="pb-3">Authentication</h2>
+                <h2 id="Authentication" class="pb-3">Authentication</h2>
 
                 <table class="table table-hover caption-top" id="userTable">
                     <caption>List of users:</caption>
@@ -141,7 +154,8 @@
 
                 <div class="mb-3">
                     <label for="consoleKeysInput" class="form-label">Console keys:</label>
-                    <input class="form-control {% if valid_keys == true %}is-valid d-none{% endif %}" type="file" accept=".keys,.txt" id="consoleKeysInput">
+                    <input class="form-control {% if valid_keys == true %}is-valid d-none{% endif %}" type="file"
+                        accept=".keys,.txt" id="consoleKeysInput">
                     <div class="valid-feedback">
                         Keys are valid!
                     </div>
@@ -219,6 +233,13 @@
     function fillUserTable() {
         $('#userTable tbody').empty();
         $.getJSON("/api/users", function (result) {
+            console.log(result)
+            if (!result['success']) {
+                if (result['status_code'] == '302') {
+                    window.location.href = result['location']
+                    return
+                }
+            }
             allUsers = result;
             allUsernames = [];
             if (!result.length) {
@@ -347,6 +368,10 @@
                 contentType: "application/json",
                 success: function (result) {
                     if (result['success']) {
+                        if (result['status_code'] == '302') {
+                            window.location.href = result['location']
+                            return
+                        }
                         console.log('Signup Success!');
                         setInputVal("inputNewUser", "")
                         setInputVal("inputNewUserPassword", "")
@@ -378,6 +403,7 @@
                 success: function (result) {
                     if (result['success']) {
                         console.log(result)
+                        $('#consoleKeysInput').removeClass('is-invalid');
                         $('#consoleKeysInput').addClass('is-valid');
                         $('#missingKeysAlert').addClass('d-none');
                     } else {
