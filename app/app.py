@@ -157,7 +157,7 @@ def get_all_titles():
             titleid_info = get_game_info(title['title_id'])
             title['title_id_name'] = titleid_info['name']
         games_info.append(title)
-    return sorted(games_info, key=lambda x: (x['title_id_name'] + x['app_id']) )
+    return sorted(games_info, key=lambda x: ("title_id_name" not in x, x.get("title_id_name", None), x['app_id']))
 
 @app.route('/api/get_game/<int:id>')
 def serve_game(id):

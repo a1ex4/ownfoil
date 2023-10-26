@@ -109,29 +109,47 @@ def load_titledb(app_settings):
     with open(os.path.join(TITLEDB_DIR, 'versions.json')) as f:
         versions_db = json.load(f)
 
+def identify_file_from_filename(filename):
+    version = get_version_from_filename(filename)
+    if version is None:
+        print(f'Unable to extract version from filename: {filename}')
+
+    app_id = get_app_id_from_filename(filename)
+    if app_id is None:
+        print(f'Unable to extract Title ID from filename: {filename}')
+        return None, None, None, None
+    
+    title_id, app_type = identify_appId(app_id)
+    return app_id, title_id, app_type, version
+    
+
 def identify_file(filepath, valid_keys=False):
     filedir, filename = os.path.split(filepath)
     extension = filename.split('.')[-1]
     if valid_keys:
         import Nsp as nsp
-
-        f = nsp.Nsp(filepath, 'r+b')
-        app_id = f.getnspid()
-        app_type = f.nsptype()
-        version = f.getVersion()
-        if app_type != APP_TYPE_BASE:
-            # need to get the title ID from cnmts
-            title_id, app_type = identify_appId(app_id)
-        else:
-            title_id = app_id
+        try:
+            f = nsp.Nsp(filepath, 'r+b')
+            app_id = f.getnspid()
+            app_type = f.nsptype()
+            version = f.getVersion()
+            if app_type != APP_TYPE_BASE:
+                # need to get the title ID from cnmts
+                title_id, app_type = identify_appId(app_id)
+            else:
+                title_id = app_id
+        except Exception as e:
+            print(f'Could not read file {filepath} with decryption: {e}. Trying identification with filename...')
+            app_id, title_id, app_type, version = identify_file_from_filename(filename)
+            if app_id is None:
+                print(f'Unable to extract title from filename: {filename}')
+                return None
 
     else:
-        app_id = get_app_id_from_filename(filename)
+        app_id, title_id, app_type, version = identify_file_from_filename(filename)
         if app_id is None:
             print(f'Unable to extract title from filename: {filename}')
             return None
-        version = get_version_from_filename(filename)
-        title_id, app_type = identify_appId(app_id)
 
     return {
         'filepath': filepath,
