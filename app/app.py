@@ -56,7 +56,7 @@ def access_tinfoil_shop(request):
     return serve_tinfoil_shop()
 
 def access_shop():
-    return render_template('index.html', games=get_all_titles(), admin_account_created=admin_account_created(), valid_keys=app_settings['valid_keys'])
+    return render_template('index.html', title='Library', games=get_all_titles(), admin_account_created=admin_account_created(), valid_keys=app_settings['valid_keys'])
 
 @access_required('shop')
 def access_shop_auth():
@@ -82,7 +82,7 @@ def settings_page():
     with open(os.path.join(TITLEDB_DIR, 'languages.json')) as f:
         languages = json.load(f)
         languages = dict(sorted(languages.items()))
-    return render_template('settings.html', languages_from_titledb=languages, admin_account_created=admin_account_created(), valid_keys=app_settings['valid_keys'])
+    return render_template('settings.html', title='Settings', languages_from_titledb=languages, admin_account_created=admin_account_created(), valid_keys=app_settings['valid_keys'])
 
 @app.get('/api/settings')
 def get_settings_api():

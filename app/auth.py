@@ -94,7 +94,7 @@ def login():
         next_url = request.args.get('next', '')
         if current_user.is_authenticated:
             return redirect(next_url if len(next_url) else '/')
-        return render_template('login.html')
+        return render_template('login.html', title='Login')
         
     # login code goes here
     username = request.form.get('user')
