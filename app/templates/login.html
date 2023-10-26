@@ -1,31 +1,36 @@
 {% extends "base.html" %}
 
 {% block content %}
-<div class="column is-4 is-offset-4">
-    <h3 class="title">Login</h3>
-    <div class="box">
-        <form method="POST" action="/login">
-            <div class="field">
-                <div class="control">
-                    <input class="input is-large" name="user" placeholder="User" autofocus="">
+<div class="container">
+
+    <div class="row d-flex flex-column min-vh-100 justify-content-center align-items-center">
+        <div class="col-sm-4">
+
+            <div class="card">
+                <div class="card-body">
+                    <h5 class="card-title">Login</h5>
+
+
+                    <form method="POST" action="/login">
+                        <div class="mb-3">
+                            <label for="exampleInputEmail1" class="form-label">Username</label>
+                            <input class="form-control" name="user" id="exampleInputEmail1" placeholder="User"
+                                aria-describedby="emailHelp">
+                        </div>
+                        <div class="mb-3">
+                            <label for="exampleInputPassword1" class="form-label">Password</label>
+                            <input type="password" name="password" class="form-control" id="exampleInputPassword1">
+                        </div>
+                        <div class="mb-3 form-check">
+                            <input type="checkbox" name="remember" class="form-check-input" id="exampleCheck1">
+                            <label class="form-check-label" for="exampleCheck1">Remember me</label>
+                        </div>
+                        <input type="hidden" name="next" value="{{ request.args.get('next', '') }}" />
+                        <button type="submit" class="btn btn-primary">Login</button>
+                    </form>
                 </div>
             </div>
-
-            <div class="field">
-                <div class="control">
-                    <input class="input is-large" type="password" name="password" placeholder="Your Password">
-                </div>
-            </div>
-            <div class="field">
-                <label class="checkbox">
-                    <input type="checkbox" name="remember">
-                    Remember me
-                </label>
-            </div>
-            <input type="hidden" name="next" value="{{ request.args.get('next', '') }}" />
-
-            <button class="button is-block is-info is-large is-fullwidth">Login</button>
-        </form>
+        </div>
     </div>
 </div>
 {% endblock %}
