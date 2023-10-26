@@ -158,9 +158,13 @@ def signup_post():
 
     username = data['user']
     password = data['password']
-    shop_access = data['shop_access']
-    backup_access = data['backup_access']
     admin_access = data['admin_access']
+    if admin_access:
+        shop_access = True
+        backup_access = True
+    else:
+        shop_access = data['shop_access']
+        backup_access = data['backup_access']
 
     user = User.query.filter_by(user=username).first() # if this returns a user, then the user already exists in database
     
