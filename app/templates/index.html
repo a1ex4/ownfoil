@@ -35,8 +35,66 @@
     <div class="row gy-2 gx-3 align-items-center justify-content-md-center">
 
         <div class="col-auto">
-            <button id="btnResetFilters" type="button" class="btn btn-primary filter-button">Clear
-                filters</button>
+            <div class="btn-group dropdown-center" role="group">
+                <button type="button" class="btn btn-primary"><i class="bi bi-funnel-fill"></i></button>
+                <div class="btn-group" role="group">
+                    <button id="filterDropdownBtn" type="button" class="btn btn-primary dropdown-toggle"
+                        data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
+                        Filters
+                    </button>
+                    <ul class="dropdown-menu">
+                        <li>
+                            <label class="form-check-label dropdown-item" for="filterCheckBase">
+                                <input class="form-check-input" type="checkbox" value="" id="filterCheckBase">
+                                BASE
+                            </label>
+                        </li>
+                        <li>
+                            <label class="form-check-label dropdown-item" for="filterCheckDlc">
+                                <input class="form-check-input" type="checkbox" value="" id="filterCheckDlc">
+                                DLC
+                            </label>
+                        </li>
+                        <li>
+                            <hr class="dropdown-divider">
+                        </li>
+                        <li>
+                            <label class="form-check-label dropdown-item" for="filterCheckUpToDate">
+                                <input class="form-check-input" type="checkbox" value="" id="filterCheckUpToDate">
+                                Up to date
+                            </label>
+                        </li>
+                        <li>
+                            <label class="form-check-label dropdown-item" for="filterCheckMissingUpdate">
+                                <input class="form-check-input" type="checkbox" value="" id="filterCheckMissingUpdate">
+                                Missing Update
+                            </label>
+                        </li>
+                        <li>
+                            <hr class="dropdown-divider">
+                        </li>
+                        <li>
+                            <label class="form-check-label dropdown-item" for="filterCheckComplete">
+                                <input class="form-check-input" type="checkbox" value="" id="filterCheckComplete">
+                                Complete
+                            </label>
+                        </li>
+                        <li>
+                            <label class="form-check-label dropdown-item" for="filterCheckMissingDlc">
+                                <input class="form-check-input" type="checkbox" value="" id="filterCheckMissingDlc">
+                                Missing DLC
+                            </label>
+                        </li>
+                        <!-- <li>
+                        <hr class="dropdown-divider">
+                    </li> -->
+                        <div class="text-center m-2">
+                            <button id="btnApplyFilters" type="button" class="btn btn-primary" style="width: 85%;">Apply
+                                filters</button>
+                        </div>
+                    </ul>
+                </div>
+            </div>
         </div>
 
         <div class="col-auto">
@@ -49,9 +107,6 @@
                 <button type="button" class="btn btn-primary"><i class="bi bi-list-ul"></i></button>
             </div>
         </div>
-    </div>
-
-    <div class="d-grid gap-2 d-md-flex justify-content-md-center mt-3 filter-buttons">
     </div>
 
     <div class="grid-container" id="gridContainer">
@@ -105,10 +160,8 @@
     // Example data structure from API response
     $(document).ready(function () {
 
-        generateFilterButtons();
-
         // Function to filter cards based on input text
-        function filterByAttribute(attributeText) {
+        function filterByCardText(attributeText) {
             const gameCards = $(".game-card");
             const lowerCaseAttributeText = attributeText.toLowerCase();
 
@@ -117,59 +170,65 @@
                 const gameTitle = card.find(".game-title").text().toLowerCase();
                 const gameDescription = card.find(".game-description").text().toLowerCase();
 
-                if (gameTitle.includes(lowerCaseAttributeText) || gameDescription.includes(lowerCaseAttributeText)) {
-                    card.parent().removeClass('d-none'); // Show matching card
+                if ((gameTitle.includes(lowerCaseAttributeText) || gameDescription.includes(lowerCaseAttributeText))) {
+                    card.parent().removeAttr('filtered-text');
+                    if ((card.parent().attr('filtered-tag') != 'set') ){
+                        card.parent().removeClass('d-none'); // Show matching card
+                    }
                 } else {
                     card.parent().addClass('d-none'); // Hide non-matching card
-                }
+                    card.parent().attr('filtered-text', 'set');
+                }                
             });
         }
 
         // Listen to input changes in the text filter input
         $("#textFilter").on("input", function () {
-            $('.game-col').removeClass('d-none');
             const attributeText = $(this).val();
-            filterByAttribute(attributeText);
+            filterByCardText(attributeText);
         });
 
-        function generateFilterButtons() {
-            // Extract tags from game cards and generate filter buttons
-            const allTags = new Set();
-            const filterButtonsContainer = $('.filter-buttons');
-
-            document.querySelectorAll('.game-tag').forEach(tag => {
-                allTags.add(tag.getAttribute('data-bs-tag'));
-            });
-
-            allTags.forEach(tag => {
-                inputId = 'btn-tag-' + tag.replaceAll(' ', '-');
-                $('<input>', {
-                    type: 'checkbox',
-                    class: 'btn-check',
-                    id: inputId,
-                    autocomplete: 'off',
-                }).appendTo(filterButtonsContainer);
-                $('#' + inputId).on('click', () => toggleFilter(tag));
-
-                $('<label>', {
-                    class: 'btn btn-outline-primary btn-sm',
-                    for: inputId,
-                    text: tag,
-                }).appendTo(filterButtonsContainer);
-            });
-        }
-
         // Set to store active filters
-        const activeFilters = new Set();
+        const activeTypeFilters = new Set();
+        const activeUpdateFilters = new Set();
+        const activeCompletionFilters = new Set();
 
-        // Function to toggle filter and apply filters
-        function toggleFilter(tag) {
-            if (activeFilters.has(tag)) {
-                activeFilters.delete(tag);
+        function updateFilter() {
+            // $('#filterDropdownBtn').toggle();
+            if ($('#filterCheckBase').is(":checked")) {
+                activeTypeFilters.add('BASE');
             } else {
-                activeFilters.add(tag);
+                activeTypeFilters.delete('BASE');
             }
-            applyFilters(); // Apply filters to show/hide game cards
+            if ($('#filterCheckDlc').is(":checked")) {
+                activeTypeFilters.add('DLC');
+            } else {
+                activeTypeFilters.delete('DLC');
+            }
+            if ($('#filterCheckUpToDate').is(":checked")) {
+                activeUpdateFilters.add('Up to date');
+            }
+            else {
+                activeUpdateFilters.delete('Up to date');
+            }
+            if ($('#filterCheckMissingUpdate').is(":checked")) {
+                activeUpdateFilters.add('Outdated');
+            }
+            else {
+                activeUpdateFilters.delete('Outdated');
+            }
+            if ($('#filterCheckComplete').is(":checked")) {
+                activeCompletionFilters.add('Complete');
+            }
+            else {
+                activeCompletionFilters.delete('Complete');
+            }
+            if ($('#filterCheckMissingDlc').is(":checked")) {
+                activeCompletionFilters.add('Missing DLC');
+            }
+            else {
+                activeCompletionFilters.delete('Missing DLC');
+            }
         }
 
         // Function to apply filters and show/hide game cards with animation
@@ -179,31 +238,31 @@
                 const card = $(this);
                 const tagsContainer = card.find('.tags-container');
                 const tags = tagsContainer.find('.game-tag');
-                tagsText = [];
+                cardTagsText = [];
                 tags.each(function () {
                     const tt = $(this);
-                    tagsText.push(tt.attr('data-bs-tag'));
+                    cardTagsText.push(tt.attr('data-bs-tag'));
                 })
-                if (activeFilters.size === 0 || Array.from(activeFilters).some(tag => tagsText.includes(tag))) {
-                    card.parent().removeClass('d-none');
+
+                if ((activeTypeFilters.size === 0 || Array.from(activeTypeFilters).some(tag => cardTagsText.includes(tag))) &&
+                    (activeUpdateFilters.size === 0 || Array.from(activeUpdateFilters).every(tag => cardTagsText.includes(tag))) &&
+                    (activeCompletionFilters.size === 0 || Array.from(activeUpdateFilters).every(tag => cardTagsText.includes(tag)))) {
+                    card.parent().removeAttr('filtered-tag');
+                    if ((card.parent().attr('filtered-text') != 'set') ){
+                        card.parent().removeClass('d-none');
+                    }
                 } else {
                     card.parent().addClass('d-none');
+                    card.parent().attr('filtered-tag', 'set');
                 }
             });
 
         }
 
-        // Function to reset filters and show all game cards
-        function resetFilters() {
-            activeFilters.clear(); // Clear active filters
-            applyFilters(); // Apply filters again to display all cards
-
-            $(".filter-buttons input").each(function (index) {
-                $(this).prop("checked", false)
-            });
-        }
-
-        $('#btnResetFilters').on('click', resetFilters);
+        $('#btnApplyFilters').on('click', function() {
+            updateFilter();
+            applyFilters();
+        });
 
     })
 
