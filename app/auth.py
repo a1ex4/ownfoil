@@ -21,11 +21,14 @@ def access_required(access: str):
     def _access_required(f):
         @wraps(f)
         def decorated_view(*args, **kwargs):
+            if not admin_account_created():
+                # Auth disabled, request ok
+                return f(*args, **kwargs)
+
             if not current_user.is_authenticated:
-                if admin_account_created():
-                    return login_manager.unauthorized()
-                else:
-                    return f(*args, **kwargs)
+                # return unauthorized_json()
+                return login_manager.unauthorized()
+
             if not current_user.has_access(access):
                 return 'Forbidden', 403
             return f(*args, **kwargs)
@@ -84,15 +87,20 @@ login_manager = LoginManager()
 login_manager.login_view = 'auth.login'
 
 @auth_blueprint.route('/login')
-def login():
-    return render_template('login.html')
 
-@auth_blueprint.route('/login', methods=['POST'])
-def login_post():
+@auth_blueprint.route("/login", methods=["GET", "POST"])
+def login():
+    if request.method == "GET":
+        next_url = request.args.get('next', '')
+        if current_user.is_authenticated:
+            return redirect(next_url if len(next_url) else '/')
+        return render_template('login.html')
+        
     # login code goes here
     username = request.form.get('user')
     password = request.form.get('password')
     remember = bool(request.form.get('remember'))
+    next_url = request.form.get('next', '')
 
     user = User.query.filter_by(user=username).first()
 
@@ -105,7 +113,8 @@ def login_post():
     # if the above check passes, then we know the user has the right credentials
     print('correct login')
     login_user(user, remember=remember)
-    return redirect(url_for('auth.profile'))
+
+    return redirect(next_url if len(next_url) else '/')
 
 @auth_blueprint.route('/profile')
 @login_required
@@ -168,13 +177,15 @@ def signup_post():
     # add the new user to the database
     db.session.add(new_user)
     db.session.commit()
+    
+    print(f'Successfully created user {username}.')
 
     resp = {
         'success': signup_success
     } 
 
     if not existing_admin and admin_access:
-        # First admin account created
+        print('First admin account created')
         resp['status_code'] = 302,
         resp['location'] = '/settings'
     
