@@ -186,8 +186,7 @@ def scan_library():
         file_info = identify_file(filepath, valid_keys=app_settings['valid_keys'])
 
         if file_info is None:
-            print(f'Failed to identify file: {file}')
-            # TODO add warning
+            print(f'Failed to identify: {file} - file will be skipped.')
             continue
         add_to_titles_db(library, file_info)
 

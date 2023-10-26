@@ -127,6 +127,9 @@ def identify_file(filepath, valid_keys=False):
 
     else:
         app_id = get_app_id_from_filename(filename)
+        if app_id is None:
+            print(f'Unable to extract title from filename: {filename}')
+            return None
         version = get_version_from_filename(filename)
         title_id, app_type = identify_appId(app_id)
 
