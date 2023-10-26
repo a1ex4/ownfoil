@@ -22,6 +22,8 @@
                     Remember me
                 </label>
             </div>
+            <input type="hidden" name="next" value="{{ request.args.get('next', '') }}" />
+
             <button class="button is-block is-info is-large is-fullwidth">Login</button>
         </form>
     </div>
