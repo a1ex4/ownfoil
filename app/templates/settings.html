@@ -326,6 +326,21 @@
             }
         });
     }
+
+    $('#checkboxNewUserAdminAccess').change(function () {
+        if (this.checked != false) {
+            console.log('checkboxNewUserAdminAccess checked');
+            $('#checkboxNewUserShopAccess').prop('checked', true).attr("disabled", true);
+            $('#checkboxNewUserBackupAccess').prop('checked', true).attr("disabled", true) ;
+
+        } else {
+            console.log('checkboxNewUserAdminAccess not checked');
+            $('#checkboxNewUserShopAccess').attr("disabled", false);
+            $('#checkboxNewUserBackupAccess').attr("disabled", false) ;
+
+        }
+    });
+
     function submitNewUser() {
         formOk = true;
         user = getInputVal("inputNewUser")
