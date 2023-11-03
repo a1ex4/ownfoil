@@ -1,9 +1,9 @@
-flask==2.3.3
-Flask-Login==0.6.2
-flask-sqlalchemy==3.0.5
+flask==3.0.0
+Flask-Login==0.6.3
+flask-sqlalchemy==3.1.1
 PyYAML==6.0.1
 requests==2.31.0
-Werkzeug==2.3.7
+Werkzeug==3.0.1
 
 # Squirrel
 pycryptodome
