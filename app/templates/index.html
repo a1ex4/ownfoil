@@ -5,33 +5,6 @@
 {% include 'nav.html' %}
 <div id="content" class="container-fluid mt-3">
 
-    {% if admin_account_created == false %}
-    <div class="alert alert-danger" role="alert">
-        <h4 class="alert-heading">Missing admin account!</h4>
-        <p>Ownfoil requires an admin account to enable authentication. Until an account with admin rights is
-            created, <strong>authentication is disabled, anyone can access and change the configuration of your
-                shop!</strong>
-            <br>
-            Add an admin account <a href="/settings#Authentication" class="alert-link">in the Setting page, under
-                Authentication</a>.
-        </p>
-    </div>
-    {% endif %}
-
-    {% if valid_keys == false %}
-    <div class="alert alert-warning alert-dismissible fade show" role="alert">
-        <h4 class="alert-heading">Missing console keys!</h4>
-        Console keys are required to decrypt any Nintendo content, including
-        backups. Ownfoil use this to identify files, regardless of the filename.</br>
-        <strong>Titles will be missed or misidentified if you don't fill in your keys!</strong>
-        See <a target="_blank" href="https://rentry.org/DumpingKeys" class="alert-link">this guide</a> on how to
-        extract the
-        keys from your console, and upload them <a href="/settings#consoleKeysInput" class="alert-link">here in
-            Ownfoil.</a>
-        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-    </div>
-    {% endif %}
-
     <div class="row gy-2 gx-3 align-items-center justify-content-md-center">
 
         <div class="col-auto">
