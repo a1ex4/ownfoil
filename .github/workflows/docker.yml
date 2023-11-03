@@ -1,6 +1,7 @@
 name: Publish multi arch Docker image
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - '**'
