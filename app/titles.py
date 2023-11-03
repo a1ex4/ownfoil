@@ -218,6 +218,7 @@ def git_fetch_and_pull():
     os.system(f'cd {TITLEDB_DIR} && git fetch && git pull')
 
 def update_titledb_files(app_settings):
+    os.system(f"cd {TITLEDB_DIR} && git reset --hard")
     set_titledb_default_files()
     set_titledb_lang_file(app_settings['library']['region'], app_settings['library']['language'])
     
