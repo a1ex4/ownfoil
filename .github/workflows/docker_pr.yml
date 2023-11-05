@@ -11,6 +11,8 @@ jobs:
       # Get the repository's code
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
       
       # https://github.com/docker/setup-qemu-action
       - name: Set up QEMU
