@@ -153,6 +153,13 @@ def get_all_titles():
             title.update(library_status)
             title['title_id_name'] = title['name']
         if title['type'] == APP_TYPE_DLC:
+            all_dlc_existing_versions = get_all_dlc_existing_versions(title['app_id'])
+
+            if title['version'] == all_dlc_existing_versions[-1]:
+                title['has_latest_version'] = True
+            else:
+                title['has_latest_version'] = False
+
             titleid_info = get_game_info(title['title_id'])
             title['title_id_name'] = titleid_info['name']
         games_info.append(title)
