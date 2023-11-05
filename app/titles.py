@@ -5,29 +5,29 @@ import re
 import json
 import hashlib
 from constants import *
+from pathlib import Path
+from binascii import hexlify as hx, unhexlify as uhx
 
-sys.path.append(APP_DIR + '/squirrel/lib')
-sys.path.append(APP_DIR + '/squirrel/Fs')
-sys.path.append(APP_DIR + '/squirrel')
+sys.path.append(APP_DIR + '/NSTools/py')
+from Fs import Pfs0, Nca, Type, factory
+from lib import FsTools
+from nut import Keys
 
 app_id_regex = r"\[([0-9A-Fa-f]{16})\]"
 version_regex = r"\[v(\d+)\]"
 
 def validate_keys(key_file=KEYS_FILE):
     valid = False
-    invalid_keys = []
     try:
         if os.path.isfile(key_file):
-            import sq_tools
-            valid, invalid_keys = sq_tools.verify_nkeys(key_file)
-            return valid, invalid_keys
+            valid = Keys.load(key_file)
+            return valid
 
-    except Exception as e:
-        print('Provided keys.txt invalid:')
-        print(e)
-    return valid, invalid_keys
+    except:
+        print('Provided keys.txt invalid.')
+    return valid
 
-valid_keys, _ = validate_keys()
+# valid_keys = validate_keys()
 
 def getDirsAndFiles(path):
     entries = os.listdir(path)
@@ -122,24 +122,40 @@ def identify_file_from_filename(filename):
     title_id, app_type = identify_appId(app_id)
     return app_id, title_id, app_type, version
     
+def identify_file_from_cnmt(filepath):
+    container = factory(Path(filepath).resolve())
+    container.open(filepath, 'rb')
+    if filepath.lower().endswith(('.xci', '.xcz')):
+        container = container.hfs0['secure']
+    for nspf in container:
+        if isinstance(nspf, Nca.Nca) and nspf.header.contentType == Type.Content.META:
+            for section in nspf:
+                if isinstance(section, Pfs0.Pfs0):
+                    Cnmt = section.getCnmt()
+                    
+                    titleType = FsTools.parse_cnmt_type_n(hx(Cnmt.titleType.to_bytes(length=(min(Cnmt.titleType.bit_length(), 1) + 7) // 8, byteorder = 'big')))
+                    if titleType == 'GAME':
+                        titleType = APP_TYPE_BASE
+                    
+                    # print(f'\n:: CNMT: {Cnmt._path}\n')
+                    # print(f'Title ID: {Cnmt.titleId.upper()}')
+                    # print(f'Version: {Cnmt.version}')
+                    # print(f'Title Type: {titleType}')
+                    return Cnmt.titleId.upper(), Cnmt.version, titleType
 
 def identify_file(filepath, valid_keys=False):
     filedir, filename = os.path.split(filepath)
     extension = filename.split('.')[-1]
     if valid_keys:
-        import Nsp as nsp
         try:
-            f = nsp.Nsp(filepath, 'r+b')
-            app_id = f.getnspid()
-            app_type = f.nsptype()
-            version = f.getVersion()
+            app_id, version, app_type = identify_file_from_cnmt(filepath)
             if app_type != APP_TYPE_BASE:
                 # need to get the title ID from cnmts
                 title_id, app_type = identify_appId(app_id)
             else:
                 title_id = app_id
         except Exception as e:
-            print(f'Could not read file {filepath} with decryption: {e}. Trying identification with filename...')
+            print(f'Could not identify file {filepath} from metadata: {e}. Trying identification with filename...')
             app_id, title_id, app_type, version = identify_file_from_filename(filename)
             if app_id is None:
                 print(f'Unable to extract title from filename: {filename}')
