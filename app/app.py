@@ -119,7 +119,7 @@ def upload_file():
         # filename = secure_filename(file.filename)
         file.save(KEYS_FILE + '.tmp')
         print(f'Validating {file.filename}...')
-        valid, invalid_keys = validate_keys(KEYS_FILE + '.tmp')
+        valid = validate_keys(KEYS_FILE + '.tmp')
         if valid:
             os.rename(KEYS_FILE + '.tmp', KEYS_FILE)
             success = True
@@ -127,8 +127,7 @@ def upload_file():
             reload_conf()
         else:
             os.remove(KEYS_FILE + '.tmp')
-            errors = invalid_keys
-            print('Invalid keys from keys.txt: ' + ', '.join(invalid_keys))
+            print(f'Invalid keys from {file.filename}')
 
     resp = {
         'success': success,
