@@ -218,8 +218,8 @@
                 })
 
                 if ((activeTypeFilters.size === 0 || Array.from(activeTypeFilters).some(tag => cardTagsText.includes(tag))) &&
-                    (activeUpdateFilters.size === 0 || Array.from(activeUpdateFilters).every(tag => cardTagsText.includes(tag))) &&
-                    (activeCompletionFilters.size === 0 || Array.from(activeUpdateFilters).every(tag => cardTagsText.includes(tag)))) {
+                    (activeUpdateFilters.size === 0 || Array.from(activeUpdateFilters).some(tag => cardTagsText.includes(tag))) &&
+                    (activeCompletionFilters.size === 0 || Array.from(activeUpdateFilters).some(tag => cardTagsText.includes(tag)))) {
                     card.parent().removeAttr('filtered-tag');
                     if ((card.parent().attr('filtered-text') != 'set') ){
                         card.parent().removeClass('d-none');
