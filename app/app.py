@@ -194,7 +194,7 @@ def scan_library():
 def reload_conf():
     global app_settings
     app_settings = load_settings()
-    valid_keys, _ = validate_keys()
+    valid_keys = validate_keys()
     app_settings['valid_keys'] = valid_keys
 
 def get_library_status(title_id):
