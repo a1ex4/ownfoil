@@ -1,0 +1,3 @@
+[submodule "app/NSTools"]
+	path = app/NSTools
+	url = https://github.com/a1ex4/NSTools
