@@ -9,11 +9,10 @@
 
         <div class="col-auto">
             <div class="btn-group dropdown-center" role="group">
-                <button type="button" class="btn btn-primary"><i class="bi bi-funnel-fill"></i></button>
                 <div class="btn-group" role="group">
                     <button id="filterDropdownBtn" type="button" class="btn btn-primary dropdown-toggle"
                         data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
-                        Filters
+                        <i class="bi bi-funnel-fill"></i>
                     </button>
                     <ul class="dropdown-menu">
                         <li>
@@ -113,9 +112,19 @@
                             {% if game.has_latest_version is defined %}
                             {% if game.has_latest_version %}
                             <span class="badge rounded-pill text-bg-success game-tag" data-bs-tag="Up to date"><i
-                                    class="bi bi-box-seam-fill"></i></span>
+                                    class="bi bi-check-circle-fill"></i></span>
                             {% else %}
                             <span class="badge rounded-pill text-bg-warning game-tag" data-bs-tag="Outdated"><i
+                                    class="bi bi-arrow-down-circle"></i></span>
+                            {% endif %}
+                            {% endif %}
+                            <!-- Game has all DLCs or incomplete -->
+                            {% if game.has_all_dlcs is defined %}
+                            {% if game.has_all_dlcs %}
+                            <span class="badge rounded-pill text-bg-success game-tag" data-bs-tag="Complete"><i
+                                    class="bi bi-box-seam-fill"></i></span>
+                            {% else %}
+                            <span class="badge rounded-pill text-bg-warning game-tag" data-bs-tag="Missing DLC"><i
                                     class="bi bi-box-seam-fill"></i></span>
                             {% endif %}
                             {% endif %}
@@ -219,7 +228,7 @@
 
                 if ((activeTypeFilters.size === 0 || Array.from(activeTypeFilters).some(tag => cardTagsText.includes(tag))) &&
                     (activeUpdateFilters.size === 0 || Array.from(activeUpdateFilters).some(tag => cardTagsText.includes(tag))) &&
-                    (activeCompletionFilters.size === 0 || Array.from(activeUpdateFilters).some(tag => cardTagsText.includes(tag)))) {
+                    (activeCompletionFilters.size === 0 || Array.from(activeCompletionFilters).some(tag => cardTagsText.includes(tag)))) {
                     card.parent().removeAttr('filtered-tag');
                     if ((card.parent().attr('filtered-text') != 'set') ){
                         card.parent().removeClass('d-none');

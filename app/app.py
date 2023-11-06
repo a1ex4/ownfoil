@@ -227,10 +227,15 @@ def get_library_status(title_id):
         else:
             version['has_version'] = False
 
+    all_existing_dlcs = get_all_existing_dlc(title_id)
+    owned_dlcs = [t['app_id'] for t in title_files if t['type'] == APP_TYPE_DLC]
+    has_all_dlcs = all(dlc in owned_dlcs for dlc in all_existing_dlcs)
+
     library_status = {
         'has_base': has_base,
         'has_latest_version': has_latest_version,
-        'version': available_versions
+        'version': available_versions,
+        'has_all_dlcs': has_all_dlcs
     }
     return library_status
 

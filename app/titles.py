@@ -229,6 +229,16 @@ def get_all_dlc_existing_versions(app_id):
     else:
         print(f'DLC app ID not in cnmts.json: {app_id.upper()}')
         return None
+    
+def get_all_existing_dlc(title_id):
+    title_id = title_id.lower()
+    dlcs = []
+    for app_id in cnmts_db.keys():
+        for version, version_description in cnmts_db[app_id].items():
+            if version_description.get('titleType') == 130 and version_description.get('otherApplicationId') == title_id:
+                if app_id.upper() not in dlcs:
+                    dlcs.append(app_id.upper())
+    return dlcs
 
 def set_titledb_default_files():
     os.system(f"cd {TITLEDB_DIR} && git sparse-checkout set {'/' + ' /'.join(TITLEDB_DEFAULT_FILES)} --no-cone")
