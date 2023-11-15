@@ -99,6 +99,7 @@ def load_titledb(app_settings):
     global cnmts_db
     global titles_db
     global versions_db
+    global versions_txt_db
     with open(os.path.join(TITLEDB_DIR, 'cnmts.json')) as f:
         cnmts_db = json.load(f)
 
@@ -107,6 +108,13 @@ def load_titledb(app_settings):
 
     with open(os.path.join(TITLEDB_DIR, 'versions.json')) as f:
         versions_db = json.load(f)
+
+    versions_txt_db = {}
+    with open(os.path.join(TITLEDB_DIR, 'versions.txt')) as f:
+        for line in f:
+            line_strip = line.rstrip("\n")
+            app_id, rightsId, version = line_strip.split('|')
+            versions_txt_db[app_id] = version
 
 def identify_file_from_filename(filename):
     version = get_version_from_filename(filename)
@@ -225,10 +233,17 @@ def get_all_dlc_existing_versions(app_id):
     app_id = app_id.lower()
     if app_id in cnmts_db:
         versions_from_cnmts_db = cnmts_db[app_id].keys()
-        return sorted(versions_from_cnmts_db)
+        if len(versions_from_cnmts_db):
+            return sorted(versions_from_cnmts_db)
+        else:
+            print(f'No keys in cnmts.json for DLC app ID: {app_id.upper()}')
+            return None
     else:
         print(f'DLC app ID not in cnmts.json: {app_id.upper()}')
         return None
+    
+def get_app_id_version_from_versions_txt(app_id):
+        return versions_txt_db.get(app_id, None)
     
 def get_all_existing_dlc(title_id):
     title_id = title_id.lower()
