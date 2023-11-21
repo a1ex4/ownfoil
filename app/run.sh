@@ -43,4 +43,10 @@ fi
 # Start nginx and app
 echo "Starting ownfoil"
 nginx -g "daemon off;" &
-sudo -u $gt_user python /app/app.py $root_dir/shop_config.toml
+sudo -u $gt_user python /app/app.py $root_dir/shop_config.toml &
+
+# Wait for any process to exit
+wait -n
+
+# Exit with status of process that exited first
+exit $?
