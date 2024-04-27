@@ -1,6 +1,6 @@
 # This is a basic workflow to help you get started with Actions
 
-name: CI
+name: Build titledb
 
 # Controls when the workflow will run
 on:
@@ -8,6 +8,8 @@ on:
   push:
     branches: [ "v2" ]
 
+  schedule:
+    - cron: '0 */4 * * *'
   # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
 
@@ -69,6 +71,6 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.formatted_date }}-${{ env.titledb_commit }}
+          name: titledb
           path: nut/build_artefacts/*
           compression-level: 9
