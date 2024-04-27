@@ -39,6 +39,7 @@ jobs:
           git clone --depth=1 https://github.com/blawar/titledb
           echo "titledb_commit=$(git -C titledb rev-parse --short HEAD)" >> $GITHUB_ENV
           echo "formatted_date=$(date +"%Y-%m-%d_%H%M%S")" >> $GITHUB_ENV
+          touch "build_artefacts/latest_${titledb_commit}"
 
       - uses: jannekem/run-python-script-action@v1
         name: Generate region titles
