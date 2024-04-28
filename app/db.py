@@ -29,6 +29,10 @@ class User(UserMixin, db.Model):
     shop_access = db.Column(db.Boolean)
     backup_access = db.Column(db.Boolean)
 
+    @property
+    def is_admin(self):
+        return self.admin_access
+
     def has_shop_access(self):
         return self.shop_access
 

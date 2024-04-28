@@ -10,9 +10,11 @@
                 <li class="nav-item">
                     <a class="nav-link{% if title == 'Library' %} active" aria-current="page"{% else %}"{% endif %} href="/">Library</a>
                 </li>
+                {% if current_user.is_admin or admin_account_created == false %}
                 <li class="nav-item">
                     <a class="nav-link{% if title == 'Settings' %} active" aria-current="page"{% else %}"{% endif %}" href="/settings">Settings</a>
                 </li>
+                {% endif %}
                 <li class="nav-item">
                     <a class="nav-link{% if title == 'Setup' %} active" aria-current="page"{% else %}"{% endif %}" href="#">Setup</a>
                 </li>
@@ -21,6 +23,12 @@
             <ul class="navbar-nav ms-auto">
                 <li class="nav-item">
                     <a class="btn btn-outline-secondary me-2" href="/logout" role="button">Logout</a>
+                </li>
+            </ul>
+            {% else %}
+            <ul class="navbar-nav ms-auto">
+                <li class="nav-item">
+                    <a class="btn btn-outline-secondary me-2" href="/login" role="button">Login</a>
                 </li>
             </ul>
             {% endif %}
