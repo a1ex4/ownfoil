@@ -10,3 +10,6 @@ data
 /lib64
 /pyvenv.cfg
 /share
+
+# pyenv
+.python-version

@@ -10,9 +10,11 @@ from pathlib import Path
 from binascii import hexlify as hx, unhexlify as uhx
 
 sys.path.append(APP_DIR + '/NSTools/py')
-from Fs import Pfs0, Nca, Type, factory
-from lib import FsTools
-from nut import Keys
+from nstools.Fs import Pfs0, Nca, Type, factory
+from nstools.lib import FsTools
+from nstools.nut import Keys
+
+Pfs0.Print.silent = True
 
 app_id_regex = r"\[([0-9A-Fa-f]{16})\]"
 version_regex = r"\[v(\d+)\]"
@@ -132,25 +134,33 @@ def identify_file_from_filename(filename):
     return app_id, title_id, app_type, version
     
 def identify_file_from_cnmt(filepath):
+    titleId = None
+    version = None
+    titleType = None
     container = factory(Path(filepath).resolve())
     container.open(filepath, 'rb')
     if filepath.lower().endswith(('.xci', '.xcz')):
         container = container.hfs0['secure']
-    for nspf in container:
-        if isinstance(nspf, Nca.Nca) and nspf.header.contentType == Type.Content.META:
-            for section in nspf:
-                if isinstance(section, Pfs0.Pfs0):
-                    Cnmt = section.getCnmt()
-                    
-                    titleType = FsTools.parse_cnmt_type_n(hx(Cnmt.titleType.to_bytes(length=(min(Cnmt.titleType.bit_length(), 1) + 7) // 8, byteorder = 'big')))
-                    if titleType == 'GAME':
-                        titleType = APP_TYPE_BASE
-                    
-                    # print(f'\n:: CNMT: {Cnmt._path}\n')
-                    # print(f'Title ID: {Cnmt.titleId.upper()}')
-                    # print(f'Version: {Cnmt.version}')
-                    # print(f'Title Type: {titleType}')
-                    return Cnmt.titleId.upper(), Cnmt.version, titleType
+    try:
+        for nspf in container:
+            if isinstance(nspf, Nca.Nca) and nspf.header.contentType == Type.Content.META:
+                for section in nspf:
+                    if isinstance(section, Pfs0.Pfs0):
+                        Cnmt = section.getCnmt()
+                        
+                        titleType = FsTools.parse_cnmt_type_n(hx(Cnmt.titleType.to_bytes(length=(min(Cnmt.titleType.bit_length(), 1) + 7) // 8, byteorder = 'big')))
+                        titleId = Cnmt.titleId.upper()
+                        version = Cnmt.version
+                        # print(f'\n:: CNMT: {Cnmt._path}\n')
+                        # print(f'Title ID: {titleId}')
+                        # print(f'Version: {version}')
+                        # print(f'Title Type: {titleType}')
+                        # print(f'Title ID: {titleId} Title Type: {titleType} Version: {version} ')
+
+    finally:
+        container.close()
+
+    return titleId, version, titleType
 
 def identify_file(filepath, valid_keys=False):
     filedir, filename = os.path.split(filepath)
