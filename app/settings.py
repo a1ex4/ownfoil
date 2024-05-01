@@ -6,7 +6,7 @@ sys.path.append(APP_DIR + '/NSTools/py')
 from nstools.nut import Keys
 
 
-def validate_keys(key_file=KEYS_FILE):
+def load_keys(key_file=KEYS_FILE):
     valid = False
     try:
         if os.path.isfile(key_file):
@@ -25,7 +25,7 @@ def load_settings():
         with open(CONFIG_FILE, 'r') as yaml_file:
             settings = yaml.safe_load(yaml_file)
 
-        valid_keys = validate_keys()
+        valid_keys = load_keys()
         settings['valid_keys'] = valid_keys
 
     else:

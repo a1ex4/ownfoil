@@ -20,6 +20,7 @@ os.makedirs(DATA_DIR, exist_ok=True)
 
 app = Flask(__name__)
 app.config["SQLALCHEMY_DATABASE_URI"] = OWNFOIL_DB
+# TODO: generate random secret_key
 app.config['SECRET_KEY'] = '8accb915665f11dfa15c2db1a4e8026905f57716'
 
 db.init_app(app)
@@ -118,7 +119,7 @@ def upload_file():
         # filename = secure_filename(file.filename)
         file.save(KEYS_FILE + '.tmp')
         print(f'Validating {file.filename}...')
-        valid = validate_keys(KEYS_FILE + '.tmp')
+        valid = load_keys(KEYS_FILE + '.tmp')
         if valid:
             os.rename(KEYS_FILE + '.tmp', KEYS_FILE)
             success = True
@@ -202,7 +203,7 @@ def scan_library():
         if not app_settings['valid_keys']:
             print('Invalid or non existing keys.txt, title identification fallback to filename only.')
 
-        file_info = identify_file(filepath, valid_keys=app_settings['valid_keys'])
+        file_info = identify_file(filepath)
 
         if file_info is None:
             print(f'Failed to identify: {file} - file will be skipped.')
