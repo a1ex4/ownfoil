@@ -86,7 +86,6 @@ auth_blueprint = Blueprint('auth', __name__)
 login_manager = LoginManager()
 login_manager.login_view = 'auth.login'
 
-@auth_blueprint.route('/login')
 
 @auth_blueprint.route("/login", methods=["GET", "POST"])
 def login():
