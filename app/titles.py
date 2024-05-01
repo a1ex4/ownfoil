@@ -159,15 +159,18 @@ def identify_file(filepath):
                 title_id, app_type = identify_appId(app_id)
             else:
                 title_id = app_id
+            identification = 'cnmt'
         except Exception as e:
             print(f'Could not identify file {filepath} from metadata: {e}. Trying identification with filename...')
             app_id, title_id, app_type, version = identify_file_from_filename(filename)
+            identification = 'filename'
             if app_id is None:
                 print(f'Unable to extract title from filename: {filename}')
                 return None
 
     else:
         app_id, title_id, app_type, version = identify_file_from_filename(filename)
+        identification = 'filename'
         if app_id is None:
             print(f'Unable to extract title from filename: {filename}')
             return None
@@ -182,6 +185,7 @@ def identify_file(filepath):
         'version': version,
         'extension': extension,
         'size': get_file_size(filepath),
+        'identification': identification,
     }
 
 
