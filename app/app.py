@@ -22,6 +22,7 @@ app = Flask(__name__)
 app.config["SQLALCHEMY_DATABASE_URI"] = OWNFOIL_DB
 # TODO: generate random secret_key
 app.config['SECRET_KEY'] = '8accb915665f11dfa15c2db1a4e8026905f57716'
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db.init_app(app)
 
@@ -85,11 +86,13 @@ def settings_page():
     return render_template('settings.html', title='Settings', languages_from_titledb=languages, admin_account_created=admin_account_created(), valid_keys=app_settings['valid_keys'])
 
 @app.get('/api/settings')
+@access_required('admin')
 def get_settings_api():
     reload_conf()
     return jsonify(app_settings)
 
 @app.post('/api/settings/<string:section>')
+@access_required('admin')
 def set_settings_api(section=None):
     data = request.json
     settings_valid, errors = verify_settings(section, data)
@@ -110,6 +113,7 @@ def allowed_file(filename):
            filename.rsplit('.', 1)[1].lower() in ['keys', 'txt']
 
 @app.post('/api/upload')
+@access_required('admin')
 def upload_file():
     errors = []
     success = False
@@ -136,6 +140,7 @@ def upload_file():
     return jsonify(resp)
 
 @app.route('/api/titles', methods=['GET'])
+@access_required('shop')
 def get_all_titles():
     titles = get_all_titles_from_db()
     games_info = []
@@ -180,6 +185,7 @@ def get_all_titles():
     return sorted(games_info, key=lambda x: ("title_id_name" not in x, x.get("title_id_name", None), x['app_id']))
 
 @app.route('/api/get_game/<int:id>')
+@access_required('shop')
 def serve_game(id):
     filepath = db.session.query(Files.filepath).filter_by(id=id).first()[0]
     filedir, filename = os.path.split(filepath)
@@ -238,11 +244,11 @@ def get_library_status(title_id):
     game_latest_version = get_game_latest_version(available_versions)
     for version in available_versions:
         if len(list(filter(lambda x: x.get('type') == APP_TYPE_UPD and str(x.get('version')) == str(version['version']), title_files))):
-            version['has_version'] = True
+            version['owned'] = True
             if str(version['version'])  == str(game_latest_version):
                 has_latest_version = True
         else:
-            version['has_version'] = False
+            version['owned'] = False
 
     all_existing_dlcs = get_all_existing_dlc(title_id)
     owned_dlcs = [t['app_id'] for t in title_files if t['type'] == APP_TYPE_DLC]
