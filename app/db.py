@@ -20,6 +20,7 @@ class Files(db.Model):
     version = db.Column(db.String)
     extension = db.Column(db.String)
     size = db.Column(db.Integer)
+    identification = db.Column(db.String)
 
 class User(UserMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -57,7 +58,15 @@ def add_to_titles_db(library, file_info):
     if exists := db.session.query(
         db.session.query(Files).filter_by(filepath=filepath).exists()
     ).scalar():
-        return
+        existing_entry = db.session.query(Files).filter_by(filepath=filepath).all()
+        existing_entry_data = to_dict(existing_entry[0])
+        current_identification = existing_entry_data["identification"]
+        new_identification = file_info["identification"]
+        if new_identification == current_identification:
+            return
+        else:
+            # delete old entry and replace with updated one
+            db.session.query(Files).filter_by(filepath=filepath).delete()
 
     # print(f'New file to add: {filepath}')
     new_title = Files(
@@ -71,6 +80,7 @@ def add_to_titles_db(library, file_info):
         version = file_info["version"],
         extension = file_info["extension"],
         size = file_info["size"],
+        identification = file_info["identification"],
     )
     db.session.add(new_title)
 
@@ -86,3 +96,7 @@ def get_all_title_files(title_id):
     title_id = title_id.upper()
     results = db.session.query(Files).filter_by(title_id=title_id).all()
     return [to_dict(r) for r in results]
+
+def get_all_files_with_identification(identification):
+    results = db.session.query(Files).filter_by(identification=identification).all()
+    return[to_dict(r)['filepath']  for r in results]

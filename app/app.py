@@ -188,20 +188,25 @@ def serve_game(id):
 
 def scan_library():
     library = app_settings['library']['path']
+    load_titledb(app_settings)
     print('Scanning library...')
     if not os.path.isdir(library):
         print(f'Library path {library} does not exists.')
         return
     _, files = getDirsAndFiles(library)
-    for n, filepath in enumerate(files):
-        if exists := db.session.query(
-            db.session.query(Files).filter_by(filepath=filepath).exists()
-        ).scalar():
-            continue
+
+    if app_settings['valid_keys']:
+        current_identification = 'cnmt'
+    else:
+        print('Invalid or non existing keys.txt, title identification fallback to filename only.')
+        current_identification = 'filename'
+
+    all_files_with_current_identification = get_all_files_with_identification(current_identification)
+    files_to_identify = [f for f in files if f not in all_files_with_current_identification]
+    nb_to_identify = len(files_to_identify)
+    for n, filepath in enumerate(files_to_identify):
         file = filepath.replace(library, "")
-        print(f'Identifiying file ({n+1}/{len(files)}): {file}')
-        if not app_settings['valid_keys']:
-            print('Invalid or non existing keys.txt, title identification fallback to filename only.')
+        print(f'Identifiying file ({n+1}/{nb_to_identify}): {file}')
 
         file_info = identify_file(filepath)
 
