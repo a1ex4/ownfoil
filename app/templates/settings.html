@@ -48,7 +48,7 @@
                         <tr>
                             <th scope="col">User</th>
                             <th scope="col">Permissions</th>
-                            <th scope="col">Action</th>
+                            <th scope="col">Actions</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -168,7 +168,7 @@
                 <hr>
 
                 <h2 class="pb-3">Shop</h2>
-                <p>Customize your shop, using Tinfoil's special parameters.</p>
+                <p>Customize your shop:</p>
                 <div class="mb-3 form-check">
                     <input type="checkbox" class="form-check-input" id="publicShopCheck"
                         aria-describedby="publicShopCheckHelp">
@@ -179,13 +179,13 @@
                 </div>
                 <div class="mb-3 form-check">
                     <input type="checkbox" class="form-check-input" id="encryptShopCheck"
-                        aria-describedby="encryptShopCheckHelp">
+                        aria-describedby="encryptShopCheckHelp" disabled="disabled">
                     <label class="form-check-label" for="encryptShopCheck">Encrypt shop</label>
-                    <div id="encryptShopCheckHelp" class="form-text">Path of directory containing your games.</div>
+                    <div id="encryptShopCheckHelp" class="form-text">Serve encrypted shop, so that only Tinfoil clients can access the content (coming soon).</div>
                 </div>
 
                 <div class="mb-3">
-                    <label for="motdTextArea" class="form-label">Message of the day</label>
+                    <label for="motdTextArea" class="form-label">Message of the day:</label>
                     <textarea class="form-control" id="motdTextArea" rows="3"></textarea>
                     <div id="motdTextAreaHelp" class="form-text">Message presented when opening Tinfoil after
                         successfully loading your shop.</div>
@@ -321,12 +321,10 @@
 
     $('#checkboxNewUserAdminAccess').change(function () {
         if (this.checked != false) {
-            console.log('checkboxNewUserAdminAccess checked');
             $('#checkboxNewUserShopAccess').prop('checked', true).attr("disabled", true);
             $('#checkboxNewUserBackupAccess').prop('checked', true).attr("disabled", true) ;
 
         } else {
-            console.log('checkboxNewUserAdminAccess not checked');
             $('#checkboxNewUserShopAccess').attr("disabled", false);
             $('#checkboxNewUserBackupAccess').attr("disabled", false) ;
 
@@ -505,6 +503,11 @@
         });
 
     });
+    {% if admin_account_created == false %}
+    $('#checkboxNewUserAdminAccess').prop('checked', true).attr("disabled", true);
+    $('#checkboxNewUserShopAccess').prop('checked', true).attr("disabled", true);
+    $('#checkboxNewUserBackupAccess').prop('checked', true).attr("disabled", true);
+    {% endif %}
     languages = {{ languages_from_titledb | tojson | safe }}
 </script>
 
