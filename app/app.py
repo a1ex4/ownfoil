@@ -8,16 +8,15 @@ from db import *
 from shop import *
 from auth import *
 from titles import *
+import titledb
 
 def init():
     global app_settings
     reload_conf()
-    update_titledb(app_settings)
+    titledb.update_titledb(app_settings)
 
 os.makedirs(CONFIG_DIR, exist_ok=True)
 os.makedirs(DATA_DIR, exist_ok=True)
-
-from titles import *
 
 app = Flask(__name__)
 app.config["SQLALCHEMY_DATABASE_URI"] = OWNFOIL_DB
@@ -97,7 +96,7 @@ def set_settings_api(section=None):
         set_settings(section, data)
         reload_conf()
         if section == 'library':
-            update_titledb_files(app_settings)
+            titledb.update_titledb(app_settings)
             load_titledb(app_settings)
     resp = {
         'success': settings_valid,
@@ -214,8 +213,6 @@ def scan_library():
 def reload_conf():
     global app_settings
     app_settings = load_settings()
-    valid_keys = validate_keys()
-    app_settings['valid_keys'] = valid_keys
 
 def get_library_status(title_id):
     has_base = False
