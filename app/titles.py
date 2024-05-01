@@ -11,6 +11,7 @@ from binascii import hexlify as hx, unhexlify as uhx
 sys.path.append(APP_DIR + '/NSTools/py')
 from nstools.Fs import Pfs0, Nca, Type, factory
 from nstools.lib import FsTools
+from nstools.nut import Keys
 
 Pfs0.Print.silent = True
 
@@ -147,10 +148,10 @@ def identify_file_from_cnmt(filepath):
 
     return titleId, version, titleType
 
-def identify_file(filepath, valid_keys=False):
+def identify_file(filepath):
     filedir, filename = os.path.split(filepath)
     extension = filename.split('.')[-1]
-    if valid_keys:
+    if Keys.keys_loaded:
         try:
             app_id, version, app_type = identify_file_from_cnmt(filepath)
             if app_type != APP_TYPE_BASE:

@@ -47,7 +47,7 @@ class User(UserMixin, db.Model):
             return self.has_admin_access()
         elif access == 'shop':
             return self.has_shop_access()
-        elif access == 'shop':
+        elif access == 'backup':
             return self.has_backup_access()
 
 
