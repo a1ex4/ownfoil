@@ -174,6 +174,14 @@ def signup_post():
         return redirect(url_for('auth.signup'))
     
     existing_admin = admin_account_created()
+    if not existing_admin and not admin_access:
+        print('First account created must be admin')
+        resp = {
+            'success': False,
+            'status_code': 400,
+            'location': '/settings',
+        } 
+        return jsonify(resp)
 
     # create a new user with the form data. Hash the password so the plaintext version isn't saved.
     new_user = User(user=username, password=generate_password_hash(password, method='scrypt'), admin_access=admin_access, shop_access=shop_access, backup_access=backup_access)
