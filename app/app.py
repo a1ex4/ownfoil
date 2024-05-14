@@ -185,7 +185,8 @@ def get_all_titles():
     return sorted(games_info, key=lambda x: ("title_id_name" not in x, x.get("title_id_name", None), x['app_id']))
 
 @app.route('/api/get_game/<int:id>')
-@access_required('shop')
+# TODO
+# @access_required('shop')
 def serve_game(id):
     filepath = db.session.query(Files.filepath).filter_by(id=id).first()[0]
     filedir, filename = os.path.split(filepath)
