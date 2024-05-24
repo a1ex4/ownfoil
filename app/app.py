@@ -1,5 +1,6 @@
 from flask import Flask, render_template, request, redirect, url_for, jsonify, send_from_directory
 from flask_login import LoginManager
+from functools import wraps
 import yaml
 from markupsafe import escape
 from constants import *
@@ -43,18 +44,17 @@ def tinfoil_error(error):
         'error': error
     })
 
-def serve_tinfoil_shop():
-    shop = gen_shop(db, app_settings)
-    return jsonify(shop)
-
-def access_tinfoil_shop(request):
-    if not app_settings['shop']['public']:
-        # Shop is private
-        success, error = basic_auth(request)
-        if not success:
-            return tinfoil_error(error)
-
-    return serve_tinfoil_shop()
+def tinfoil_access(f):
+    @wraps(f)
+    def _tinfoil_access(*args, **kwargs):
+        if not app_settings['shop']['public']:
+            # Shop is private
+            success, error = basic_auth(request)
+            if not success:
+                return tinfoil_error(error)
+        # Auth success
+        return f(*args, **kwargs)
+    return _tinfoil_access
 
 def access_shop():
     return render_template('index.html', title='Library', games=get_all_titles(), admin_account_created=admin_account_created(), valid_keys=app_settings['valid_keys'])
@@ -65,13 +65,18 @@ def access_shop_auth():
 
 @app.route('/')
 def index():
+
+    @tinfoil_access
+    def access_tinfoil_shop():
+        shop = gen_shop(db, app_settings)
+        return jsonify(shop)
+    
     scan_library()
 
-    request_headers = request.headers
-    if all(header in request_headers for header in TINFOIL_HEADERS):
+    if all(header in request.headers for header in TINFOIL_HEADERS):
     # if True:
         print(f"Tinfoil connection from {request.remote_addr}")
-        return access_tinfoil_shop(request)
+        return access_tinfoil_shop()
     
     if not app_settings['shop']['public']:
         return access_shop_auth()
@@ -185,8 +190,7 @@ def get_all_titles():
     return sorted(games_info, key=lambda x: ("title_id_name" not in x, x.get("title_id_name", None), x['app_id']))
 
 @app.route('/api/get_game/<int:id>')
-# TODO
-# @access_required('shop')
+@tinfoil_access
 def serve_game(id):
     filepath = db.session.query(Files.filepath).filter_by(id=id).first()[0]
     filedir, filename = os.path.split(filepath)
