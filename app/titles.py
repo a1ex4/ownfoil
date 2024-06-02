@@ -104,6 +104,8 @@ def load_titledb(app_settings):
         for line in f:
             line_strip = line.rstrip("\n")
             app_id, rightsId, version = line_strip.split('|')
+            if not version:
+                version = "0"
             versions_txt_db[app_id] = version
 
 def identify_file_from_filename(filename):
