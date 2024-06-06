@@ -57,7 +57,7 @@ def tinfoil_access(f):
     return _tinfoil_access
 
 def access_shop():
-    return render_template('index.html', title='Library', games=get_all_titles(), admin_account_created=admin_account_created(), valid_keys=app_settings['valid_keys'])
+    return render_template('index.html', title='Library', admin_account_created=admin_account_created(), valid_keys=app_settings['valid_keys'])
 
 @access_required('shop')
 def access_shop_auth():
@@ -147,6 +147,11 @@ def upload_file():
 @app.route('/api/titles', methods=['GET'])
 @access_required('shop')
 def get_all_titles():
+    page = int(request.args.get('page', 1))
+    limit = int(request.args.get('limit', 9))
+    start = (page - 1) * limit
+    end = start + limit
+
     titles = get_all_titles_from_db()
     games_info = []
     for title in titles:
@@ -187,7 +192,12 @@ def get_all_titles():
             titleid_info = get_game_info(title['title_id'])
             title['title_id_name'] = titleid_info['name']
         games_info.append(title)
-    return sorted(games_info, key=lambda x: ("title_id_name" not in x, x.get("title_id_name", None), x['app_id']))
+    games = sorted(games_info, key=lambda x: ("title_id_name" not in x, x.get("title_id_name", None), x['app_id']))
+    paginated_games = games[start:end]
+    return jsonify({
+        'total': len(games),
+        'games': paginated_games
+    })
 
 @app.route('/api/get_game/<int:id>')
 @tinfoil_access
