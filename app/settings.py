@@ -83,7 +83,6 @@ def delete_library_path_from_settings(path):
     settings = load_settings()
     library_paths = settings['library']['paths']
     if library_paths:
-        print(library_paths)
         if path in library_paths:
             library_paths.remove(path)
             settings['library']['paths'] = library_paths

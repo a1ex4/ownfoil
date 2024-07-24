@@ -2,6 +2,7 @@ from flask import Flask, render_template, request, redirect, url_for, jsonify, s
 from flask_login import LoginManager
 from functools import wraps
 import yaml
+from file_watcher import Watcher
 import threading
 from markupsafe import escape
 from constants import *
@@ -13,6 +14,13 @@ from titles import *
 import titledb
 
 def init():
+    global watcher
+    # Create and start the file watcher
+    watcher = Watcher([], on_library_change)
+    watcher_thread = threading.Thread(target=watcher.run)
+    watcher_thread.daemon = True
+    watcher_thread.start()
+
     global app_settings
     # load initial configuration
     reload_conf()
@@ -138,6 +146,7 @@ def set_titles_api():
 @app.route('/api/settings/library/paths', methods=['GET', 'POST', 'DELETE'])
 @access_required('admin')
 def library_paths_api():
+    global watcher
     if request.method == 'POST':
         data = request.json
         success, errors = add_library_path_to_settings(data['path'])
@@ -155,6 +164,10 @@ def library_paths_api():
         }    
     elif request.method == 'DELETE':
         data = request.json
+        if watcher.remove_directory(data['path']):
+            print(f"Removed {data['path']} from watchdog monitoring")
+        else:
+            print(f"Failed to remove {data['path']} from watchdog monitoring")
         success, errors = delete_library_path_from_settings(data['path'])
         if success:
             reload_conf()
@@ -272,6 +285,9 @@ def scan_library():
     for library_path in library_paths:
         scan_library_path(library_path, update_library=False)
     
+    # remove missing files
+    remove_missing_files()
+
     # update library
     generate_library()
 
@@ -318,6 +334,8 @@ def scan_library_path(library_path, update_library=True):
             scan_in_progress = False
 
         if update_library:
+            # remove missing files
+            remove_missing_files()
             # update library
             generate_library()
 
@@ -350,7 +368,14 @@ def scan_library_api():
 
 def reload_conf():
     global app_settings
+    global watcher
     app_settings = load_settings()
+    # add library paths to watchdog if necessary
+    library_paths = app_settings['library']['paths']
+    if library_paths:
+        for dir in library_paths:
+            if os.path.exists(dir):
+                watcher.add_directory(dir)
 
 def get_library_status(title_id):
     has_base = False
@@ -388,10 +413,37 @@ def get_library_status(title_id):
     }
     return library_status
 
+def on_library_change(events):
+    libraries_changed = set()
+    with app.app_context():
+        # handle moved files
+        for moved_event in events['moved']:
+            # if the file has been moved outside of the library
+            if not moved_event["dest_path"].startswith(moved_event["directory"]):
+                # remove it from the db
+                print(delete_file_by_filepath(moved_event["src_path"]))
+            else:
+                # update the paths
+                print(update_file_path(moved_event["src_path"], moved_event["dest_path"]))
+
+        for deleted_event in events['deleted']:
+            # delete the file from library if it exists
+            print(delete_file_by_filepath(deleted_event["src_path"]))
+        
+        for created_event in events['created']:
+            libraries_changed.add(created_event["directory"])
+    
+        for library_to_scan in libraries_changed:
+            scan_library_path(library_to_scan, update_library=False)
+        
+        # remove missing files
+        remove_missing_files()
+        generate_library()
+
 
 if __name__ == '__main__':
     init()
-    app.run(debug=True, host="0.0.0.0", port=8465)
+    app.run(debug=False, host="0.0.0.0", port=8465)
 
     # with app.app_context():
     #     get_library_status('0100646009FBE000')
