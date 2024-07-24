@@ -87,6 +87,7 @@
                 </button>
                 <ul class="dropdown-menu" aria-labelledby="itemsPerPageDropdownBtn">
                     <li><button class="dropdown-item items-per-page" data-value="9">9</button></li>
+                    <li><button class="dropdown-item items-per-page" data-value="12">12</button></li>
                     <li><button class="dropdown-item items-per-page" data-value="18">18</button></li>
                     <li><button class="dropdown-item items-per-page" data-value="27">27</button></li>
                     <li>
@@ -118,7 +119,7 @@
 <script>
     let games;
     let filteredGames;
-    let itemsPerPage = 9;
+    let itemsPerPage = 12;
     let currentPage = 1;
     let totalGames = 0;
     let cardSize = 3; // Default card size
@@ -356,31 +357,29 @@
     });
 
     // Function to filter cards based on input text
-    function filterByCardText(attributeText) {
-        const gameCards = $(".game-card");
-        const lowerCaseAttributeText = attributeText.toLowerCase();
+    function filterBySearchText(attributeText) {
+        if (!attributeText) {
+            filteredGames = games;
+        } else {
+            searchText = attributeText.toLowerCase();
 
-        gameCards.each(function () {
-            const card = $(this);
-            const gameTitle = card.find(".game-title").text().toLowerCase();
-            const gameDescription = card.find(".game-description").text().toLowerCase();
+            filteredGames = games.filter(game =>
+                game.title_id_name?.toLowerCase().includes(searchText)
+                || game.name?.toLowerCase().includes(searchText)
+                || game.title_id?.toLowerCase().includes(searchText)
+                || game.title_id?.toLowerCase().includes(searchText)
+                || game.app_id?.toLowerCase().includes(searchText)
+            )
+        }
 
-            if ((gameTitle.includes(lowerCaseAttributeText) || gameDescription.includes(lowerCaseAttributeText))) {
-                card.parent().removeAttr('filtered-text');
-                if ((card.parent().attr('filtered-tag') != 'set')) {
-                    card.parent().removeClass('d-none'); // Show matching card
-                }
-            } else {
-                card.parent().addClass('d-none'); // Hide non-matching card
-                card.parent().attr('filtered-text', 'set');
-            }
-        });
+        currentPage = 1;
+        renderGames();
     }
 
     // Listen to input changes in the text filter input
     $("#textFilter").on("input", function () {
         const attributeText = $(this).val();
-        filterByCardText(attributeText);
+        filterBySearchText(attributeText);
     });
 
     // Set to store active filters
