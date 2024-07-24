@@ -17,13 +17,13 @@
                     <ul class="dropdown-menu">
                         <li>
                             <label class="form-check-label dropdown-item" for="filterCheckBase">
-                                <input class="form-check-input" type="checkbox" value="" id="filterCheckBase">
+                                <input class="form-check-input filterLabel" type="checkbox" value="" id="filterCheckBase">
                                 BASE
                             </label>
                         </li>
                         <li>
                             <label class="form-check-label dropdown-item" for="filterCheckDlc">
-                                <input class="form-check-input" type="checkbox" value="" id="filterCheckDlc">
+                                <input class="form-check-input filterLabel" type="checkbox" value="" id="filterCheckDlc">
                                 DLC
                             </label>
                         </li>
@@ -32,13 +32,13 @@
                         </li>
                         <li>
                             <label class="form-check-label dropdown-item" for="filterCheckUpToDate">
-                                <input class="form-check-input" type="checkbox" value="" id="filterCheckUpToDate">
+                                <input class="form-check-input filterLabel" type="checkbox" value="" id="filterCheckUpToDate">
                                 Up to date
                             </label>
                         </li>
                         <li>
                             <label class="form-check-label dropdown-item" for="filterCheckMissingUpdate">
-                                <input class="form-check-input" type="checkbox" value="" id="filterCheckMissingUpdate">
+                                <input class="form-check-input filterLabel" type="checkbox" value="" id="filterCheckMissingUpdate">
                                 Missing Update
                             </label>
                         </li>
@@ -47,20 +47,20 @@
                         </li>
                         <li>
                             <label class="form-check-label dropdown-item" for="filterCheckComplete">
-                                <input class="form-check-input" type="checkbox" value="" id="filterCheckComplete">
+                                <input class="form-check-input filterLabel" type="checkbox" value="" id="filterCheckComplete">
                                 Complete
                             </label>
                         </li>
                         <li>
                             <label class="form-check-label dropdown-item" for="filterCheckMissingDlc">
-                                <input class="form-check-input" type="checkbox" value="" id="filterCheckMissingDlc">
+                                <input class="form-check-input filterLabel" type="checkbox" value="" id="filterCheckMissingDlc">
                                 Missing DLC
                             </label>
                         </li>
-                        <div class="text-center m-2">
+                        <!-- <div class="text-center m-2">
                             <button id="btnApplyFilters" type="button" class="btn btn-primary" style="width: 85%;">Apply
                                 filters</button>
-                        </div>
+                        </div> -->
                     </ul>
                 </div>
             </div>
@@ -75,7 +75,7 @@
                         class="bi bi-card-heading"></i></button>
                 <button id="view-toggle-btn-icon" type="button" class="btn btn-primary view-toggle-btn" data-view="icon"><i
                         class="bi bi-grid-fill"></i></button>
-                <button id="view-toggle-btn-list" type="button" class="btn btn-primary view-toggle-btn" data-view="list"><i
+                <button id="view-toggle-btn-list" type="button" class="btn btn-primary view-toggle-btn" data-view="list" disabled=""><i
                         class="bi bi-list-ul"></i></button>
             </div>
         </div>
@@ -116,183 +116,202 @@
 </div>
 
 <script>
-    $(document).ready(function () {
-        let games;
-        let itemsPerPage = 9;
-        let currentPage = 1;
-        let totalGames = 0;
-        let cardSize = 3; // Default card size
-        let currentView = 'card'; // Default view is 'card'
+    let games;
+    let filteredGames;
+    let itemsPerPage = 9;
+    let currentPage = 1;
+    let totalGames = 0;
+    let cardSize = 3; // Default card size
+    let currentView = 'card'; // Default view is 'card'
 
-        function fetchGames() {
-            $.get(`/api/titles?page=${currentPage}&limit=${itemsPerPage}`, function (data) {
+    function fetchGames() {
+        return new Promise((resolve, reject) => {
+            $.get(`/api/titles`, function (data) {
                 totalGames = data.total;
                 games = data.games;
-                renderGames(games);
-                updatePaginationControls();
+                filteredGames = games;
+                resolve();
+            }).fail(function() {
+                reject();
             });
+        });
+    }
+
+    function renderGames() {
+        if (currentView === 'card') {
+            renderCardView();
+            adjustCardSizes();
+        } else if (currentView === 'icon') {
+            renderIconView();
+            adjustIconSizes();
         }
 
-        function renderGames(games) {
-            cardSize = 3;
-            if (currentView === 'card') {
-                renderCardView(games);
-                adjustCardSizes(cardSize);
-            } else if (currentView === 'icon') {
-                renderIconView(games);
-                adjustIconSizes(cardSize);
-            }
+        // Set slider to show 3 columns by default
+        $('#cardSizeRange').val(3);
+    }
 
-            // Set slider to show 3 columns by default
-            $('#cardSizeRange').val(3);
-        }
+    function renderCardView() {
+        // Render card view logic...
+        const gameGrid = $('#gameGrid');
+        gameGrid.empty(); // Clear existing games
 
-        function renderCardView(games) {
-            // Render card view logic...
-            const gameGrid = $('#gameGrid');
-            gameGrid.empty(); // Clear existing games
-            games.forEach(function (game) {
-                const gameCol = $('<div class="col game-col"></div>').addClass(`col-${12 / getColumnsForCardSize(cardSize)}`);
+        // Get games for the current page
+        start = (currentPage - 1) * itemsPerPage
+        end = start + itemsPerPage
+        paginatedGames = filteredGames.slice(start, end);
 
-                const card = $('<div class="card text-bg-dark game-card"></div>');
+        paginatedGames.forEach(function (game) {
+            const gameCol = $('<div class="col game-col"></div>').addClass(`col-${12 / getColumnsForCardSize(cardSize)}`);
 
-                const img = $('<img class="card-img"></img>').attr('src', game.bannerUrl);
-                card.append(img);
+            const card = $('<div class="card text-bg-dark game-card"></div>');
 
-                const cardOverlay = $('<div class="card-img-overlay game-info"></div>');
+            const img = $('<img class="card-img"></img>').attr('src', game.bannerUrl);
+            card.append(img);
 
-                const title = $('<h5 class="card-title game-title"></h5>').text(game.title_id_name || game.name);
-                cardOverlay.append(title);
+            const cardOverlay = $('<div class="card-img-overlay game-info"></div>');
 
-                const description = $('<p class="card-text game-description"></p>');
-                if (game.type === 'DLC') {
-                    const small = $('<small></small>').text(`${game.name} | `);
-                    description.append(small);
-                }
-                const small = $('<small></small>').text(game.id);
+            const title = $('<h5 class="card-title game-title"></h5>').text(game.title_id_name || game.name);
+            cardOverlay.append(title);
+
+            const description = $('<p class="card-text game-description"></p>');
+            if (game.type === 'DLC') {
+                const small = $('<small></small>').text(`${game.name} | `);
                 description.append(small);
-                cardOverlay.append(description);
-
-                const tagsContainer = $('<div class="tags-container"></div>');
-
-                const typeBadge = $('<span class="badge rounded-pill text-bg-info game-tag"></span>').text(game.type);
-                tagsContainer.append(typeBadge);
-
-                if (game.has_latest_version !== undefined) {
-                    const versionBadge = $('<span class="badge rounded-pill game-tag"></span>').addClass(`text-bg-${game.has_latest_version ? 'success' : 'warning'}`).html(`<i class="bi ${game.has_latest_version ? 'bi-check-circle-fill' : 'bi-arrow-down-circle'}"></i>`);
-                    tagsContainer.append(versionBadge);
-                }
-
-                if (game.has_all_dlcs !== undefined) {
-                    const dlcBadge = $('<span class="badge rounded-pill game-tag"></span>').addClass(`text-bg-${game.has_all_dlcs ? 'success' : 'warning'}`).html('<i class="bi bi-box-seam-fill"></i>');
-                    tagsContainer.append(dlcBadge);
-                }
-
-                cardOverlay.append(tagsContainer);
-                card.append(cardOverlay);
-                gameCol.append(card);
-                gameGrid.append(gameCol);
-            });
-
-        }
-
-        function renderIconView(games) {
-            // Render icon view logic...
-            const gameGrid = $('#gameGrid');
-            gameGrid.empty(); // Clear existing games
-
-            games.forEach(game => {
-                if (game.type === 'BASE') {
-                    const icon = $('<img class="game-icon">').attr('src', game.iconUrl);
-                    gameGrid.append(icon);
-                }
-            });
-
-            // Adjust icon sizes based on the slider value
-            adjustIconSizes(cardSize);
-        }
-
-        function getColumnsForCardSize(size) {
-            switch (size) {
-                case 1: return 1; // 2 columns
-                case 2: return 2; // 3 columns
-                case 3: return 3; // 4 columns
-                case 4: return 4; // 6 columns
-                case 5: return 6; // 8 columns
-                default: return 4; // default to 3 columns
             }
-        }
+            const small = $('<small></small>').text(game.id);
+            description.append(small);
+            cardOverlay.append(description);
 
-        function updatePaginationControls() {
-            const paginationControls = $('#paginationControls');
-            paginationControls.empty(); // Clear existing pagination
+            const tagsContainer = $('<div class="tags-container"></div>');
 
-            const totalPages = Math.ceil(totalGames / itemsPerPage);
+            const typeBadge = $('<span class="badge rounded-pill text-bg-info game-tag"></span>').text(game.type);
+            tagsContainer.append(typeBadge);
 
-            // Previous button
-            const prevButton = $('<li class="page-item"></li>').addClass(`page-item ${currentPage === 1 ? 'disabled' : ''}`).html(`
-                    <a class="page-link" href="#" aria-label="Previous">
-                        <span aria-hidden="true">&laquo;</span>
-                    </a>`);
-            prevButton.click(function (e) {
-                e.preventDefault();
-                if (currentPage > 1) {
-                    currentPage--;
-                    fetchGames();
-                }
-            });
-            paginationControls.append(prevButton);
-
-            // Page numbers
-            for (let i = 1; i <= totalPages; i++) {
-                const pageButton = $('<li class="page-item"></li>').addClass(`page-item ${i === currentPage ? 'active' : ''}`).html(`<a class="page-link" href="#">${i}</a>`);
-                pageButton.click(function (e) {
-                    e.preventDefault();
-                    currentPage = i;
-                    fetchGames();
-                });
-                paginationControls.append(pageButton);
+            if (game.has_latest_version !== undefined) {
+                const versionBadge = $('<span class="badge rounded-pill game-tag"></span>').addClass(`text-bg-${game.has_latest_version ? 'success' : 'warning'}`).html(`<i class="bi ${game.has_latest_version ? 'bi-check-circle-fill' : 'bi-arrow-down-circle'}"></i>`);
+                tagsContainer.append(versionBadge);
             }
 
-            // Next button
-            const nextButton = $('<li class="page-item"></li>').addClass(`page-item ${currentPage === totalPages ? 'disabled' : ''}`).html(`
-                    <a class="page-link" href="#" aria-label="Next">
-                        <span aria-hidden="true">&raquo;</span>
-                    </a>`);
-            nextButton.click(function (e) {
+            if (game.has_all_dlcs !== undefined) {
+                const dlcBadge = $('<span class="badge rounded-pill game-tag"></span>').addClass(`text-bg-${game.has_all_dlcs ? 'success' : 'warning'}`).html('<i class="bi bi-box-seam-fill"></i>');
+                tagsContainer.append(dlcBadge);
+            }
+
+            cardOverlay.append(tagsContainer);
+            card.append(cardOverlay);
+            gameCol.append(card);
+            gameGrid.append(gameCol);
+        });
+        // Update pagination
+        updatePaginationControls(filteredGames.length)
+
+    }
+
+    function renderIconView() {
+        // Render icon view logic...
+        const gameGrid = $('#gameGrid');
+        gameGrid.empty(); // Clear existing games
+        // Get games for the current page
+        start = (currentPage - 1) * itemsPerPage
+        end = start + itemsPerPage
+        baseGames = filteredGames.filter(game => game.type === 'BASE');
+        paginatedGames = baseGames.slice(start, end);
+
+        paginatedGames.forEach(game => {
+            const icon = $('<img class="game-icon">').attr('src', game.iconUrl);
+            gameGrid.append(icon);
+        });
+
+        // Adjust icon sizes based on the slider value
+        adjustIconSizes(cardSize);
+        // Update pagination
+        updatePaginationControls(baseGames.length)
+    }
+
+    function getColumnsForCardSize(size) {
+        switch (size) {
+            case 1: return 1; // 2 columns
+            case 2: return 2; // 3 columns
+            case 3: return 3; // 4 columns
+            case 4: return 4; // 6 columns
+            case 5: return 6; // 8 columns
+            default: return 4; // default to 3 columns
+        }
+    }
+
+    function updatePaginationControls(nbDisplayedGames) {
+        const paginationControls = $('#paginationControls');
+        paginationControls.empty(); // Clear existing pagination
+
+        const totalPages = Math.ceil(nbDisplayedGames / itemsPerPage);
+
+        // Previous button
+        const prevButton = $('<li class="page-item"></li>').addClass(`page-item ${currentPage === 1 ? 'disabled' : ''}`).html(`
+                <a class="page-link" href="#" aria-label="Previous">
+                    <span aria-hidden="true">&laquo;</span>
+                </a>`);
+        prevButton.click(function (e) {
+            e.preventDefault();
+            if (currentPage > 1) {
+                currentPage--;
+                renderGames();
+            }
+        });
+        paginationControls.append(prevButton);
+
+        // Page numbers
+        for (let i = 1; i <= totalPages; i++) {
+            const pageButton = $('<li class="page-item"></li>').addClass(`page-item ${i === currentPage ? 'active' : ''}`).html(`<a class="page-link" href="#">${i}</a>`);
+            pageButton.click(function (e) {
                 e.preventDefault();
-                if (currentPage < totalPages) {
-                    currentPage++;
-                    fetchGames();
-                }
+                currentPage = i;
+                renderGames();
             });
-            paginationControls.append(nextButton);
+            paginationControls.append(pageButton);
         }
 
-        function adjustCardSizes(size) {
-            const gameGrid = $('#gameGrid');
-            const gameCols = gameGrid.find('.game-col');
-            gameCols.each(function () {
-                $(this).removeClass().addClass(`col game-col col-${12 / getColumnsForCardSize(size)}`);
-            });
-        }
+        // Next button
+        const nextButton = $('<li class="page-item"></li>').addClass(`page-item ${currentPage === totalPages ? 'disabled' : ''}`).html(`
+                <a class="page-link" href="#" aria-label="Next">
+                    <span aria-hidden="true">&raquo;</span>
+                </a>`);
+        nextButton.click(function (e) {
+            e.preventDefault();
+            if (currentPage < totalPages) {
+                currentPage++;
+                renderGames();
+            }
+        });
+        paginationControls.append(nextButton);
+    }
 
-        function adjustIconSizes(size) {
+    function adjustCardSizes() {
+        const gameGrid = $('#gameGrid');
+        const gameCols = gameGrid.find('.game-col');
+        gameCols.each(function () {
+            $(this).removeClass().addClass(`col game-col col-${12 / getColumnsForCardSize(cardSize)}`);
+        });
+    }
+
+    function adjustIconSizes() {
             // Calculate the size of the icons based on the slider value
-            const iconSize = 100 / (size + 3); // Assuming 100 is the maximum size
+            const iconSize = 100 / (cardSize + 3); // Assuming 100 is the maximum size
 
             // Update the CSS of the game icons
             $('.game-icon').css('width', `${iconSize}%`);
         }
 
-        // Fetch initial set of games
-        fetchGames();
+    $(document).ready(function () {
+        // Fetch initial set of games and render
+        fetchGames().then(() => {
+            renderGames();
+        });
 
         // Event listeners for items per page dropdown
         $('.items-per-page').click(function () {
             itemsPerPage = $(this).data('value');
             currentPage = 1; // Reset to first page
-            fetchGames();
+            renderGames();
         });
 
         $('#applyCustomItemsPerPage').click(function () {
@@ -300,7 +319,7 @@
             if (customValue && customValue > 0) {
                 itemsPerPage = parseInt(customValue);
                 currentPage = 1; // Reset to first page
-                fetchGames();
+                renderGames();
             }
         });
 
@@ -326,8 +345,15 @@
             }
             renderGames(games);
         });
+        
+        // Handle filter checkbox
+        $('.filterLabel').prop('checked', false);
+        $('.filterLabel').click(function() {
+            updateFilter();
+            applyFilters();
+        });
+    
     });
-
 
     // Function to filter cards based on input text
     function filterByCardText(attributeText) {
@@ -400,38 +426,69 @@
         }
     }
 
+    function findCommonElements(...arrays) {
+        // Filter out empty arrays
+        const nonEmptyArrays = arrays.filter(array => array.length > 0);
+
+        // If there are no non-empty arrays, return an empty array
+        if (nonEmptyArrays.length === 0) {
+            return [];
+        }
+
+        // Find common elements
+        return nonEmptyArrays.reduce((common, currentArray) => 
+            common.filter(item => currentArray.includes(item))
+        );
+    }
+
     // Function to apply filters and show/hide game cards with animation
     function applyFilters() {
-        const gameCards = $(".game-card");
-        gameCards.each(function () {
-            const card = $(this);
-            const tagsContainer = card.find('.tags-container');
-            const tags = tagsContainer.find('.game-tag');
-            cardTagsText = [];
-            tags.each(function () {
-                const tt = $(this);
-                cardTagsText.push(tt.attr('data-bs-tag'));
-            })
 
-            if ((activeTypeFilters.size === 0 || Array.from(activeTypeFilters).some(tag => cardTagsText.includes(tag))) &&
-                (activeUpdateFilters.size === 0 || Array.from(activeUpdateFilters).some(tag => cardTagsText.includes(tag))) &&
-                (activeCompletionFilters.size === 0 || Array.from(activeCompletionFilters).some(tag => cardTagsText.includes(tag)))) {
-                card.parent().removeAttr('filtered-tag');
-                if ((card.parent().attr('filtered-text') != 'set')) {
-                    card.parent().removeClass('d-none');
+        if (activeTypeFilters.size === 0 && activeUpdateFilters.size === 0 && activeCompletionFilters.size === 0) {
+            filteredGames = games;
+        } else {
+            gamesFilteredByType = []
+            gamesFilteredByUpdate = []
+            gamesFilteredByCompletion = []
+
+            console.log(activeTypeFilters);
+            if (activeTypeFilters.size > 0) {
+                filteredGames = [];
+                for (let type of activeTypeFilters) {
+                    console.log(type); // Logs "BASE" and "DLC"
+                    gamesFilteredByType = gamesFilteredByType.concat(games.filter(game => game.type === type));
                 }
-            } else {
-                card.parent().addClass('d-none');
-                card.parent().attr('filtered-tag', 'set');
             }
-        });
+
+            console.log(activeUpdateFilters);
+            if (activeUpdateFilters.has("Up to date")) {
+                gamesFilteredByUpdate = gamesFilteredByUpdate.concat(games.filter(game => game.has_latest_version === true));
+            }
+            if (activeUpdateFilters.has("Outdated")) {
+                gamesFilteredByUpdate = gamesFilteredByUpdate.concat(games.filter(game => game.has_latest_version === false));
+            }
+            
+            console.log(activeCompletionFilters);
+            if (activeCompletionFilters.has("Complete")) {
+                gamesFilteredByCompletion = gamesFilteredByCompletion.concat(games.filter(game => game.has_all_dlcs === true));
+            }
+            if (activeCompletionFilters.has("Missing DLC")) {
+                gamesFilteredByCompletion = gamesFilteredByCompletion.concat(games.filter(game => game.has_all_dlcs === false));
+            }
+
+            // Find common elements
+            filteredGames = findCommonElements(games, gamesFilteredByType, gamesFilteredByUpdate, gamesFilteredByCompletion);
+        }
+
+        currentPage = 1;
+        renderGames();
 
     }
 
-    $('#btnApplyFilters').on('click', function () {
-        updateFilter();
-        applyFilters();
-    });
+    // $('#btnApplyFilters').on('click', function () {
+    //     updateFilter();
+    //     applyFilters();
+    // });
 
 
 </script>
