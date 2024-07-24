@@ -34,6 +34,8 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 scan_in_progress = False
 scan_lock = threading.Lock()
 
+titles_library = []
+
 db.init_app(app)
 
 login_manager.init_app(app)
@@ -153,11 +155,11 @@ def library_paths_api():
         }    
     elif request.method == 'DELETE':
         data = request.json
-        print(data)
         success, errors = delete_library_path_from_settings(data['path'])
         if success:
             reload_conf()
             success, errors = delete_files_by_library(data['path'])
+            generate_library()
         resp = {
             'success': success,
             'errors': errors
@@ -195,14 +197,8 @@ def upload_file():
     } 
     return jsonify(resp)
 
-@app.route('/api/titles', methods=['GET'])
-@access_required('shop')
-def get_all_titles():
-    page = int(request.args.get('page', 1))
-    limit = int(request.args.get('limit', 9))
-    start = (page - 1) * limit
-    end = start + limit
-
+def generate_library():
+    global titles_library
     titles = get_all_titles_from_db()
     games_info = []
     for title in titles:
@@ -243,11 +239,18 @@ def get_all_titles():
             titleid_info = get_game_info(title['title_id'])
             title['title_id_name'] = titleid_info['name']
         games_info.append(title)
-    games = sorted(games_info, key=lambda x: ("title_id_name" not in x, x.get("title_id_name", None), x['app_id']))
-    paginated_games = games[start:end]
+    titles_library = sorted(games_info, key=lambda x: ("title_id_name" not in x, x.get("title_id_name", None), x['app_id']))
+
+@app.route('/api/titles', methods=['GET'])
+@access_required('shop')
+def get_all_titles():
+    global titles_library
+    if not titles_library:
+        generate_library()
+
     return jsonify({
-        'total': len(games),
-        'games': paginated_games
+        'total': len(titles_library),
+        'games': titles_library
     })
 
 @app.route('/api/get_game/<int:id>')
@@ -267,9 +270,13 @@ def scan_library():
         return
 
     for library_path in library_paths:
-        scan_library_path(library_path)
+        scan_library_path(library_path, update_library=False)
+    
+    # update library
+    generate_library()
 
-def scan_library_path(library_path):
+
+def scan_library_path(library_path, update_library=True):
     global scan_in_progress
     # Acquire the lock before checking and updating the scan status
     with scan_lock:
@@ -309,6 +316,10 @@ def scan_library_path(library_path):
         # Ensure the scan status is reset to not in progress, even if an error occurs
         with scan_lock:
             scan_in_progress = False
+
+        if update_library:
+            # update library
+            generate_library()
 
 @app.post('/api/library/scan')
 @access_required('admin')
