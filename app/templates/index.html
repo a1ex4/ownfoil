@@ -364,11 +364,10 @@
             searchText = attributeText.toLowerCase();
 
             filteredGames = games.filter(game =>
+                game.app_id?.toLowerCase().includes(searchText) ||
+                game.title_id?.toLowerCase().includes(searchText) ||
+                game.name?.toLowerCase().includes(searchText) ||
                 game.title_id_name?.toLowerCase().includes(searchText)
-                || game.name?.toLowerCase().includes(searchText)
-                || game.title_id?.toLowerCase().includes(searchText)
-                || game.title_id?.toLowerCase().includes(searchText)
-                || game.app_id?.toLowerCase().includes(searchText)
             )
         }
 
