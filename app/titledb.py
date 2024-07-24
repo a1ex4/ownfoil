@@ -6,7 +6,7 @@ from constants import *
 
 
 def get_region_titles_file(app_settings):
-    return f"titles.{app_settings['library']['region']}.{app_settings['library']['language']}.json"
+    return f"titles.{app_settings['titles']['region']}.{app_settings['titles']['language']}.json"
 
 def download_from_remote_zip(rzf, path, store_path):
     with rzf.open(path) as fpin:
