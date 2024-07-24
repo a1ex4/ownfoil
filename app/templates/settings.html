@@ -16,9 +16,7 @@
                         created, <strong>authentication is disabled, anyone can access and change the configuration of
                             your shop!</strong>
                         <br>
-                        Add an admin account <a href="/settings#Authentication" class="alert-link">in the Setting page,
-                            under
-                            Authentication</a>.
+                        Add an admin account <a href="/settings#Authentication" class="alert-link">here under Authentication</a>.
                     </p>
                 </div>
                 {% endif %}
@@ -123,12 +121,73 @@
                 <hr>
 
                 <h2 class="pb-3">Library</h2>
-                <div class="mb-3">
-                    <label for="libraryPathInput" class="form-label">Library path:</label>
-                    <input class="form-control" id="libraryPathInput" aria-describedby="libraryPathHelp">
-                    <div id="libraryPathHelp" class="form-text">Path of directory containing your games.</div>
+
+                <label class="form-label">Library paths:</label>
+                <div id="libraryPathHelp" class="form-text">Path of directory containing your games.</div>
+                <table class="table table-hover caption-top" id="pathsTable">
+                    <thead>
+                        <tr>
+                            <th scope="col">Path</th>
+                            <th scope="col">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    </tbody>
+                </table>
+
+                <!-- Library buttons -->
+                <div class="row g-3">
+                    <div class="col-auto">
+                        <button class="btn btn-primary" type="button" data-bs-toggle="collapse"
+                            data-bs-target="#collapseNewPath" aria-expanded="false" aria-controls="collapseNewPath">
+                            Add library path
+                        </button>
+                    </div>
+
+                    <div class="col-auto">
+                        <button type="button" class="btn btn-primary mb-3 scanBtn"
+                            onClick='scanLibrary()'>Scan library</button>
+                    </div>
                 </div>
 
+                <div class="collapse" id="collapseNewPath">
+                    <div class="card card-body">
+                        <label class="form-label">Add a new directory:</label>
+                        <div class="row g-3">
+                            <div class="col-6">
+                                <input type="text" class="form-control" id="libraryPathInput" placeholder="Path">
+                            </div>
+                            <div class="col-auto">
+                                <button type="button" id="submitNewLibraryPathBtn" class="btn btn-primary mb-3"
+                                    onClick='submitNewLibraryPath()'>Submit</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Delete User Modal -->
+                <div class="modal fade" id="deletePathModal" tabindex="-1" aria-labelledby="deletePathModalLabel" aria-hidden="true">
+                    <div class="modal-dialog modal-dialog-centered">
+                        <div class="modal-content">
+                            <div class="modal-header">
+                                <h1 class="modal-title fs-5" id="deletePathModalLabel">Delete library path</h1>
+                                <button type="button" class="btn-close" data-bs-dismiss="modal"
+                                    aria-label="Close"></button>
+                            </div>
+                            <div class="modal-body">
+                                ...
+                            </div>
+                            <div class="modal-footer">
+                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                                <button type="button" class="btn btn-danger" data-bs-dismiss="modal">Delete</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <hr>
+                <h2 class="pb-3">Titles</h2>
+                <p>Titles identification configuration.</p>
                 <div class="row mb-3">
                     <div class="col">
                         <label for="selectRegion" class="form-label">Library Region:</label>
@@ -161,8 +220,8 @@
                 </div>
 
                 <div class="mb-3">
-                    <button type="button" id="submit-library" class="btn btn-primary"
-                        onClick='submitLibrarySettings()'>Submit</button>
+                    <button type="button" id="submitTitlesSettingsBtn" class="btn btn-primary"
+                        onClick='submitTitlesSettings()'>Submit</button>
                 </div>
                 </form>
                 <hr>
@@ -192,7 +251,7 @@
                 </div>
 
                 <div class="mb-3">
-                    <button type="button" id="submit-shop" class="btn btn-primary"
+                    <button type="button" id="submitShopSettingsBtn" class="btn btn-primary"
                         onClick='submitShopSettings()'>Submit</button>
                 </div>
 
@@ -222,10 +281,63 @@
         return $('#' + checkboxId).is(":checked")
     }
 
+    function scanLibrary(path=null) {
+        $('.scanBtn').prop('disabled', true);
+        data = {
+            path: path
+        }
+        $.ajax({
+            url: '/api/library/scan',
+            type: 'POST',
+            data: JSON.stringify(data),
+            contentType: "application/json",
+            success: function (result) {
+                if (result['success']) {
+                    if (result['status_code'] == '302') {
+                        window.location.href = result['location']
+                        return
+                    }
+                    console.log('Scan Success!');
+                }
+                $('.scanBtn').prop('disabled', false);
+            }
+        });
+
+    }
+
+    function fillLibraryTable() {
+        $('#pathsTable tbody').empty();
+
+        $.getJSON("/api/settings/library/paths", function (result) {
+
+            console.log(result)
+            if (!result['success']) {
+                if (result['status_code'] == '302') {
+                    window.location.href = result['location']
+                    return
+                }
+            }
+            paths = result.paths;
+            if ( paths === null || !paths.length) {
+                $('#pathsTable tbody').append(
+                    '<tr><td>-</td><td>-</td><td>');
+            } else {
+                paths.forEach(path => {
+                    $('#pathsTable tbody').append(
+                        '<tr><td>' + path + '</td>'
+                        + '<td>' +
+                        '<button type="button" class="btn btn-outline-info btn-sm scanBtn" onclick=\'scanLibrary("' + path + '");\' ><i class="bi bi-arrow-clockwise"></i></button> ' +
+                        '<button type="button" class="btn btn-outline-danger btn-sm" data-bs-toggle="modal" data-bs-target="#deletePathModal" data-bs-path="' + path + '"\'><i class="bi bi-x-circle"></i></button>' +
+                        '</td></tr>');
+                })
+            }
+        });
+
+    }
+
     function fillUserTable() {
         $('#userTable tbody').empty();
         $.getJSON("/api/users", function (result) {
-            console.log(result)
             if (!result['success']) {
                 if (result['status_code'] == '302') {
                     window.location.href = result['location']
@@ -270,12 +382,35 @@
                             <label class="form-check-label">Admin</label>
                         </div>`
                     + '</td><td>' +
-                    '<button type="button" class="btn btn-outline-info btn-sm"><i class="bi bi-pencil-square"></i></button> ' +
+                    '<button type="button" class="btn btn-outline-info btn-sm" disabled=""><i class="bi bi-pencil-square"></i></button> ' +
                     '<button type="button" class="btn btn-outline-danger btn-sm" data-bs-toggle="modal" data-bs-target="#deleteUserModal" data-bs-id="' + user['id'] + '" data-bs-user="' + user['user'] + '"\'><i class="bi bi-x-circle"></i></button>' +
                     '</td></tr>');
             });
         })
 
+    }
+
+    const deletePathModal = $('#deletePathModal')
+    if (deletePathModal) {
+        deletePathModal.on('show.bs.modal', event => {
+            // Button that triggered the modal
+            const button = event.relatedTarget
+            // Extract info from data-bs-* attributes
+            const path = button.getAttribute('data-bs-path')
+            // If necessary, you could initiate an Ajax request here
+            // and then do the updating in a callback.
+
+            // Update the modal's content.
+            // const modalTitle = deletePathModal.querySelector('.modal-title')
+            const modalBody = deletePathModal.find('.modal-body')
+            const deleteBtn = deletePathModal.find('.btn-danger')
+
+
+            deleteBtn.attr('onClick', 'deleteLibraryPath("' + path + '");');
+
+            // modalTitle.textContent = `New message to ${recipient}`
+            modalBody.text("Delete path " + path + " ?")
+        })
     }
 
     const deleteUserModal = $('#deleteUserModal')
@@ -314,6 +449,23 @@
             success: function (result) {
                 if (result['success']) {
                     fillUserTable();
+                }
+            }
+        });
+    }
+
+    function deleteLibraryPath(path) {
+        data = {
+            path: path
+        }
+        $.ajax({
+            url: "/api/settings/library/paths",
+            type: 'DELETE',
+            data: JSON.stringify(data),
+            contentType: "application/json",
+            success: function (result) {
+                if (result['success']) {
+                    fillLibraryTable();
                 }
             }
         });
@@ -387,9 +539,39 @@
         }
     }
 
-    function submitLibrarySettings() {
+    function submitNewLibraryPath() {
+        $('#submitNewLibraryPathBtn').prop('disabled', true);
+        path = getInputVal("libraryPathInput")
         data = {
-            path: getInputVal("libraryPathInput"),
+            path: path
+        }
+        console.log(data)
+
+        $.ajax({
+            url: "/api/settings/library/paths",
+            type: 'POST',
+            data: JSON.stringify(data),
+            contentType: "application/json",
+            success: function (result) {
+                if (result['success']) {
+                    if (result['status_code'] == '302') {
+                        window.location.href = result['location']
+                        return
+                    }
+                    console.log('Sucessfully added path ' + path);
+                    setInputVal("libraryPathInput", "")
+                    fillLibraryTable();
+                } else {
+                    console.log('Error adding path ' + path);
+                }
+            $('#submitNewLibraryPathBtn').prop('disabled', false);
+            }
+        });
+    }
+
+    function submitTitlesSettings() {
+        $('#submitTitlesSettingsBtn').prop('disabled', true);
+        data = {
             region: getInputVal("selectRegion"),
             language: getInputVal("selectLanguage"),
         }
@@ -420,7 +602,7 @@
         }
 
         $.ajax({
-            url: "/api/settings/library",
+            url: "/api/settings/titles",
             type: 'POST',
             data: JSON.stringify(data),
             contentType: "application/json",
@@ -437,11 +619,13 @@
                         $("#" + formTextElement).text(error['error']);
                     });
                 }
+                $('#submitTitlesSettingsBtn').prop('disabled', false);
             }
         });
     }
 
     function submitShopSettings() {
+        $('#submitShopSettingsBtn').prop('disabled', true);
         data = {
             public: getCheckboxStatus("publicShopCheck"),
             encrypt: getCheckboxStatus("encryptShopCheck"),
@@ -466,12 +650,14 @@
                         $("#" + formTextElement).text(error['error']);
                     });
                 }
+            $('#submitShopSettingsBtn').prop('disabled', false);
             }
         });
     }
 
     $(document).ready(function () {
         fillUserTable();
+        fillLibraryTable();
 
         $.getJSON("/api/settings", function (result) {
             Object.keys(languages).forEach(function (key) {
@@ -490,10 +676,13 @@
 
             // Library settings
             librarySettings = result['library'];
-            setInputVal("libraryPathInput", librarySettings['path']);
-            setInputVal("selectRegion", librarySettings['region']);
+            // Titles settings
+            titlesSettings = result['titles'];
+
+            // Fill region and language
+            setInputVal("selectRegion", titlesSettings['region']);
             $('#selectRegion').trigger('change');
-            setInputVal("selectLanguage", librarySettings['language']);
+            setInputVal("selectLanguage", titlesSettings['language']);
 
             // Shop settings
             shopSettings = result['shop'];

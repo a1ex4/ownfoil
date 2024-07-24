@@ -2,6 +2,7 @@ from flask import Flask, render_template, request, redirect, url_for, jsonify, s
 from flask_login import LoginManager
 from functools import wraps
 import yaml
+import threading
 from markupsafe import escape
 from constants import *
 from settings import *
@@ -13,8 +14,12 @@ import titledb
 
 def init():
     global app_settings
+    # load initial configuration
     reload_conf()
+
+    # Update titledb
     titledb.update_titledb(app_settings)
+    load_titledb(app_settings)
 
 os.makedirs(CONFIG_DIR, exist_ok=True)
 os.makedirs(DATA_DIR, exist_ok=True)
@@ -24,6 +29,10 @@ app.config["SQLALCHEMY_DATABASE_URI"] = OWNFOIL_DB
 # TODO: generate random secret_key
 app.config['SECRET_KEY'] = '8accb915665f11dfa15c2db1a4e8026905f57716'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+
+# Create a global variable and lock
+scan_in_progress = False
+scan_lock = threading.Lock()
 
 db.init_app(app)
 
@@ -57,7 +66,7 @@ def tinfoil_access(f):
     return _tinfoil_access
 
 def access_shop():
-    return render_template('index.html', title='Library', admin_account_created=admin_account_created(), valid_keys=app_settings['valid_keys'])
+    return render_template('index.html', title='Library', admin_account_created=admin_account_created(), valid_keys=app_settings['titles']['valid_keys'])
 
 @access_required('shop')
 def access_shop_auth():
@@ -71,8 +80,6 @@ def index():
         shop = gen_shop(db, app_settings)
         return jsonify(shop)
     
-    scan_library()
-
     if all(header in request.headers for header in TINFOIL_HEADERS):
     # if True:
         print(f"Tinfoil connection from {request.remote_addr}")
@@ -88,7 +95,7 @@ def settings_page():
     with open(os.path.join(TITLEDB_DIR, 'languages.json')) as f:
         languages = json.load(f)
         languages = dict(sorted(languages.items()))
-    return render_template('settings.html', title='Settings', languages_from_titledb=languages, admin_account_created=admin_account_created(), valid_keys=app_settings['valid_keys'])
+    return render_template('settings.html', title='Settings', languages_from_titledb=languages, admin_account_created=admin_account_created(), valid_keys=app_settings['titles']['valid_keys'])
 
 @app.get('/api/settings')
 @access_required('admin')
@@ -96,21 +103,65 @@ def get_settings_api():
     reload_conf()
     return jsonify(app_settings)
 
-@app.post('/api/settings/<string:section>')
+@app.post('/api/settings/titles')
 @access_required('admin')
-def set_settings_api(section=None):
-    data = request.json
-    settings_valid, errors = verify_settings(section, data)
-    if settings_valid:
-        set_settings(section, data)
-        reload_conf()
-        if section == 'library':
-            titledb.update_titledb(app_settings)
-            load_titledb(app_settings)
+def set_titles_api():
+    settings = request.json
+    region = settings['region']
+    language = settings['language']
+    with open(os.path.join(TITLEDB_DIR, 'languages.json')) as f:
+        languages = json.load(f)
+        languages = dict(sorted(languages.items()))
+
+    if region not in languages or language not in languages[region]:
+        resp = {
+            'success': False,
+            'errors': [{
+                    'path': 'titles',
+                    'error': f"The region/language pair {region}/{language} is not available."
+                }]
+        }
+        return jsonify(resp)
+    
+    set_titles_settings(region, language)
+    reload_conf()
+    titledb.update_titledb(app_settings)
+    load_titledb(app_settings)
     resp = {
-        'success': settings_valid,
-        'errors': errors
+        'success': True,
+        'errors': []
     } 
+    return jsonify(resp)
+
+@app.route('/api/settings/library/paths', methods=['GET', 'POST', 'DELETE'])
+@access_required('admin')
+def library_paths_api():
+    if request.method == 'POST':
+        data = request.json
+        success, errors = add_library_path_to_settings(data['path'])
+        reload_conf()
+        resp = {
+            'success': success,
+            'errors': errors
+        }
+    elif request.method == 'GET':
+        reload_conf()
+        resp = {
+            'success': True,
+            'errors': [],
+            'paths': app_settings['library']['paths']
+        }    
+    elif request.method == 'DELETE':
+        data = request.json
+        print(data)
+        success, errors = delete_library_path_from_settings(data['path'])
+        if success:
+            reload_conf()
+            success, errors = delete_files_by_library(data['path'])
+        resp = {
+            'success': success,
+            'errors': errors
+        }
     return jsonify(resp)
 
 def allowed_file(filename):
@@ -208,34 +259,83 @@ def serve_game(id):
 
 
 def scan_library():
-    library = app_settings['library']['path']
-    load_titledb(app_settings)
-    print('Scanning library...')
-    if not os.path.isdir(library):
-        print(f'Library path {library} does not exists.')
+    print(f'Scanning whole library ...')
+    library_paths = app_settings['library']['paths']
+    
+    if not library_paths:
+        print('No library paths configured, nothing to do.')
         return
-    _, files = getDirsAndFiles(library)
 
-    if app_settings['valid_keys']:
-        current_identification = 'cnmt'
+    for library_path in library_paths:
+        scan_library_path(library_path)
+
+def scan_library_path(library_path):
+    global scan_in_progress
+    # Acquire the lock before checking and updating the scan status
+    with scan_lock:
+        if scan_in_progress:
+            print('Scan already in progress')
+            return
+        # Set the scan status to in progress
+        scan_in_progress = True
+
+    try:
+        print(f'Scanning library path {library_path} ...')
+        if not os.path.isdir(library_path):
+            print(f'Library path {library_path} does not exists.')
+            return
+        _, files = getDirsAndFiles(library_path)
+
+        if app_settings['titles']['valid_keys']:
+            current_identification = 'cnmt'
+        else:
+            print('Invalid or non existing keys.txt, title identification fallback to filename only.')
+            current_identification = 'filename'
+
+        all_files_with_current_identification = get_all_files_with_identification(current_identification)
+        files_to_identify = [f for f in files if f not in all_files_with_current_identification]
+        nb_to_identify = len(files_to_identify)
+        for n, filepath in enumerate(files_to_identify):
+            file = filepath.replace(library_path, "")
+            print(f'Identifiying file ({n+1}/{nb_to_identify}): {file}')
+
+            file_info = identify_file(filepath)
+
+            if file_info is None:
+                print(f'Failed to identify: {file} - file will be skipped.')
+                continue
+            add_to_titles_db(library_path, file_info)
+    finally:
+        # Ensure the scan status is reset to not in progress, even if an error occurs
+        with scan_lock:
+            scan_in_progress = False
+
+@app.post('/api/library/scan')
+@access_required('admin')
+def scan_library_api():
+    global scan_in_progress
+    # Acquire the lock before checking and updating the scan status
+    if scan_in_progress:
+        print('Scan already in progress')
+        resp = {
+            'success': False,
+            'errors': []
+        } 
+        return resp
+    
+    data = request.json
+    path = data['path']
+
+    if path is None:
+        scan_library()
     else:
-        print('Invalid or non existing keys.txt, title identification fallback to filename only.')
-        current_identification = 'filename'
+        scan_library_path(path)
 
-    all_files_with_current_identification = get_all_files_with_identification(current_identification)
-    files_to_identify = [f for f in files if f not in all_files_with_current_identification]
-    nb_to_identify = len(files_to_identify)
-    for n, filepath in enumerate(files_to_identify):
-        file = filepath.replace(library, "")
-        print(f'Identifiying file ({n+1}/{nb_to_identify}): {file}')
-
-        file_info = identify_file(filepath)
-
-        if file_info is None:
-            print(f'Failed to identify: {file} - file will be skipped.')
-            continue
-        add_to_titles_db(library, file_info)
-
+    resp = {
+        'success': True,
+        'errors': []
+    } 
+    return jsonify(resp)
 
 def reload_conf():
     global app_settings

@@ -26,7 +26,7 @@ def load_settings():
             settings = yaml.safe_load(yaml_file)
 
         valid_keys = load_keys()
-        settings['valid_keys'] = valid_keys
+        settings['titles']['valid_keys'] = valid_keys
 
     else:
         settings = DEFAULT_SETTINGS
@@ -38,19 +38,68 @@ def verify_settings(section, data):
     success = True
     errors = []
     if section == 'library':
-        # Check that path exists
-        if not os.path.exists(data['path']):
-            success = False
-            errors.append({
-                'path': 'library/path',
-                'error': f"Path {data['path']} does not exists."
-            })
+        # Check that paths exist
+        for dir in data['paths']:
+            if not os.path.exists(dir):
+                success = False
+                errors.append({
+                    'path': 'library/path',
+                    'error': f"Path {dir} does not exists."
+                })
+                break
     return success, errors
 
-def set_settings(section, data):
-    settings = load_settings()
-    settings[section] = data
+def add_library_path_to_settings(path):
+    success = True
+    errors = []
+    if not os.path.exists(path):
+        success = False
+        errors.append({
+            'path': 'library/paths',
+            'error': f"Path {dir} does not exists."
+        })
+    else:
+        settings = load_settings()
+        library_paths = settings['library']['paths']
+        if library_paths:
+            if path in library_paths:
+                success = False
+                errors.append({
+                    'path': 'library/paths',
+                    'error': f"Path {dir} already configured."
+                })
+                return success, errors
+            library_paths.append(path)
+        else:
+            library_paths = [path]
+        settings['library']['paths'] = library_paths
+        with open(CONFIG_FILE, 'w') as yaml_file:
+            yaml.dump(settings, yaml_file)
+    return success, errors
 
+def delete_library_path_from_settings(path):
+    success = True
+    errors = []
+    settings = load_settings()
+    library_paths = settings['library']['paths']
+    if library_paths:
+        print(library_paths)
+        if path in library_paths:
+            library_paths.remove(path)
+            settings['library']['paths'] = library_paths
+            with open(CONFIG_FILE, 'w') as yaml_file:
+                yaml.dump(settings, yaml_file)
+        else:
+            success = False
+            errors.append({
+                    'path': 'library/paths',
+                    'error': f"Path {dir} not configured."
+                })
+    return success, errors
+
+def set_titles_settings(region, language):
+    settings = load_settings()
+    settings['titles']['region'] = region
+    settings['titles']['language'] = language
     with open(CONFIG_FILE, 'w') as yaml_file:
         yaml.dump(settings, yaml_file)
-    app_settings = settings

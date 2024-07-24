@@ -100,3 +100,30 @@ def get_all_title_files(title_id):
 def get_all_files_with_identification(identification):
     results = db.session.query(Files).filter_by(identification=identification).all()
     return[to_dict(r)['filepath']  for r in results]
+
+def delete_files_by_library(library_path):
+    success = True
+    errors = []
+    try:
+        # Find all files with the given library
+        files_to_delete = Files.query.filter_by(library=library_path).all()
+        
+        # Delete each file
+        for file in files_to_delete:
+            db.session.delete(file)
+        
+        # Commit the changes
+        db.session.commit()
+        
+        print(f"All entries with library '{library_path}' have been deleted.")
+        return success, errors
+    except Exception as e:
+        # If there's an error, rollback the session
+        db.session.rollback()
+        print(f"An error occurred: {e}")
+        success = False
+        errors.append({
+            'path': 'library/paths',
+            'error': f"An error occurred: {e}"
+        })
+        return success, errors

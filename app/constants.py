@@ -19,9 +19,12 @@ OWNFOIL_DB = 'sqlite:////' + os.path.join(CONFIG_DIR, 'ownfoil.db')
 
 DEFAULT_SETTINGS = {
     "library": {
-        "path": "/games",
+        "paths": ["/games"],
+    },
+    "titles": {
+        "language": "en",
         "region": "US",
-        "language": "en"
+        "valid_keys": False,
     },
     "shop": {
         "motd": "Welcome to your own shop!",
