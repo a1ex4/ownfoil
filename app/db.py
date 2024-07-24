@@ -1,6 +1,7 @@
 from flask_sqlalchemy import SQLAlchemy
+from sqlalchemy.orm.exc import NoResultFound
 from flask_login import UserMixin
-import json
+import json, os
 
 db = SQLAlchemy()
 
@@ -86,6 +87,29 @@ def add_to_titles_db(library, file_info):
 
     db.session.commit()
 
+def update_file_path(old_path, new_path):
+    try:
+        # Find the file entry in the database using the old_path
+        file_entry = Files.query.filter_by(filepath=old_path).one()
+        
+        # Extract the new folder and root_dir from the new_path
+        new_folder = "/" + os.path.basename(os.path.dirname(new_path))
+
+        # Update the file entry with the new path values
+        file_entry.filepath = new_path
+        file_entry.folder = new_folder
+        
+        # Commit the changes to the database
+        db.session.commit()
+
+        return f"File path updated successfully from {old_path} to {new_path}."
+    
+    except NoResultFound:
+        return f"No file entry found for the path: {old_path}."
+    except Exception as e:
+        db.session.rollback()  # Roll back the session in case of an error
+        return f"An error occurred while updating the file path: {str(e)}"
+
 def get_all_titles_from_db():
     # results = db.session.query(Files.title_id).distinct()
     # return [row[0] for row in results]
@@ -127,3 +151,47 @@ def delete_files_by_library(library_path):
             'error': f"An error occurred: {e}"
         })
         return success, errors
+
+def delete_file_by_filepath(filepath):
+    try:
+        # Find file with the given filepath
+        file_to_delete = Files.query.filter_by(filepath=filepath).one()
+        
+        # Delete file
+        db.session.delete(file_to_delete)
+        
+        # Commit the changes
+        db.session.commit()
+        
+        return f"File '{filepath}' has been deleted."
+    except Exception as e:
+        # If there's an error, rollback the session
+        db.session.rollback()
+        return f"An error occurred while deleting the file path: {str(e)}"
+
+def remove_missing_files():
+    try:
+        # Query all entries in the Files table
+        files = Files.query.all()
+        
+        # List to keep track of IDs to be deleted
+        ids_to_delete = []
+        
+        for file_entry in files:
+            # Check if the file exists on disk
+            if not os.path.exists(file_entry.filepath):
+                # If the file does not exist, mark this entry for deletion
+                ids_to_delete.append(file_entry.id)
+                print(f"File not found, marking file for deletion: {file_entry.filepath}")
+        
+        # Delete all marked entries from the database
+        if ids_to_delete:
+            Files.query.filter(Files.id.in_(ids_to_delete)).delete(synchronize_session=False)
+            db.session.commit()
+            print(f"Deleted {len(ids_to_delete)} files from the database.")
+        else:
+            print("No files were deleted. All files are present on disk.")
+    
+    except Exception as e:
+        db.session.rollback()  # Rollback in case of an error
+        print(f"An error occurred while removing missing files: {str(e)}")
