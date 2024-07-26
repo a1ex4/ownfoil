@@ -44,6 +44,7 @@ jobs:
           flavor: |
             latest=auto
           tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
             type=ref,event=branch
             type=ref,event=tag
             type=semver,pattern={{version}}
