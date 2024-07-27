@@ -1,6 +1,6 @@
 FROM python:3.11-alpine
 
-RUN apk update && apk add --no-cache bash sudo git
+RUN apk update && apk add --no-cache build-base bash sudo git gcc musl-dev jpeg-dev zlib-dev libffi-dev cairo-dev pango-dev gdk-pixbuf-dev
 
 RUN mkdir /app
 
