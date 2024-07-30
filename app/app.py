@@ -143,6 +143,17 @@ def set_titles_api():
     } 
     return jsonify(resp)
 
+@app.post('/api/settings/shop')
+def set_shop_settings_api():
+    data = request.json
+    set_shop_settings(data)
+    reload_conf()
+    resp = {
+        'success': True,
+        'errors': []
+    } 
+    return jsonify(resp)
+
 @app.route('/api/settings/library/paths', methods=['GET', 'POST', 'DELETE'])
 @access_required('admin')
 def library_paths_api():
