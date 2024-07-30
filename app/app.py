@@ -252,7 +252,11 @@ def generate_library():
             titleid_info = get_game_info(title['title_id'])
             title['title_id_name'] = titleid_info['name']
         games_info.append(title)
-    titles_library = sorted(games_info, key=lambda x: ("title_id_name" not in x, x.get("title_id_name", None), x['app_id']))
+    titles_library = sorted(games_info, key=lambda x: (
+        "title_id_name" not in x, 
+        x.get("title_id_name", "Unrecognized") or "Unrecognized", 
+        x.get('app_id', "") or ""
+    ))
 
 @app.route('/api/titles', methods=['GET'])
 @access_required('shop')
