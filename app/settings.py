@@ -102,3 +102,9 @@ def set_titles_settings(region, language):
     settings['titles']['language'] = language
     with open(CONFIG_FILE, 'w') as yaml_file:
         yaml.dump(settings, yaml_file)
+
+def set_shop_settings(data):
+    settings = load_settings()
+    settings['shop'] = data
+    with open(CONFIG_FILE, 'w') as yaml_file:
+        yaml.dump(settings, yaml_file)
