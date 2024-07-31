@@ -1,6 +1,7 @@
 # Ownfoil
 [![Docker Pulls](https://img.shields.io/docker/pulls/a1ex4/ownfoil)](https://hub.docker.com/r/a1ex4/ownfoil)
-[![Docker Image Size (latest semver)](https://img.shields.io/docker/image-size/a1ex4/ownfoil)](https://hub.docker.com/r/a1ex4/ownfoil/tags)
+[![Docker Image Size (latest semver)](https://img.shields.io/docker/image-size/a1ex4/ownfoil?sort=date&arch=amd64
+)](https://hub.docker.com/r/a1ex4/ownfoil/tags)
 
 Ownfoil is a Nintendo Switch library manager, that will also turn your library into a fully customizable and self-hosted Tinfoil Shop. The goal of this project is to manage your library, identify any missing content (DLCs or updates) and provide a user friendly way to browse your content. Some of the features include:
 
@@ -37,16 +38,18 @@ services:
   ownfoil:
     container_name: ownfoil
     image: a1ex4/ownfoil
-    environment:
-      # For write permission in config directory
-      - PUID=1000
-      - PGID=1000
+   # environment:
+   #   # For write permission in config directory
+   #   - PUID=1000
+   #   - PGID=1000
     volumes:
       - /your/game/directory:/games
       - ./config:/app/config
     ports:
       - "8465:8465"
 ```
+> [!NOTE]
+> You can control the `UID` and `GID` of the user running the app in the container with the `PUID` and `PGID` environment variables. By default the user is created with `1000:1000`. If you want to have the same ownership for mounted directories, you need to set those variables with the UID and GID returned by the `id` command.
 
 You can then create and start the container with the command (executed in the same directory as the docker-compose file):
 
