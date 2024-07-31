@@ -4,10 +4,6 @@ name: Build titledb
 
 # Controls when the workflow will run
 on:
-  # Triggers the workflow on push or pull request events but only for the "develop" branch
-  push:
-    branches: [ "develop" ]
-
   schedule:
     - cron: '0 */4 * * *'
   # Allows you to run this workflow manually from the Actions tab
