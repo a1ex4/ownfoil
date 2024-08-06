@@ -27,7 +27,7 @@ jobs:
       # Runs a set of commands using the runners shell
       - name: Setup folders
         run: |
-          sudo apt install -y libcurl4-openssl-dev libssl-dev
+          sudo apt update && sudo apt install -y libcurl4-openssl-dev libssl-dev
           git clone https://github.com/blawar/nut
           cd nut
           pip install -r requirements.txt
