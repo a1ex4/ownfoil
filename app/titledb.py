@@ -1,6 +1,6 @@
 import unzip_http
 import requests
-import os
+import os, re
 
 from constants import *
 
@@ -64,6 +64,9 @@ def update_titledb_files(app_settings):
     
     if is_titledb_update_available(rzf):
         files_to_update = TITLEDB_DEFAULT_FILES + [region_titles_file]
+        old_region_titles_files = [f for f in os.listdir(TITLEDB_DIR) if re.match(r"titles\.[A-Z]{2}\.[a-z]{2}\.json", f) and f not in files_to_update]
+        files_to_update += old_region_titles_files
+
     elif not region_titles_file_present:
         files_to_update.append(region_titles_file)
 
