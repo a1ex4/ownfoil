@@ -11,7 +11,7 @@ on:
 jobs:
   push_to_registry:
     name: Push Docker image to Docker Hub
-    if: "!startsWith(github.event.head_commit.message, 'ci') && !startsWith(github.event.head_commit.message, 'doc')"
+    if: "!startsWith(github.ref, 'refs/heads/dependabot') && !startsWith(github.event.head_commit.message, 'ci') && !startsWith(github.event.head_commit.message, 'doc')"
     runs-on: ubuntu-latest
     steps:
       # Get the repository's code
