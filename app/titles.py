@@ -81,7 +81,8 @@ def identify_appId(app_id):
             title_id = app_id[:-3] + '000'
         else:
             app_type = APP_TYPE_DLC
-            title_id = app_id[:-3] + '000'
+            base_hex = app_id[:-3]
+            title_id = hex(int(base_hex, base=16) - 1)[2:].rjust(len(base_hex), '0') + '000'
     
     return title_id.upper(), app_type
 
@@ -243,7 +244,7 @@ def get_all_dlc_existing_versions(app_id):
             print(f'No keys in cnmts.json for DLC app ID: {app_id.upper()}')
             return None
     else:
-        print(f'DLC app ID not in cnmts.json: {app_id.upper()}')
+        # print(f'DLC app ID not in cnmts.json: {app_id.upper()}')
         return None
     
 def get_app_id_version_from_versions_txt(app_id):

@@ -251,7 +251,7 @@ def generate_library():
             else:
                 app_id_version_from_versions_txt = get_app_id_version_from_versions_txt(title['app_id'])
                 if app_id_version_from_versions_txt is not None:
-                    if title['version'] == int(app_id_version_from_versions_txt):
+                    if int(title['version']) == int(app_id_version_from_versions_txt):
                         dlc_has_latest_version = True
                     else:
                         dlc_has_latest_version = False
