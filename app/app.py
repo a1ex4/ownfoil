@@ -137,6 +137,7 @@ def set_titles_api():
     reload_conf()
     titledb.update_titledb(app_settings)
     load_titledb(app_settings)
+    generate_library()
     resp = {
         'success': True,
         'errors': []
