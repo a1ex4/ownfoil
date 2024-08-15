@@ -541,7 +541,7 @@
 
     function submitNewLibraryPath() {
         $('#submitNewLibraryPathBtn').prop('disabled', true);
-        path = getInputVal("libraryPathInput")
+        path = getInputVal("libraryPathInput").trim();
         data = {
             path: path
         }
