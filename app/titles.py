@@ -7,11 +7,15 @@ import titledb
 from constants import *
 from pathlib import Path
 from binascii import hexlify as hx, unhexlify as uhx
+import logging
 
 sys.path.append(APP_DIR + '/NSTools/py')
 from nstools.Fs import Pfs0, Nca, Type, factory
 from nstools.lib import FsTools
 from nstools.nut import Keys
+
+# Retrieve main logger
+logger = logging.getLogger('main')
 
 Pfs0.Print.silent = True
 
@@ -78,7 +82,7 @@ def identify_appId(app_id):
                     title_id = get_title_id_from_app_id(app_id, app_type)
 
     else:
-        print(f'WARNING {app_id} not in cnmts_db, fallback to default identification.')
+        logger.warning(f'{app_id} not in cnmts_db, fallback to default identification.')
         if app_id.endswith('000'):
             app_type = APP_TYPE_BASE
             title_id = app_id
@@ -117,11 +121,11 @@ def load_titledb(app_settings):
 def identify_file_from_filename(filename):
     version = get_version_from_filename(filename)
     if version is None:
-        print(f'Unable to extract version from filename: {filename}')
+        logger.error(f'Unable to extract version from filename: {filename}')
 
     app_id = get_app_id_from_filename(filename)
     if app_id is None:
-        print(f'Unable to extract Title ID from filename: {filename}')
+        logger.error(f'Unable to extract Title ID from filename: {filename}')
         return None, None, None, None
     
     title_id, app_type = identify_appId(app_id)
@@ -169,18 +173,18 @@ def identify_file(filepath):
                 title_id = app_id
             identification = 'cnmt'
         except Exception as e:
-            print(f'Could not identify file {filepath} from metadata: {e}. Trying identification with filename...')
+            logger.error(f'Could not identify file {filepath} from metadata: {e}. Trying identification with filename...')
             app_id, title_id, app_type, version = identify_file_from_filename(filename)
             identification = 'filename'
             if app_id is None:
-                print(f'Unable to extract title from filename: {filename}')
+                logger.error(f'Unable to extract title from filename: {filename}')
                 return None
 
     else:
         app_id, title_id, app_type, version = identify_file_from_filename(filename)
         identification = 'filename'
         if app_id is None:
-            print(f'Unable to extract title from filename: {filename}')
+            logger.error(f'Unable to extract title from filename: {filename}')
             return None
 
     return {
@@ -208,7 +212,7 @@ def get_game_info(title_id):
             'category': title_info['category'],
         }
     except Exception:
-        print(f"Title ID not found in titledb: {title_id}")
+        logger.error(f"Title ID not found in titledb: {title_id}")
         return {
             'name': 'Unrecognized',
             'bannerUrl': '//placehold.it/400x200',
@@ -246,7 +250,7 @@ def get_all_dlc_existing_versions(app_id):
         if len(versions_from_cnmts_db):
             return sorted(versions_from_cnmts_db)
         else:
-            print(f'No keys in cnmts.json for DLC app ID: {app_id.upper()}')
+            logger.warning(f'No keys in cnmts.json for DLC app ID: {app_id.upper()}')
             return None
     else:
         # print(f'DLC app ID not in cnmts.json: {app_id.upper()}')

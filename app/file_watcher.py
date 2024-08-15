@@ -4,6 +4,10 @@ from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 import threading
 from functools import wraps
+import logging
+
+# Retrieve main logger
+logger = logging.getLogger('main')
 
 
 def is_dict_in_list(dict_list, dictionary):
@@ -50,7 +54,10 @@ class Watcher:
 
     def add_directory(self, directory):
         if directory not in self.directories:
-            print(f'add directory {directory} to watchdog')
+            if not os.path.exists(directory):
+                logger.warning(f'Directory {directory} does not exist, not added to watchdog.')
+                return False
+            logger.info(f'Adding directory {directory} to watchdog.')
             task = self.observer.schedule(self.event_handler, directory, recursive=True)
             self.scheduler_map[directory] = task
             self.directories.add(directory)
@@ -59,12 +66,16 @@ class Watcher:
         return False
     
     def remove_directory(self, directory):
+        logger.info(f'Removing {directory} from watchdog monitoring...')
         if directory in self.directories:
             if directory in self.scheduler_map:
                 self.observer.unschedule(self.scheduler_map[directory])
                 del self.scheduler_map[directory]
             self.directories.remove(directory)
+            logger.info(f'Removed {directory} from watchdog monitoring.')
             return True
+        else:
+            logger.info(f'{directory} not in watchdog, nothing to do.')
         return False
 
 class Handler(FileSystemEventHandler):
