@@ -237,6 +237,7 @@ def upload_file():
             success = True
             logger.info('Successfully saved valid keys.txt')
             reload_conf()
+            scan_library()
         else:
             os.remove(KEYS_FILE + '.tmp')
             logger.error(f'Invalid keys from {file.filename}')
