@@ -5,6 +5,11 @@ from functools import wraps
 from db import *
 from flask_login import LoginManager
 
+import logging
+
+# Retrieve main logger
+logger = logging.getLogger('main')
+
 def admin_account_created():
     return len(User.query.filter_by(admin_access=True).all())
 
@@ -106,11 +111,11 @@ def login():
     # check if the user actually exists
     # take the user-supplied password, hash it, and compare it to the hashed password in the database
     if not user or not check_password_hash(user.password, password):
-        print('incorrect login')
+        logger.warning(f'Incorrect login for user {username}')
         return redirect(url_for('auth.login')) # if the user doesn't exist or password is wrong, reload the page
 
     # if the above check passes, then we know the user has the right credentials
-    print('correct login')
+    logger.info(f'Sucessfull login for user {username}')
     login_user(user, remember=remember)
 
     return redirect(next_url if len(next_url) else '/')
@@ -135,13 +140,14 @@ def get_users():
 @access_required('admin')
 def delete_user():
     success = True
+    data = request.json
+    user_id = data['user_id']
     try:
-        data = request.json
-        user_id = data['user_id']
         User.query.filter_by(id=user_id).delete()
         db.session.commit()
+        logger.info(f'Successfully deleted user with id {user_id}.')
     except Exception as e:
-        print(e)
+        logger.error(f'Could not delete user with id {user_id}: {e}')
         success = False
 
     resp = {
@@ -168,13 +174,13 @@ def signup_post():
     user = User.query.filter_by(user=username).first() # if this returns a user, then the user already exists in database
     
     if user: # if a user is found, we want to redirect back to signup page so user can try again
-        print('user already exists')
+        logger.error(f'Error creating user {username}, user already exists')
         # Todo redirect to incoming page or return success: false
         return redirect(url_for('auth.signup'))
     
     existing_admin = admin_account_created()
     if not existing_admin and not admin_access:
-        print('First account created must be admin')
+        logger.error(f'Error creating user {username}, first account created must be admin')
         resp = {
             'success': False,
             'status_code': 400,
@@ -189,14 +195,14 @@ def signup_post():
     db.session.add(new_user)
     db.session.commit()
     
-    print(f'Successfully created user {username}.')
+    logger.info(f'Successfully created user {username}.')
 
     resp = {
         'success': signup_success
     } 
 
     if not existing_admin and admin_access:
-        print('First admin account created')
+        logger.debug('First admin account created')
         resp['status_code'] = 302,
         resp['location'] = '/settings'
     

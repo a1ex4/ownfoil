@@ -4,6 +4,10 @@ from functools import wraps
 import yaml
 from file_watcher import Watcher
 import threading
+import logging
+import sys
+import flask.cli
+flask.cli.show_server_banner = lambda *args: None
 from markupsafe import escape
 from constants import *
 from settings import *
@@ -11,11 +15,13 @@ from db import *
 from shop import *
 from auth import *
 from titles import *
+from utils import *
 import titledb
 
 def init():
     global watcher
     # Create and start the file watcher
+    logger.info('Initializing File Watcher...')
     watcher = Watcher([], on_library_change)
     watcher_thread = threading.Thread(target=watcher.run)
     watcher_thread.daemon = True
@@ -23,6 +29,7 @@ def init():
 
     global app_settings
     # load initial configuration
+    logger.info('Loading initial configuration...')
     reload_conf()
 
     # Update titledb
@@ -41,6 +48,27 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 # Create a global variable and lock
 scan_in_progress = False
 scan_lock = threading.Lock()
+
+# Configure logging
+formatter = ColoredFormatter(
+    '[%(asctime)s.%(msecs)03d] %(levelname)s (%(module)s) %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S',
+)
+handler = logging.StreamHandler(sys.stdout)
+handler.setFormatter(formatter)
+
+logging.basicConfig(
+    level=logging.INFO,
+    handlers=[handler]
+)
+
+# Create main logger
+logger = logging.getLogger('main')
+logger.setLevel(logging.DEBUG)
+
+# Apply filter to hide date from http access logs
+log_werkzeug = logging.getLogger('werkzeug')
+log_werkzeug.addFilter(FilterRemoveDateFromWerkzeugLogs())
 
 titles_library = []
 
@@ -92,7 +120,7 @@ def index():
     
     if all(header in request.headers for header in TINFOIL_HEADERS):
     # if True:
-        print(f"Tinfoil connection from {request.remote_addr}")
+        logger.info(f"Tinfoil connection from {request.remote_addr}")
         return access_tinfoil_shop()
     
     if not app_settings['shop']['public']:
@@ -176,10 +204,7 @@ def library_paths_api():
         }    
     elif request.method == 'DELETE':
         data = request.json
-        if watcher.remove_directory(data['path']):
-            print(f"Removed {data['path']} from watchdog monitoring")
-        else:
-            print(f"Failed to remove {data['path']} from watchdog monitoring")
+        watcher.remove_directory(data['path'])
         success, errors = delete_library_path_from_settings(data['path'])
         if success:
             reload_conf()
@@ -205,16 +230,16 @@ def upload_file():
     if file and allowed_file(file.filename):
         # filename = secure_filename(file.filename)
         file.save(KEYS_FILE + '.tmp')
-        print(f'Validating {file.filename}...')
+        logger.info(f'Validating {file.filename}...')
         valid = load_keys(KEYS_FILE + '.tmp')
         if valid:
             os.rename(KEYS_FILE + '.tmp', KEYS_FILE)
             success = True
-            print('Successfully saved valid keys.txt')
+            logger.info('Successfully saved valid keys.txt')
             reload_conf()
         else:
             os.remove(KEYS_FILE + '.tmp')
-            print(f'Invalid keys from {file.filename}')
+            logger.error(f'Invalid keys from {file.filename}')
 
     resp = {
         'success': success,
@@ -231,8 +256,7 @@ def generate_library():
             continue
         info_from_titledb = get_game_info(title['app_id'])
         if info_from_titledb is None:
-            print(f'Info not found for game:')
-            print(title)
+            logger.warning(f'Info not found for game: {title}')
             continue
         title.update(info_from_titledb)
         if title['type'] == APP_TYPE_BASE:
@@ -291,11 +315,11 @@ def serve_game(id):
 
 
 def scan_library():
-    print(f'Scanning whole library ...')
+    logger.info(f'Scanning whole library ...')
     library_paths = app_settings['library']['paths']
     
     if not library_paths:
-        print('No library paths configured, nothing to do.')
+        logger.info('No library paths configured, nothing to do.')
         return
 
     for library_path in library_paths:
@@ -313,22 +337,22 @@ def scan_library_path(library_path, update_library=True):
     # Acquire the lock before checking and updating the scan status
     with scan_lock:
         if scan_in_progress:
-            print('Scan already in progress')
+            logger.info('Scan already in progress')
             return
         # Set the scan status to in progress
         scan_in_progress = True
 
     try:
-        print(f'Scanning library path {library_path} ...')
+        logger.info(f'Scanning library path {library_path} ...')
         if not os.path.isdir(library_path):
-            print(f'Library path {library_path} does not exists.')
+            logger.warning(f'Library path {library_path} does not exists.')
             return
         _, files = getDirsAndFiles(library_path)
 
         if app_settings['titles']['valid_keys']:
             current_identification = 'cnmt'
         else:
-            print('Invalid or non existing keys.txt, title identification fallback to filename only.')
+            logger.warning('Invalid or non existing keys.txt, title identification fallback to filename only.')
             current_identification = 'filename'
 
         all_files_with_current_identification = get_all_files_with_identification(current_identification)
@@ -336,13 +360,14 @@ def scan_library_path(library_path, update_library=True):
         nb_to_identify = len(files_to_identify)
         for n, filepath in enumerate(files_to_identify):
             file = filepath.replace(library_path, "")
-            print(f'Identifiying file ({n+1}/{nb_to_identify}): {file}')
+            logger.info(f'Identifiying file ({n+1}/{nb_to_identify}): {file}')
 
             file_info = identify_file(filepath)
 
             if file_info is None:
-                print(f'Failed to identify: {file} - file will be skipped.')
+                logger.error(f'Failed to identify: {file} - file will be skipped.')
                 continue
+            logger.info(f'Identifiying file ({n+1}/{nb_to_identify}): {file} OK Title ID: {file_info["title_id"]} App ID : {file_info["app_id"]} Title Type: {file_info["type"]} Version: {file_info["version"]}')
             add_to_titles_db(library_path, file_info)
     finally:
         # Ensure the scan status is reset to not in progress, even if an error occurs
@@ -361,7 +386,7 @@ def scan_library_api():
     global scan_in_progress
     # Acquire the lock before checking and updating the scan status
     if scan_in_progress:
-        print('Scan already in progress')
+        logger.info('Scan already in progress')
         resp = {
             'success': False,
             'errors': []
@@ -390,8 +415,7 @@ def reload_conf():
     library_paths = app_settings['library']['paths']
     if library_paths:
         for dir in library_paths:
-            if os.path.exists(dir):
-                watcher.add_directory(dir)
+            watcher.add_directory(dir)
 
 def get_library_status(title_id):
     has_base = False
@@ -437,14 +461,14 @@ def on_library_change(events):
             # if the file has been moved outside of the library
             if not moved_event["dest_path"].startswith(moved_event["directory"]):
                 # remove it from the db
-                print(delete_file_by_filepath(moved_event["src_path"]))
+                delete_file_by_filepath(moved_event["src_path"])
             else:
                 # update the paths
-                print(update_file_path(moved_event["src_path"], moved_event["dest_path"]))
+                update_file_path(moved_event["src_path"], moved_event["dest_path"])
 
         for deleted_event in events['deleted']:
             # delete the file from library if it exists
-            print(delete_file_by_filepath(deleted_event["src_path"]))
+            delete_file_by_filepath(deleted_event["src_path"])
         
         for created_event in events['created']:
             libraries_changed.add(created_event["directory"])
@@ -458,7 +482,9 @@ def on_library_change(events):
 
 
 if __name__ == '__main__':
+    logger.info('Starting initialization of Ownfoil...')
     init()
+    logger.info('Initialization steps done, starting server...')
     app.run(debug=False, host="0.0.0.0", port=8465)
 
     # with app.app_context():

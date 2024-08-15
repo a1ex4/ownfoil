@@ -5,6 +5,10 @@ import os, sys
 sys.path.append(APP_DIR + '/NSTools/py')
 from nstools.nut import Keys
 
+import logging
+
+# Retrieve main logger
+logger = logging.getLogger('main')
 
 def load_keys(key_file=KEYS_FILE):
     valid = False
@@ -13,15 +17,15 @@ def load_keys(key_file=KEYS_FILE):
             valid = Keys.load(key_file)
             return valid
         else:
-            print(f'Keys file {key_file} does not exist.')
+            logger.debug(f'Keys file {key_file} does not exist.')
 
     except:
-        print(f'Provided keys file {key_file} is invalid.')
+        logger.error(f'Provided keys file {key_file} is invalid.')
     return valid
 
 def load_settings():
     if os.path.exists(CONFIG_FILE):
-        print('reading conf file')
+        logger.debug('Reading configuration file.')
         with open(CONFIG_FILE, 'r') as yaml_file:
             settings = yaml.safe_load(yaml_file)
 

@@ -1,9 +1,13 @@
 import unzip_http
 import requests
 import os, re
+import logging
 
 from constants import *
 
+
+# Retrieve main logger
+logger = logging.getLogger('main')
 
 def get_region_titles_file(app_settings):
     return f"titles.{app_settings['titles']['region']}.{app_settings['titles']['language']}.json"
@@ -25,17 +29,17 @@ def is_titledb_update_available(rzf):
     latest_remote_commit = remote_latest_commit_file.split('_')[-1]
 
     if not os.path.isfile(local_commit_file):
-        print('Retrieving titledb for the first time...')
+        logger.info('Retrieving titledb for the first time...')
         update_available = True
     else: 
         with open(local_commit_file, 'r') as f:
             current_commit = f.read()
             
         if current_commit == latest_remote_commit:
-            print(f'Titledb already up to date, commit: {current_commit}')
+            logger.info(f'Titledb already up to date, commit: {current_commit}')
             update_available = False
         else:
-            print(f'Titledb update available, current commit: {current_commit}, latest commit: {latest_remote_commit}')
+            logger.info(f'Titledb update available, current commit: {current_commit}, latest commit: {latest_remote_commit}')
             update_available = True
     
     if update_available:
@@ -48,7 +52,8 @@ def is_titledb_update_available(rzf):
 def download_titledb_files(rzf, files):
     for file in files:
         store_path = os.path.join(TITLEDB_DIR, file)
-        print(f'Downloading {file} from remote titledb to {store_path}')
+        rel_store_path = os.path.relpath(store_path, start=APP_DIR)
+        logger.info(f'Downloading {file} from remote titledb to {rel_store_path}')
         download_from_remote_zip(rzf, file, store_path)
 
 
@@ -75,9 +80,9 @@ def update_titledb_files(app_settings):
 
 
 def update_titledb(app_settings):
-    print('Updating titledb...')
+    logger.info('Updating titledb...')
     if not os.path.isdir(TITLEDB_DIR):
         os.makedirs(TITLEDB_DIR, exist_ok=True)
 
     update_titledb_files(app_settings)
-    print('titledb update done.')
+    logger.info('titledb update done.')
