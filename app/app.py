@@ -16,6 +16,7 @@ from shop import *
 from auth import *
 from titles import *
 from utils import *
+from library import *
 import titledb
 
 def init():
@@ -27,7 +28,6 @@ def init():
     watcher_thread.daemon = True
     watcher_thread.start()
 
-    global app_settings
     # load initial configuration
     logger.info('Loading initial configuration...')
     reload_conf()
@@ -45,6 +45,9 @@ app.config["SQLALCHEMY_DATABASE_URI"] = OWNFOIL_DB
 app.config['SECRET_KEY'] = '8accb915665f11dfa15c2db1a4e8026905f57716'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
+## Global variables
+titles_library = []
+app_settings = {}
 # Create a global variable and lock
 scan_in_progress = False
 scan_lock = threading.Lock()
@@ -70,7 +73,6 @@ logger.setLevel(logging.DEBUG)
 log_werkzeug = logging.getLogger('werkzeug')
 log_werkzeug.addFilter(FilterRemoveDateFromWerkzeugLogs())
 
-titles_library = []
 
 db.init_app(app)
 
@@ -144,6 +146,7 @@ def get_settings_api():
 @app.post('/api/settings/titles')
 @access_required('admin')
 def set_titles_api():
+    global titles_library
     settings = request.json
     region = settings['region']
     language = settings['language']
@@ -165,7 +168,7 @@ def set_titles_api():
     reload_conf()
     titledb.update_titledb(app_settings)
     load_titledb(app_settings)
-    generate_library()
+    titles_library = generate_library()
     resp = {
         'success': True,
         'errors': []
@@ -186,6 +189,7 @@ def set_shop_settings_api():
 @app.route('/api/settings/library/paths', methods=['GET', 'POST', 'DELETE'])
 @access_required('admin')
 def library_paths_api():
+    global titles_library
     global watcher
     if request.method == 'POST':
         data = request.json
@@ -209,7 +213,7 @@ def library_paths_api():
         if success:
             reload_conf()
             success, errors = delete_files_by_library(data['path'])
-            generate_library()
+            titles_library = generate_library()
         resp = {
             'success': success,
             'errors': errors
@@ -248,59 +252,13 @@ def upload_file():
     } 
     return jsonify(resp)
 
-def generate_library():
-    global titles_library
-    titles = get_all_titles_from_db()
-    games_info = []
-    for title in titles:
-        if title['type'] == APP_TYPE_UPD:
-            continue
-        info_from_titledb = get_game_info(title['app_id'])
-        if info_from_titledb is None:
-            logger.warning(f'Info not found for game: {title}')
-            continue
-        title.update(info_from_titledb)
-        if title['type'] == APP_TYPE_BASE:
-            library_status = get_library_status(title['app_id'])
-            title.update(library_status)
-            title['title_id_name'] = title['name']
-        if title['type'] == APP_TYPE_DLC:
-            dlc_has_latest_version = None
-            all_dlc_existing_versions = get_all_dlc_existing_versions(title['app_id'])
-
-            if all_dlc_existing_versions is not None and len(all_dlc_existing_versions):
-                if title['version'] == all_dlc_existing_versions[-1]:
-                    dlc_has_latest_version = True
-                else:
-                    dlc_has_latest_version = False
-
-            else:
-                app_id_version_from_versions_txt = get_app_id_version_from_versions_txt(title['app_id'])
-                if app_id_version_from_versions_txt is not None:
-                    if int(title['version']) == int(app_id_version_from_versions_txt):
-                        dlc_has_latest_version = True
-                    else:
-                        dlc_has_latest_version = False
-
-
-            if dlc_has_latest_version is not None:
-                title['has_latest_version'] = dlc_has_latest_version
-
-            titleid_info = get_game_info(title['title_id'])
-            title['title_id_name'] = titleid_info['name']
-        games_info.append(title)
-    titles_library = sorted(games_info, key=lambda x: (
-        "title_id_name" not in x, 
-        x.get("title_id_name", "Unrecognized") or "Unrecognized", 
-        x.get('app_id', "") or ""
-    ))
 
 @app.route('/api/titles', methods=['GET'])
 @access_required('shop')
 def get_all_titles():
     global titles_library
     if not titles_library:
-        generate_library()
+        titles_library = generate_library()
 
     return jsonify({
         'total': len(titles_library),
@@ -316,6 +274,7 @@ def serve_game(id):
 
 
 def scan_library():
+    global titles_library
     logger.info(f'Scanning whole library ...')
     library_paths = app_settings['library']['paths']
     
@@ -324,16 +283,16 @@ def scan_library():
         return
 
     for library_path in library_paths:
-        scan_library_path(library_path, update_library=False)
+        start_scan_library_path(library_path, update_library=False)
     
     # remove missing files
     remove_missing_files()
 
     # update library
-    generate_library()
+    titles_library = generate_library()
 
-
-def scan_library_path(library_path, update_library=True):
+def start_scan_library_path(library_path, update_library=True):
+    global titles_library
     global scan_in_progress
     # Acquire the lock before checking and updating the scan status
     with scan_lock:
@@ -343,43 +302,18 @@ def scan_library_path(library_path, update_library=True):
         # Set the scan status to in progress
         scan_in_progress = True
 
-    try:
-        logger.info(f'Scanning library path {library_path} ...')
-        if not os.path.isdir(library_path):
-            logger.warning(f'Library path {library_path} does not exists.')
-            return
-        _, files = getDirsAndFiles(library_path)
+    scan_library_path(app_settings, library_path)
 
-        if app_settings['titles']['valid_keys']:
-            current_identification = 'cnmt'
-        else:
-            logger.warning('Invalid or non existing keys.txt, title identification fallback to filename only.')
-            current_identification = 'filename'
+    if update_library:
+        # remove missing files
+        remove_missing_files()
+        # update library
+        titles_library = generate_library()
 
-        all_files_with_current_identification = get_all_files_with_identification(current_identification)
-        files_to_identify = [f for f in files if f not in all_files_with_current_identification]
-        nb_to_identify = len(files_to_identify)
-        for n, filepath in enumerate(files_to_identify):
-            file = filepath.replace(library_path, "")
-            logger.info(f'Identifiying file ({n+1}/{nb_to_identify}): {file}')
+    # Ensure the scan status is reset to not in progress, even if an error occurs
+    with scan_lock:
+        scan_in_progress = False
 
-            file_info = identify_file(filepath)
-
-            if file_info is None:
-                logger.error(f'Failed to identify: {file} - file will be skipped.')
-                continue
-            logger.info(f'Identifiying file ({n+1}/{nb_to_identify}): {file} OK Title ID: {file_info["title_id"]} App ID : {file_info["app_id"]} Title Type: {file_info["type"]} Version: {file_info["version"]}')
-            add_to_titles_db(library_path, file_info)
-    finally:
-        # Ensure the scan status is reset to not in progress, even if an error occurs
-        with scan_lock:
-            scan_in_progress = False
-
-        if update_library:
-            # remove missing files
-            remove_missing_files()
-            # update library
-            generate_library()
 
 @app.post('/api/library/scan')
 @access_required('admin')
@@ -400,7 +334,7 @@ def scan_library_api():
     if path is None:
         scan_library()
     else:
-        scan_library_path(path)
+        start_scan_library_path(path)
 
     resp = {
         'success': True,
@@ -418,43 +352,9 @@ def reload_conf():
         for dir in library_paths:
             watcher.add_directory(dir)
 
-def get_library_status(title_id):
-    has_base = False
-    has_latest_version = False
-
-    title_files = get_all_title_files(title_id)
-    if len(list(filter(lambda x: x.get('type') == APP_TYPE_BASE, title_files))):
-        has_base = True
-
-    available_versions = get_all_existing_versions(title_id)
-    if available_versions is None:
-        return {
-            'has_base': has_base,
-            'has_latest_version': True,
-            'version': []
-        }
-    game_latest_version = get_game_latest_version(available_versions)
-    for version in available_versions:
-        if len(list(filter(lambda x: x.get('type') == APP_TYPE_UPD and str(x.get('version')) == str(version['version']), title_files))):
-            version['owned'] = True
-            if str(version['version'])  == str(game_latest_version):
-                has_latest_version = True
-        else:
-            version['owned'] = False
-
-    all_existing_dlcs = get_all_existing_dlc(title_id)
-    owned_dlcs = [t['app_id'] for t in title_files if t['type'] == APP_TYPE_DLC]
-    has_all_dlcs = all(dlc in owned_dlcs for dlc in all_existing_dlcs)
-
-    library_status = {
-        'has_base': has_base,
-        'has_latest_version': has_latest_version,
-        'version': available_versions,
-        'has_all_dlcs': has_all_dlcs
-    }
-    return library_status
 
 def on_library_change(events):
+    global titles_library
     libraries_changed = set()
     with app.app_context():
         # handle moved files
@@ -475,11 +375,11 @@ def on_library_change(events):
             libraries_changed.add(created_event["directory"])
     
         for library_to_scan in libraries_changed:
-            scan_library_path(library_to_scan, update_library=False)
+            start_scan_library_path(library_to_scan, update_library=False)
         
         # remove missing files
         remove_missing_files()
-        generate_library()
+        titles_library = generate_library()
 
 
 if __name__ == '__main__':
@@ -487,11 +387,3 @@ if __name__ == '__main__':
     init()
     logger.info('Initialization steps done, starting server...')
     app.run(debug=False, host="0.0.0.0", port=8465)
-
-    # with app.app_context():
-    #     get_library_status('0100646009FBE000')
-    #     title_id='01007EF00011E000'
-    #     title_files = get_all_title_files(title_id)
-    #     available_versions = get_all_existing_versions(title_id)
-    #     # get_library_status(title_id)
-    #     print(json.dumps(get_library_status(title_id), indent=4))
