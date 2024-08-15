@@ -42,6 +42,14 @@ def get_version_from_filename(filename):
     version_match = re.search(version_regex, filename)
     return version_match[1] if version_match is not None else None
 
+def get_title_id_from_app_id(app_id, app_type):
+    base_id = app_id[:-3]
+    if app_type == APP_TYPE_UPD:
+        title_id = base_id + '000'
+    elif app_type == APP_TYPE_DLC:
+        title_id = hex(int(base_id, base=16) - 1)[2:].rjust(len(base_id), '0') + '000'
+    return title_id.upper()
+
 def get_file_size(filepath):
     return os.path.getsize(filepath)
 
@@ -61,15 +69,13 @@ def identify_appId(app_id):
                 if 'otherApplicationId' in app:
                     title_id = app['otherApplicationId'].upper()
                 else:
-                    base_id = app_id[:-3]
-                    title_id = [t for t in list(cnmts_db.keys()) if t.startswith(base_id)][0].upper()
+                    title_id = get_title_id_from_app_id(app_id, app_type)
             elif app['titleType'] == 130:
                 app_type = APP_TYPE_DLC
                 if 'otherApplicationId' in app:
                     title_id = app['otherApplicationId'].upper()
                 else:
-                    base_id = app_id[:-4]
-                    title_id = [t for t in list(cnmts_db.keys()) if t.startswith(base_id)][0].upper()
+                    title_id = get_title_id_from_app_id(app_id, app_type)
 
     else:
         print(f'WARNING {app_id} not in cnmts_db, fallback to default identification.')
@@ -78,11 +84,10 @@ def identify_appId(app_id):
             title_id = app_id
         elif app_id.endswith('800'):
             app_type = APP_TYPE_UPD
-            title_id = app_id[:-3] + '000'
+            title_id = get_title_id_from_app_id(app_id, app_type)
         else:
             app_type = APP_TYPE_DLC
-            base_hex = app_id[:-3]
-            title_id = hex(int(base_hex, base=16) - 1)[2:].rjust(len(base_hex), '0') + '000'
+            title_id = get_title_id_from_app_id(app_id, app_type)
     
     return title_id.upper(), app_type
 
