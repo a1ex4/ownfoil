@@ -25,7 +25,7 @@ The project is still in development, expect things to break or change without no
 
 Running this command will start the shop on port `8465` with the library in `/your/game/directory` :
 
-    docker run -d -p 8465:8465 -v /your/game/directory:/games /your/config/directory:/app/config --name ownfoil a1ex4/ownfoil
+    docker run -d -p 8465:8465 -v /your/game/directory:/games -v /your/config/directory:/app/config --name ownfoil a1ex4/ownfoil
 
 The shop is now accessible with your computer/server IP and port, i.e. `http://localhost:8465` from the same computer or `http://192.168.1.100:8465` from a device in your network.
 
