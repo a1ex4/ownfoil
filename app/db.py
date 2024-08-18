@@ -90,17 +90,27 @@ def add_to_titles_db(library, file_info):
 
     db.session.commit()
 
-def update_file_path(old_path, new_path):
+def update_file_path(library, old_path, new_path):
     try:
         # Find the file entry in the database using the old_path
         file_entry = Files.query.filter_by(filepath=old_path).one()
-        
-        # Extract the new folder and root_dir from the new_path
-        new_folder = "/" + os.path.basename(os.path.dirname(new_path))
+
+        # Extract the new folder and filename from the new_path
+        folder = os.path.dirname(new_path)
+        if os.path.normpath(library) == os.path.normpath(folder):
+            # file is at the root of the library
+            new_folder = ''
+        else:
+            new_folder = folder.replace(library, '')
+            new_folder = '/' + new_folder if not new_folder.startswith('/') else new_folder
+
+        filename = os.path.basename(new_path)
 
         # Update the file entry with the new path values
+        file_entry.filename = filename
         file_entry.filepath = new_path
         file_entry.folder = new_folder
+        file_entry.library = library
         
         # Commit the changes to the database
         db.session.commit()
