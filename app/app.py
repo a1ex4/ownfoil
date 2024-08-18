@@ -365,7 +365,7 @@ def on_library_change(events):
                 delete_file_by_filepath(moved_event["src_path"])
             else:
                 # update the paths
-                update_file_path(moved_event["src_path"], moved_event["dest_path"])
+                update_file_path(moved_event["directory"], moved_event["src_path"], moved_event["dest_path"])
 
         for deleted_event in events['deleted']:
             # delete the file from library if it exists
