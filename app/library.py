@@ -77,6 +77,10 @@ def generate_library():
     titles = get_all_titles_from_db()
     games_info = []
     for title in titles:
+        has_none_value = any(value is None for value in title.values())
+        if has_none_value:
+            logger.warning(f'File contains None value, it will be skipped: {title}')
+            continue
         if title['type'] == APP_TYPE_UPD:
             continue
         info_from_titledb = get_game_info(title['app_id'])
