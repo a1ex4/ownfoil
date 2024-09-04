@@ -58,12 +58,14 @@ You can then create and start the container with the command (executed in the sa
 This is usefull if you don't want to remember the `docker run` command and have a persistent and reproductible container configuration.
 
 ## Using Python
-Clone or download the Github repository ([here](https://github.com/a1ex4/ownfoil/archive/refs/heads/develop.zip)), then open a command line inside the `ownfoil` folder and run:
+Clone the repository using `git`, install the dependencies and you're good to go:
 ```
-$ pip install -r requirements
+$ git clone --recurse-submodules https://github.com/a1ex4/ownfoil
+$ cd ownfoil
+$ pip install -r requirements.txt
 $ python app/app.py
 ```
-To update the app you will need to pull the latest commits if using git or download the repository as a zip again.
+To update the app you will need to pull the latest commits.
 
 ## Tinfoil setup
 In Tinfoil, add a shop with the following settings:
