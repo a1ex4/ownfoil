@@ -15,7 +15,7 @@ TITLEDB_DEFAULT_FILES = [
     'languages.json',
 ]
 
-OWNFOIL_DB = 'sqlite:////' + os.path.join(CONFIG_DIR, 'ownfoil.db')
+OWNFOIL_DB = 'sqlite:///' + os.path.join(CONFIG_DIR, 'ownfoil.db')
 
 DEFAULT_SETTINGS = {
     "library": {
