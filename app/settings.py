@@ -60,7 +60,7 @@ def add_library_path_to_settings(path):
         success = False
         errors.append({
             'path': 'library/paths',
-            'error': f"Path {dir} does not exists."
+            'error': f"Path {path} does not exists."
         })
     else:
         settings = load_settings()
@@ -70,7 +70,7 @@ def add_library_path_to_settings(path):
                 success = False
                 errors.append({
                     'path': 'library/paths',
-                    'error': f"Path {dir} already configured."
+                    'error': f"Path {path} already configured."
                 })
                 return success, errors
             library_paths.append(path)
@@ -96,7 +96,7 @@ def delete_library_path_from_settings(path):
             success = False
             errors.append({
                     'path': 'library/paths',
-                    'error': f"Path {dir} not configured."
+                    'error': f"Path {path} not configured."
                 })
     return success, errors
 
