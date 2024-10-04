@@ -386,4 +386,5 @@ if __name__ == '__main__':
     logger.info('Starting initialization of Ownfoil...')
     init()
     logger.info('Initialization steps done, starting server...')
-    app.run(debug=False, host="0.0.0.0", port=8465)
+    from waitress import serve
+    serve(app, host="127.0.0.1", port=8465)
