@@ -189,12 +189,12 @@
             tagsContainer.append(typeBadge);
 
             if (game.has_latest_version !== undefined) {
-                const versionBadge = $('<span class="badge rounded-pill game-tag"></span>').addClass(`text-bg-${game.has_latest_version ? 'success' : 'warning'}`).html(`<i class="bi ${game.has_latest_version ? 'bi-check-circle-fill' : 'bi-arrow-down-circle'}"></i>`);
+                const versionBadge = $(`<span class="badge rounded-pill game-tag" title="v${game.version[game.version.length - 1].version}"></span>`).addClass(`text-bg-${game.has_latest_version ? 'success' : 'warning'}`).html(`<i class="bi ${game.has_latest_version ? 'bi-check-circle-fill' : 'bi-arrow-down-circle'}"></i>`);
                 tagsContainer.append(versionBadge);
             }
 
             if (game.has_all_dlcs !== undefined) {
-                const dlcBadge = $('<span class="badge rounded-pill game-tag"></span>').addClass(`text-bg-${game.has_all_dlcs ? 'success' : 'warning'}`).html('<i class="bi bi-box-seam-fill"></i>');
+                const dlcBadge = $(`<span class="badge rounded-pill game-tag" title="Missing DLC"></span>`).addClass(`text-bg-${game.has_all_dlcs ? 'success' : 'warning'}`).html('<i class="bi bi-box-seam-fill"></i>');
                 tagsContainer.append(dlcBadge);
             }
 
@@ -449,7 +449,6 @@
             gamesFilteredByUpdate = []
             gamesFilteredByCompletion = []
 
-            console.log(activeTypeFilters);
             if (activeTypeFilters.size > 0) {
                 filteredGames = [];
                 for (let type of activeTypeFilters) {

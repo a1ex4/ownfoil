@@ -6,6 +6,7 @@ requests==2.32.3
 unzip_http==0.6
 watchdog==4.0.2
 Werkzeug==3.0.3
+waitress==3.0.0
 
 # NSTools
 zstandard
