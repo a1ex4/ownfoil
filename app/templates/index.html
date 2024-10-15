@@ -149,6 +149,14 @@
 
         // Set slider to show 3 columns by default
         $('#cardSizeRange').val(3);
+
+        // init version tooltips
+        const tooltipTriggerList = document.querySelectorAll('[data-bs-toggle="tooltip"]')
+        const tooltipList = [...tooltipTriggerList].map(tooltipTriggerEl => new bootstrap.Tooltip(tooltipTriggerEl))
+
+        // init version popovers
+        const popoverTriggerList = document.querySelectorAll('[data-bs-toggle="popover"]')
+        const popoverList = [...popoverTriggerList].map(popoverTriggerEl => new bootstrap.Popover(popoverTriggerEl))
     }
 
     function renderCardView() {
@@ -189,7 +197,30 @@
             tagsContainer.append(typeBadge);
 
             if (game.has_latest_version !== undefined) {
-                const versionBadge = $('<span class="badge rounded-pill game-tag"></span>').addClass(`text-bg-${game.has_latest_version ? 'success' : 'warning'}`).html(`<i class="bi ${game.has_latest_version ? 'bi-check-circle-fill' : 'bi-arrow-down-circle'}"></i>`);
+                const versionBadge = $(`<span class="badge rounded-pill game-tag version-tag" title="${game.name} [${game.title_id}] Updates"></span>`)
+                    .addClass(`text-bg-${game.has_latest_version ? 'success' : 'warning'}`)
+                    .html(`<i class="bi ${game.has_latest_version ? 'bi-check-circle-fill' : 'bi-arrow-down-circle'}"></i>`);
+                if (game.version.length && Array.isArray(game.version)) {
+                    const popoverContent = game.version.map(version => 
+                        `${version.release_date}: v${version.version} ${version.owned ? 'Owned' : 'Missing'}`
+                    ).join('\n');
+                    versionBadge.popover({
+                        content: popoverContent,
+                        trigger: 'click',
+                        placement: 'top',
+                    });
+                    versionBadge.css('cursor', 'pointer');
+                } else {
+                    // version tooltip on hover
+                    versionBadge.attr("data-bs-toggle", "tooltip")
+                    versionBadge.attr("data-bs-placement", "top")
+
+                    if (!game.version.length && Array.isArray(game.version)){
+                        versionBadge.attr("data-bs-title", "Version v0")
+                    } else if (game.version.length) {
+                        versionBadge.attr("data-bs-title", "Version v" + game.version)
+                    }
+                }
                 tagsContainer.append(versionBadge);
             }
 
@@ -353,6 +384,17 @@
             updateFilter();
             applyFilters();
         });
+
+        // Close popovers
+        $(document).on('click', function (e) {
+            $('.popover').removeClass('show');
+            $('.popover').remove();
+        });
+
+        // Add click event on the popover to stop propagation
+        $(document).on('click', '.popover', function (e) {
+            e.stopPropagation(); // Prevent the click event from bubbling up
+        });
     
     });
 
@@ -453,12 +495,10 @@
             if (activeTypeFilters.size > 0) {
                 filteredGames = [];
                 for (let type of activeTypeFilters) {
-                    console.log(type); // Logs "BASE" and "DLC"
                     gamesFilteredByType = gamesFilteredByType.concat(games.filter(game => game.type === type));
                 }
             }
 
-            console.log(activeUpdateFilters);
             if (activeUpdateFilters.has("Up to date")) {
                 gamesFilteredByUpdate = gamesFilteredByUpdate.concat(games.filter(game => game.has_latest_version === true));
             }
@@ -466,7 +506,6 @@
                 gamesFilteredByUpdate = gamesFilteredByUpdate.concat(games.filter(game => game.has_latest_version === false));
             }
             
-            console.log(activeCompletionFilters);
             if (activeCompletionFilters.has("Complete")) {
                 gamesFilteredByCompletion = gamesFilteredByCompletion.concat(games.filter(game => game.has_all_dlcs === true));
             }
