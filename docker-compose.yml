@@ -13,7 +13,7 @@ services:
       # - USER_ADMIN_PASSWORD=asdvnf!546
       # to create/update a regular user at startup
       # - USER_GUEST_NAME=guest
-      # - USER_GEST_PASSWORD=oerze!@8981
+      # - USER_GUEST_PASSWORD=oerze!@8981
     volumes:
       - /your/game/directory:/games
       - ./config:/app/config
