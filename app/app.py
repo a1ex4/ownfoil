@@ -18,6 +18,7 @@ from titles import *
 from utils import *
 from library import *
 import titledb
+import os
 
 def init():
     global watcher
@@ -35,6 +36,47 @@ def init():
     # Update titledb
     titledb.update_titledb(app_settings)
     load_titledb(app_settings)
+
+def init_user_from_environment(environment_name, admin=False):
+    """
+    allow to init some user from environment variable to init some users without using the UI
+    """
+    with app.app_context():
+
+        username = os.getenv(environment_name + '_NAME')
+        password = os.getenv(environment_name + '_PASSWORD')
+        if admin:
+            logger.info('Initializing an admin user from environment variable...')
+            admin_access = True
+            shop_access = True
+            backup_access = True
+        else:
+            logger.info('Initializing a regular user from environment variable...')
+            admin_access = False
+            shop_access = True
+            backup_access = False
+
+        if username and password:
+            if not admin:
+                existing_admin = admin_account_created()
+                if not existing_admin and not admin_access:
+                    logger.error(f'Error creating user {username}, first account created must be admin')
+                    return
+
+            logger.info(f'Looking for existing user {username}')
+            user = User.query.filter_by(user=username).first()
+            if user:    
+                logger.info(f'Updating an existing user {username}')
+                user.admin_access = admin_access
+                user.shop_access = shop_access
+                user.backup_access = backup_access
+                user.password = generate_password_hash(password, method='scrypt')
+            else:
+                logger.info(f'Creating an user {username}')
+                new_user = User(user=username, password=generate_password_hash(password, method='scrypt'), admin_access=admin_access, shop_access=shop_access, backup_access=backup_access)
+                db.session.add(new_user)
+            db.session.commit()
+
 
 os.makedirs(CONFIG_DIR, exist_ok=True)
 os.makedirs(DATA_DIR, exist_ok=True)
@@ -385,5 +427,7 @@ def on_library_change(events):
 if __name__ == '__main__':
     logger.info('Starting initialization of Ownfoil...')
     init()
+    init_user_from_environment(environment_name="USER_ADMIN", admin=True)
+    init_user_from_environment(environment_name="USER_GUEST", admin=False)
     logger.info('Initialization steps done, starting server...')
     app.run(debug=False, host="0.0.0.0", port=8465)
