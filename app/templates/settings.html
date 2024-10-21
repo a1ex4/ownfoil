@@ -16,7 +16,8 @@
                         created, <strong>authentication is disabled, anyone can access and change the configuration of
                             your shop!</strong>
                         <br>
-                        Add an admin account <a href="/settings#Authentication" class="alert-link">here under Authentication</a>.
+                        Add an admin account <a href="/settings#Authentication" class="alert-link">here under
+                            Authentication</a>.
                     </p>
                 </div>
                 {% endif %}
@@ -34,6 +35,16 @@
                     <hr>
                     If keys are missing, all files <strong>must follow the format "Title Name
                         [TITLEID][vVERSION]"</strong>, else the file won't be recognized.
+                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                </div>
+                {% endif %}
+
+                {% if url_set == false %}
+                <div id="missingShopUrlAlert" class="alert alert-warning alert-dismissible fade show" role="alert">
+                    <h4 class="alert-heading">Missing shop URL!</h4>
+                    Remote access from outside the local network is disabled if the shop URL is missing, configure it <a
+                        href="/settings#shopUrlInput" class="alert-link">here
+                        in Ownfoil.</a>
                     <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
                 </div>
                 {% endif %}
@@ -145,8 +156,8 @@
                     </div>
 
                     <div class="col-auto">
-                        <button type="button" class="btn btn-primary mb-3 scanBtn"
-                            onClick='scanLibrary()'>Scan library</button>
+                        <button type="button" class="btn btn-primary mb-3 scanBtn" onClick='scanLibrary()'>Scan
+                            library</button>
                     </div>
                 </div>
 
@@ -166,7 +177,8 @@
                 </div>
 
                 <!-- Delete User Modal -->
-                <div class="modal fade" id="deletePathModal" tabindex="-1" aria-labelledby="deletePathModalLabel" aria-hidden="true">
+                <div class="modal fade" id="deletePathModal" tabindex="-1" aria-labelledby="deletePathModalLabel"
+                    aria-hidden="true">
                     <div class="modal-dialog modal-dialog-centered">
                         <div class="modal-content">
                             <div class="modal-header">
@@ -227,7 +239,18 @@
                 <hr>
 
                 <h2 class="pb-3">Shop</h2>
-                <p>Customize your shop:</p>
+                <!-- Shop URL -->
+                <div class="mb-3">
+                    <label for="shopUrlInput" class="form-label">Shop URL:</label>
+                    <input class="form-control" id="shopUrlInput" aria-describedby="shopUrlHelp" placeholder="shop.domain.tld">
+                    <div id="shopUrlHelp" class="form-text">Configure your shop URL to enable remote access (from
+                        outside of the local network).<br>
+                        URL verification from Tinfoil requests will be enforced if the shop is accessed securely (with
+                        <code>https</code>), make sure your reverse proxy <strong>does NOT</strong> allow insecure
+                        connections (or upgrades them to use SSL) and correctly sets the <code>X-Forwarded-Proto</code>
+                        header.
+                    </div>
+                </div>
                 <div class="mb-3 form-check">
                     <input type="checkbox" class="form-check-input" id="publicShopCheck"
                         aria-describedby="publicShopCheckHelp">
@@ -240,7 +263,8 @@
                     <input type="checkbox" class="form-check-input" id="encryptShopCheck"
                         aria-describedby="encryptShopCheckHelp" disabled="disabled">
                     <label class="form-check-label" for="encryptShopCheck">Encrypt shop</label>
-                    <div id="encryptShopCheckHelp" class="form-text">Serve encrypted shop, so that only Tinfoil clients can access the content (coming soon).</div>
+                    <div id="encryptShopCheckHelp" class="form-text">Serve encrypted shop, so that only Tinfoil clients
+                        can access the content (coming soon).</div>
                 </div>
 
                 <div class="mb-3">
@@ -281,7 +305,7 @@
         return $('#' + checkboxId).is(":checked")
     }
 
-    function scanLibrary(path=null) {
+    function scanLibrary(path = null) {
         $('.scanBtn').prop('disabled', true);
         data = {
             path: path
@@ -318,7 +342,7 @@
                 }
             }
             paths = result.paths;
-            if ( paths === null || !paths.length) {
+            if (paths === null || !paths.length) {
                 $('#pathsTable tbody').append(
                     '<tr><td>-</td><td>-</td><td>');
             } else {
@@ -474,11 +498,11 @@
     $('#checkboxNewUserAdminAccess').change(function () {
         if (this.checked != false) {
             $('#checkboxNewUserShopAccess').prop('checked', true).attr("disabled", true);
-            $('#checkboxNewUserBackupAccess').prop('checked', true).attr("disabled", true) ;
+            $('#checkboxNewUserBackupAccess').prop('checked', true).attr("disabled", true);
 
         } else {
             $('#checkboxNewUserShopAccess').attr("disabled", false);
-            $('#checkboxNewUserBackupAccess').attr("disabled", false) ;
+            $('#checkboxNewUserBackupAccess').attr("disabled", false);
 
         }
     });
@@ -564,7 +588,7 @@
                 } else {
                     console.log('Error adding path ' + path);
                 }
-            $('#submitNewLibraryPathBtn').prop('disabled', false);
+                $('#submitNewLibraryPathBtn').prop('disabled', false);
             }
         });
     }
@@ -627,6 +651,7 @@
     function submitShopSettings() {
         $('#submitShopSettingsBtn').prop('disabled', true);
         data = {
+            url: $('#shopUrlInput').val(),
             public: getCheckboxStatus("publicShopCheck"),
             encrypt: getCheckboxStatus("encryptShopCheck"),
             motd: $('#motdTextArea').val(),
@@ -650,7 +675,7 @@
                         $("#" + formTextElement).text(error['error']);
                     });
                 }
-            $('#submitShopSettingsBtn').prop('disabled', false);
+                $('#submitShopSettingsBtn').prop('disabled', false);
             }
         });
     }
@@ -686,6 +711,7 @@
 
             // Shop settings
             shopSettings = result['shop'];
+            setInputVal("shopUrlInput", shopSettings['url']);
             setInputVal("motdTextArea", shopSettings['motd']);
             $("#publicShopCheck").prop("checked", shopSettings['public']);
             $("#encryptShopCheck").prop("checked", shopSettings['encrypt']);

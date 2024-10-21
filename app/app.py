@@ -117,7 +117,25 @@ def index():
 
     @tinfoil_access
     def access_tinfoil_shop():
-        shop = gen_shop(db, app_settings)
+        shop = {}
+        # Host verification to prevent hotlinking
+        request_host = request.host
+        host_verification = request.is_secure or request.headers.get("X-Forwarded-Proto") == "https"
+        if host_verification:
+            logger.info(f"Secure access with remote host {request_host}, proceeding with host verification")
+            shop_host = app_settings["shop"].get("url")
+            if not shop_host:
+                logger.error("Missing shop URL configuration, remote access is disabled.")
+                return tinfoil_error(f"You are trying to access this shop with the `{request_host}` URL, but the shop URL is missing in Ownfoil configuration, remote access is disabled.\nPlease configure the shop URL to enable remote access and prevent someone else from stealing your shop.")
+
+            if request_host != shop_host:
+                logger.warning(f"Incorrect URL referrer detected: {request_host}.")
+                return tinfoil_error(f"Incorrect URL `{request_host}`.\nSomeone is trying to steal from the shop with original URL `{shop_host}`.")
+            
+            # enforce client side host verification
+            shop["referrer"] = f"https://{shop_host}"
+            
+        shop.update(gen_shop(db, app_settings))
         return jsonify(shop)
     
     if all(header in request.headers for header in TINFOIL_HEADERS):
@@ -135,7 +153,7 @@ def settings_page():
     with open(os.path.join(TITLEDB_DIR, 'languages.json')) as f:
         languages = json.load(f)
         languages = dict(sorted(languages.items()))
-    return render_template('settings.html', title='Settings', languages_from_titledb=languages, admin_account_created=admin_account_created(), valid_keys=app_settings['titles']['valid_keys'])
+    return render_template('settings.html', title='Settings', languages_from_titledb=languages, admin_account_created=admin_account_created(), valid_keys=app_settings['titles']['valid_keys'], url_set=bool(app_settings['shop']['url']))
 
 @app.get('/api/settings')
 @access_required('admin')
