@@ -117,7 +117,9 @@ def index():
 
     @tinfoil_access
     def access_tinfoil_shop():
-        shop = {}
+        shop = {
+            "success": app_settings['shop']['motd']
+        }
         # Host verification to prevent hotlinking
         request_host = request.host
         host_verification = request.is_secure or request.headers.get("X-Forwarded-Proto") == "https"
@@ -125,17 +127,17 @@ def index():
             logger.info(f"Secure access with remote host {request_host}, proceeding with host verification")
             shop_host = app_settings["shop"].get("url")
             if not shop_host:
-                logger.error("Missing shop URL configuration, remote access is disabled.")
-                return tinfoil_error(f"You are trying to access this shop with the `{request_host}` URL, but the shop URL is missing in Ownfoil configuration, remote access is disabled.\nPlease configure the shop URL to enable remote access and prevent someone else from stealing your shop.")
+                logger.error("Missing shop URL configuration, Host verification is disabled.")
+                shop["error"] = f"You are trying to access this shop with the `{request_host}` URL, but the shop URL is missing in Ownfoil configuration.\nPlease configure the shop URL to secure remote access and prevent someone else from stealing your shop."
 
-            if request_host != shop_host:
+            elif request_host != shop_host:
                 logger.warning(f"Incorrect URL referrer detected: {request_host}.")
                 return tinfoil_error(f"Incorrect URL `{request_host}`.\nSomeone is trying to steal from the shop with original URL `{shop_host}`.")
+            else:
+                # enforce client side host verification
+                shop["referrer"] = f"https://{shop_host}"
             
-            # enforce client side host verification
-            shop["referrer"] = f"https://{shop_host}"
-            
-        shop.update(gen_shop(db, app_settings))
+        shop["files"] = gen_shop_files(db)
         return jsonify(shop)
     
     if all(header in request.headers for header in TINFOIL_HEADERS):
@@ -399,6 +401,31 @@ def on_library_change(events):
         remove_missing_files()
         titles_library = generate_library()
 
+@app.before_request
+def before_request():
+    # Code to run before each request
+    print("Before request")
+    # print(f"access_route: {request.access_route}")
+    # print(f"args: {request.args}")
+    # print(f"base_url: {request.base_url}")
+    # print(f"data: {request.data}")
+    # print(f"full_path: {request.full_path}")
+    # print(f"host: {request.host}")
+    # print(f"host_url: {request.host_url}")
+    # print(f"is_json: {request.is_json}")
+    # print(f"is_secure: {request.is_secure}")
+    # # print(f"json: {request.json}")
+    # print(f"method: {request.method}")
+    # print(f"path: {request.path}")
+    # print(f"query_string: {request.query_string}")
+    # print(f"referrer: {request.referrer}")
+    # print(f"remote_addr: {request.remote_addr}")
+    # print(f"scheme: {request.scheme}")
+    # print(f"url_root: {request.url_root}")
+    # print(f"url: {request.url}")
+    # print(f"user_agent: {request.user_agent}")
+    # print(f"trusted_hosts: {request.trusted_hosts}")
+    # print(request.headers)
 
 if __name__ == '__main__':
     logger.info('Starting initialization of Ownfoil...')
