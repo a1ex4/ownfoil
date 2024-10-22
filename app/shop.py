@@ -21,11 +21,3 @@ def gen_shop_files(db):
             'size': size
         })
     return shop_files
-
-def gen_shop(db, app_settings):
-    shop_files = gen_shop_files(db)
-    shop = {
-        "files": shop_files,
-        "success": app_settings['shop']['motd']
-    }
-    return shop
