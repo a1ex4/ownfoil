@@ -31,7 +31,8 @@ DEFAULT_SETTINGS = {
         "public": False,
         "encrypt": False,
         "clientCertPub": "-----BEGIN PUBLIC KEY-----",
-        "clientCertKey": "-----BEGIN PRIVATE KEY-----"
+        "clientCertKey": "-----BEGIN PRIVATE KEY-----",
+        "url": "",
     }
 }
 
