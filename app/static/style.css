@@ -44,6 +44,15 @@
     color: white;
 }
 
+.game-link {
+    font-size: 1em;
+    margin-right: 5px;
+}
+
+.game-link img {
+    height: 15px;
+}
+
 p.game-description {
     margin-bottom: 0;
     font-size: 0.875rem;

@@ -75,7 +75,7 @@
                         class="bi bi-card-heading"></i></button>
                 <button id="view-toggle-btn-icon" type="button" class="btn btn-primary view-toggle-btn" data-view="icon"><i
                         class="bi bi-grid-fill"></i></button>
-                <button id="view-toggle-btn-list" type="button" class="btn btn-primary view-toggle-btn" data-view="list" disabled=""><i
+                <button id="view-toggle-btn-list" type="button" class="btn btn-primary view-toggle-btn" data-view="list"><i
                         class="bi bi-list-ul"></i></button>
             </div>
         </div>
@@ -145,6 +145,8 @@
         } else if (currentView === 'icon') {
             renderIconView();
             adjustIconSizes();
+        } else if (currentView === 'list') {
+            renderListView();
         }
 
         // Set slider to show 3 columns by default
@@ -188,13 +190,24 @@
             const typeBadge = $('<span class="badge rounded-pill text-bg-info game-tag"></span>').text(game.type);
             tagsContainer.append(typeBadge);
 
+            // link to tinfoil
+            const tinfoilLink = $('<span class="badge rounded-pill text-bg-info game-link"><a href="https://tinfoil.io/Title/' +game.id +
+                '"><img src="https://tinfoil.media/favicon.ico"></a></span>');
+            tagsContainer.append(tinfoilLink);
+
             if (game.has_latest_version !== undefined) {
-                const versionBadge = $('<span class="badge rounded-pill game-tag"></span>').addClass(`text-bg-${game.has_latest_version ? 'success' : 'warning'}`).html(`<i class="bi ${game.has_latest_version ? 'bi-check-circle-fill' : 'bi-arrow-down-circle'}"></i>`);
+                const versionBadge = $('<span class="badge rounded-pill game-tag" title=""></span>').
+                    addClass(`text-bg-${game.has_latest_version ? 'success' : 'warning'}`).
+                    prop('title', game.has_latest_version ? 'Latest Version' : 'Missing Latest Update').
+                    html(`<i class="bi ${game.has_latest_version ? 'bi-check-circle-fill' : 'bi-arrow-down-circle'}"></i>`);
                 tagsContainer.append(versionBadge);
             }
 
             if (game.has_all_dlcs !== undefined) {
-                const dlcBadge = $('<span class="badge rounded-pill game-tag"></span>').addClass(`text-bg-${game.has_all_dlcs ? 'success' : 'warning'}`).html('<i class="bi bi-box-seam-fill"></i>');
+                const dlcBadge = $('<span class="badge rounded-pill game-tag" title=""></span>').
+                    addClass(`text-bg-${game.has_all_dlcs ? 'success' : 'warning'}`).
+                    prop('title', game.has_all_dlcs ? 'Has all DLC' : 'Missing DLC').
+                    html('<i class="bi bi-box-seam-fill"></i>');
                 tagsContainer.append(dlcBadge);
             }
 
@@ -227,6 +240,59 @@
         adjustIconSizes(cardSize);
         // Update pagination
         updatePaginationControls(baseGames.length)
+    }
+
+    function renderListView() {
+        // Render icon view logic...
+        const gameGrid = $('#gameGrid');
+        gameGrid.empty(); // Clear existing games
+        // Get games for the current page
+        start = (currentPage - 1) * itemsPerPage
+        end = start + itemsPerPage
+        baseGames = filteredGames.filter(game => game.type === 'BASE');
+        paginatedGames = baseGames.slice(start, end);
+
+        paginatedGames.forEach(game => {
+            const container = $('<div class="d-flex align-items-center"></div>');
+            const image = $('<div class="flex-shrink-0"><img src="'+game.iconUrl+'" alt="'+game.name+'" width="64px" height="64px"></div>');
+            const title = $('<div class="flex-grow-1 ms-3">' +
+                        (game.title_id_name || game.name) +
+                    '</div>');
+            const tagsContainer = $('<div class="tags-container" style="position:relative;"></div>');
+
+            const typeBadge = $('<span class="badge rounded-pill text-bg-info game-tag"></span>').text(game.type);
+            tagsContainer.append(typeBadge);
+
+            // link to tinfoil
+            const tinfoilLink = $('<span class="badge rounded-pill text-bg-info game-link"><a href="https://tinfoil.io/Title/' +game.id +
+                '"><img src="https://tinfoil.media/favicon.ico"></a></span>');
+            tagsContainer.append(tinfoilLink);
+
+
+            if (game.has_latest_version !== undefined) {
+                 const versionBadge = $('<span class="badge rounded-pill game-tag" title=""></span>').
+                    addClass(`text-bg-${game.has_latest_version ? 'success' : 'warning'}`).
+                    prop('title', game.has_latest_version ? 'Latest Version' : 'Missing Latest Update').
+                    html(`<i class="bi ${game.has_latest_version ? 'bi-check-circle-fill' : 'bi-arrow-down-circle'}"></i>`);
+                tagsContainer.append(versionBadge);
+            }
+
+            if (game.has_all_dlcs !== undefined) {
+                const dlcBadge = $('<span class="badge rounded-pill game-tag" title=""></span>').
+                    addClass(`text-bg-${game.has_all_dlcs ? 'success' : 'warning'}`).
+                    prop('title', game.has_all_dlcs ? 'Has all DLC' : 'Missing DLC').
+                    html('<i class="bi bi-box-seam-fill"></i>');
+                tagsContainer.append(dlcBadge);
+            }
+
+            gameGrid.append(container.append(image, title, tagsContainer));
+        });
+
+        // Adjust icon sizes based on the slider value
+        adjustIconSizes(cardSize);
+        // Update pagination
+        updatePaginationControls(baseGames.length);
+
     }
 
     function getColumnsForCardSize(size) {
@@ -338,12 +404,8 @@
         $('.view-toggle-btn').click(function () {
             $('.view-toggle-btn').removeClass("active"); 
             $(this).addClass("active");
-            const view = $(this).data('view');
-            if (view === 'card') {
-                currentView = 'card';
-            } else if (view === 'icon') {
-                currentView = 'icon';
-            }
+            currentView = $(this).data('view');
+
             renderGames(games);
         });
         
@@ -482,11 +544,6 @@
         renderGames();
 
     }
-
-    // $('#btnApplyFilters').on('click', function () {
-    //     updateFilter();
-    //     applyFilters();
-    // });
 
 
 </script>
