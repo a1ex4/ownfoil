@@ -62,6 +62,7 @@ def roles_required(roles: list, require_all=False):
 def basic_auth(request):
     success = True
     error = ''
+    is_admin = False
 
     auth = request.authorization
     if auth is None:
@@ -84,7 +85,9 @@ def basic_auth(request):
         success = False
         error = f'User "{username}" does not have access to the shop.'
 
-    return success, error
+    else:
+        is_admin = user.has_admin_access()
+    return success, error, is_admin
 
 auth_blueprint = Blueprint('auth', __name__)
 

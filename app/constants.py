@@ -32,7 +32,8 @@ DEFAULT_SETTINGS = {
         "encrypt": False,
         "clientCertPub": "-----BEGIN PUBLIC KEY-----",
         "clientCertKey": "-----BEGIN PRIVATE KEY-----",
-        "url": "",
+        "host": "",
+        "hauth": "",
     }
 }
 
