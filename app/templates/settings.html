@@ -39,15 +39,22 @@
                 </div>
                 {% endif %}
 
-                {% if url_set == false %}
-                <div id="missingShopUrlAlert" class="alert alert-warning alert-dismissible fade show" role="alert">
-                    <h4 class="alert-heading">Missing shop URL!</h4>
-                    Remote access from outside the local network is disabled if the shop URL is missing, configure it <a
-                        href="/settings#shopUrlInput" class="alert-link">here
-                        in Ownfoil.</a>
+                <div id="missingShopHostAlert" class="alert alert-warning alert-dismissible fade show" role="alert" style="display: none;">
+                    <h4 class="alert-heading">Missing shop Host!</h4>
+                    Host verification from outside the local network is disabled if the shop <code>Host</code> is
+                    missing, configure it <a href="/settings#shopHostInput" class="alert-link">here
+                        in Ownfoil</a> to prevent someone else stealing from your shop.
                     <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
                 </div>
-                {% endif %}
+
+                <div id="missingShopHauthAlert" class="alert alert-warning alert-dismissible fade show" role="alert" style="display: none;">
+                    <h4 class="alert-heading">Missing shop Hauth!</h4>
+                    <a href="https://blawar.github.io/tinfoil/network/#host-signature" class="alert-link"
+                        target="_blank">Host signature</a> verification from outside the local network is disabled if
+                    the shop <code>Hauth</code> is missing. Connect to the shop from Tinfoil with an admin account to
+                    set it.
+                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                </div>
 
                 <h2 id="Authentication" class="pb-3">Authentication</h2>
 
@@ -241,11 +248,11 @@
                 <h2 class="pb-3">Shop</h2>
                 <!-- Shop URL -->
                 <div class="mb-3">
-                    <label for="shopUrlInput" class="form-label">Shop URL:</label>
-                    <input class="form-control" id="shopUrlInput" aria-describedby="shopUrlHelp" placeholder="shop.domain.tld">
-                    <div id="shopUrlHelp" class="form-text">Configure your shop URL to enable remote access (from
-                        outside of the local network).<br>
-                        URL verification from Tinfoil requests will be enforced if the shop is accessed securely (with
+                    <label for="shopHostInput" class="form-label">Shop URL:</label>
+                    <input class="form-control" id="shopHostInput" aria-describedby="shopHostHelp"
+                        placeholder="shop.domain.tld">
+                    <div id="shopHostHelp" class="form-text">Configure your shop URL to enable host verification.<br>
+                        Host verification from Tinfoil requests will be enforced if the shop is accessed securely (with
                         <code>https</code>), make sure your reverse proxy <strong>does NOT</strong> allow insecure
                         connections (or upgrades them to use SSL) and correctly sets the <code>X-Forwarded-Proto</code>
                         header.
@@ -334,7 +341,6 @@
 
         $.getJSON("/api/settings/library/paths", function (result) {
 
-            console.log(result)
             if (!result['success']) {
                 if (result['status_code'] == '302') {
                     window.location.href = result['location']
@@ -375,7 +381,6 @@
                     '<tr><td>-</td><td>-</td><td>-</td></tr>');
             }
             result.forEach(user => {
-                console.log(user)
                 allUsernames.push(user['user']);
                 base_input = '<input class="form-check-input" type="checkbox" onclick="return false" checked>';
                 shop_input = base_input;
@@ -569,7 +574,6 @@
         data = {
             path: path
         }
-        console.log(data)
 
         $.ajax({
             url: "/api/settings/library/paths",
@@ -613,7 +617,6 @@
                 processData: false,
                 success: function (result) {
                     if (result['success']) {
-                        console.log(result)
                         $('#consoleKeysInput').removeClass('is-invalid');
                         $('#consoleKeysInput').addClass('is-valid');
                         $('#missingKeysAlert').addClass('d-none');
@@ -651,7 +654,7 @@
     function submitShopSettings() {
         $('#submitShopSettingsBtn').prop('disabled', true);
         data = {
-            url: $('#shopUrlInput').val(),
+            host: $('#shopHostInput').val(),
             public: getCheckboxStatus("publicShopCheck"),
             encrypt: getCheckboxStatus("encryptShopCheck"),
             motd: $('#motdTextArea').val(),
@@ -711,10 +714,15 @@
 
             // Shop settings
             shopSettings = result['shop'];
-            setInputVal("shopUrlInput", shopSettings['url']);
+            setInputVal("shopHostInput", shopSettings['host']);
             setInputVal("motdTextArea", shopSettings['motd']);
             $("#publicShopCheck").prop("checked", shopSettings['public']);
             $("#encryptShopCheck").prop("checked", shopSettings['encrypt']);
+            if (!shopSettings['host']) {
+                $("#missingShopHostAlert").css('display', '');
+            } else if (!shopSettings['hauth']) {
+                $("#missingShopHauthAlert").css('display', '');
+            }
         });
 
     });
