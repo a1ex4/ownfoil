@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, redirect, url_for, jsonify, send_from_directory
+from flask import Flask, render_template, request, redirect, url_for, jsonify, send_from_directory, Response
 from flask_login import LoginManager
 from functools import wraps
 import yaml
@@ -172,6 +172,10 @@ def index():
             shop["referrer"] = f"https://{request.verified_host}"
             
         shop["files"] = gen_shop_files(db)
+
+        if app_settings['shop']['encrypt']:
+            return Response(encrypt_shop(shop), mimetype='application/octet-stream')
+
         return jsonify(shop)
     
     if all(header in request.headers for header in TINFOIL_HEADERS):

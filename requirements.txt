@@ -8,6 +8,6 @@ watchdog==4.0.2
 Werkzeug==3.0.3
 
 # NSTools
-zstandard
+zstandard==0.23.0
 enlighten
 pycryptodome
