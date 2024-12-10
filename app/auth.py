@@ -68,7 +68,7 @@ def basic_auth(request):
     if auth is None:
         success = False
         error = 'Shop requires authentication.'
-        return success, error
+        return success, error, is_admin
 
     username = auth.username
     password = auth.password
