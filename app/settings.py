@@ -109,6 +109,9 @@ def set_titles_settings(region, language):
 
 def set_shop_settings(data):
     settings = load_settings()
-    settings['shop'] = data
+    shop_host = data['host']
+    if '://' in shop_host:
+        data['host'] = shop_host.split('://')[-1]
+    settings['shop'].update(data)
     with open(CONFIG_FILE, 'w') as yaml_file:
         yaml.dump(settings, yaml_file)

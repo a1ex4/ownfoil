@@ -88,3 +88,9 @@ p.game-description {
 .col-1 > .card, .col-2 > .card, .col-3 > .card, .col-4 > .card, .col-6 > .card, .col-12 > .card {
     flex: 1;
 }
+
+/* Update popover */
+.popover-body {
+    max-height: 200px; /* Set your desired max height */
+    overflow-y: auto; /* Enable vertical scrolling */
+}

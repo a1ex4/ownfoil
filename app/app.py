@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, redirect, url_for, jsonify, send_from_directory
+from flask import Flask, render_template, request, redirect, url_for, jsonify, send_from_directory, Response
 from flask_login import LoginManager
 from functools import wraps
 import yaml
@@ -96,11 +96,57 @@ def tinfoil_error(error):
 def tinfoil_access(f):
     @wraps(f)
     def _tinfoil_access(*args, **kwargs):
+        reload_conf()
+        hauth_success = None
+        auth_success = None
+        request.verified_host = None
+        # Host verification to prevent hotlinking
+        host_verification = request.is_secure or request.headers.get("X-Forwarded-Proto") == "https"
+        if host_verification:
+            request_host = request.host
+            request_hauth = request.headers.get('Hauth')
+            logger.info(f"Secure Tinfoil request from remote host {request_host}, proceeding with host verification.")
+            shop_host = app_settings["shop"].get("host")
+            shop_hauth = app_settings["shop"].get("hauth")
+            if not shop_host:
+                logger.error("Missing shop host configuration, Host verification is disabled.")
+
+            elif request_host != shop_host:
+                logger.warning(f"Incorrect URL referrer detected: {request_host}.")
+                error = f"Incorrect URL `{request_host}`."
+                hauth_success = False
+
+            elif not shop_hauth:
+                # Try authentication, if an admin user is logging in then set the hauth
+                auth_success, auth_error, auth_is_admin =  basic_auth(request)
+                if auth_success and auth_is_admin:
+                    shop_settings = app_settings['shop']
+                    shop_settings['hauth'] = request_hauth
+                    set_shop_settings(shop_settings)
+                    logger.info(f"Successfully set Hauth value for host {request_host}.")
+                    hauth_success = True
+                else:
+                    logger.warning(f"Hauth value not set for host {request_host}, Host verification is disabled. Connect to the shop from Tinfoil with an admin account to set it.")
+
+            elif request_hauth != shop_hauth:
+                logger.warning(f"Incorrect Hauth detected for host: {request_host}.")
+                error = f"Incorrect Hauth for URL `{request_host}`."
+                hauth_success = False
+
+            else:
+                hauth_success = True
+                request.verified_host = shop_host
+
+            if hauth_success is False:
+                return tinfoil_error(error)
+        
+        # Now checking auth if shop is private
         if not app_settings['shop']['public']:
             # Shop is private
-            success, error = basic_auth(request)
-            if not success:
-                return tinfoil_error(error)
+            if auth_success is None:
+                auth_success, auth_error, _ = basic_auth(request)
+            if not auth_success:
+                return tinfoil_error(auth_error)
         # Auth success
         return f(*args, **kwargs)
     return _tinfoil_access
@@ -117,7 +163,19 @@ def index():
 
     @tinfoil_access
     def access_tinfoil_shop():
-        shop = gen_shop(db, app_settings)
+        shop = {
+            "success": app_settings['shop']['motd']
+        }
+        
+        if request.verified_host is not None:
+            # enforce client side host verification
+            shop["referrer"] = f"https://{request.verified_host}"
+            
+        shop["files"] = gen_shop_files(db)
+
+        if app_settings['shop']['encrypt']:
+            return Response(encrypt_shop(shop), mimetype='application/octet-stream')
+
         return jsonify(shop)
     
     if all(header in request.headers for header in TINFOIL_HEADERS):
@@ -135,13 +193,23 @@ def settings_page():
     with open(os.path.join(TITLEDB_DIR, 'languages.json')) as f:
         languages = json.load(f)
         languages = dict(sorted(languages.items()))
-    return render_template('settings.html', title='Settings', languages_from_titledb=languages, admin_account_created=admin_account_created(), valid_keys=app_settings['titles']['valid_keys'])
+    return render_template(
+        'settings.html',
+        title='Settings',
+        languages_from_titledb=languages,
+        admin_account_created=admin_account_created(),
+        valid_keys=app_settings['titles']['valid_keys'])
 
 @app.get('/api/settings')
 @access_required('admin')
 def get_settings_api():
     reload_conf()
-    return jsonify(app_settings)
+    settings = app_settings
+    if settings['shop'].get('hauth'):
+        settings['shop']['hauth'] = True
+    else:
+        settings['shop']['hauth'] = False
+    return jsonify(settings)
 
 @app.post('/api/settings/titles')
 @access_required('admin')

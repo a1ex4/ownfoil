@@ -16,7 +16,8 @@
                         created, <strong>authentication is disabled, anyone can access and change the configuration of
                             your shop!</strong>
                         <br>
-                        Add an admin account <a href="/settings#Authentication" class="alert-link">here under Authentication</a>.
+                        Add an admin account <a href="/settings#Authentication" class="alert-link">here under
+                            Authentication</a>.
                     </p>
                 </div>
                 {% endif %}
@@ -37,6 +38,23 @@
                     <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
                 </div>
                 {% endif %}
+
+                <div id="missingShopHostAlert" class="alert alert-warning alert-dismissible fade show" role="alert" style="display: none;">
+                    <h4 class="alert-heading">Missing shop Host!</h4>
+                    Host verification from outside the local network is disabled if the shop <code>Host</code> is
+                    missing, configure it <a href="/settings#shopHostInput" class="alert-link">here
+                        in Ownfoil</a> to prevent someone else stealing from your shop.
+                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                </div>
+
+                <div id="missingShopHauthAlert" class="alert alert-warning alert-dismissible fade show" role="alert" style="display: none;">
+                    <h4 class="alert-heading">Missing shop Hauth!</h4>
+                    <a href="https://blawar.github.io/tinfoil/network/#host-signature" class="alert-link"
+                        target="_blank">Host signature</a> verification from outside the local network is disabled if
+                    the shop <code>Hauth</code> is missing. Connect to the shop from Tinfoil with an admin account to
+                    set it.
+                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                </div>
 
                 <h2 id="Authentication" class="pb-3">Authentication</h2>
 
@@ -145,8 +163,8 @@
                     </div>
 
                     <div class="col-auto">
-                        <button type="button" class="btn btn-primary mb-3 scanBtn"
-                            onClick='scanLibrary()'>Scan library</button>
+                        <button type="button" class="btn btn-primary mb-3 scanBtn" onClick='scanLibrary()'>Scan
+                            library</button>
                     </div>
                 </div>
 
@@ -166,7 +184,8 @@
                 </div>
 
                 <!-- Delete User Modal -->
-                <div class="modal fade" id="deletePathModal" tabindex="-1" aria-labelledby="deletePathModalLabel" aria-hidden="true">
+                <div class="modal fade" id="deletePathModal" tabindex="-1" aria-labelledby="deletePathModalLabel"
+                    aria-hidden="true">
                     <div class="modal-dialog modal-dialog-centered">
                         <div class="modal-content">
                             <div class="modal-header">
@@ -227,7 +246,18 @@
                 <hr>
 
                 <h2 class="pb-3">Shop</h2>
-                <p>Customize your shop:</p>
+                <!-- Shop URL -->
+                <div class="mb-3">
+                    <label for="shopHostInput" class="form-label">Shop URL:</label>
+                    <input class="form-control" id="shopHostInput" aria-describedby="shopHostHelp"
+                        placeholder="shop.domain.tld">
+                    <div id="shopHostHelp" class="form-text">Configure your shop URL to enable host verification.<br>
+                        Host verification from Tinfoil requests will be enforced if the shop is accessed securely (with
+                        <code>https</code>), make sure your reverse proxy <strong>does NOT</strong> allow insecure
+                        connections (or upgrades them to use SSL) and correctly sets the <code>X-Forwarded-Proto</code>
+                        header.
+                    </div>
+                </div>
                 <div class="mb-3 form-check">
                     <input type="checkbox" class="form-check-input" id="publicShopCheck"
                         aria-describedby="publicShopCheckHelp">
@@ -238,9 +268,10 @@
                 </div>
                 <div class="mb-3 form-check">
                     <input type="checkbox" class="form-check-input" id="encryptShopCheck"
-                        aria-describedby="encryptShopCheckHelp" disabled="disabled">
+                        aria-describedby="encryptShopCheckHelp">
                     <label class="form-check-label" for="encryptShopCheck">Encrypt shop</label>
-                    <div id="encryptShopCheckHelp" class="form-text">Serve encrypted shop, so that only Tinfoil clients can access the content (coming soon).</div>
+                    <div id="encryptShopCheckHelp" class="form-text">Serve encrypted and compressed shop, so that only Tinfoil clients
+                        can access the content. <strong>Strongly suggested to enable it for security</strong>.</div>
                 </div>
 
                 <div class="mb-3">
@@ -281,7 +312,7 @@
         return $('#' + checkboxId).is(":checked")
     }
 
-    function scanLibrary(path=null) {
+    function scanLibrary(path = null) {
         $('.scanBtn').prop('disabled', true);
         data = {
             path: path
@@ -310,7 +341,6 @@
 
         $.getJSON("/api/settings/library/paths", function (result) {
 
-            console.log(result)
             if (!result['success']) {
                 if (result['status_code'] == '302') {
                     window.location.href = result['location']
@@ -318,7 +348,7 @@
                 }
             }
             paths = result.paths;
-            if ( paths === null || !paths.length) {
+            if (paths === null || !paths.length) {
                 $('#pathsTable tbody').append(
                     '<tr><td>-</td><td>-</td><td>');
             } else {
@@ -351,7 +381,6 @@
                     '<tr><td>-</td><td>-</td><td>-</td></tr>');
             }
             result.forEach(user => {
-                console.log(user)
                 allUsernames.push(user['user']);
                 base_input = '<input class="form-check-input" type="checkbox" onclick="return false" checked>';
                 shop_input = base_input;
@@ -474,11 +503,11 @@
     $('#checkboxNewUserAdminAccess').change(function () {
         if (this.checked != false) {
             $('#checkboxNewUserShopAccess').prop('checked', true).attr("disabled", true);
-            $('#checkboxNewUserBackupAccess').prop('checked', true).attr("disabled", true) ;
+            $('#checkboxNewUserBackupAccess').prop('checked', true).attr("disabled", true);
 
         } else {
             $('#checkboxNewUserShopAccess').attr("disabled", false);
-            $('#checkboxNewUserBackupAccess').attr("disabled", false) ;
+            $('#checkboxNewUserBackupAccess').attr("disabled", false);
 
         }
     });
@@ -545,7 +574,6 @@
         data = {
             path: path
         }
-        console.log(data)
 
         $.ajax({
             url: "/api/settings/library/paths",
@@ -564,7 +592,7 @@
                 } else {
                     console.log('Error adding path ' + path);
                 }
-            $('#submitNewLibraryPathBtn').prop('disabled', false);
+                $('#submitNewLibraryPathBtn').prop('disabled', false);
             }
         });
     }
@@ -589,7 +617,6 @@
                 processData: false,
                 success: function (result) {
                     if (result['success']) {
-                        console.log(result)
                         $('#consoleKeysInput').removeClass('is-invalid');
                         $('#consoleKeysInput').addClass('is-valid');
                         $('#missingKeysAlert').addClass('d-none');
@@ -627,6 +654,7 @@
     function submitShopSettings() {
         $('#submitShopSettingsBtn').prop('disabled', true);
         data = {
+            host: $('#shopHostInput').val(),
             public: getCheckboxStatus("publicShopCheck"),
             encrypt: getCheckboxStatus("encryptShopCheck"),
             motd: $('#motdTextArea').val(),
@@ -650,7 +678,7 @@
                         $("#" + formTextElement).text(error['error']);
                     });
                 }
-            $('#submitShopSettingsBtn').prop('disabled', false);
+                $('#submitShopSettingsBtn').prop('disabled', false);
             }
         });
     }
@@ -686,9 +714,15 @@
 
             // Shop settings
             shopSettings = result['shop'];
+            setInputVal("shopHostInput", shopSettings['host']);
             setInputVal("motdTextArea", shopSettings['motd']);
             $("#publicShopCheck").prop("checked", shopSettings['public']);
             $("#encryptShopCheck").prop("checked", shopSettings['encrypt']);
+            if (!shopSettings['host']) {
+                $("#missingShopHostAlert").css('display', '');
+            } else if (!shopSettings['hauth']) {
+                $("#missingShopHauthAlert").css('display', '');
+            }
         });
 
     });
