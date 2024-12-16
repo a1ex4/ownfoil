@@ -21,6 +21,7 @@ import titledb
 
 def init():
     global watcher
+    global watcher_thread
     # Create and start the file watcher
     logger.info('Initializing File Watcher...')
     watcher = Watcher([], on_library_change)
@@ -455,3 +456,8 @@ if __name__ == '__main__':
     init()
     logger.info('Initialization steps done, starting server...')
     app.run(debug=False, host="0.0.0.0", port=8465)
+    # Shutdown server
+    logger.info('Shutting down server...')
+    watcher.stop()
+    watcher_thread.join()
+    logger.debug('Watcher thread terminated.')

@@ -1,6 +1,6 @@
 from constants import *
 import time, os
-from watchdog.observers import Observer
+from watchdog.observers.polling import PollingObserver
 from watchdog.events import FileSystemEventHandler
 import threading
 from functools import wraps
@@ -36,7 +36,7 @@ class Watcher:
         self.directories = set(directories)  # Use a set to store directories
         self.callback = callback
         self.event_handler = Handler(self.callback)
-        self.observer = Observer()
+        self.observer = PollingObserver()
         self.scheduler_map = {}
 
     def run(self):
@@ -44,13 +44,13 @@ class Watcher:
             task = self.observer.schedule(self.event_handler, directory, recursive=True)
             self.scheduler_map[directory] = task
         self.observer.start()
-        
-        try:
-            while True:
-                time.sleep(1)
-        except KeyboardInterrupt:
-            self.observer.stop()
+        logger.debug('Successfully started observer.')
+
+    def stop(self):
+        logger.debug('Stopping observer...')
+        self.observer.stop()
         self.observer.join()
+        logger.debug('Successfully stopped observer.')
 
     def add_directory(self, directory):
         if directory not in self.directories:
