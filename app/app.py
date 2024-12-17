@@ -24,7 +24,7 @@ def init():
     global watcher_thread
     # Create and start the file watcher
     logger.info('Initializing File Watcher...')
-    watcher = Watcher([], on_library_change)
+    watcher = Watcher(on_library_change)
     watcher_thread = threading.Thread(target=watcher.run)
     watcher_thread.daemon = True
     watcher_thread.start()
