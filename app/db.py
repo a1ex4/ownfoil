@@ -177,6 +177,8 @@ def delete_file_by_filepath(filepath):
         db.session.commit()
         
         logger.info(f"File '{filepath}' has been deleted.")
+    except NoResultFound:
+        logger.info(f"File '{filepath}' not present in database.")
     except Exception as e:
         # If there's an error, rollback the session
         db.session.rollback()
