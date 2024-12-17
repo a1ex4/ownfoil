@@ -32,17 +32,14 @@ def debounce(wait):
     return decorator
 
 class Watcher:
-    def __init__(self, directories, callback):
-        self.directories = set(directories)  # Use a set to store directories
+    def __init__(self, callback):
+        self.directories = set()  # Use a set to store directories
         self.callback = callback
         self.event_handler = Handler(self.callback)
         self.observer = PollingObserver()
         self.scheduler_map = {}
 
     def run(self):
-        for directory in self.directories:
-            task = self.observer.schedule(self.event_handler, directory, recursive=True)
-            self.scheduler_map[directory] = task
         self.observer.start()
         logger.debug('Successfully started observer.')
 
