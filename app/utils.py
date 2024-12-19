@@ -1,5 +1,7 @@
 import logging
 import re
+import threading
+from functools import wraps
 
 # Custom logging formatter to support colors
 class ColoredFormatter(logging.Formatter):
@@ -29,3 +31,19 @@ class FilterRemoveDateFromWerkzeugLogs(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
         record.msg = self.pattern.sub(' - "', record.msg)
         return True
+
+
+def debounce(wait):
+    """Decorator that postpones a function's execution until after `wait` seconds
+    have elapsed since the last time it was invoked."""
+    def decorator(fn):
+        @wraps(fn)
+        def debounced(*args, **kwargs):
+            def call_it():
+                fn(*args, **kwargs)
+            if hasattr(debounced, '_timer'):
+                debounced._timer.cancel()
+            debounced._timer = threading.Timer(wait, call_it)
+            debounced._timer.start()
+        return debounced
+    return decorator

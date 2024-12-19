@@ -1,35 +1,14 @@
 from constants import *
+from utils import *
 import time, os
 from watchdog.observers.polling import PollingObserver
 from watchdog.events import FileSystemEventHandler
-import threading
-from functools import wraps
+from types import SimpleNamespace
 import logging
 
 # Retrieve main logger
 logger = logging.getLogger('main')
 
-
-def is_dict_in_list(dict_list, dictionary):
-    for item in dict_list:
-        if item == dictionary:
-            return True
-    return False
-
-def debounce(wait):
-    """Decorator that postpones a function's execution until after `wait` seconds
-    have elapsed since the last time it was invoked."""
-    def decorator(fn):
-        @wraps(fn)
-        def debounced(*args, **kwargs):
-            def call_it():
-                fn(*args, **kwargs)
-            if hasattr(debounced, '_timer'):
-                debounced._timer.cancel()
-            debounced._timer = threading.Timer(wait, call_it)
-            debounced._timer.start()
-        return debounced
-    return decorator
 
 class Watcher:
     def __init__(self, callback):
@@ -76,63 +55,87 @@ class Watcher:
         return False
 
 class Handler(FileSystemEventHandler):
-    def __init__(self, callback, debounce_time=5):
-        self._raw_callback = callback  # The actual callback passed to the handler
+    def __init__(self, callback, stability_duration=5):
+        self._raw_callback = callback  # Callback to invoke for stable files
         self.directories = []
-        self.debounce_time = debounce_time
-        self.events_to_process = {
-            'modified': [],
-            'created': [],
-            'deleted': [],
-            'moved': []
-        }
-        self.debounced_process_events = self.debounce_callback(self._process_collected_events, debounce_time)
+        self.stability_duration = stability_duration  # Stability duration in seconds
+        self.tracked_files = {}  # Tracks files being copied
+        self.debounced_check_final = self._debounce(self._check_file_stability, stability_duration)
 
     def add_directory(self, directory):
         if directory not in self.directories:
             self.directories.append(directory)
 
-    def debounce_callback(self, callback, wait):
+    def _debounce(self, func, wait):
+        """Debounce decorator for the stability check."""
         @debounce(wait)
-        def debounced_callback():
-            callback()
-        return debounced_callback
+        def debounced():
+            func()
+        return debounced
 
-    def _process_collected_events(self):
-        if any(self.events_to_process.values()):  # Check if any list has events
-            self._raw_callback(self.events_to_process)
-            # Reset the events_to_process dictionary
-            self.events_to_process = {
-                'modified': [],
-                'created': [],
-                'deleted': [],
-                'moved': []
-            }
+    def _track_file(self, event):
+        """Start or update tracking for a file."""
+        file_path = event.src_path
+        current_size = os.path.getsize(file_path)
+        if file_path not in self.tracked_files:
+            event.size = current_size
+            event.timestamp = time.time()
+            self.tracked_files[file_path] = event
+        else:
+            self.tracked_files[file_path].size = current_size
+            self.tracked_files[file_path].timestamp = time.time()
 
-    def collect_event(self, event, directory):
-        if event.is_directory:
+    def _check_file_stability(self):
+        """Check for stable files and invoke the callback."""
+        now = time.time()
+        stable_files = []
+
+        # Check all tracked files
+        for file_path, file_data in list(self.tracked_files.items()):
+            if not os.path.exists(file_path):
+                # If the file no longer exists, stop tracking it
+                del self.tracked_files[file_path]
+                continue
+            current_size = os.path.getsize(file_path)
+            if current_size == file_data.size and (now - file_data.timestamp) >= self.stability_duration:
+                stable_files.append(file_data)
+                del self.tracked_files[file_path]  # Stop tracking stable file
+
+        # Trigger the callback for all stable files
+        if stable_files:
+            self._raw_callback(stable_files)
+
+    def collect_event(self, source_event, directory):
+        """Track file events and trigger the stability check."""
+        if source_event.is_directory:
             return
 
-        if event.event_type in ['deleted', 'moved', 'created']:
-            file_extension = os.path.splitext(event.src_path)[1][1:]
-            if file_extension not in ALLOWED_EXTENSIONS:
-                return
+        file_extension = os.path.splitext(source_event.src_path)[1][1:]
+        if file_extension not in ALLOWED_EXTENSIONS:
+            return
 
-            event_slim = {
-                'directory': directory,
-                'dest_path': event.dest_path,
-                'src_path': event.src_path
-            }
-            if not is_dict_in_list(self.events_to_process[event.event_type], event_slim):
-                self.events_to_process[event.event_type].append(event_slim)
-                self.debounced_process_events()  # Trigger the debounce mechanism
+        library_event = SimpleNamespace(
+            type=source_event.event_type,
+            directory=directory,
+            src_path=source_event.src_path,
+            dest_path=source_event.dest_path,
+        )
+        if library_event.type in ['deleted', 'moved']:
+            self._raw_callback([library_event])
 
-    def on_modified(self, event):
+        else:
+            # Track file on create or modify
+            self._track_file(library_event)
+            self.debounced_check_final()
+
+        self._check_file_stability()
+
+    def on_created(self, event):
         for directory in self.directories:
             if event.src_path.startswith(directory):
                 self.collect_event(event, directory)
 
-    def on_created(self, event):
+    def on_modified(self, event):
         for directory in self.directories:
             if event.src_path.startswith(directory):
                 self.collect_event(event, directory)

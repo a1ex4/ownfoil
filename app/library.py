@@ -2,6 +2,22 @@ from constants import *
 from db import *
 from titles import *
 
+def identify_files_and_add_to_db(library_path, files):
+    nb_to_identify = len(files)
+    for n, filepath in enumerate(files):
+        file = filepath.replace(library_path, "")
+        logger.info(f'Identifiying file ({n+1}/{nb_to_identify}): {file}')
+
+        file_info = identify_file(filepath)
+
+        if file_info is None:
+            logger.error(f'Failed to identify: {file} - file will be skipped.')
+            # in the future save identification error to be displayed and inspected in the UI
+            continue
+
+        logger.info(f'Identifiying file ({n+1}/{nb_to_identify}): {file} OK Title ID: {file_info["title_id"]} App ID : {file_info["app_id"]} Title Type: {file_info["type"]} Version: {file_info["version"]}')
+        add_to_titles_db(library_path, file_info)
+
 
 def scan_library_path(app_settings, library_path):
     try:
@@ -19,18 +35,7 @@ def scan_library_path(app_settings, library_path):
 
         all_files_with_current_identification = get_all_files_with_identification(current_identification)
         files_to_identify = [f for f in files if f not in all_files_with_current_identification]
-        nb_to_identify = len(files_to_identify)
-        for n, filepath in enumerate(files_to_identify):
-            file = filepath.replace(library_path, "")
-            logger.info(f'Identifiying file ({n+1}/{nb_to_identify}): {file}')
-
-            file_info = identify_file(filepath)
-
-            if file_info is None:
-                logger.error(f'Failed to identify: {file} - file will be skipped.')
-                continue
-            logger.info(f'Identifiying file ({n+1}/{nb_to_identify}): {file} OK Title ID: {file_info["title_id"]} App ID : {file_info["app_id"]} Title Type: {file_info["type"]} Version: {file_info["version"]}')
-            add_to_titles_db(library_path, file_info)
+        identify_files_and_add_to_db(library_path, files_to_identify)
     finally:
         pass
 
