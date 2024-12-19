@@ -342,8 +342,17 @@ def serve_game(id):
     return send_from_directory(filedir, filename)
 
 
-def scan_library():
+@debounce(10)
+def post_library_change():
     global titles_library
+    with app.app_context():
+        # remove missing files
+        remove_missing_files_from_db()
+        # update library
+        titles_library = generate_library()
+
+
+def scan_library():
     logger.info(f'Scanning whole library ...')
     library_paths = app_settings['library']['paths']
     
@@ -354,14 +363,9 @@ def scan_library():
     for library_path in library_paths:
         start_scan_library_path(library_path, update_library=False)
     
-    # remove missing files
-    remove_missing_files()
-
-    # update library
-    titles_library = generate_library()
+    post_library_change()
 
 def start_scan_library_path(library_path, update_library=True):
-    global titles_library
     global scan_in_progress
     # Acquire the lock before checking and updating the scan status
     with scan_lock:
@@ -373,15 +377,12 @@ def start_scan_library_path(library_path, update_library=True):
 
     scan_library_path(app_settings, library_path)
 
-    if update_library:
-        # remove missing files
-        remove_missing_files()
-        # update library
-        titles_library = generate_library()
-
     # Ensure the scan status is reset to not in progress, even if an error occurs
     with scan_lock:
         scan_in_progress = False
+
+    if update_library:
+        post_library_change()
 
 
 @app.post('/api/library/scan')
@@ -423,32 +424,28 @@ def reload_conf():
 
 
 def on_library_change(events):
-    global titles_library
-    libraries_changed = set()
     with app.app_context():
-        # handle moved files
-        for moved_event in events['moved']:
-            # if the file has been moved outside of the library
-            if not moved_event["dest_path"].startswith(moved_event["directory"]):
-                # remove it from the db
-                delete_file_by_filepath(moved_event["src_path"])
-            else:
-                # update the paths
-                update_file_path(moved_event["directory"], moved_event["src_path"], moved_event["dest_path"])
+        created_events = [e for e in events if e.type == 'created']
+        if created_events:
+            new_files = [e.src_path for e in created_events]
+            library_path = created_events[0].directory
+            identify_files_and_add_to_db(library_path, new_files)
 
-        for deleted_event in events['deleted']:
-            # delete the file from library if it exists
-            delete_file_by_filepath(deleted_event["src_path"])
-        
-        for created_event in events['created']:
-            libraries_changed.add(created_event["directory"])
-    
-        for library_to_scan in libraries_changed:
-            start_scan_library_path(library_to_scan, update_library=False)
-        
-        # remove missing files
-        remove_missing_files()
-        titles_library = generate_library()
+        modified_events = [e for e in events if e.type != 'created']
+        for event in modified_events:
+            if event.type == 'moved':
+                # update the path
+                update_file_path(event.directory, event.src_path, event.dest_path)
+
+            elif event.type == 'deleted':
+                # delete the file from library if it exists
+                delete_file_by_filepath(event.src_path)
+
+            elif event.type == 'modified':
+                # can happen if file copy has started before running
+                identify_files_and_add_to_db(event.directory, [event.src_path])
+
+    post_library_change()
 
 
 if __name__ == '__main__':
