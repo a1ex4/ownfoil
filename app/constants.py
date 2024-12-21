@@ -29,10 +29,11 @@ DEFAULT_SETTINGS = {
     "shop": {
         "motd": "Welcome to your own shop!",
         "public": False,
-        "encrypt": False,
+        "encrypt": True,
         "clientCertPub": "-----BEGIN PUBLIC KEY-----",
         "clientCertKey": "-----BEGIN PRIVATE KEY-----",
-        "url": "",
+        "host": "",
+        "hauth": "",
     }
 }
 

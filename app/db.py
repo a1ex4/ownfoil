@@ -176,13 +176,15 @@ def delete_file_by_filepath(filepath):
         # Commit the changes
         db.session.commit()
         
-        logger.info(f"File '{filepath}' has been deleted.")
+        logger.info(f"File '{filepath}' removed from database.")
+    except NoResultFound:
+        logger.info(f"File '{filepath}' not present in database.")
     except Exception as e:
         # If there's an error, rollback the session
         db.session.rollback()
-        logger.error(f"An error occurred while deleting the file path: {str(e)}")
+        logger.error(f"An error occurred while removing the file path: {str(e)}")
 
-def remove_missing_files():
+def remove_missing_files_from_db():
     try:
         # Query all entries in the Files table
         files = Files.query.all()
