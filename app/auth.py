@@ -94,7 +94,52 @@ auth_blueprint = Blueprint('auth', __name__)
 login_manager = LoginManager()
 login_manager.login_view = 'auth.login'
 
+def create_or_update_user(username, password, admin_access=False, shop_access=False, backup_access=False):
+    """
+    Create a new user or update an existing user with the given credentials and access rights.
+    """
+    user = User.query.filter_by(user=username).first()
+    if user:
+        logger.info(f'Updating an existing user {username}')
+        user.admin_access = admin_access
+        user.shop_access = shop_access
+        user.backup_access = backup_access
+        user.password = generate_password_hash(password, method='scrypt')
+    else:
+        logger.info(f'Creating a new user {username}')
+        new_user = User(user=username, password=generate_password_hash(password, method='scrypt'), admin_access=admin_access, shop_access=shop_access, backup_access=backup_access)
+        db.session.add(new_user)
+    db.session.commit()
 
+def init_user_from_environment(environment_name, admin=False):
+    """
+    allow to init some user from environment variable to init some users without using the UI
+    """
+
+
+    username = os.getenv(environment_name + '_NAME')
+    password = os.getenv(environment_name + '_PASSWORD')
+    if username and password:
+        if admin:
+            logger.info('Initializing an admin user from environment variable...')
+            admin_access = True
+            shop_access = True
+            backup_access = True
+        else:
+            logger.info('Initializing a regular user from environment variable...')
+            admin_access = False
+            shop_access = True
+            backup_access = False
+
+        if not admin:
+            existing_admin = admin_account_created()
+            if not existing_admin and not admin_access:
+                logger.error(f'Error creating user {username}, first account created must be admin')
+                return
+
+        create_or_update_user(username, password, admin_access, shop_access, backup_access)
+
+            
 @auth_blueprint.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "GET":
@@ -192,11 +237,7 @@ def signup_post():
         return jsonify(resp)
 
     # create a new user with the form data. Hash the password so the plaintext version isn't saved.
-    new_user = User(user=username, password=generate_password_hash(password, method='scrypt'), admin_access=admin_access, shop_access=shop_access, backup_access=backup_access)
-
-    # add the new user to the database
-    db.session.add(new_user)
-    db.session.commit()
+    create_or_update_user(username, password, admin_access, shop_access, backup_access)
     
     logger.info(f'Successfully created user {username}.')
 
