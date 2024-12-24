@@ -6,7 +6,7 @@ def identify_files_and_add_to_db(library_path, files):
     nb_to_identify = len(files)
     for n, filepath in enumerate(files):
         file = filepath.replace(library_path, "")
-        logger.info(f'Identifiying file ({n+1}/{nb_to_identify}): {file}')
+        logger.info(f'Identifying file ({n+1}/{nb_to_identify}): {file}')
 
         file_info = identify_file(filepath)
 
@@ -15,7 +15,7 @@ def identify_files_and_add_to_db(library_path, files):
             # in the future save identification error to be displayed and inspected in the UI
             continue
 
-        logger.info(f'Identifiying file ({n+1}/{nb_to_identify}): {file} OK Title ID: {file_info["title_id"]} App ID : {file_info["app_id"]} Title Type: {file_info["type"]} Version: {file_info["version"]}')
+        logger.info(f'Identifying file ({n+1}/{nb_to_identify}): {file} OK Title ID: {file_info["title_id"]} App ID : {file_info["app_id"]} Title Type: {file_info["type"]} Version: {file_info["version"]}')
         add_to_titles_db(library_path, file_info)
 
 
