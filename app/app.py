@@ -108,7 +108,8 @@ def tinfoil_access(f):
         auth_success = None
         request.verified_host = None
         # Host verification to prevent hotlinking
-        host_verification = request.is_secure or request.headers.get("X-Forwarded-Proto") == "https"
+        #Tinfoil doesn't send Hauth for file grabs, only directories, so ignore get_game endpoints.
+        host_verification = "/api/get_game" not in request.path and (request.is_secure or request.headers.get("X-Forwarded-Proto") == "https")
         if host_verification:
             request_host = request.host
             request_hauth = request.headers.get('Hauth')
