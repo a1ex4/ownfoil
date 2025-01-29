@@ -17,4 +17,5 @@ jobs:
           stale-issue-message: 'This issue has been automatically marked as stale because it has not had recent activity. It will be closed if no further activity occurs.'
           close-issue-message: 'Closing this issue due to inactivity. Feel free to reopen if necessary.'
           any-of-labels: 'waiting for info'
-          debug-only: true
+          operations-per-run: 200
+          debug-only: false
