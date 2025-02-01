@@ -1,0 +1,24 @@
+{{ if .Values.persistence.enabled }}
+{{- $outer := . -}}
+{{- range $k, $v := .Values.persistence.volumes }}
+{{- with $outer }}
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ .Release.Name }}-{{ $k }}
+  labels:
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    app.kubernetes.io/name: {{ .Release.Name }}
+spec:
+  storageClassName: {{ $v.storageClass }}
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ $v.size }}
+{{- end }}
+{{- end }}
+{{- end }}
