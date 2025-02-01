@@ -18,6 +18,7 @@ from titles import *
 from utils import *
 from library import *
 import titledb
+import os
 
 def init():
     global watcher
@@ -36,6 +37,9 @@ def init():
     # Update titledb
     titledb.update_titledb(app_settings)
     load_titledb(app_settings)
+
+
+
 
 os.makedirs(CONFIG_DIR, exist_ok=True)
 os.makedirs(DATA_DIR, exist_ok=True)
@@ -451,6 +455,9 @@ def on_library_change(events):
 if __name__ == '__main__':
     logger.info('Starting initialization of Ownfoil...')
     init()
+    with app.app_context():
+        init_user_from_environment(environment_name="USER_ADMIN", admin=True)
+        init_user_from_environment(environment_name="USER_GUEST", admin=False)
     logger.info('Initialization steps done, starting server...')
     app.run(debug=False, host="0.0.0.0", port=8465)
     # Shutdown server
