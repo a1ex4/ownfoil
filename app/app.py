@@ -447,9 +447,10 @@ def on_library_change(events):
                 identify_files_and_add_to_db(event.directory, [event.src_path])
 
         if created_events:
-            new_files = [e.src_path for e in created_events]
-            library_path = created_events[0].directory
-            identify_files_and_add_to_db(library_path, new_files)
+            directories = list(set(e.directory for e in created_events))
+            for library_path in directories:
+                new_files = [e.src_path for e in created_events if e.directory == library_path]
+                identify_files_and_add_to_db(library_path, new_files)
 
     post_library_change()
 
