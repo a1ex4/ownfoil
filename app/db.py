@@ -57,13 +57,14 @@ class User(UserMixin, db.Model):
             return self.has_backup_access()
 
 
+def file_exists_in_db(filepath):
+    return Files.query.filter_by(filepath=filepath).first() is not None
+
 def add_to_titles_db(library, file_info):
     filepath = file_info["filepath"]
     filedir = file_info["filedir"].replace(library, '')
-    if exists := db.session.query(
-        db.session.query(Files).filter_by(filepath=filepath).exists()
-    ).scalar():
-        existing_entry = db.session.query(Files).filter_by(filepath=filepath).all()
+    if file_exists_in_db(filepath):
+        existing_entry = Files.query.filter_by(filepath=filepath).all()
         existing_entry_data = to_dict(existing_entry[0])
         current_identification = existing_entry_data["identification"]
         new_identification = file_info["identification"]
@@ -71,7 +72,7 @@ def add_to_titles_db(library, file_info):
             return
         else:
             # delete old entry and replace with updated one
-            db.session.query(Files).filter_by(filepath=filepath).delete()
+            Files.query.filter_by(filepath=filepath).delete()
 
     new_title = Files(
         filepath = filepath,
@@ -126,16 +127,16 @@ def update_file_path(library, old_path, new_path):
 def get_all_titles_from_db():
     # results = db.session.query(Files.title_id).distinct()
     # return [row[0] for row in results]
-    results = db.session.query(Files).all()
+    results = Files.query.all()
     return [to_dict(r) for r in results]
 
 def get_all_title_files(title_id):
     title_id = title_id.upper()
-    results = db.session.query(Files).filter_by(title_id=title_id).all()
+    results = Files.query.filter_by(title_id=title_id).all()
     return [to_dict(r) for r in results]
 
 def get_all_files_with_identification(identification):
-    results = db.session.query(Files).filter_by(identification=identification).all()
+    results = Files.query.filter_by(identification=identification).all()
     return[to_dict(r)['filepath']  for r in results]
 
 def delete_files_by_library(library_path):

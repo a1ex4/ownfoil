@@ -426,24 +426,30 @@ def reload_conf():
 def on_library_change(events):
     with app.app_context():
         created_events = [e for e in events if e.type == 'created']
-        if created_events:
-            new_files = [e.src_path for e in created_events]
-            library_path = created_events[0].directory
-            identify_files_and_add_to_db(library_path, new_files)
-
         modified_events = [e for e in events if e.type != 'created']
+
         for event in modified_events:
             if event.type == 'moved':
-                # update the path
-                update_file_path(event.directory, event.src_path, event.dest_path)
+                if file_exists_in_db(event.src_path):
+                    # update the path
+                    update_file_path(event.directory, event.src_path, event.dest_path)
+                else:
+                    # add to the database
+                    event.src_path = event.dest_path
+                    created_events.append(event)
 
             elif event.type == 'deleted':
                 # delete the file from library if it exists
                 delete_file_by_filepath(event.src_path)
 
             elif event.type == 'modified':
-                # can happen if file copy has started before running
+                # can happen if file copy has started before the app was running
                 identify_files_and_add_to_db(event.directory, [event.src_path])
+
+        if created_events:
+            new_files = [e.src_path for e in created_events]
+            library_path = created_events[0].directory
+            identify_files_and_add_to_db(library_path, new_files)
 
     post_library_change()
 
