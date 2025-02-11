@@ -1,0 +1,21 @@
+name: 'Close stale issues'
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '30 1 * * *'
+
+jobs:
+  stale:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Close stale issues
+        uses: actions/stale@v9
+        with:
+          days-before-stale: 30
+          days-before-close: 7
+          stale-issue-label: 'stale'
+          stale-issue-message: 'This issue has been automatically marked as stale because it has not had recent activity. It will be closed if no further activity occurs.'
+          close-issue-message: 'Closing this issue due to inactivity. Feel free to reopen if necessary.'
+          any-of-labels: 'waiting for info'
+          operations-per-run: 200
+          debug-only: false
