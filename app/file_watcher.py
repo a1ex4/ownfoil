@@ -75,7 +75,10 @@ class Handler(FileSystemEventHandler):
 
     def _track_file(self, event):
         """Start or update tracking for a file."""
-        file_path = event.src_path
+        if event.type == 'moved':
+            file_path = event.dest_path
+        else:
+            file_path = event.src_path
         current_size = os.path.getsize(file_path)
         if file_path not in self.tracked_files:
             event.size = current_size
@@ -110,8 +113,7 @@ class Handler(FileSystemEventHandler):
         if source_event.is_directory:
             return
 
-        file_extension = os.path.splitext(source_event.src_path)[1][1:]
-        if file_extension not in ALLOWED_EXTENSIONS:
+        if not any(source_event.src_path.endswith(ext) or source_event.dest_path.endswith(ext) for ext in ALLOWED_EXTENSIONS):
             return
 
         library_event = SimpleNamespace(
@@ -120,7 +122,11 @@ class Handler(FileSystemEventHandler):
             src_path=source_event.src_path,
             dest_path=source_event.dest_path,
         )
-        if library_event.type in ['deleted', 'moved']:
+
+        if library_event.type == 'moved' and not any(library_event.dest_path.endswith(ext) for ext in ALLOWED_EXTENSIONS):
+            library_event.type = 'deleted'
+
+        if library_event.type == 'deleted':
             self._raw_callback([library_event])
 
         else:
@@ -130,22 +136,8 @@ class Handler(FileSystemEventHandler):
 
         self._check_file_stability()
 
-    def on_created(self, event):
+    def on_any_event(self, event):
         for directory in self.directories:
             if event.src_path.startswith(directory):
                 self.collect_event(event, directory)
-
-    def on_modified(self, event):
-        for directory in self.directories:
-            if event.src_path.startswith(directory):
-                self.collect_event(event, directory)
-
-    def on_deleted(self, event):
-        for directory in self.directories:
-            if event.src_path.startswith(directory):
-                self.collect_event(event, directory)
-
-    def on_moved(self, event):
-        for directory in self.directories:
-            if event.src_path.startswith(directory):
-                self.collect_event(event, directory)
+                break
