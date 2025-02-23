@@ -100,13 +100,13 @@ def create_or_update_user(username, password, admin_access=False, shop_access=Fa
     """
     user = User.query.filter_by(user=username).first()
     if user:
-        logger.info(f'Updating an existing user {username}')
+        logger.info(f'Updating existing user {username}')
         user.admin_access = admin_access
         user.shop_access = shop_access
         user.backup_access = backup_access
         user.password = generate_password_hash(password, method='scrypt')
     else:
-        logger.info(f'Creating a new user {username}')
+        logger.info(f'Creating new user {username}')
         new_user = User(user=username, password=generate_password_hash(password, method='scrypt'), admin_access=admin_access, shop_access=shop_access, backup_access=backup_access)
         db.session.add(new_user)
     db.session.commit()
@@ -115,8 +115,6 @@ def init_user_from_environment(environment_name, admin=False):
     """
     allow to init some user from environment variable to init some users without using the UI
     """
-
-
     username = os.getenv(environment_name + '_NAME')
     password = os.getenv(environment_name + '_PASSWORD')
     if username and password:
@@ -139,7 +137,6 @@ def init_user_from_environment(environment_name, admin=False):
 
         create_or_update_user(username, password, admin_access, shop_access, backup_access)
 
-            
 @auth_blueprint.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "GET":
