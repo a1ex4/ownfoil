@@ -8,6 +8,12 @@ services:
       # For write permission in config directory
       - PUID=1000
       - PGID=1000
+      # to create/update an admin user at startup
+      # - USER_ADMIN_NAME=admin
+      # - USER_ADMIN_PASSWORD=asdvnf!546
+      # to create/update a regular user at startup
+      # - USER_GUEST_NAME=guest
+      # - USER_GUEST_PASSWORD=oerze!@8981
     volumes:
       - /your/game/directory:/games
       - ./config:/app/config
