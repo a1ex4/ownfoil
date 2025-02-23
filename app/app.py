@@ -18,6 +18,7 @@ from titles import *
 from utils import *
 from library import *
 import titledb
+import os
 
 def init():
     global watcher
@@ -88,6 +89,11 @@ app.register_blueprint(auth_blueprint)
 
 with app.app_context():
     db.create_all()
+    # init users from ENV
+    if os.environ.get('USER_ADMIN_NAME') is not None:
+        init_user_from_environment(environment_name="USER_ADMIN", admin=True)
+    if os.environ.get('USER_GUEST_NAME') is not None:
+        init_user_from_environment(environment_name="USER_GUEST", admin=False)
 
 def tinfoil_error(error):
     return jsonify({
