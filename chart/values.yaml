@@ -1,0 +1,46 @@
+replicas: 1
+
+image: 
+  repository: a1ex4/ownfoil
+  tag: latest
+
+service:
+  type: ClusterIP
+  ports:
+   name: web
+   protocol: TCP
+   port: 8465
+   targetPort: 8465
+
+command: ["/app/run.sh"]
+  
+resources:
+  limits:
+    memory: 1Gi
+    cpu: 200m
+  requests:
+    memory: 512Mi
+    cpu: 200m
+
+persistence:
+  enabled: true
+  volumes:
+    data:
+      storageClass: nfs
+      mountPath: /games
+      size: 1500Gi
+    config:
+      storageClass: nfs
+      mountPath: /app/config
+      size: 10Gi
+
+ingress:
+  enabled: true
+  tls: true
+  host: ownfoil.example.org
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt
+    nginx.ingress.kubernetes.io/proxy-body-size: 15G
+    kubernetes.io/ingress.class: nginx
+
+
