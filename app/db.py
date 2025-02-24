@@ -1,14 +1,38 @@
 from flask_sqlalchemy import SQLAlchemy
+from sqlalchemy import create_engine
 from sqlalchemy.orm.exc import NoResultFound
+from alembic.runtime.migration import MigrationContext
+from alembic.config import Config
+from alembic.script import ScriptDirectory
 from flask_login import UserMixin
 import json, os
 import logging
+from constants import *
 
 # Retrieve main logger
 logger = logging.getLogger('main')
 
 db = SQLAlchemy()
 
+# Alembic functions
+def get_current_db_version():
+    engine = create_engine(OWNFOIL_DB)
+    with engine.connect() as connection:
+        context = MigrationContext.configure(connection)
+        current_rev = context.get_current_revision()
+        return current_rev
+    
+def is_migration_needed():
+    alembic_cfg = Config(ALEMBIC_CONF)
+    script = ScriptDirectory.from_config(alembic_cfg)
+    latest_revision = script.get_current_head()
+    current_revision = get_current_db_version()
+    if current_revision != latest_revision:
+        logger.debug(f'Database migration needed, from {current_revision} to {latest_revision}')
+        return True
+    else:
+        logger.info(f"Database version is up to date ({current_revision}).")
+        return False
 
 def to_dict(db_results):
     return {c.name: getattr(db_results, c.name) for c in db_results.__table__.columns}

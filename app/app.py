@@ -1,5 +1,6 @@
 from flask import Flask, render_template, request, redirect, url_for, jsonify, send_from_directory, Response
 from flask_login import LoginManager
+from flask_migrate import Migrate, upgrade
 from functools import wraps
 import yaml
 from file_watcher import Watcher
@@ -77,7 +78,7 @@ log_werkzeug.addFilter(FilterRemoveDateFromWerkzeugLogs())
 
 
 db.init_app(app)
-
+migrate = Migrate(app, db)
 login_manager.init_app(app)
 
 @login_manager.user_loader
@@ -89,6 +90,9 @@ app.register_blueprint(auth_blueprint)
 
 with app.app_context():
     db.create_all()
+    if is_migration_needed():
+        upgrade()
+        logger.info("Migration applied successfully.")
     # init users from ENV
     if os.environ.get('USER_ADMIN_NAME') is not None:
         init_user_from_environment(environment_name="USER_ADMIN", admin=True)
