@@ -3,7 +3,7 @@ Flask-Login==0.6.3
 Flask-Migrate==4.1.0
 flask-sqlalchemy==3.1.1
 PyYAML==6.0.2
-requests==2.32.3
+requests==2.32.4
 unzip_http==0.6
 watchdog==6.0.0
 Werkzeug==3.1.3
