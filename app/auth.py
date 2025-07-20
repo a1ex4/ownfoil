@@ -137,6 +137,14 @@ def init_user_from_environment(environment_name, admin=False):
 
         create_or_update_user(username, password, admin_access, shop_access, backup_access)
 
+def init_users(app):
+    with app.app_context():
+        # init users from ENV
+        if os.environ.get('USER_ADMIN_NAME') is not None:
+            init_user_from_environment(environment_name="USER_ADMIN", admin=True)
+        if os.environ.get('USER_GUEST_NAME') is not None:
+            init_user_from_environment(environment_name="USER_GUEST", admin=False)
+
 @auth_blueprint.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "GET":

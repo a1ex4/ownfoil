@@ -1,15 +1,13 @@
 from flask import Flask, render_template, request, redirect, url_for, jsonify, send_from_directory, Response
 from flask_login import LoginManager
-from flask_migrate import Migrate, upgrade
 from functools import wraps
-import yaml
 from file_watcher import Watcher
 import threading
 import logging
 import sys
+import copy
 import flask.cli
 flask.cli.show_server_banner = lambda *args: None
-from markupsafe import escape
 from constants import *
 from settings import *
 from db import *
@@ -35,18 +33,16 @@ def init():
     logger.info('Loading initial configuration...')
     reload_conf()
 
+    # init libraries
+    library_paths = app_settings['library']['paths']
+    init_libraries(app, watcher, library_paths)
+
     # Update titledb
     titledb.update_titledb(app_settings)
     load_titledb(app_settings)
 
 os.makedirs(CONFIG_DIR, exist_ok=True)
 os.makedirs(DATA_DIR, exist_ok=True)
-
-app = Flask(__name__)
-app.config["SQLALCHEMY_DATABASE_URI"] = OWNFOIL_DB
-# TODO: generate random secret_key
-app.config['SECRET_KEY'] = '8accb915665f11dfa15c2db1a4e8026905f57716'
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 ## Global variables
 titles_library = []
@@ -73,31 +69,74 @@ logger = logging.getLogger('main')
 logger.setLevel(logging.DEBUG)
 
 # Apply filter to hide date from http access logs
-log_werkzeug = logging.getLogger('werkzeug')
-log_werkzeug.addFilter(FilterRemoveDateFromWerkzeugLogs())
+logging.getLogger('werkzeug').addFilter(FilterRemoveDateFromWerkzeugLogs())
 
-
-db.init_app(app)
-migrate = Migrate(app, db)
-login_manager.init_app(app)
+# Suppress specific Alembic INFO logs
+logging.getLogger('alembic.runtime.migration').setLevel(logging.WARNING)
 
 @login_manager.user_loader
 def load_user(user_id):
     # since the user_id is just the primary key of our user table, use it in the query for the user
     return User.query.filter_by(id=user_id).first()
 
-app.register_blueprint(auth_blueprint)
+def reload_conf():
+    global app_settings
+    global watcher
+    app_settings = load_settings()
 
-with app.app_context():
-    db.create_all()
-    if is_migration_needed():
-        upgrade()
-        logger.info("Migration applied successfully.")
-    # init users from ENV
-    if os.environ.get('USER_ADMIN_NAME') is not None:
-        init_user_from_environment(environment_name="USER_ADMIN", admin=True)
-    if os.environ.get('USER_GUEST_NAME') is not None:
-        init_user_from_environment(environment_name="USER_GUEST", admin=False)
+def on_library_change(events):
+    # TODO refactor: group modified and created together
+    with app.app_context():
+        created_events = [e for e in events if e.type == 'created']
+        modified_events = [e for e in events if e.type != 'created']
+
+        for event in modified_events:
+            if event.type == 'moved':
+                if file_exists_in_db(event.src_path):
+                    # update the path
+                    update_file_path(event.directory, event.src_path, event.dest_path)
+                else:
+                    # add to the database
+                    event.src_path = event.dest_path
+                    created_events.append(event)
+
+            elif event.type == 'deleted':
+                # delete the file from library if it exists
+                delete_file_by_filepath(event.src_path)
+
+            elif event.type == 'modified':
+                # can happen if file copy has started before the app was running
+                add_files_to_library(event.directory, [event.src_path])
+                identify_library_files(event.directory)
+
+        if created_events:
+            directories = list(set(e.directory for e in created_events))
+            for library_path in directories:
+                new_files = [e.src_path for e in created_events if e.directory == library_path]
+                add_files_to_library(library_path, new_files)
+                identify_library_files(library_path)
+
+    post_library_change()
+
+def create_app():
+    global app
+    app = Flask(__name__)
+    app.config["SQLALCHEMY_DATABASE_URI"] = OWNFOIL_DB
+    # TODO: generate random secret_key
+    app.config['SECRET_KEY'] = '8accb915665f11dfa15c2db1a4e8026905f57716'
+    app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+
+    db.init_app(app)
+    migrate.init_app(app, db)
+    login_manager.init_app(app)
+
+    app.register_blueprint(auth_blueprint)
+
+    return app
+
+# Create app
+app = create_app()
+
 
 def tinfoil_error(error):
     return jsonify({
@@ -216,7 +255,7 @@ def settings_page():
 @access_required('admin')
 def get_settings_api():
     reload_conf()
-    settings = app_settings
+    settings = copy.deepcopy(app_settings)
     if settings['shop'].get('hauth'):
         settings['shop']['hauth'] = True
     else:
@@ -225,7 +264,7 @@ def get_settings_api():
 
 @app.post('/api/settings/titles')
 @access_required('admin')
-def set_titles_api():
+def set_titles_settings_api():
     global titles_library
     settings = request.json
     region = settings['region']
@@ -269,12 +308,13 @@ def set_shop_settings_api():
 @app.route('/api/settings/library/paths', methods=['GET', 'POST', 'DELETE'])
 @access_required('admin')
 def library_paths_api():
-    global titles_library
     global watcher
     if request.method == 'POST':
         data = request.json
-        success, errors = add_library_path_to_settings(data['path'])
-        reload_conf()
+        success, errors = add_library_complete(app, watcher, data['path'])
+        if success:
+            reload_conf()
+            post_library_change()
         resp = {
             'success': success,
             'errors': errors
@@ -288,21 +328,15 @@ def library_paths_api():
         }    
     elif request.method == 'DELETE':
         data = request.json
-        watcher.remove_directory(data['path'])
-        success, errors = delete_library_path_from_settings(data['path'])
+        success, errors = remove_library_complete(app, watcher, data['path'])
         if success:
             reload_conf()
-            success, errors = delete_files_by_library(data['path'])
-            titles_library = generate_library()
+            post_library_change()
         resp = {
             'success': success,
             'errors': errors
         }
     return jsonify(resp)
-
-def allowed_file(filename):
-    return '.' in filename and \
-           filename.rsplit('.', 1)[1].lower() in ['keys', 'txt']
 
 @app.post('/api/upload')
 @access_required('admin')
@@ -335,7 +369,7 @@ def upload_file():
 
 @app.route('/api/titles', methods=['GET'])
 @access_required('shop')
-def get_all_titles():
+def get_all_titles_api():
     global titles_library
     if not titles_library:
         titles_library = generate_library()
@@ -348,6 +382,7 @@ def get_all_titles():
 @app.route('/api/get_game/<int:id>')
 @tinfoil_access
 def serve_game(id):
+    # TODO add download count increment
     filepath = db.session.query(Files.filepath).filter_by(id=id).first()[0]
     filedir, filename = os.path.split(filepath)
     return send_from_directory(filedir, filename)
@@ -359,42 +394,12 @@ def post_library_change():
     with app.app_context():
         # remove missing files
         remove_missing_files_from_db()
+        # add all existing apps to db
+        add_missing_apps_to_db()
+        # update titles
+        update_titles()
         # update library
         titles_library = generate_library()
-
-
-def scan_library():
-    logger.info(f'Scanning whole library ...')
-    library_paths = app_settings['library']['paths']
-    
-    if not library_paths:
-        logger.info('No library paths configured, nothing to do.')
-        return
-
-    for library_path in library_paths:
-        start_scan_library_path(library_path, update_library=False)
-    
-    post_library_change()
-
-def start_scan_library_path(library_path, update_library=True):
-    global scan_in_progress
-    # Acquire the lock before checking and updating the scan status
-    with scan_lock:
-        if scan_in_progress:
-            logger.info('Scan already in progress')
-            return
-        # Set the scan status to in progress
-        scan_in_progress = True
-
-    scan_library_path(app_settings, library_path)
-
-    # Ensure the scan status is reset to not in progress, even if an error occurs
-    with scan_lock:
-        scan_in_progress = False
-
-    if update_library:
-        post_library_change()
-
 
 @app.post('/api/library/scan')
 @access_required('admin')
@@ -423,51 +428,43 @@ def scan_library_api():
     } 
     return jsonify(resp)
 
-def reload_conf():
-    global app_settings
-    global watcher
-    app_settings = load_settings()
-    # add library paths to watchdog if necessary
+def scan_library():
+    logger.info(f'Scanning whole library ...')
     library_paths = app_settings['library']['paths']
-    if library_paths:
-        for dir in library_paths:
-            watcher.add_directory(dir)
+    
+    if not library_paths:
+        logger.info('No library paths configured, nothing to do.')
+        return
 
-
-def on_library_change(events):
-    with app.app_context():
-        created_events = [e for e in events if e.type == 'created']
-        modified_events = [e for e in events if e.type != 'created']
-
-        for event in modified_events:
-            if event.type == 'moved':
-                if file_exists_in_db(event.src_path):
-                    # update the path
-                    update_file_path(event.directory, event.src_path, event.dest_path)
-                else:
-                    # add to the database
-                    event.src_path = event.dest_path
-                    created_events.append(event)
-
-            elif event.type == 'deleted':
-                # delete the file from library if it exists
-                delete_file_by_filepath(event.src_path)
-
-            elif event.type == 'modified':
-                # can happen if file copy has started before the app was running
-                identify_files_and_add_to_db(event.directory, [event.src_path])
-
-        if created_events:
-            directories = list(set(e.directory for e in created_events))
-            for library_path in directories:
-                new_files = [e.src_path for e in created_events if e.directory == library_path]
-                identify_files_and_add_to_db(library_path, new_files)
-
+    for library_path in library_paths:
+        start_scan_library_path(library_path, update_library=False)
+    
     post_library_change()
 
+def start_scan_library_path(library_path, update_library=True):
+    global scan_in_progress
+    # Acquire the lock before checking and updating the scan status
+    with scan_lock:
+        if scan_in_progress:
+            logger.info('Scan already in progress')
+            return
+        # Set the scan status to in progress
+        scan_in_progress = True
+
+    scan_library_path(library_path)
+    identify_library_files(library_path)
+
+    # Ensure the scan status is reset to not in progress, even if an error occurs
+    with scan_lock:
+        scan_in_progress = False
+
+    if update_library:
+        post_library_change()
 
 if __name__ == '__main__':
     logger.info('Starting initialization of Ownfoil...')
+    init_db(app)
+    init_users(app)
     init()
     logger.info('Initialization steps done, starting server...')
     app.run(debug=False, host="0.0.0.0", port=8465)

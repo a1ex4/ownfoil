@@ -47,3 +47,7 @@ def debounce(wait):
             debounced._timer.start()
         return debounced
     return decorator
+
+def allowed_file(filename):
+    return '.' in filename and \
+           filename.rsplit('.', 1)[1].lower() in ['keys', 'txt']
