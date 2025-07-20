@@ -3,7 +3,7 @@ version: "3"
 services:
   ownfoil:
     container_name: ownfoil
-    image: a1ex4/ownfoil:v2
+    image: a1ex4/ownfoil:latest
     environment:
       # For write permission in config directory
       - PUID=1000
@@ -17,5 +17,6 @@ services:
     volumes:
       - /your/game/directory:/games
       - ./config:/app/config
+      - ./data:/app/data
     ports:
       - "8465:8465"
