@@ -23,20 +23,26 @@ import os
 def init():
     global watcher
     global watcher_thread
-    # Create and start the file watcher
-    logger.info('Initializing File Watcher...')
-    watcher = Watcher(on_library_change)
-    watcher_thread = threading.Thread(target=watcher.run)
-    watcher_thread.daemon = True
-    watcher_thread.start()
 
-    # load initial configuration
+    # Load initial configuration
     logger.info('Loading initial configuration...')
     reload_conf()
 
     # Update titledb
     titledb.update_titledb(app_settings)
     load_titledb(app_settings)
+
+    # Create the file watcher
+    logger.info("Initialization complete. Starting file watcher.")
+    watcher = Watcher(on_library_change)
+
+    # Add the directories to watch
+    for libpath in app_settings['library']['paths']:
+        watcher.add_directory(libpath)
+
+    # Start the file watcher
+    watcher_thread = threading.Thread(target=watcher.run, daemon=True)
+    watcher_thread.start()
 
 os.makedirs(CONFIG_DIR, exist_ok=True)
 os.makedirs(DATA_DIR, exist_ok=True)
@@ -244,7 +250,7 @@ def set_titles_api():
     reload_conf()
     titledb.update_titledb(app_settings)
     load_titledb(app_settings)
-    titles_library = generate_library()
+    titles_library = generate_library(app_settings)
     resp = {
         'success': True,
         'errors': []
@@ -289,7 +295,7 @@ def library_paths_api():
         if success:
             reload_conf()
             success, errors = delete_files_by_library(data['path'])
-            titles_library = generate_library()
+            titles_library = generate_library(app_settings)
         resp = {
             'success': success,
             'errors': errors
@@ -334,7 +340,7 @@ def upload_file():
 def get_all_titles():
     global titles_library
     if not titles_library:
-        titles_library = generate_library()
+        titles_library = generate_library(app_settings)
 
     return jsonify({
         'total': len(titles_library),
@@ -356,7 +362,7 @@ def post_library_change():
         # remove missing files
         remove_missing_files_from_db()
         # update library
-        titles_library = generate_library()
+        titles_library = generate_library(app_settings)
 
 
 def scan_library():
@@ -421,13 +427,7 @@ def scan_library_api():
 
 def reload_conf():
     global app_settings
-    global watcher
     app_settings = load_settings()
-    # add library paths to watchdog if necessary
-    library_paths = app_settings['library']['paths']
-    if library_paths:
-        for dir in library_paths:
-            watcher.add_directory(dir)
 
 
 def on_library_change(events):
