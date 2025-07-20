@@ -362,6 +362,7 @@
             $('#filterCheckMissingDlc').prop('checked', filters.completion?.includes('Missing DLC') || false);
 
             updateFilter();
+            applyFilters();
         }
 
         const savedSearch = localStorage.getItem('searchTerm');
