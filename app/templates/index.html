@@ -31,6 +31,21 @@
                             <hr class="dropdown-divider">
                         </li>
                         <li>
+                            <label class="form-check-label dropdown-item" for="filterCheckOwned">
+                                <input class="form-check-input filterLabel" type="checkbox" value="" id="filterCheckOwned">
+                                Owned
+                            </label>
+                        </li>
+                        <li>
+                            <label class="form-check-label dropdown-item" for="filterCheckMissing">
+                                <input class="form-check-input filterLabel" type="checkbox" value="" id="filterCheckMissing">
+                                Missing
+                            </label>
+                        </li>
+                        <li>
+                            <hr class="dropdown-divider">
+                        </li>
+                        <li>
                             <label class="form-check-label dropdown-item" for="filterCheckUpToDate">
                                 <input class="form-check-input filterLabel" type="checkbox" value="" id="filterCheckUpToDate">
                                 Up to date
@@ -183,7 +198,7 @@
             cardOverlay.append(title);
 
             const description = $('<p class="card-text game-description"></p>');
-            if (game.type === 'DLC') {
+            if (game.app_type === 'DLC') {
                 const small = $('<small></small>').text(`${game.name} | `);
                 description.append(small);
             }
@@ -193,14 +208,15 @@
 
             const tagsContainer = $('<div class="tags-container"></div>');
 
-            const typeBadge = $('<span class="badge rounded-pill text-bg-info game-tag"></span>').text(game.type);
+            const typeBadgeClass = (game.owned === false) ? 'text-bg-warning' : 'text-bg-info';
+            const typeBadge = $(`<span class="badge rounded-pill ${typeBadgeClass} game-tag"></span>`).text(game.app_type);
             tagsContainer.append(typeBadge);
 
             if (game.has_latest_version !== undefined) {
                 const versionBadge = $(`<span class="badge rounded-pill game-tag version-tag" title="${game.name} [${game.title_id}] Updates"></span>`)
                     .addClass(`text-bg-${game.has_latest_version ? 'success' : 'warning'}`)
                     .html(`<i class="bi ${game.has_latest_version ? 'bi-check-circle-fill' : 'bi-arrow-down-circle'}"></i>`);
-                if (game.version.length && Array.isArray(game.version)) {
+                if (game.version !== undefined && game.version.length && Array.isArray(game.version)) {
                     const popoverContent = game.version.map(version => 
                         `${version.release_date}: v${version.version} ${version.owned ? 'Owned' : 'Missing'}`
                     ).join('\n');
@@ -215,9 +231,9 @@
                     versionBadge.attr("data-bs-toggle", "tooltip")
                     versionBadge.attr("data-bs-placement", "top")
 
-                    if (!game.version.length && Array.isArray(game.version)){
+                    if (game.version !== undefined && !game.version.length && Array.isArray(game.version)){
                         versionBadge.attr("data-bs-title", "Version v0")
-                    } else if (game.version.length) {
+                    } else if (game.version !== undefined && game.version.length) {
                         versionBadge.attr("data-bs-title", "Version v" + game.version)
                     }
                 }
@@ -246,7 +262,7 @@
         // Get games for the current page
         start = (currentPage - 1) * itemsPerPage
         end = start + itemsPerPage
-        baseGames = filteredGames.filter(game => game.type === 'BASE');
+        baseGames = filteredGames.filter(game => game.app_type === 'BASE');
         paginatedGames = baseGames.slice(start, end);
 
         paginatedGames.forEach(game => {
@@ -486,6 +502,7 @@
 
     // Set to store active filters
     const activeTypeFilters = new Set();
+    const activeOwnershipFilters = new Set();
     const activeUpdateFilters = new Set();
     const activeCompletionFilters = new Set();
 
@@ -500,6 +517,16 @@
             activeTypeFilters.add('DLC');
         } else {
             activeTypeFilters.delete('DLC');
+        }
+        if ($('#filterCheckOwned').is(":checked")) {
+            activeOwnershipFilters.add('Owned');
+        } else {
+            activeOwnershipFilters.delete('Owned');
+        }
+        if ($('#filterCheckMissing').is(":checked")) {
+            activeOwnershipFilters.add('Missing');
+        } else {
+            activeOwnershipFilters.delete('Missing');
         }
         if ($('#filterCheckUpToDate').is(":checked")) {
             activeUpdateFilters.add('Up to date');
@@ -545,10 +572,11 @@
     // Function to apply filters and show/hide game cards with animation
     function applyFilters() {
 
-        if (activeTypeFilters.size === 0 && activeUpdateFilters.size === 0 && activeCompletionFilters.size === 0) {
+        if (activeTypeFilters.size === 0 && activeOwnershipFilters.size === 0 && activeUpdateFilters.size === 0 && activeCompletionFilters.size === 0) {
             filteredGames = games;
         } else {
             gamesFilteredByType = []
+            gamesFilteredByOwnership = []
             gamesFilteredByUpdate = []
             gamesFilteredByCompletion = []
 
@@ -556,8 +584,15 @@
             if (activeTypeFilters.size > 0) {
                 filteredGames = [];
                 for (let type of activeTypeFilters) {
-                    gamesFilteredByType = gamesFilteredByType.concat(games.filter(game => game.type === type));
+                    gamesFilteredByType = gamesFilteredByType.concat(games.filter(game => game.app_type === type));
                 }
+            }
+
+            if (activeOwnershipFilters.has("Owned")) {
+                gamesFilteredByOwnership = gamesFilteredByOwnership.concat(games.filter(game => game.owned === true));
+            }
+            if (activeOwnershipFilters.has("Missing")) {
+                gamesFilteredByOwnership = gamesFilteredByOwnership.concat(games.filter(game => game.owned === false));
             }
 
             if (activeUpdateFilters.has("Up to date")) {
@@ -575,7 +610,7 @@
             }
 
             // Find common elements
-            filteredGames = findCommonElements(games, gamesFilteredByType, gamesFilteredByUpdate, gamesFilteredByCompletion);
+            filteredGames = findCommonElements(games, gamesFilteredByType, gamesFilteredByOwnership, gamesFilteredByUpdate, gamesFilteredByCompletion);
         }
 
         currentPage = 1;

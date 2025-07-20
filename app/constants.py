@@ -3,9 +3,11 @@ import os
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(APP_DIR, 'data')
 CONFIG_DIR = os.path.join(APP_DIR, 'config')
+DB_FILE = os.path.join(CONFIG_DIR, 'ownfoil.db')
 CONFIG_FILE = os.path.join(CONFIG_DIR, 'settings.yaml')
 KEYS_FILE = os.path.join(CONFIG_DIR, 'keys.txt')
-ALEMBIC_CONF = os.path.join(APP_DIR, 'migrations', 'alembic.ini')
+ALEMBIC_DIR = os.path.join(APP_DIR, 'migrations')
+ALEMBIC_CONF = os.path.join(ALEMBIC_DIR, 'alembic.ini')
 DATA_DIR = os.path.join(APP_DIR, 'data')
 TITLEDB_DIR = os.path.join(DATA_DIR, 'titledb')
 TITLEDB_URL = 'https://github.com/blawar/titledb.git'
@@ -17,7 +19,7 @@ TITLEDB_DEFAULT_FILES = [
     'languages.json',
 ]
 
-OWNFOIL_DB = 'sqlite:///' + os.path.join(CONFIG_DIR, 'ownfoil.db')
+OWNFOIL_DB = 'sqlite:///' + DB_FILE
 
 DEFAULT_SETTINGS = {
     "library": {

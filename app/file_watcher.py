@@ -42,7 +42,7 @@ class Watcher:
         return False
     
     def remove_directory(self, directory):
-        logger.info(f'Removing {directory} from watchdog monitoring...')
+        logger.debug(f'Removing {directory} from watchdog monitoring...')
         if directory in self.directories:
             if directory in self.scheduler_map:
                 self.observer.unschedule(self.scheduler_map[directory])

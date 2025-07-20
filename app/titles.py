@@ -57,6 +57,23 @@ def get_title_id_from_app_id(app_id, app_type):
 def get_file_size(filepath):
     return os.path.getsize(filepath)
 
+def get_file_info(filepath):
+    filedir, filename = os.path.split(filepath)
+    extension = filename.split('.')[-1]
+    
+    compressed = False
+    if extension in ['nsz', 'xcz']:
+        compressed = True
+
+    return {
+        'filepath': filepath,
+        'filedir': filedir,
+        'filename': filename,
+        'extension': extension,
+        'compressed': compressed,
+        'size': get_file_size(filepath),
+    }
+
 def identify_appId(app_id):
     app_id = app_id.lower()
 
@@ -119,19 +136,27 @@ def load_titledb(app_settings):
             versions_txt_db[app_id] = version
 
 def identify_file_from_filename(filename):
-    version = get_version_from_filename(filename)
-    if version is None:
-        logger.error(f'Unable to extract version from filename: {filename}')
+    title_id = None
+    app_id = None
+    app_type = None
+    version = None
+    errors = []
 
     app_id = get_app_id_from_filename(filename)
     if app_id is None:
-        logger.error(f'Unable to extract Title ID from filename: {filename}')
-        return None, None, None, None
+        errors.append('Could not determine App ID from filename, pattern [APPID] not found. Title ID and Type cannot be derived.')
+    else:
+        title_id, app_type = identify_appId(app_id)
+
+    version = get_version_from_filename(filename)
+    if version is None:
+        errors.append('Could not determine version from filename, pattern [vVERSION] not found.')
     
-    title_id, app_type = identify_appId(app_id)
-    return app_id, title_id, app_type, version
+    error = ' '.join(errors)
+    return app_id, title_id, app_type, version, error
     
 def identify_file_from_cnmt(filepath):
+    contents = []
     titleId = None
     version = None
     titleType = None
@@ -147,8 +172,11 @@ def identify_file_from_cnmt(filepath):
                         Cnmt = section.getCnmt()
                         
                         titleType = FsTools.parse_cnmt_type_n(hx(Cnmt.titleType.to_bytes(length=(min(Cnmt.titleType.bit_length(), 1) + 7) // 8, byteorder = 'big')))
+                        if titleType == 'GAME':
+                            titleType = APP_TYPE_BASE
                         titleId = Cnmt.titleId.upper()
                         version = Cnmt.version
+                        contents.append((titleType, titleId, version))
                         # print(f'\n:: CNMT: {Cnmt._path}\n')
                         # print(f'Title ID: {titleId}')
                         # print(f'Version: {version}')
@@ -158,47 +186,50 @@ def identify_file_from_cnmt(filepath):
     finally:
         container.close()
 
-    return titleId, version, titleType
+    return contents
 
 def identify_file(filepath):
-    filedir, filename = os.path.split(filepath)
-    extension = filename.split('.')[-1]
+    filename = os.path.split(filepath)[-1]
+    contents = []
+    success = True
+    error = ''
     if Keys.keys_loaded:
+        identification = 'cnmt'
         try:
-            app_id, version, app_type = identify_file_from_cnmt(filepath)
-            if app_type != APP_TYPE_BASE:
-                # need to get the title ID from cnmts
-                title_id, app_type = identify_appId(app_id)
+            cnmt_contents = identify_file_from_cnmt(filepath)
+            if not cnmt_contents:
+                error = 'No content found in NCA containers.'
+                success = False
             else:
-                title_id = app_id
-            identification = 'cnmt'
+                for content in cnmt_contents:
+                    app_type, app_id, version = content
+                    if app_type != APP_TYPE_BASE:
+                        # need to get the title ID from cnmts
+                        title_id, app_type = identify_appId(app_id)
+                    else:
+                        title_id = app_id
+                    contents.append((title_id, app_type, app_id, version))
         except Exception as e:
-            logger.error(f'Could not identify file {filepath} from metadata: {e}. Trying identification with filename...')
-            app_id, title_id, app_type, version = identify_file_from_filename(filename)
-            identification = 'filename'
-            if app_id is None:
-                logger.error(f'Unable to extract title from filename: {filename}')
-                return None
+            logger.error(f'Could not identify file {filepath} from metadata: {e}')
+            error = str(e)
+            success = False
 
     else:
-        app_id, title_id, app_type, version = identify_file_from_filename(filename)
         identification = 'filename'
-        if app_id is None:
-            logger.error(f'Unable to extract title from filename: {filename}')
-            return None
+        app_id, title_id, app_type, version, error = identify_file_from_filename(filename)
+        if not error:
+            contents.append((title_id, app_type, app_id, version))
+        else:
+            success = False
 
-    return {
-        'filepath': filepath,
-        'filedir': filedir,
-        'filename': filename,
-        'title_id': title_id,
-        'app_id': app_id,
-        'type': app_type,
-        'version': version,
-        'extension': extension,
-        'size': get_file_size(filepath),
-        'identification': identification,
-    }
+    if contents:
+        contents = [{
+            'title_id': c[0],
+            'app_id': c[2],
+            'type': c[1],
+            'version': c[3],
+            } for c in contents]
+    return identification, success, contents, error
 
 
 def get_game_info(title_id):
@@ -231,7 +262,7 @@ def get_all_existing_versions(titleid):
     titleid = titleid.lower()
     if titleid not in versions_db:
         # print(f'Title ID not in versions.json: {titleid.upper()}')
-        return None
+        return []
 
     versions_from_db = versions_db[titleid].keys()
     return [
@@ -243,14 +274,14 @@ def get_all_existing_versions(titleid):
         for version_from_db in versions_from_db
     ]
 
-def get_all_dlc_existing_versions(app_id):
+def get_all_app_existing_versions(app_id):
     app_id = app_id.lower()
     if app_id in cnmts_db:
         versions_from_cnmts_db = cnmts_db[app_id].keys()
         if len(versions_from_cnmts_db):
             return sorted(versions_from_cnmts_db)
         else:
-            logger.warning(f'No keys in cnmts.json for DLC app ID: {app_id.upper()}')
+            logger.warning(f'No keys in cnmts.json for app ID: {app_id.upper()}')
             return None
     else:
         # print(f'DLC app ID not in cnmts.json: {app_id.upper()}')

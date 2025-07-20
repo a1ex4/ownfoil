@@ -62,23 +62,24 @@ def add_library_path_to_settings(path):
             'path': 'library/paths',
             'error': f"Path {path} does not exists."
         })
+        return success, errors
+
+    settings = load_settings()
+    library_paths = settings['library']['paths']
+    if library_paths:
+        if path in library_paths:
+            success = False
+            errors.append({
+                'path': 'library/paths',
+                'error': f"Path {path} already configured."
+            })
+            return success, errors
+        library_paths.append(path)
     else:
-        settings = load_settings()
-        library_paths = settings['library']['paths']
-        if library_paths:
-            if path in library_paths:
-                success = False
-                errors.append({
-                    'path': 'library/paths',
-                    'error': f"Path {path} already configured."
-                })
-                return success, errors
-            library_paths.append(path)
-        else:
-            library_paths = [path]
-        settings['library']['paths'] = library_paths
-        with open(CONFIG_FILE, 'w') as yaml_file:
-            yaml.dump(settings, yaml_file)
+        library_paths = [path]
+    settings['library']['paths'] = library_paths
+    with open(CONFIG_FILE, 'w') as yaml_file:
+        yaml.dump(settings, yaml_file)
     return success, errors
 
 def delete_library_path_from_settings(path):
