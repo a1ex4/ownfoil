@@ -139,6 +139,9 @@
     }
 
     function renderGames() {
+        // Set slider to show `cardsize` columns by default
+        $('#cardSizeRange').val(cardSize);
+
         if (currentView === 'card') {
             renderCardView();
             adjustCardSizes();
@@ -146,9 +149,6 @@
             renderIconView();
             adjustIconSizes();
         }
-
-        // Set slider to show 3 columns by default
-        $('#cardSizeRange').val(3);
 
         // init version tooltips
         const tooltipTriggerList = document.querySelectorAll('[data-bs-toggle="tooltip"]')
@@ -326,22 +326,79 @@
     }
 
     function adjustIconSizes() {
-            // Calculate the size of the icons based on the slider value
-            const iconSize = 100 / (cardSize + 3); // Assuming 100 is the maximum size
+        // Calculate the size of the icons based on the slider value
+        const iconSize = 100 / (cardSize + 3); // Assuming 100 is the maximum size
 
-            // Update the CSS of the game icons
-            $('.game-icon').css('width', `${iconSize}%`);
+        // Update the CSS of the game icons
+        $('.game-icon').css('width', `${iconSize}%`);
+    }
+
+    function saveFiltersToStorage() {
+        const filters = {
+            type: [],
+            update: [],
+            completion: []
+        };
+        if ($('#filterCheckBase').is(':checked')) filters.type.push('BASE');
+        if ($('#filterCheckDlc').is(':checked')) filters.type.push('DLC');
+        if ($('#filterCheckUpToDate').is(':checked')) filters.update.push('Up to date');
+        if ($('#filterCheckMissingUpdate').is(':checked')) filters.update.push('Outdated');
+        if ($('#filterCheckComplete').is(':checked')) filters.completion.push('Complete');
+        if ($('#filterCheckMissingDlc').is(':checked')) filters.completion.push('Missing DLC');
+
+        localStorage.setItem('activeFilters', JSON.stringify(filters));
+    }
+
+    function loadFiltersFromStorage() {
+        const savedFilters = localStorage.getItem('activeFilters');
+        if (savedFilters) {
+            const filters = JSON.parse(savedFilters);
+
+            $('#filterCheckBase').prop('checked', filters.type?.includes('BASE') || false);
+            $('#filterCheckDlc').prop('checked', filters.type?.includes('DLC') || false);
+            $('#filterCheckUpToDate').prop('checked', filters.update?.includes('Up to date') || false);
+            $('#filterCheckMissingUpdate').prop('checked', filters.update?.includes('Outdated') || false);
+            $('#filterCheckComplete').prop('checked', filters.completion?.includes('Complete') || false);
+            $('#filterCheckMissingDlc').prop('checked', filters.completion?.includes('Missing DLC') || false);
+
+            updateFilter();
+            applyFilters();
         }
 
+        const savedSearch = localStorage.getItem('searchTerm');
+        if (savedSearch) {
+            $('#textFilter').val(savedSearch);
+            filterBySearchText(savedSearch);
+        } else {
+            renderGames();
+        }
+    }
+
     $(document).ready(function () {
+        const savedItemsPerPage = localStorage.getItem('itemsPerPage');
+        if (savedItemsPerPage) {
+            itemsPerPage = parseInt(savedItemsPerPage);
+        }
+
+        const savedCurrentView = localStorage.getItem('currentView');
+        if (savedCurrentView) {
+            currentView = savedCurrentView;
+        }
+
+        const savedCardSize = localStorage.getItem('cardSize');
+        if (savedCardSize){
+            cardSize = parseInt(savedCardSize);
+        }
+
         // Fetch initial set of games and render
         fetchGames().then(() => {
-            renderGames();
+            loadFiltersFromStorage();
         });
 
         // Event listeners for items per page dropdown
         $('.items-per-page').click(function () {
             itemsPerPage = $(this).data('value');
+            localStorage.setItem('itemsPerPage', itemsPerPage);
             currentPage = 1; // Reset to first page
             renderGames();
         });
@@ -350,6 +407,7 @@
             const customValue = $('#customItemsPerPage').val();
             if (customValue && customValue > 0) {
                 itemsPerPage = parseInt(customValue);
+                localStorage.setItem('itemsPerPage', itemsPerPage);
                 currentPage = 1; // Reset to first page
                 renderGames();
             }
@@ -358,6 +416,7 @@
         // Event listener for card size slider
         $('#cardSizeRange').on('input', function () {
             cardSize = parseInt($(this).val());
+            localStorage.setItem('cardSize', cardSize);
             if (currentView === 'icon') {
                 adjustIconSizes(cardSize);
             } else {
@@ -370,6 +429,7 @@
             $('.view-toggle-btn').removeClass("active"); 
             $(this).addClass("active");
             const view = $(this).data('view');
+            localStorage.setItem('currentView', view)
             if (view === 'card') {
                 currentView = 'card';
             } else if (view === 'icon') {
@@ -379,10 +439,17 @@
         });
         
         // Handle filter checkbox
-        $('.filterLabel').prop('checked', false);
         $('.filterLabel').click(function() {
             updateFilter();
             applyFilters();
+            saveFiltersToStorage();
+        });
+
+        // Listen to input changes in the text filter input
+        $("#textFilter").on("input", function () {
+            const attributeText = $(this).val();
+            localStorage.setItem('searchTerm', attributeText);
+            filterBySearchText(attributeText);
         });
 
         // Close popovers
@@ -416,12 +483,6 @@
         currentPage = 1;
         renderGames();
     }
-
-    // Listen to input changes in the text filter input
-    $("#textFilter").on("input", function () {
-        const attributeText = $(this).val();
-        filterBySearchText(attributeText);
-    });
 
     // Set to store active filters
     const activeTypeFilters = new Set();
@@ -527,6 +588,6 @@
     //     applyFilters();
     // });
 
-
+    
 </script>
 {% endblock %}
