@@ -22,14 +22,8 @@ import os
 def init():
     global watcher
     global watcher_thread
-    # Create and start the file watcher
-    logger.info('Initializing File Watcher...')
-    watcher = Watcher(on_library_change)
-    watcher_thread = threading.Thread(target=watcher.run)
-    watcher_thread.daemon = True
-    watcher_thread.start()
 
-    # load initial configuration
+    # Load initial configuration
     logger.info('Loading initial configuration...')
     reload_conf()
 
@@ -40,6 +34,18 @@ def init():
     # Update titledb
     titledb.update_titledb(app_settings)
     load_titledb(app_settings)
+
+    # Create the file watcher
+    logger.info("Initialization complete. Starting file watcher.")
+    watcher = Watcher(on_library_change)
+
+    # Add the directories to watch
+    for libpath in app_settings['library']['paths']:
+        watcher.add_directory(libpath)
+
+    # Start the file watcher
+    watcher_thread = threading.Thread(target=watcher.run, daemon=True)
+    watcher_thread.start()
 
 os.makedirs(CONFIG_DIR, exist_ok=True)
 os.makedirs(DATA_DIR, exist_ok=True)
@@ -287,7 +293,7 @@ def set_titles_settings_api():
     reload_conf()
     titledb.update_titledb(app_settings)
     load_titledb(app_settings)
-    titles_library = generate_library()
+    titles_library = generate_library(app_settings)
     resp = {
         'success': True,
         'errors': []
@@ -372,7 +378,7 @@ def upload_file():
 def get_all_titles_api():
     global titles_library
     if not titles_library:
-        titles_library = generate_library()
+        titles_library = generate_library(app_settings)
 
     return jsonify({
         'total': len(titles_library),
@@ -399,7 +405,7 @@ def post_library_change():
         # update titles
         update_titles()
         # update library
-        titles_library = generate_library()
+        titles_library = generate_library(app_settings)
 
 @app.post('/api/library/scan')
 @access_required('admin')

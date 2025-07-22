@@ -76,8 +76,12 @@ def get_file_info(filepath):
 
 def identify_appId(app_id):
     app_id = app_id.lower()
-
-    if app_id in cnmts_db:
+    
+    if (
+        'cnmts_db' in globals() and
+        cnmts_db is not None
+        and app_id in cnmts_db
+    ):
         app_id_keys = list(cnmts_db[app_id].keys())
         if len(app_id_keys):
             app = cnmts_db[app_id][app_id_keys[-1]]
