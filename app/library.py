@@ -1,3 +1,4 @@
+import hashlib
 from constants import *
 from db import *
 from titles import *
@@ -390,8 +391,64 @@ def get_library_status(title_id):
     }
     return library_status
 
+def compute_library_hash(library_path):
+    """
+    Computes a hash of all file paths + last modified times in the library.
+    """
+    hash_md5 = hashlib.md5()
+    for root, _, files in os.walk(library_path):
+        for f in sorted(files):
+            full_path = os.path.join(root, f)
+            try:
+                stat = os.stat(full_path)
+                hash_md5.update(full_path.encode())
+                hash_md5.update(str(stat.st_mtime).encode())
+            except FileNotFoundError:
+                continue  # Skip files that disappeared mid-scan
+    return hash_md5.hexdigest()
 
-def generate_library():
+def is_library_unchanged(library_paths):
+    hash_path = Path("config/library_hash.txt")
+    if not hash_path.exists():
+        return False
+
+    with hash_path.open() as f:
+        saved_hash = f.read().strip()
+
+    combined_hash = ''.join(compute_library_hash(lp) for lp in library_paths)
+    combined_hash = hashlib.sha256(combined_hash.encode()).hexdigest()
+
+    return saved_hash == combined_hash
+
+def save_library_to_disk(titles_library, library_paths):
+    cache_path = Path("config/library_cache.json")
+    hash_path = Path("config/library_hash.txt")
+    with cache_path.open("w", encoding="utf-8") as f:
+        json.dump(titles_library, f, ensure_ascii=False, indent=2)
+
+    # Combine hashes of all paths into one hash string
+    combined_hash = ''.join(compute_library_hash(lp) for lp in library_paths)
+    combined_hash = hashlib.sha256(combined_hash.encode()).hexdigest()
+
+    with hash_path.open("w") as f:
+        f.write(combined_hash)
+
+def load_library_from_disk():
+    cache_path = Path("config/library_cache.json")
+
+    # If cache exists, load and return it
+    if cache_path.exists():
+        with cache_path.open("r", encoding="utf-8") as f:
+            return json.load(f)
+
+def generate_library(app_settings):
+    library_paths = app_settings['library']['paths']
+    if is_library_unchanged(library_paths):
+        saved_library = load_library_from_disk()
+        if saved_library:
+            logger.info("Library hasn't changed since last generate. Returning saved library.")
+            return saved_library
+    
     logger.info(f'Generating library ...')
     titles = get_all_apps()
     games_info = []
@@ -485,6 +542,9 @@ def generate_library():
         x.get("title_id_name", "Unrecognized") or "Unrecognized", 
         x.get('app_id', "") or ""
     ))
+
+    save_library_to_disk(titles_library, library_paths)
+
     logger.info(f'Generating library done.')
 
     return titles_library
