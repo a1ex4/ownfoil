@@ -1,5 +1,6 @@
 from flask import Flask, render_template, request, redirect, url_for, jsonify, send_from_directory, Response
 from flask_login import LoginManager
+from scheduler import init_scheduler
 from functools import wraps
 from file_watcher import Watcher
 import threading
@@ -7,6 +8,7 @@ import logging
 import sys
 import copy
 import flask.cli
+from datetime import timedelta
 flask.cli.show_server_banner = lambda *args: None
 from constants import *
 from settings import *
@@ -37,9 +39,21 @@ def init():
     library_paths = app_settings['library']['paths']
     init_libraries(app, watcher, library_paths)
 
-    # Update titledb
-    titledb.update_titledb(app_settings)
-    load_titledb(app_settings)
+     # Initialize job scheduler
+    logger.info('Initializing Scheduler...')
+    init_scheduler(app)
+    
+    # Schedule TitleDB update to run immediately and every 4 hours
+    # Use a wrapper function to get current app_settings at runtime
+    def update_titledb_job():
+        current_settings = load_settings()
+        titledb.update_titledb(current_settings)
+        
+    app.scheduler.add_job(
+        job_id='update_titledb',
+        func=update_titledb_job,
+        interval=timedelta(hours=4)
+    )
 
 os.makedirs(CONFIG_DIR, exist_ok=True)
 os.makedirs(DATA_DIR, exist_ok=True)
@@ -119,7 +133,6 @@ def on_library_change(events):
     post_library_change()
 
 def create_app():
-    global app
     app = Flask(__name__)
     app.config["SQLALCHEMY_DATABASE_URI"] = OWNFOIL_DB
     # TODO: generate random secret_key
@@ -467,9 +480,12 @@ if __name__ == '__main__':
     init_users(app)
     init()
     logger.info('Initialization steps done, starting server...')
-    app.run(debug=False, host="0.0.0.0", port=8465)
+    app.run(debug=False, use_reloader=False, host="0.0.0.0", port=8465)
     # Shutdown server
     logger.info('Shutting down server...')
     watcher.stop()
     watcher_thread.join()
     logger.debug('Watcher thread terminated.')
+    # Shutdown scheduler
+    app.scheduler.shutdown()
+    logger.debug('Scheduler terminated.')

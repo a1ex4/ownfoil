@@ -1,3 +1,4 @@
+croniter==6.0.0
 flask==3.1.1
 Flask-Login==0.6.3
 Flask-Migrate==4.1.0
