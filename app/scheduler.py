@@ -53,11 +53,13 @@ class JobScheduler:
                     with self._lock:
                         job['last_run'] = datetime.now()
                         job['last_error'] = None
-                    logger.info(f"Completed job {job['id']}. Next run at {job['next_run']}")
+                    schedule_info = f" Next run at {job['next_run']}" if not job.get('run_once') else ""
+                    logger.info(f"Completed job {job['id']}.{schedule_info}")
                 except Exception as e:
                     with self._lock:
                         job['last_error'] = str(e)
-                    logger.error(f"Job {job['id']} failed: {e}. Next run at {job['next_run']}")
+                    schedule_info = f" Next run at {job['next_run']}" if not job.get('run_once') else ""
+                    logger.error(f"Job {job['id']} failed: {e}.{schedule_info}")
 
         self.executor.submit(job_wrapper)
 
@@ -88,7 +90,8 @@ class JobScheduler:
         interval: Optional[timedelta] = None,
         args: tuple = (),
         kwargs: Optional[Dict[str, Any]] = None,
-        run_once: bool = False
+        run_once: bool = False,
+        run_first: bool = False # New parameter
     ):
         with self._lock:
             if job_id in self.scheduled_jobs:
@@ -97,12 +100,15 @@ class JobScheduler:
             if not (cron or interval or run_once):
                 raise ValueError("Must provide either cron, interval, or run_once=True.")
 
-            if cron:
+            if run_once or run_first: # If run_once or run_first is True, execute immediately
+                next_run = datetime.now()
+            elif cron:
                 next_run = self._next_cron(cron)
             elif interval:
-                next_run = datetime.now()
+                next_run = datetime.now() + interval # Run after the first interval
             else:
-                next_run = datetime.now()
+                # This case should ideally not be reached due to the initial check
+                next_run = datetime.now() 
 
             self.scheduled_jobs[job_id] = {
                 'id': job_id,

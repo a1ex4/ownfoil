@@ -43,16 +43,64 @@ def init():
     logger.info('Initializing Scheduler...')
     init_scheduler(app)
     
-    # Schedule TitleDB update to run immediately and every 4 hours
-    # Use a wrapper function to get current app_settings at runtime
+    # Define update_titledb_job
     def update_titledb_job():
-        current_settings = load_settings()
-        titledb.update_titledb(current_settings)
+        global is_titledb_update_running
+        with titledb_update_lock:
+            is_titledb_update_running = True
+        logger.info("Starting TitleDB update job...")
+        try:
+            current_settings = load_settings()
+            titledb.update_titledb(current_settings)
+            logger.info("TitleDB update job completed.")
+        except Exception as e:
+            logger.error(f"Error during TitleDB update job: {e}")
+        finally:
+            with titledb_update_lock:
+                is_titledb_update_running = False
         
+    # Define scan_library_job
+    def scan_library_job():
+        global is_titledb_update_running
+        with titledb_update_lock:
+            if is_titledb_update_running:
+                logger.info("Skipping scheduled library scan: update_titledb job is currently in progress.")
+                return
+        logger.info("Starting scheduled library scan job...")
+        try:
+            scan_library()
+            logger.info("Scheduled library scan job completed.")
+        except Exception as e:
+            logger.error(f"Error during scheduled library scan job: {e}")
+
+    # Initial setup job: run update_titledb then scan_library once on startup
+    def initial_setup_job():
+        logger.info("Running initial setup job (TitleDB update and library scan)...")
+        update_titledb_job() # This will set/reset the flag
+        scan_library_job() # This will check the flag and run if update_titledb_job is done
+        logger.info("Initial setup job completed.")
+
+    # Schedule the initial setup job to run immediately and only once
+    app.scheduler.add_job(
+        job_id='initial_setup',
+        func=initial_setup_job,
+        run_once=True
+    )
+    
+    # Schedule recurring update_titledb job
     app.scheduler.add_job(
         job_id='update_titledb',
         func=update_titledb_job,
-        interval=timedelta(hours=4)
+        interval=timedelta(hours=4),
+        run_first=False # First run after the initial interval
+    )
+
+    # Schedule recurring scan_library job
+    app.scheduler.add_job(
+        job_id='scan_library_daily',
+        func=scan_library_job,
+        interval=timedelta(hours=24),
+        run_first=False # First run after the initial interval
     )
 
 os.makedirs(CONFIG_DIR, exist_ok=True)
@@ -61,9 +109,12 @@ os.makedirs(DATA_DIR, exist_ok=True)
 ## Global variables
 titles_library = []
 app_settings = {}
-# Create a global variable and lock
+# Create a global variable and lock for scan_in_progress
 scan_in_progress = False
 scan_lock = threading.Lock()
+# Global flag for titledb update status
+is_titledb_update_running = False
+titledb_update_lock = threading.Lock()
 
 # Configure logging
 formatter = ColoredFormatter(
@@ -443,14 +494,9 @@ def scan_library_api():
 
 def scan_library():
     logger.info(f'Scanning whole library ...')
-    library_paths = app_settings['library']['paths']
-    
-    if not library_paths:
-        logger.info('No library paths configured, nothing to do.')
-        return
-
-    for library_path in library_paths:
-        scan_library_path(library_path) # Only scan, identification will be done globally
+    libraries = get_libraries()
+    for library in libraries:
+        scan_library_path(library.path) # Only scan, identification will be done globally
     
     # After all individual library paths are scanned, process the full library identification
     process_library_identification(app, app_settings)
