@@ -96,7 +96,6 @@ def add_files_to_library(library, files):
         file = filepath.replace(library_path, "")
         logger.info(f'Getting file info ({n+1}/{nb_to_identify}): {file}')
 
-        # file_info = identify_file(filepath)
         file_info = get_file_info(filepath)
 
         if file_info is None:
@@ -439,7 +438,6 @@ def generate_library():
     if is_library_unchanged():
         saved_library = load_library_from_disk()
         if saved_library:
-            logger.info("Library hasn't changed since last generate. Returning saved library.")
             return saved_library['library']
     
     logger.info(f'Generating library ...')
