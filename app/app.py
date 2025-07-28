@@ -121,15 +121,16 @@ def on_library_change(events):
             elif event.type == 'modified':
                 # can happen if file copy has started before the app was running
                 add_files_to_library(event.directory, [event.src_path])
-                identify_library_files(event.directory)
 
         if created_events:
             directories = list(set(e.directory for e in created_events))
             for library_path in directories:
                 new_files = [e.src_path for e in created_events if e.directory == library_path]
                 add_files_to_library(library_path, new_files)
-                identify_library_files(library_path)
 
+    # After files are added/removed, trigger a full library identification process
+    # This will load TitleDB, identify new files, update apps, and generate the library
+    process_library_identification(app, app_settings)
     post_library_change()
 
 def create_app():
@@ -299,7 +300,9 @@ def set_titles_settings_api():
     set_titles_settings(region, language)
     reload_conf()
     titledb.update_titledb(app_settings)
-    load_titledb(app_settings)
+    # Process library identification, which includes loading titledb, adding missing apps, updating titles, and generating library
+    process_library_identification(app, app_settings)
+    # After processing, regenerate the library to ensure titles_library is up-to-date
     titles_library = generate_library()
     resp = {
         'success': True,
@@ -407,11 +410,8 @@ def post_library_change():
     with app.app_context():
         # remove missing files
         remove_missing_files_from_db()
-        # add all existing apps to db
-        add_missing_apps_to_db()
-        # update titles
-        update_titles()
-        # update library
+        # The process_library_identification already handles updating titles and generating library
+        # So, we just need to ensure titles_library is updated from the generated library
         titles_library = generate_library()
 
 @app.post('/api/library/scan')
@@ -450,8 +450,10 @@ def scan_library():
         return
 
     for library_path in library_paths:
-        start_scan_library_path(library_path, update_library=False)
+        scan_library_path(library_path) # Only scan, identification will be done globally
     
+    # After all individual library paths are scanned, process the full library identification
+    process_library_identification(app, app_settings)
     post_library_change()
 
 def start_scan_library_path(library_path, update_library=True):
@@ -465,7 +467,8 @@ def start_scan_library_path(library_path, update_library=True):
         scan_in_progress = True
 
     scan_library_path(library_path)
-    identify_library_files(library_path)
+    # Process identification only for the specified library path
+    process_library_identification(app, app_settings, target_library_path=library_path)
 
     # Ensure the scan status is reset to not in progress, even if an error occurs
     with scan_lock:

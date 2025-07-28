@@ -186,7 +186,6 @@ def update_file_path(library, old_path, new_path):
         file_entry.filename = filename
         file_entry.filepath = new_path
         file_entry.folder = new_folder
-        file_entry.library = library
         
         # Commit the changes to the database
         db.session.commit()
