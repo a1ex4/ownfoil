@@ -91,7 +91,8 @@ class JobScheduler:
         args: tuple = (),
         kwargs: Optional[Dict[str, Any]] = None,
         run_once: bool = False,
-        run_first: bool = False # New parameter
+        run_first: bool = False,
+        start_date: Optional[datetime] = None # for delayed one-off jobs
     ):
         with self._lock:
             if job_id in self.scheduled_jobs:
@@ -100,7 +101,12 @@ class JobScheduler:
             if not (cron or interval or run_once):
                 raise ValueError("Must provide either cron, interval, or run_once=True.")
 
-            if run_once or run_first: # If run_once or run_first is True, execute immediately
+            if run_once:
+                if start_date:
+                    next_run = start_date
+                else:
+                    next_run = datetime.now()
+            elif run_first: # If run_first is True, execute immediately
                 next_run = datetime.now()
             elif cron:
                 next_run = self._next_cron(cron)
@@ -108,7 +114,7 @@ class JobScheduler:
                 next_run = datetime.now() + interval # Run after the first interval
             else:
                 # This case should ideally not be reached due to the initial check
-                next_run = datetime.now() 
+                next_run = datetime.now()
 
             self.scheduled_jobs[job_id] = {
                 'id': job_id,

@@ -64,7 +64,14 @@ def init():
         global is_titledb_update_running
         with titledb_update_lock:
             if is_titledb_update_running:
-                logger.info("Skipping scheduled library scan: update_titledb job is currently in progress.")
+                logger.info("Skipping scheduled library scan: update_titledb job is currently in progress. Rescheduling in 5 minutes.")
+                # Reschedule the job for 5 minutes later
+                app.scheduler.add_job(
+                    job_id=f'scan_library_rescheduled_{datetime.now().timestamp()}', # Unique ID
+                    func=scan_library_job,
+                    run_once=True,
+                    start_date=datetime.now() + timedelta(minutes=5)
+                )
                 return
         logger.info("Starting scheduled library scan job...")
         try:
