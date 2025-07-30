@@ -70,7 +70,7 @@ def init():
                     job_id=f'scan_library_rescheduled_{datetime.now().timestamp()}', # Unique ID
                     func=scan_library_job,
                     run_once=True,
-                    start_date=datetime.now() + timedelta(minutes=5)
+                    start_date=datetime.now().replace(microsecond=0) + timedelta(minutes=5)
                 )
                 return
         logger.info("Starting scheduled library scan job...")
@@ -80,34 +80,19 @@ def init():
         except Exception as e:
             logger.error(f"Error during scheduled library scan job: {e}")
 
-    # Initial setup job: run update_titledb then scan_library once on startup
-    def initial_setup_job():
-        logger.info("Running initial setup job (TitleDB update and library scan)...")
+    # Update job: run update_titledb then scan_library once on startup
+    def update_db_and_scan_job():
+        logger.info("Running update job (TitleDB update and library scan)...")
         update_titledb_job() # This will set/reset the flag
         scan_library_job() # This will check the flag and run if update_titledb_job is done
-        logger.info("Initial setup job completed.")
+        logger.info("Update job completed.")
 
-    # Schedule the initial setup job to run immediately and only once
+    # Schedule the update job to run immediately and only once
     app.scheduler.add_job(
-        job_id='initial_setup',
-        func=initial_setup_job,
-        run_once=True
-    )
-    
-    # Schedule recurring update_titledb job
-    app.scheduler.add_job(
-        job_id='update_titledb',
-        func=update_titledb_job,
-        interval=timedelta(hours=4),
-        run_first=False # First run after the initial interval
-    )
-
-    # Schedule recurring scan_library job
-    app.scheduler.add_job(
-        job_id='scan_library_daily',
-        func=scan_library_job,
-        interval=timedelta(hours=24),
-        run_first=False # First run after the initial interval
+        job_id='update_db_and_scan',
+        func=update_db_and_scan_job,
+        interval=timedelta(hours=2),
+        run_first=True
     )
 
 os.makedirs(CONFIG_DIR, exist_ok=True)
