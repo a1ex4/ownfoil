@@ -11,15 +11,21 @@ updates:
     target-branch: "develop"
     schedule:
       interval: "weekly"
+    labels:
+      - "type/build"
 
   - package-ecosystem: "docker"
     directory: "/"
     target-branch: "develop"
     schedule:
       interval: "weekly"
+    labels:
+      - "type/build"
       
   - package-ecosystem: "pip"
     directory: "/"
     target-branch: "develop"
     schedule:
       interval: "weekly"
+    labels:
+      - "type/build"

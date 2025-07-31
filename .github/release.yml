@@ -1,0 +1,21 @@
+changelog:
+  categories:
+    - title: New Features
+      labels:
+        - 'type/feat'
+    - title: Fixes and Improvements
+      labels:
+        - 'type/fix'
+        - 'type/improv'
+    - title: Other Changes
+      labels:
+        - '*'
+      exclude:
+        labels:
+          - 'type/feat'
+          - 'type/fix'
+          - 'type/improv'
+          - 'type/build'
+    - title: Dependencies
+      labels:
+        - 'type/build'
