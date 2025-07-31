@@ -1,5 +1,6 @@
 from flask import Flask, render_template, request, redirect, url_for, jsonify, send_from_directory, Response
 from flask_login import LoginManager
+from scheduler import init_scheduler
 from functools import wraps
 from file_watcher import Watcher
 import threading
@@ -7,6 +8,7 @@ import logging
 import sys
 import copy
 import flask.cli
+from datetime import timedelta
 flask.cli.show_server_banner = lambda *args: None
 from constants import *
 from settings import *
@@ -37,9 +39,61 @@ def init():
     library_paths = app_settings['library']['paths']
     init_libraries(app, watcher, library_paths)
 
-    # Update titledb
-    titledb.update_titledb(app_settings)
-    load_titledb(app_settings)
+     # Initialize job scheduler
+    logger.info('Initializing Scheduler...')
+    init_scheduler(app)
+    
+    # Define update_titledb_job
+    def update_titledb_job():
+        global is_titledb_update_running
+        with titledb_update_lock:
+            is_titledb_update_running = True
+        logger.info("Starting TitleDB update job...")
+        try:
+            current_settings = load_settings()
+            titledb.update_titledb(current_settings)
+            logger.info("TitleDB update job completed.")
+        except Exception as e:
+            logger.error(f"Error during TitleDB update job: {e}")
+        finally:
+            with titledb_update_lock:
+                is_titledb_update_running = False
+        
+    # Define scan_library_job
+    def scan_library_job():
+        global is_titledb_update_running
+        with titledb_update_lock:
+            if is_titledb_update_running:
+                logger.info("Skipping scheduled library scan: update_titledb job is currently in progress. Rescheduling in 5 minutes.")
+                # Reschedule the job for 5 minutes later
+                app.scheduler.add_job(
+                    job_id=f'scan_library_rescheduled_{datetime.now().timestamp()}', # Unique ID
+                    func=scan_library_job,
+                    run_once=True,
+                    start_date=datetime.now().replace(microsecond=0) + timedelta(minutes=5)
+                )
+                return
+        logger.info("Starting scheduled library scan job...")
+        try:
+            scan_library()
+            logger.info("Scheduled library scan job completed.")
+        except Exception as e:
+            logger.error(f"Error during scheduled library scan job: {e}")
+
+    # Update job: run update_titledb then scan_library once on startup
+    def update_db_and_scan_job():
+        logger.info("Running update job (TitleDB update and library scan)...")
+        update_titledb_job() # This will set/reset the flag
+        scan_library_job() # This will check the flag and run if update_titledb_job is done
+        logger.info("Update job completed.")
+
+    # Schedule the update job to run immediately and only once
+    app.scheduler.add_job(
+        job_id='update_db_and_scan',
+        func=update_db_and_scan_job,
+        interval=timedelta(hours=2),
+        run_first=True
+    )
 
 os.makedirs(CONFIG_DIR, exist_ok=True)
 os.makedirs(DATA_DIR, exist_ok=True)
@@ -47,9 +101,12 @@ os.makedirs(DATA_DIR, exist_ok=True)
 ## Global variables
 titles_library = []
 app_settings = {}
-# Create a global variable and lock
+# Create a global variable and lock for scan_in_progress
 scan_in_progress = False
 scan_lock = threading.Lock()
+# Global flag for titledb update status
+is_titledb_update_running = False
+titledb_update_lock = threading.Lock()
 
 # Configure logging
 formatter = ColoredFormatter(
@@ -107,19 +164,19 @@ def on_library_change(events):
             elif event.type == 'modified':
                 # can happen if file copy has started before the app was running
                 add_files_to_library(event.directory, [event.src_path])
-                identify_library_files(event.directory)
 
         if created_events:
             directories = list(set(e.directory for e in created_events))
             for library_path in directories:
                 new_files = [e.src_path for e in created_events if e.directory == library_path]
                 add_files_to_library(library_path, new_files)
-                identify_library_files(library_path)
 
+    # After files are added/removed, trigger a full library identification process
+    # This will load TitleDB, identify new files, update apps, and generate the library
+    process_library_identification(app, app_settings)
     post_library_change()
 
 def create_app():
-    global app
     app = Flask(__name__)
     app.config["SQLALCHEMY_DATABASE_URI"] = OWNFOIL_DB
     # TODO: generate random secret_key
@@ -286,7 +343,9 @@ def set_titles_settings_api():
     set_titles_settings(region, language)
     reload_conf()
     titledb.update_titledb(app_settings)
-    load_titledb(app_settings)
+    # Process library identification, which includes loading titledb, adding missing apps, updating titles, and generating library
+    process_library_identification(app, app_settings)
+    # After processing, regenerate the library to ensure titles_library is up-to-date
     titles_library = generate_library()
     resp = {
         'success': True,
@@ -394,11 +453,8 @@ def post_library_change():
     with app.app_context():
         # remove missing files
         remove_missing_files_from_db()
-        # add all existing apps to db
-        add_missing_apps_to_db()
-        # update titles
-        update_titles()
-        # update library
+        # The process_library_identification already handles updating titles and generating library
+        # So, we just need to ensure titles_library is updated from the generated library
         titles_library = generate_library()
 
 @app.post('/api/library/scan')
@@ -430,15 +486,12 @@ def scan_library_api():
 
 def scan_library():
     logger.info(f'Scanning whole library ...')
-    library_paths = app_settings['library']['paths']
+    libraries = get_libraries()
+    for library in libraries:
+        scan_library_path(library.path) # Only scan, identification will be done globally
     
-    if not library_paths:
-        logger.info('No library paths configured, nothing to do.')
-        return
-
-    for library_path in library_paths:
-        start_scan_library_path(library_path, update_library=False)
-    
+    # After all individual library paths are scanned, process the full library identification
+    process_library_identification(app, app_settings)
     post_library_change()
 
 def start_scan_library_path(library_path, update_library=True):
@@ -452,7 +505,8 @@ def start_scan_library_path(library_path, update_library=True):
         scan_in_progress = True
 
     scan_library_path(library_path)
-    identify_library_files(library_path)
+    # Process identification only for the specified library path
+    process_library_identification(app, app_settings, target_library_path=library_path)
 
     # Ensure the scan status is reset to not in progress, even if an error occurs
     with scan_lock:
@@ -467,9 +521,12 @@ if __name__ == '__main__':
     init_users(app)
     init()
     logger.info('Initialization steps done, starting server...')
-    app.run(debug=False, host="0.0.0.0", port=8465)
+    app.run(debug=False, use_reloader=False, host="0.0.0.0", port=8465)
     # Shutdown server
     logger.info('Shutting down server...')
     watcher.stop()
     watcher_thread.join()
     logger.debug('Watcher thread terminated.')
+    # Shutdown scheduler
+    app.scheduler.shutdown()
+    logger.debug('Scheduler terminated.')

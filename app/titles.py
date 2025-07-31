@@ -5,6 +5,7 @@ import json
 
 import titledb
 from constants import *
+from utils import *
 from pathlib import Path
 from binascii import hexlify as hx, unhexlify as uhx
 import logging
@@ -21,6 +22,12 @@ Pfs0.Print.silent = True
 
 app_id_regex = r"\[([0-9A-Fa-f]{16})\]"
 version_regex = r"\[v(\d+)\]"
+
+# Global variables for TitleDB data
+_cnmts_db = None
+_titles_db = None
+_versions_db = None
+_versions_txt_db = None
 
 def getDirsAndFiles(path):
     entries = os.listdir(path)
@@ -77,14 +84,15 @@ def get_file_info(filepath):
 def identify_appId(app_id):
     app_id = app_id.lower()
     
-    if (
-        'cnmts_db' in globals() and
-        cnmts_db is not None
-        and app_id in cnmts_db
-    ):
-        app_id_keys = list(cnmts_db[app_id].keys())
+    global _cnmts_db
+    if _cnmts_db is None:
+        logger.error("cnmts_db is not loaded. Call load_titledb first.")
+        return None, None
+
+    if app_id in _cnmts_db:
+        app_id_keys = list(_cnmts_db[app_id].keys())
         if len(app_id_keys):
-            app = cnmts_db[app_id][app_id_keys[-1]]
+            app = _cnmts_db[app_id][app_id_keys[-1]]
             
             if app['titleType'] == 128:
                 app_type = APP_TYPE_BASE
@@ -101,7 +109,17 @@ def identify_appId(app_id):
                     title_id = app['otherApplicationId'].upper()
                 else:
                     title_id = get_title_id_from_app_id(app_id, app_type)
-
+        else:
+            logger.warning(f'{app_id} has no keys in cnmts_db, fallback to default identification.')
+            if app_id.endswith('000'):
+                app_type = APP_TYPE_BASE
+                title_id = app_id
+            elif app_id.endswith('800'):
+                app_type = APP_TYPE_UPD
+                title_id = get_title_id_from_app_id(app_id, app_type)
+            else:
+                app_type = APP_TYPE_DLC
+                title_id = get_title_id_from_app_id(app_id, app_type)
     else:
         logger.warning(f'{app_id} not in cnmts_db, fallback to default identification.')
         if app_id.endswith('000'):
@@ -117,27 +135,44 @@ def identify_appId(app_id):
     return title_id.upper(), app_type
 
 def load_titledb(app_settings):
-    global cnmts_db
-    global titles_db
-    global versions_db
-    global versions_txt_db
+    global _cnmts_db
+    global _titles_db
+    global _versions_db
+    global _versions_txt_db
+
+    logger.info("Loading TitleDBs into memory...")
     with open(os.path.join(TITLEDB_DIR, 'cnmts.json')) as f:
-        cnmts_db = json.load(f)
+        _cnmts_db = json.load(f)
 
     with open(os.path.join(TITLEDB_DIR, titledb.get_region_titles_file(app_settings))) as f:
-        titles_db = json.load(f)
+        _titles_db = json.load(f)
 
     with open(os.path.join(TITLEDB_DIR, 'versions.json')) as f:
-        versions_db = json.load(f)
+        _versions_db = json.load(f)
 
-    versions_txt_db = {}
+    _versions_txt_db = {}
     with open(os.path.join(TITLEDB_DIR, 'versions.txt')) as f:
         for line in f:
             line_strip = line.rstrip("\n")
             app_id, rightsId, version = line_strip.split('|')
             if not version:
                 version = "0"
-            versions_txt_db[app_id] = version
+            _versions_txt_db[app_id] = version
+    logger.info("TitleDBs loaded.")
+
+@debounce(30)
+def unload_titledb():
+    global _cnmts_db
+    global _titles_db
+    global _versions_db
+    global _versions_txt_db
+
+    logger.info("Unloading TitleDBs from memory...")
+    _cnmts_db = None
+    _titles_db = None
+    _versions_db = None
+    _versions_txt_db = None
+    logger.info("TitleDBs unloaded.")
 
 def identify_file_from_filename(filename):
     title_id = None
@@ -237,8 +272,13 @@ def identify_file(filepath):
 
 
 def get_game_info(title_id):
+    global _titles_db
+    if _titles_db is None:
+        logger.error("titles_db is not loaded. Call load_titledb first.")
+        return None
+
     try:
-        title_info = [titles_db[t] for t in list(titles_db.keys()) if titles_db[t]['id'] == title_id][0]
+        title_info = [_titles_db[t] for t in list(_titles_db.keys()) if _titles_db[t]['id'] == title_id][0]
         return {
             'name': title_info['name'],
             'bannerUrl': title_info['bannerUrl'],
@@ -263,25 +303,35 @@ def get_game_latest_version(all_existing_versions):
     return max(v['version'] for v in all_existing_versions)
 
 def get_all_existing_versions(titleid):
+    global _versions_db
+    if _versions_db is None:
+        logger.error("versions_db is not loaded. Call load_titledb first.")
+        return []
+
     titleid = titleid.lower()
-    if titleid not in versions_db:
+    if titleid not in _versions_db:
         # print(f'Title ID not in versions.json: {titleid.upper()}')
         return []
 
-    versions_from_db = versions_db[titleid].keys()
+    versions_from_db = _versions_db[titleid].keys()
     return [
         {
             'version': int(version_from_db),
             'update_number': get_update_number(version_from_db),
-            'release_date': versions_db[titleid][str(version_from_db)],
+            'release_date': _versions_db[titleid][str(version_from_db)],
         }
         for version_from_db in versions_from_db
     ]
 
 def get_all_app_existing_versions(app_id):
+    global _cnmts_db
+    if _cnmts_db is None:
+        logger.error("cnmts_db is not loaded. Call load_titledb first.")
+        return None
+
     app_id = app_id.lower()
-    if app_id in cnmts_db:
-        versions_from_cnmts_db = cnmts_db[app_id].keys()
+    if app_id in _cnmts_db:
+        versions_from_cnmts_db = _cnmts_db[app_id].keys()
         if len(versions_from_cnmts_db):
             return sorted(versions_from_cnmts_db)
         else:
@@ -292,13 +342,22 @@ def get_all_app_existing_versions(app_id):
         return None
     
 def get_app_id_version_from_versions_txt(app_id):
-        return versions_txt_db.get(app_id, None)
+    global _versions_txt_db
+    if _versions_txt_db is None:
+        logger.error("versions_txt_db is not loaded. Call load_titledb first.")
+        return None
+    return _versions_txt_db.get(app_id, None)
     
 def get_all_existing_dlc(title_id):
+    global _cnmts_db
+    if _cnmts_db is None:
+        logger.error("cnmts_db is not loaded. Call load_titledb first.")
+        return []
+
     title_id = title_id.lower()
     dlcs = []
-    for app_id in cnmts_db.keys():
-        for version, version_description in cnmts_db[app_id].items():
+    for app_id in _cnmts_db.keys():
+        for version, version_description in _cnmts_db[app_id].items():
             if version_description.get('titleType') == 130 and version_description.get('otherApplicationId') == title_id:
                 if app_id.upper() not in dlcs:
                     dlcs.append(app_id.upper())

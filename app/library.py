@@ -96,7 +96,6 @@ def add_files_to_library(library, files):
         file = filepath.replace(library_path, "")
         logger.info(f'Getting file info ({n+1}/{nb_to_identify}): {file}')
 
-        # file_info = identify_file(filepath)
         file_info = get_file_info(filepath)
 
         if file_info is None:
@@ -304,7 +303,28 @@ def add_missing_apps_to_db():
     db.session.commit()
     logger.info(f'Finished adding missing apps to database. Total apps added: {apps_added}')
 
-
+def process_library_identification(app, app_settings, target_library_path=None):
+    logger.info(f"Starting library identification process for {target_library_path if target_library_path else 'all libraries'}...")
+    try:
+        with app.app_context():
+            load_titledb(app_settings)
+            
+            if target_library_path:
+                identify_library_files(target_library_path)
+            else:
+                libraries = get_libraries()
+                for library in libraries:
+                    identify_library_files(library.path)
+            
+            add_missing_apps_to_db()
+            update_titles() # Ensure titles are updated after identification
+            generate_library()
+        
+    except Exception as e:
+        logger.error(f"Error during library identification process: {e}")
+    finally:
+        unload_titledb()
+    logger.info(f"Library identification process for {target_library_path if target_library_path else 'all libraries'} completed.")
 
 def update_titles():
     # Remove titles that no longer have any owned apps
@@ -439,7 +459,6 @@ def generate_library():
     if is_library_unchanged():
         saved_library = load_library_from_disk()
         if saved_library:
-            logger.info("Library hasn't changed since last generate. Returning saved library.")
             return saved_library['library']
     
     logger.info(f'Generating library ...')
