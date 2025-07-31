@@ -108,6 +108,23 @@ scan_lock = threading.Lock()
 is_titledb_update_running = False
 titledb_update_lock = threading.Lock()
 
+def scan_lock_decorator(func):
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        global scan_in_progress
+        with scan_lock:
+            if scan_in_progress:
+                logger.info(f'Skipping {func.__name__}: scan already in progress.')
+                return {'success': False, 'errors': []} if func.__name__ == 'scan_library_api' else None
+            scan_in_progress = True
+        try:
+            result = func(*args, **kwargs)
+            return result
+        finally:
+            with scan_lock:
+                scan_in_progress = False
+    return wrapper
+
 # Configure logging
 formatter = ColoredFormatter(
     '[%(asctime)s.%(msecs)03d] %(levelname)s (%(module)s) %(message)s',
@@ -459,17 +476,8 @@ def post_library_change():
 
 @app.post('/api/library/scan')
 @access_required('admin')
+@scan_lock_decorator
 def scan_library_api():
-    global scan_in_progress
-    # Acquire the lock before checking and updating the scan status
-    if scan_in_progress:
-        logger.info('Scan already in progress')
-        resp = {
-            'success': False,
-            'errors': []
-        } 
-        return resp
-    
     data = request.json
     path = data['path']
 
@@ -484,6 +492,7 @@ def scan_library_api():
     } 
     return jsonify(resp)
 
+@scan_lock_decorator
 def scan_library():
     logger.info(f'Scanning whole library ...')
     libraries = get_libraries()
@@ -494,23 +503,11 @@ def scan_library():
     process_library_identification(app, app_settings)
     post_library_change()
 
+@scan_lock_decorator
 def start_scan_library_path(library_path, update_library=True):
-    global scan_in_progress
-    # Acquire the lock before checking and updating the scan status
-    with scan_lock:
-        if scan_in_progress:
-            logger.info('Scan already in progress')
-            return
-        # Set the scan status to in progress
-        scan_in_progress = True
-
     scan_library_path(library_path)
     # Process identification only for the specified library path
     process_library_identification(app, app_settings, target_library_path=library_path)
-
-    # Ensure the scan status is reset to not in progress, even if an error occurs
-    with scan_lock:
-        scan_in_progress = False
 
     if update_library:
         post_library_change()
