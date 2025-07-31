@@ -10,7 +10,6 @@ from pathlib import Path
 from binascii import hexlify as hx, unhexlify as uhx
 import logging
 
-sys.path.append(APP_DIR + '/NSTools/py')
 from nstools.Fs import Pfs0, Nca, Type, factory
 from nstools.lib import FsTools
 from nstools.nut import Keys

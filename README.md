@@ -66,7 +66,7 @@ This is usefull if you don't want to remember the `docker run` command and have 
 ## Using Python
 Clone the repository using `git`, install the dependencies and you're good to go:
 ```
-$ git clone --recurse-submodules https://github.com/a1ex4/ownfoil
+$ git clone https://github.com/a1ex4/ownfoil
 $ cd ownfoil
 $ pip install -r requirements.txt
 $ python app/app.py
