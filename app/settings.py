@@ -2,7 +2,6 @@ from constants import *
 import yaml
 import os, sys
 
-sys.path.append(APP_DIR + '/NSTools/py')
 from nstools.nut import Keys
 
 import logging
