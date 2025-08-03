@@ -105,7 +105,7 @@ class Apps(db.Model):
     owned = db.Column(db.Boolean, default=False)
 
     title = db.relationship('Titles', backref=db.backref('apps', lazy=True, cascade="all, delete-orphan"))
-    files = db.relationship('Files', secondary=app_files, backref=db.backref('apps', lazy='dynamic'))
+    files = db.relationship('Files', secondary=app_files, backref=db.backref('apps', lazy='select'))
 
     __table_args__ = (db.UniqueConstraint('app_id', 'app_version', name='uq_apps_app_version'),)
 
@@ -242,7 +242,7 @@ def get_shop_files():
     for file in results:
         if file.identified:
             # Get the first app associated with this file using the many-to-many relationship
-            app = file.apps.first() if file.apps else None
+            app = file.apps[0] if file.apps else None
 
             if app:
                 if file.multicontent or file.extension.startswith('x'):
@@ -362,7 +362,7 @@ def remove_file_from_apps(file_id):
     
     if file_obj:
         # Get all apps associated with this file using the many-to-many relationship
-        associated_apps = file_obj.apps.all()
+        associated_apps = file_obj.apps
         
         for app in associated_apps:
             # Remove the file from the app's files relationship
