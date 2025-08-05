@@ -417,12 +417,14 @@ def compute_apps_hash():
     """
     hash_md5 = hashlib.md5()
     apps = get_all_apps()
-    for app in sorted(apps, key=lambda x: (x['app_id'], x['app_version'])):
-        hash_md5.update(app['app_id'].encode())
-        hash_md5.update(app['app_version'].encode())
-        hash_md5.update(app['app_type'].encode())
-        hash_md5.update(str(app['owned']).encode())
-        hash_md5.update(app['title_id'].encode())
+    
+    # Sort apps with safe handling of None values
+    for app in sorted(apps, key=lambda x: (x['app_id'] or '', x['app_version'] or '')):
+        hash_md5.update((app['app_id'] or '').encode())
+        hash_md5.update((app['app_version'] or '').encode())
+        hash_md5.update((app['app_type'] or '').encode())
+        hash_md5.update(str(app['owned'] or False).encode())
+        hash_md5.update((app['title_id'] or '').encode())
     return hash_md5.hexdigest()
 
 def is_library_unchanged():
