@@ -99,7 +99,6 @@ os.makedirs(CONFIG_DIR, exist_ok=True)
 os.makedirs(DATA_DIR, exist_ok=True)
 
 ## Global variables
-titles_library = []
 app_settings = {}
 # Create a global variable and lock for scan_in_progress
 scan_in_progress = False
@@ -188,9 +187,6 @@ def on_library_change(events):
                 new_files = [e.src_path for e in created_events if e.directory == library_path]
                 add_files_to_library(library_path, new_files)
 
-    # After files are added/removed, trigger a full library identification process
-    # This will load TitleDB, identify new files, update apps, and generate the library
-    process_library_identification(app, app_settings)
     post_library_change()
 
 def create_app():
@@ -339,7 +335,6 @@ def get_settings_api():
 @app.post('/api/settings/titles')
 @access_required('admin')
 def set_titles_settings_api():
-    global titles_library
     settings = request.json
     region = settings['region']
     language = settings['language']
@@ -360,10 +355,7 @@ def set_titles_settings_api():
     set_titles_settings(region, language)
     reload_conf()
     titledb.update_titledb(app_settings)
-    # Process library identification, which includes loading titledb, adding missing apps, updating titles, and generating library
-    process_library_identification(app, app_settings)
-    # After processing, regenerate the library to ensure titles_library is up-to-date
-    titles_library = generate_library()
+    post_library_change()
     resp = {
         'success': True,
         'errors': []
@@ -446,9 +438,7 @@ def upload_file():
 @app.route('/api/titles', methods=['GET'])
 @access_required('shop')
 def get_all_titles_api():
-    global titles_library
-    if not titles_library:
-        titles_library = generate_library()
+    titles_library = generate_library()
 
     return jsonify({
         'total': len(titles_library),
@@ -466,13 +456,15 @@ def serve_game(id):
 
 @debounce(10)
 def post_library_change():
-    global titles_library
     with app.app_context():
+        process_library_identification(app, app_settings)
+        add_missing_apps_to_db()
+        update_titles() # Ensure titles are updated after identification
         # remove missing files
         remove_missing_files_from_db()
         # The process_library_identification already handles updating titles and generating library
         # So, we just need to ensure titles_library is updated from the generated library
-        titles_library = generate_library()
+        generate_library()
 
 @app.post('/api/library/scan')
 @access_required('admin')
@@ -498,19 +490,13 @@ def scan_library():
     libraries = get_libraries()
     for library in libraries:
         scan_library_path(library.path) # Only scan, identification will be done globally
-    
-    # After all individual library paths are scanned, process the full library identification
-    process_library_identification(app, app_settings)
+
     post_library_change()
 
 @scan_lock_decorator
-def start_scan_library_path(library_path, update_library=True):
+def start_scan_library_path(library_path):
     scan_library_path(library_path)
-    # Process identification only for the specified library path
-    process_library_identification(app, app_settings, target_library_path=library_path)
-
-    if update_library:
-        post_library_change()
+    post_library_change()
 
 if __name__ == '__main__':
     logger.info('Starting initialization of Ownfoil...')
