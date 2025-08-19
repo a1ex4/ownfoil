@@ -5,7 +5,7 @@ Flask-Migrate==4.1.0
 flask-sqlalchemy==3.1.1
 nstools==1.2.3
 PyYAML==6.0.2
-requests==2.32.4
+requests==2.32.5
 unzip_http==0.6
 watchdog==6.0.0
 Werkzeug==3.1.3
