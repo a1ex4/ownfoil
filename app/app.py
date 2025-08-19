@@ -74,11 +74,21 @@ def init():
                 )
                 return
         logger.info("Starting scheduled library scan job...")
+        global scan_in_progress
+        with scan_lock:
+            if scan_in_progress:
+                logger.info(f'Skipping scheduled library scan: scan already in progress.')
+                return # Skip the scan if already in progress
+            scan_in_progress = True
         try:
             scan_library()
+            post_library_change()
             logger.info("Scheduled library scan job completed.")
         except Exception as e:
             logger.error(f"Error during scheduled library scan job: {e}")
+        finally:
+            with scan_lock:
+                scan_in_progress = False
 
     # Update job: run update_titledb then scan_library once on startup
     def update_db_and_scan_job():
@@ -106,23 +116,6 @@ scan_lock = threading.Lock()
 # Global flag for titledb update status
 is_titledb_update_running = False
 titledb_update_lock = threading.Lock()
-
-def scan_lock_decorator(func):
-    @wraps(func)
-    def wrapper(*args, **kwargs):
-        global scan_in_progress
-        with scan_lock:
-            if scan_in_progress:
-                logger.info(f'Skipping {func.__name__}: scan already in progress.')
-                return {'success': False, 'errors': []} if func.__name__ == 'scan_library_api' else None
-            scan_in_progress = True
-        try:
-            result = func(*args, **kwargs)
-            return result
-        finally:
-            with scan_lock:
-                scan_in_progress = False
-    return wrapper
 
 # Configure logging
 formatter = ColoredFormatter(
@@ -423,7 +416,7 @@ def upload_file():
             success = True
             logger.info('Successfully saved valid keys.txt')
             reload_conf()
-            scan_library()
+            post_library_change()
         else:
             os.remove(KEYS_FILE + '.tmp')
             logger.error(f'Invalid keys from {file.filename}')
@@ -468,35 +461,45 @@ def post_library_change():
 
 @app.post('/api/library/scan')
 @access_required('admin')
-@scan_lock_decorator
 def scan_library_api():
     data = request.json
     path = data['path']
+    success = True
+    errors = []
 
-    if path is None:
-        scan_library()
-    else:
-        start_scan_library_path(path)
+    global scan_in_progress
+    with scan_lock:
+        if scan_in_progress:
+            logger.info('Skipping scan_library_api call: Scan already in progress')
+            return {'success': False, 'errors': []}
+    # Set the scan status to in progress
+    scan_in_progress = True
 
+    try:
+        if path is None:
+            scan_library()
+        else:
+            scan_library_path(path)
+    except Exception as e:
+        errors.append(e)
+        success = False
+        logger.error(f"Error during library scan: {e}")
+    finally:
+        with scan_lock:
+            scan_in_progress = False
+
+    post_library_change()
     resp = {
-        'success': True,
-        'errors': []
+        'success': success,
+        'errors': errors
     } 
     return jsonify(resp)
 
-@scan_lock_decorator
 def scan_library():
     logger.info(f'Scanning whole library ...')
     libraries = get_libraries()
     for library in libraries:
         scan_library_path(library.path) # Only scan, identification will be done globally
-
-    post_library_change()
-
-@scan_lock_decorator
-def start_scan_library_path(library_path):
-    scan_library_path(library_path)
-    post_library_change()
 
 if __name__ == '__main__':
     logger.info('Starting initialization of Ownfoil...')
