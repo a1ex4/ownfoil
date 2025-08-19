@@ -15,7 +15,7 @@ from settings import *
 from db import *
 from shop import *
 from auth import *
-from titles import *
+import titles
 from utils import *
 from library import *
 import titledb
@@ -450,7 +450,8 @@ def serve_game(id):
 @debounce(10)
 def post_library_change():
     with app.app_context():
-        process_library_identification(app, app_settings)
+        load_titledb(app_settings)
+        process_library_identification(app)
         add_missing_apps_to_db()
         update_titles() # Ensure titles are updated after identification
         # remove missing files
@@ -458,6 +459,8 @@ def post_library_change():
         # The process_library_identification already handles updating titles and generating library
         # So, we just need to ensure titles_library is updated from the generated library
         generate_library()
+        titles.identification_in_progress_count -= 1
+        unload_titledb()
 
 @app.post('/api/library/scan')
 @access_required('admin')

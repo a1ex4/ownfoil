@@ -23,6 +23,7 @@ app_id_regex = r"\[([0-9A-Fa-f]{16})\]"
 version_regex = r"\[v(\d+)\]"
 
 # Global variables for TitleDB data
+identification_in_progress_count = 0
 _cnmts_db = None
 _titles_db = None
 _versions_db = None
@@ -138,7 +139,9 @@ def load_titledb(app_settings):
     global _titles_db
     global _versions_db
     global _versions_txt_db
+    global identification_in_progress_count
 
+    identification_in_progress_count += 1
     logger.info("Loading TitleDBs into memory...")
     with open(os.path.join(TITLEDB_DIR, 'cnmts.json')) as f:
         _cnmts_db = json.load(f)
@@ -165,6 +168,11 @@ def unload_titledb():
     global _titles_db
     global _versions_db
     global _versions_txt_db
+    global identification_in_progress_count
+
+    if identification_in_progress_count:
+        logger.debug('Indentification still in progress, not unloading TitleDB.')
+        return
 
     logger.info("Unloading TitleDBs from memory...")
     _cnmts_db = None

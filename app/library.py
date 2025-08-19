@@ -303,20 +303,16 @@ def add_missing_apps_to_db():
     db.session.commit()
     logger.info(f'Finished adding missing apps to database. Total apps added: {apps_added}')
 
-def process_library_identification(app, app_settings):
+def process_library_identification(app):
     logger.info(f"Starting library identification process for all libraries...")
     try:
         with app.app_context():
-            load_titledb(app_settings)
-
             libraries = get_libraries()
             for library in libraries:
                 identify_library_files(library.path)
 
     except Exception as e:
         logger.error(f"Error during library identification process: {e}")
-    finally:
-        unload_titledb()
     logger.info(f"Library identification process for all libraries completed.")
 
 def update_titles():
