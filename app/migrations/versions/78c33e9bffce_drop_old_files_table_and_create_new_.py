@@ -6,7 +6,6 @@ Revises:
 """
 from alembic import op
 import sqlalchemy as sa
-from sqlalchemy.dialects import sqlite
 
 # revision identifiers, used by Alembic.
 revision = '78c33e9bffce'
@@ -17,7 +16,11 @@ depends_on = None
 
 def upgrade():
     # Drop the old Files table
-    op.drop_table('files')
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+
+    if 'files' in inspector.get_table_names():
+        op.drop_table('files')
     
     # Create Libraries table
     op.create_table('libraries',
