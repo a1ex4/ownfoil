@@ -3,7 +3,7 @@ flask==3.1.1
 Flask-Login==0.6.3
 Flask-Migrate==4.1.0
 flask-sqlalchemy==3.1.1
-nstools==1.2.3
+git+https://github.com/a1ex4/NSTools.git@open-meta-only#subdirectory=build
 PyYAML==6.0.2
 requests==2.32.5
 unzip_http==0.6
