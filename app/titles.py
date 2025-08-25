@@ -207,34 +207,42 @@ def identify_file_from_filename(filename):
     
     error = ' '.join(errors)
     return app_id, title_id, app_type, version, error
-    
-def identify_file_from_cnmt(filepath):
-    contents = []
-    titleId = None
-    version = None
-    titleType = None
-    container = factory(Path(filepath).resolve())
-    container.open(filepath, 'rb')
-    if filepath.lower().endswith(('.xci', '.xcz')):
+
+def get_cnmts(container):
+    cnmts = []
+    if isinstance(container, Nsp.Nsp):
+        try:
+            cnmt = container.cnmt()
+            cnmts.append(cnmt)
+        except Exception as e:
+            logger.warning('CNMT section not found in Nsp.')
+
+    elif isinstance(container, Xci.Xci):
         container = container.hfs0['secure']
-    try:
         for nspf in container:
             if isinstance(nspf, Nca.Nca) and nspf.header.contentType == Type.Content.META:
-                for section in nspf:
-                    if isinstance(section, Pfs0.Pfs0):
-                        Cnmt = section.getCnmt()
-                        
-                        titleType = FsTools.parse_cnmt_type_n(hx(Cnmt.titleType.to_bytes(length=(min(Cnmt.titleType.bit_length(), 1) + 7) // 8, byteorder = 'big')))
-                        if titleType == 'GAME':
-                            titleType = APP_TYPE_BASE
-                        titleId = Cnmt.titleId.upper()
-                        version = Cnmt.version
-                        contents.append((titleType, titleId, version))
-                        # print(f'\n:: CNMT: {Cnmt._path}\n')
-                        # print(f'Title ID: {titleId}')
-                        # print(f'Version: {version}')
-                        # print(f'Title Type: {titleType}')
-                        # print(f'Title ID: {titleId} Title Type: {titleType} Version: {version} ')
+                cnmts.append(nspf)
+
+    return cnmts
+
+def extract_meta_from_cnmt(cnmt_sections):
+    contents = []
+    for section in cnmt_sections:
+        if isinstance(section, Pfs0.Pfs0):
+            Cnmt = section.getCnmt()
+            titleType = APP_TYPE_MAP[Cnmt.titleType]
+            titleId = Cnmt.titleId.upper()
+            version = Cnmt.version
+            contents.append((titleType, titleId, version))
+    return contents
+
+def identify_file_from_cnmt(filepath):
+    contents = []
+    container = factory(Path(filepath).resolve())
+    container.open(filepath, 'rb', meta_only=True)
+    try:
+        for cnmt_sections in get_cnmts(container):
+            contents += extract_meta_from_cnmt(cnmt_sections)
 
     finally:
         container.close()
