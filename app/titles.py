@@ -6,6 +6,7 @@ import json
 import titledb
 from constants import *
 from utils import *
+from settings import *
 from pathlib import Path
 from binascii import hexlify as hx, unhexlify as uhx
 import logging
@@ -24,6 +25,7 @@ version_regex = r"\[v(\d+)\]"
 
 # Global variables for TitleDB data
 identification_in_progress_count = 0
+_titles_db_loaded = False
 _cnmts_db = None
 _titles_db = None
 _versions_db = None
@@ -134,33 +136,37 @@ def identify_appId(app_id):
     
     return title_id.upper(), app_type
 
-def load_titledb(app_settings):
+def load_titledb():
     global _cnmts_db
     global _titles_db
     global _versions_db
     global _versions_txt_db
     global identification_in_progress_count
+    global _titles_db_loaded
 
     identification_in_progress_count += 1
-    logger.info("Loading TitleDBs into memory...")
-    with open(os.path.join(TITLEDB_DIR, 'cnmts.json')) as f:
-        _cnmts_db = json.load(f)
+    if not _titles_db_loaded:
+        logger.info("Loading TitleDBs into memory...")
+        app_settings = load_settings()
+        with open(os.path.join(TITLEDB_DIR, 'cnmts.json')) as f:
+            _cnmts_db = json.load(f)
 
-    with open(os.path.join(TITLEDB_DIR, titledb.get_region_titles_file(app_settings))) as f:
-        _titles_db = json.load(f)
+        with open(os.path.join(TITLEDB_DIR, titledb.get_region_titles_file(app_settings))) as f:
+            _titles_db = json.load(f)
 
-    with open(os.path.join(TITLEDB_DIR, 'versions.json')) as f:
-        _versions_db = json.load(f)
+        with open(os.path.join(TITLEDB_DIR, 'versions.json')) as f:
+            _versions_db = json.load(f)
 
-    _versions_txt_db = {}
-    with open(os.path.join(TITLEDB_DIR, 'versions.txt')) as f:
-        for line in f:
-            line_strip = line.rstrip("\n")
-            app_id, rightsId, version = line_strip.split('|')
-            if not version:
-                version = "0"
-            _versions_txt_db[app_id] = version
-    logger.info("TitleDBs loaded.")
+        _versions_txt_db = {}
+        with open(os.path.join(TITLEDB_DIR, 'versions.txt')) as f:
+            for line in f:
+                line_strip = line.rstrip("\n")
+                app_id, rightsId, version = line_strip.split('|')
+                if not version:
+                    version = "0"
+                _versions_txt_db[app_id] = version
+        _titles_db_loaded = True
+        logger.info("TitleDBs loaded.")
 
 @debounce(30)
 def unload_titledb():
@@ -169,9 +175,10 @@ def unload_titledb():
     global _versions_db
     global _versions_txt_db
     global identification_in_progress_count
+    global _titles_db_loaded
 
     if identification_in_progress_count:
-        logger.debug('Indentification still in progress, not unloading TitleDB.')
+        logger.debug('Identification still in progress, not unloading TitleDB.')
         return
 
     logger.info("Unloading TitleDBs from memory...")
@@ -179,6 +186,7 @@ def unload_titledb():
     _titles_db = None
     _versions_db = None
     _versions_txt_db = None
+    _titles_db_loaded = False
     logger.info("TitleDBs unloaded.")
 
 def identify_file_from_filename(filename):
