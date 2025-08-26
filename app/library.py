@@ -1,8 +1,10 @@
 import hashlib
 from constants import *
 from db import *
-from titles import *
+import titles as titles_lib
 import datetime
+from pathlib import Path
+from utils import *
 
 def add_library_complete(app, watcher, path):
     """Add a library to settings, database, and watchdog"""
@@ -96,7 +98,7 @@ def add_files_to_library(library, files):
         file = filepath.replace(library_path, "")
         logger.info(f'Getting file info ({n+1}/{nb_to_identify}): {file}')
 
-        file_info = get_file_info(filepath)
+        file_info = titles_lib.get_file_info(filepath)
 
         if file_info is None:
             logger.error(f'Failed to get info for file: {file} - file will be skipped.')
@@ -126,7 +128,7 @@ def scan_library_path(library_path):
     if not os.path.isdir(library_path):
         logger.warning(f'Library path {library_path} does not exists.')
         return
-    _, files = getDirsAndFiles(library_path)
+    _, files = titles_lib.getDirsAndFiles(library_path)
 
     filepaths_in_library = get_library_file_paths(library_id)
     new_files = [f for f in files if f not in filepaths_in_library]
@@ -135,7 +137,7 @@ def scan_library_path(library_path):
 
 def get_files_to_identify(library_id):
     non_identified_files = get_all_non_identified_files_from_library(library_id)
-    if Keys.keys_loaded:
+    if titles_lib.Keys.keys_loaded:
         files_to_identify_with_cnmt = get_files_with_identification_from_library(library_id, 'filename')
         non_identified_files = list(set(non_identified_files).union(files_to_identify_with_cnmt))
     return non_identified_files
@@ -161,7 +163,7 @@ def identify_library_files(library):
                 continue
 
             logger.info(f'Identifying file ({n+1}/{nb_to_identify}): {filename}')
-            identification, success, file_contents, error = identify_file(filepath)
+            identification, success, file_contents, error = titles_lib.identify_file(filepath)
             if success and file_contents and not error:
                 # find all unique Titles ID to add to the Titles db
                 title_ids = list(dict.fromkeys([c['title_id'] for c in file_contents]))
@@ -255,7 +257,7 @@ def add_missing_apps_to_db():
             logger.debug(f'Added missing base app: {title_id}')
         
         # Add missing update versions
-        title_versions = get_all_existing_versions(title_id)
+        title_versions = titles_lib.get_all_existing_versions(title_id)
         for version_info in title_versions:
             version = str(version_info['version'])
             update_app_id = title_id[:-3] + '800'  # Convert base ID to update ID
@@ -275,9 +277,9 @@ def add_missing_apps_to_db():
                 logger.debug(f'Added missing update app: {update_app_id} v{version}')
         
         # Add missing DLC
-        title_dlc_ids = get_all_existing_dlc(title_id)
+        title_dlc_ids = titles_lib.get_all_existing_dlc(title_id)
         for dlc_app_id in title_dlc_ids:
-            dlc_versions = get_all_app_existing_versions(dlc_app_id)
+            dlc_versions = titles_lib.get_all_app_existing_versions(dlc_app_id)
             if dlc_versions:
                 for dlc_version in dlc_versions:
                     existing_dlc = get_app_by_id_and_version(dlc_app_id, str(dlc_version))
@@ -385,7 +387,7 @@ def get_library_status(title_id):
     title = get_title(title_id)
     title_apps = get_all_title_apps(title_id)
 
-    available_versions = get_all_existing_versions(title_id)
+    available_versions = titles_lib.get_all_existing_versions(title_id)
     for version in available_versions:
         if len(list(filter(lambda x: x.get('app_type') == APP_TYPE_UPD and str(x.get('app_version')) == str(version['version']), title_apps))):
             version['owned'] = True
@@ -421,10 +423,12 @@ def is_library_unchanged():
     if not cache_path.exists():
         return False
 
-    with cache_path.open("r", encoding="utf-8") as f:
-        saved_library = json.load(f)
-        if not isinstance(saved_library, dict) or not saved_library.get('hash'):
-            return False
+    saved_library = load_library_from_disk()
+    if not saved_library:
+        return False
+
+    if not saved_library.get('hash'):
+        return False
 
     current_hash = compute_apps_hash()
     return saved_library['hash'] == current_hash
@@ -433,17 +437,18 @@ def save_library_to_disk(library_data):
     cache_path = Path(LIBRARY_CACHE_FILE)
     # Ensure cache directory exists
     cache_path.parent.mkdir(parents=True, exist_ok=True)
-    
-    with cache_path.open("w", encoding="utf-8") as f:
-        json.dump(library_data, f, ensure_ascii=False, indent=2)
+    safe_write_json(cache_path, library_data)
 
 def load_library_from_disk():
     cache_path = Path(LIBRARY_CACHE_FILE)
+    if not cache_path.exists():
+        return None
 
-    # If cache exists, load and return it
-    if cache_path.exists():
+    try:
         with cache_path.open("r", encoding="utf-8") as f:
             return json.load(f)
+    except:
+        return None
 
 def generate_library():
     """Generate the game library from Apps table, using cached version if unchanged"""
@@ -453,10 +458,11 @@ def generate_library():
             return saved_library['library']
     
     logger.info(f'Generating library ...')
+    titles_lib.load_titledb()
     titles = get_all_apps()
     games_info = []
     processed_dlc_apps = set()  # Track processed DLC app_ids to avoid duplicates
-    
+
     for title in titles:
         has_none_value = any(value is None for value in title.values())
         if has_none_value:
@@ -466,7 +472,7 @@ def generate_library():
             continue
             
         # Get title info from titledb
-        info_from_titledb = get_game_info(title['app_id'])
+        info_from_titledb = titles_lib.get_game_info(title['app_id'])
         if info_from_titledb is None:
             logger.warning(f'Info not found for game: {title}')
             continue
@@ -489,7 +495,7 @@ def generate_library():
             update_apps = [app for app in title_apps if app.get('app_type') == APP_TYPE_UPD]
             
             # Get release date information from external source
-            available_versions = get_all_existing_versions(title['title_id'])
+            available_versions = titles_lib.get_all_existing_versions(title['title_id'])
             version_release_dates = {v['version']: v['release_date'] for v in available_versions}
             
             version_list = []
@@ -535,7 +541,7 @@ def generate_library():
                 title['has_latest_version'] = True
             
             # Get title name for DLC
-            titleid_info = get_game_info(title['title_id'])
+            titleid_info = titles_lib.get_game_info(title['title_id'])
             title['title_id_name'] = titleid_info['name'] if titleid_info else 'Unrecognized'
             
         games_info.append(title)
@@ -550,6 +556,9 @@ def generate_library():
     }
 
     save_library_to_disk(library_data)
+
+    titles_lib.identification_in_progress_count -= 1
+    titles_lib.unload_titledb()
 
     logger.info(f'Generating library done.')
 
