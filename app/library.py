@@ -1,10 +1,93 @@
 import hashlib
+import os
+import shutil
 from constants import *
 from db import *
 import titles as titles_lib
 import datetime
 from pathlib import Path
 from utils import *
+from settings import load_settings
+
+def organize_file(file_obj, library_path, app_settings):
+    try:
+        templates = app_settings.get('library', {}).get('organizer_templates', {})
+        
+        current_filepath = file_obj.filepath
+        
+        # Get the associated app for the file
+        app = file_obj.apps[0] if file_obj.apps else None
+        if not app:
+            logger.warning(f"No app associated with file {file_obj.filename}. Skipping organization.")
+            return
+
+        template = _get_template_for_file(file_obj, app, templates)
+
+        # Retrieve data for template formatting
+        format_data = {}
+        # Get title name from the associated title_id
+        title_info = titles_lib.get_game_info(app.title.title_id)
+        if title_info['name'] == 'Unrecognized':
+            logger.warning(f"No title info associated with file {file_obj.filename}. Skipping organization.")
+            return
+        format_data["extension"] = file_obj.extension
+        format_data["titleId"] = app.title.title_id
+        format_data["titleName"] = title_info['name']
+        if not file_obj.multicontent:
+            format_data["appId"] = app.app_id
+            format_data["appVersion"] = app.app_version
+            format_data["patchLevel"] = titles_lib.get_update_number(app.app_version)
+
+            game_info = titles_lib.get_game_info(app.app_id)
+            if app.app_type == APP_TYPE_DLC:
+                format_data["appName"] = game_info['name']
+            else:
+                format_data["appName"] = title_info['name']
+        
+        # Format the new relative path and remove leading slash if present
+        new_relative_path = template.format(**format_data).lstrip('/')
+
+        # Construct the full new path
+        new_full_path = os.path.join(library_path, new_relative_path)
+        
+        # Ensure the directory exists
+        new_dir = os.path.dirname(new_full_path)
+        try:
+            os.makedirs(new_dir, exist_ok=True)
+        except OSError as e:
+            logger.error(f"Error creating directory {new_dir} for file {file_obj.filename}: {e}")
+            return
+        
+        # Move the file
+        if current_filepath != new_full_path:
+            if os.path.exists(new_full_path):
+                logger.warning(f"Target file '{new_full_path}' already exists. Skipping move for '{current_filepath}'.")
+                return
+            try:
+                shutil.move(current_filepath, new_full_path)
+                logger.info(f"Moved '{current_filepath}' to '{new_full_path}'")
+            except (shutil.Error, OSError) as e:
+                logger.error(f"Error moving file from '{current_filepath}' to '{new_full_path}': {e}")
+        else:
+            logger.info(f"File '{current_filepath}' is already in the correct location. No move needed.")
+
+    except Exception as e:
+        logger.error(f"An unexpected error occurred while organizing file {file_obj.filename}: {e}")
+
+def _get_template_for_file(file_obj, app, templates):
+    """Helper function to determine the correct template for file organization."""
+    if file_obj.multicontent:
+        template_key = "multi"
+    else:
+        if app.app_type == APP_TYPE_BASE:
+            template_key = "base"
+        elif app.app_type == APP_TYPE_UPD:
+            template_key = "update"
+        elif app.app_type == APP_TYPE_DLC:
+            template_key = "dlc"
+    
+    return templates.get(template_key) + '.{extension}'
+
 
 def add_library_complete(app, watcher, path):
     """Add a library to settings, database, and watchdog"""
@@ -316,6 +399,25 @@ def process_library_identification(app):
     except Exception as e:
         logger.error(f"Error during library identification process: {e}")
     logger.info(f"Library identification process for all libraries completed.")
+
+def process_library_organization(app):
+    logger.info(f"Starting library organization process for all libraries...")
+    try:
+        with app.app_context():
+            libraries = get_libraries()
+            for library in libraries:
+                library_path = library.path
+                # Get all identified files for the current library
+                identified_files = Files.query.filter_by(library_id=library.id, identified=True).all()
+                nb_to_organize = len(identified_files)
+                app_settings = load_settings() # Load settings once for the entire organization process
+                for n, file_obj in enumerate(identified_files):
+                    logger.info(f'Organizing file ({n+1}/{nb_to_organize}): {file_obj.filename}')
+                    organize_file(file_obj, library_path, app_settings)
+
+    except Exception as e:
+        logger.error(f"Error during library organization process: {e}")
+    logger.info(f"Library organization process for all libraries completed.")
 
 def update_titles():
     # Remove titles that no longer have any owned apps
