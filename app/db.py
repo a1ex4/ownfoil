@@ -190,7 +190,7 @@ def update_file_path(library, old_path, new_path):
         # Commit the changes to the database
         db.session.commit()
 
-        logger.info(f"File path updated successfully from {old_path} to {new_path}.")
+        logger.debug(f"File path updated successfully from {old_path} to {new_path}.")
     
     except NoResultFound:
         logger.warning(f"No file entry found for the path: {old_path}.")

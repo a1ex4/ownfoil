@@ -459,7 +459,7 @@ def post_library_change():
         # The process_library_identification already handles updating titles and generating library
         # So, we just need to ensure titles_library is updated from the generated library
         generate_library()
-        process_library_organization(app)
+        process_library_organization(app, watcher) # Pass the watcher instance
         titles.identification_in_progress_count -= 1
         titles.unload_titledb()
 

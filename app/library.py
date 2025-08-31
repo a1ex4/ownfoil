@@ -8,8 +8,9 @@ import datetime
 from pathlib import Path
 from utils import *
 from settings import load_settings
+from db import update_file_path # Import update_file_path
 
-def organize_file(file_obj, library_path, app_settings):
+def organize_file(file_obj, library_path, app_settings, watcher):
     try:
         templates = app_settings.get('library', {}).get('organizer_templates', {})
         
@@ -49,6 +50,11 @@ def organize_file(file_obj, library_path, app_settings):
 
         # Construct the full new path
         new_full_path = os.path.join(library_path, new_relative_path)
+
+        if current_filepath == new_full_path:
+            return
+        
+        logger.info(f'Organizing file: {file_obj.filename}')
         
         # Ensure the directory exists
         new_dir = os.path.dirname(new_full_path)
@@ -59,17 +65,30 @@ def organize_file(file_obj, library_path, app_settings):
             return
         
         # Move the file
-        if current_filepath != new_full_path:
-            if os.path.exists(new_full_path):
-                logger.warning(f"Target file '{new_full_path}' already exists. Skipping move for '{current_filepath}'.")
-                return
-            try:
-                shutil.move(current_filepath, new_full_path)
-                logger.info(f"Moved '{current_filepath}' to '{new_full_path}'")
-            except (shutil.Error, OSError) as e:
-                logger.error(f"Error moving file from '{current_filepath}' to '{new_full_path}': {e}")
-        else:
-            logger.info(f"File '{current_filepath}' is already in the correct location. No move needed.")
+        if os.path.exists(new_full_path):
+            logger.warning(f"Target file '{new_full_path}' already exists. Skipping move for '{current_filepath}'.")
+            return
+        try:
+            # Add the move event to the ignored list before performing the move
+            with watcher.event_handler.ignored_events_lock:
+                watcher.event_handler.ignored_move_tuples.add((current_filepath, new_full_path))
+            
+            shutil.move(current_filepath, new_full_path)
+            logger.info(f"Moved '{current_filepath}' to '{new_full_path}'")
+            
+            # Update the file path in the database
+            # Get the library path from the library ID
+            library_path_str = get_library_path(file_obj.library_id)
+            update_file_path(library_path_str, current_filepath, new_full_path)
+            # logger.info(f"Updated database for file '{current_filepath}' to '{new_full_path}'")
+
+        except (shutil.Error, OSError) as e:
+            logger.error(f"Error moving file from '{current_filepath}' to '{new_full_path}': {e}")
+            # If an error occurs, ensure the event is removed from the ignored list
+            with watcher.event_handler.ignored_events_lock:
+                if (current_filepath, new_full_path) in watcher.event_handler.ignored_move_tuples:
+                    watcher.event_handler.ignored_move_tuples.remove((current_filepath, new_full_path))
+        # No finally block needed for removing from ignored_move_events, as it's removed by the watchdog handler
 
     except Exception as e:
         logger.error(f"An unexpected error occurred while organizing file {file_obj.filename}: {e}")
@@ -400,7 +419,7 @@ def process_library_identification(app):
         logger.error(f"Error during library identification process: {e}")
     logger.info(f"Library identification process for all libraries completed.")
 
-def process_library_organization(app):
+def process_library_organization(app, watcher):
     logger.info(f"Starting library organization process for all libraries...")
     try:
         with app.app_context():
@@ -409,11 +428,9 @@ def process_library_organization(app):
                 library_path = library.path
                 # Get all identified files for the current library
                 identified_files = Files.query.filter_by(library_id=library.id, identified=True).all()
-                nb_to_organize = len(identified_files)
                 app_settings = load_settings() # Load settings once for the entire organization process
-                for n, file_obj in enumerate(identified_files):
-                    logger.info(f'Organizing file ({n+1}/{nb_to_organize}): {file_obj.filename}')
-                    organize_file(file_obj, library_path, app_settings)
+                for file_obj in identified_files:
+                    organize_file(file_obj, library_path, app_settings, watcher)
 
     except Exception as e:
         logger.error(f"Error during library organization process: {e}")
