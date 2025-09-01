@@ -69,3 +69,23 @@ def safe_write_json(path, data, **dump_kwargs):
             os.fsync(tmp.fileno())  # flush to disk
         # Atomically replace target file
         os.replace(tmp_path, path)
+
+def merge_dicts_recursive(source, destination):
+    """
+    Recursively merges source dictionary into destination dictionary.
+    Adds missing keys from source to destination.
+    Returns True if any changes were made, False otherwise.
+    """
+    changed = False
+    for key, value in source.items():
+        if key not in destination:
+            destination[key] = value
+            changed = True
+            logging.getLogger('main').debug(f'Added missing default setting: {key}')
+        elif isinstance(value, dict) and isinstance(destination[key], dict):
+            if merge_dicts_recursive(value, destination[key]):
+                changed = True
+        # If key exists but types are different, or if it's not a dict and not equal,
+        # we don't overwrite existing settings unless explicitly told to.
+        # For this task, we only add missing keys.
+    return changed
