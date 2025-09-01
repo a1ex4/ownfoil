@@ -1,4 +1,5 @@
 from constants import *
+from utils import *
 import yaml
 import os, sys
 
@@ -29,16 +30,9 @@ def load_settings():
         with open(CONFIG_FILE, 'r') as yaml_file:
             settings = yaml.safe_load(yaml_file)
 
-        # Check for missing default settings and add them
-        for key, value in DEFAULT_SETTINGS.items():
-            if key not in settings:
-                settings[key] = value
-                settings_updated = True
-            elif isinstance(value, dict) and isinstance(settings[key], dict):
-                for sub_key, sub_value in value.items():
-                    if sub_key not in settings[key]:
-                        settings[key][sub_key] = sub_value
-                        settings_updated = True
+        # Merge default settings into loaded settings
+        if merge_dicts_recursive(DEFAULT_SETTINGS, settings):
+            settings_updated = True
 
         valid_keys = load_keys()
         settings['titles']['valid_keys'] = valid_keys
