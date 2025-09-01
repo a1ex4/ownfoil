@@ -26,6 +26,8 @@ DEFAULT_SETTINGS = {
     "library": {
         "paths": ["/games"],
         "organizer": {
+            "enabled": False,
+            "remove_empty_folders": False,
             "templates": {
                 "base": "{titleName}/{titleName} [{appId}][v{appVersion}]",
                 "update": "{titleName}/{titleName} [{appId}][v{appVersion}]",
