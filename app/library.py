@@ -12,7 +12,7 @@ from db import update_file_path # Import update_file_path
 
 def organize_file(file_obj, library_path, app_settings, watcher):
     try:
-        templates = app_settings.get('library', {}).get('organizer_templates', {})
+        templates = app_settings.get('library', {}).get('organizer', {}).get('templates', {})
         
         current_filepath = file_obj.filepath
         
