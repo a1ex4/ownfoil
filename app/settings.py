@@ -23,16 +23,31 @@ def load_keys(key_file=KEYS_FILE):
     return valid
 
 def load_settings():
+    settings_updated = False
     if os.path.exists(CONFIG_FILE):
         logger.debug('Reading configuration file.')
         with open(CONFIG_FILE, 'r') as yaml_file:
             settings = yaml.safe_load(yaml_file)
+
+        # Check for missing default settings and add them
+        for key, value in DEFAULT_SETTINGS.items():
+            if key not in settings:
+                settings[key] = value
+                settings_updated = True
+            elif isinstance(value, dict) and isinstance(settings[key], dict):
+                for sub_key, sub_value in value.items():
+                    if sub_key not in settings[key]:
+                        settings[key][sub_key] = sub_value
+                        settings_updated = True
 
         valid_keys = load_keys()
         settings['titles']['valid_keys'] = valid_keys
 
     else:
         settings = DEFAULT_SETTINGS
+        settings_updated = True
+
+    if settings_updated:
         with open(CONFIG_FILE, 'w') as yaml_file:
             yaml.dump(settings, yaml_file)
     return settings
