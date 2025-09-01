@@ -64,30 +64,36 @@ def organize_file(file_obj, library_path, app_settings, watcher):
             logger.error(f"Error creating directory {new_dir} for file {file_obj.filename}: {e}")
             return
         
-        # Move the file
-        if os.path.exists(new_full_path):
-            logger.warning(f"Target file '{new_full_path}' already exists. Skipping move for '{current_filepath}'.")
-            return
+        # Move the file, handling duplicates
+        base_name = os.path.splitext(os.path.basename(new_full_path))[0]
+        
+        counter = 1
+        final_new_full_path = new_full_path
+        while os.path.exists(final_new_full_path):
+            counter += 1
+            new_filename = f"{base_name}({counter}).{file_obj.extension}"
+            final_new_full_path = os.path.join(new_dir, new_filename)
+
         try:
             # Add the move event to the ignored list before performing the move
             with watcher.event_handler.ignored_events_lock:
-                watcher.event_handler.ignored_move_tuples.add((current_filepath, new_full_path))
+                watcher.event_handler.ignored_move_tuples.add((current_filepath, final_new_full_path))
             
-            shutil.move(current_filepath, new_full_path)
-            logger.info(f"Moved '{current_filepath}' to '{new_full_path}'")
+            shutil.move(current_filepath, final_new_full_path)
+            logger.info(f"Moved '{current_filepath}' to '{final_new_full_path}'")
             
             # Update the file path in the database
             # Get the library path from the library ID
             library_path_str = get_library_path(file_obj.library_id)
-            update_file_path(library_path_str, current_filepath, new_full_path)
-            # logger.info(f"Updated database for file '{current_filepath}' to '{new_full_path}'")
+            update_file_path(library_path_str, current_filepath, final_new_full_path)
+            # logger.info(f"Updated database for file '{current_filepath}' to '{final_new_full_path}'")
 
         except (shutil.Error, OSError) as e:
-            logger.error(f"Error moving file from '{current_filepath}' to '{new_full_path}': {e}")
+            logger.error(f"Error moving file from '{current_filepath}' to '{final_new_full_path}': {e}")
             # If an error occurs, ensure the event is removed from the ignored list
             with watcher.event_handler.ignored_events_lock:
-                if (current_filepath, new_full_path) in watcher.event_handler.ignored_move_tuples:
-                    watcher.event_handler.ignored_move_tuples.remove((current_filepath, new_full_path))
+                if (current_filepath, final_new_full_path) in watcher.event_handler.ignored_move_tuples:
+                    watcher.event_handler.ignored_move_tuples.remove((current_filepath, final_new_full_path))
         # No finally block needed for removing from ignored_move_events, as it's removed by the watchdog handler
 
     except Exception as e:
