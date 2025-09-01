@@ -10,9 +10,9 @@ from utils import *
 from settings import load_settings
 from db import update_file_path # Import update_file_path
 
-def organize_file(file_obj, library_path, app_settings, watcher):
+def organize_file(file_obj, library_path, organizer_settings, watcher):
     try:
-        templates = app_settings.get('library', {}).get('organizer', {}).get('templates', {})
+        templates = organizer_settings['templates']
         
         current_filepath = file_obj.filepath
         
@@ -428,16 +428,22 @@ def process_library_identification(app):
 def process_library_organization(app, watcher):
     logger.info(f"Starting library organization process for all libraries...")
     try:
+        app_settings = load_settings()
+        organizer_settings = app_settings['library']['organizer']
+        if not organizer_settings['enabled']:
+            return
         with app.app_context():
             libraries = get_libraries()
             for library in libraries:
                 library_path = library.path
                 # Get all identified files for the current library
                 identified_files = Files.query.filter_by(library_id=library.id, identified=True).all()
-                app_settings = load_settings() # Load settings once for the entire organization process
                 for file_obj in identified_files:
-                    organize_file(file_obj, library_path, app_settings, watcher)
-
+                    organize_file(file_obj, library_path, organizer_settings, watcher)
+                
+                # Remove empty directories if needed
+                if organizer_settings['remove_empty_folders']:
+                    delete_empty_folders(library_path)
     except Exception as e:
         logger.error(f"Error during library organization process: {e}")
     logger.info(f"Library organization process for all libraries completed.")
