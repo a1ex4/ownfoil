@@ -62,8 +62,8 @@ class Handler(FileSystemEventHandler):
         self.stability_duration = stability_duration  # Stability duration in seconds
         self.tracked_files = {}  # Tracks files being copied
         self.debounced_check_final = self._debounce(self._check_file_stability, stability_duration)
-        self.ignored_move_tuples = set() # Set to store (src, dest) paths of moves to ignore
-        self.ignored_events_lock = threading.Lock() # Lock for thread-safe access to ignored_move_tuples
+        self.ignored_events_tuples = set() # Set to store (src, dest) paths of file operations to ignore
+        self.ignored_events_lock = threading.Lock() # Lock for thread-safe access to ignored_events_tuples
 
     def add_directory(self, directory):
         if directory not in self.directories:
@@ -143,21 +143,24 @@ class Handler(FileSystemEventHandler):
         with self.ignored_events_lock:
             if event.event_type == 'moved':
                 move_tuple = (event.src_path, event.dest_path)
-                if move_tuple in self.ignored_move_tuples:
-                    self.ignored_move_tuples.remove(move_tuple)
+                if move_tuple in self.ignored_events_tuples:
+                    self.ignored_events_tuples.remove(move_tuple)
                     # logger.debug(f"Ignoring internally generated 'moved' event: {event.src_path} -> {event.dest_path}")
                     return
             elif event.event_type == 'deleted':
                 # Check if this deleted event is part of an internally generated move
-                for src, dest in list(self.ignored_move_tuples): # Iterate over a copy to allow modification
+                for src, dest in list(self.ignored_events_tuples): # Iterate over a copy to allow modification
                     if event.src_path == src:
+                        if not dest:
+                            # This is an internal delete event
+                            self.ignored_events_tuples.remove((src, dest))
                         # logger.debug(f"Ignoring internally generated 'deleted' event (part of move): {event.src_path}")
                         return
             elif event.event_type == 'created':
                 # Check if this created event is part of an internally generated move
-                for src, dest in list(self.ignored_move_tuples): # Iterate over a copy to allow modification
+                for src, dest in list(self.ignored_events_tuples): # Iterate over a copy to allow modification
                     if event.src_path == dest:
-                        self.ignored_move_tuples.remove((src, dest))
+                        self.ignored_events_tuples.remove((src, dest))
                         # logger.debug(f"Ignoring internally generated 'created' event (part of move): {event.src_path}")
                         return
 

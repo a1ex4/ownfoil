@@ -78,7 +78,7 @@ def organize_file(file_obj, library_path, organizer_settings, watcher):
         try:
             # Add the move event to the ignored list before performing the move
             with watcher.event_handler.ignored_events_lock:
-                watcher.event_handler.ignored_move_tuples.add((current_filepath, final_new_full_path))
+                watcher.event_handler.ignored_events_tuples.add((current_filepath, final_new_full_path))
             
             shutil.move(current_filepath, final_new_full_path)
             logger.info(f"Moved '{current_filepath}' to '{final_new_full_path}'")
@@ -93,8 +93,8 @@ def organize_file(file_obj, library_path, organizer_settings, watcher):
             logger.error(f"Error moving file from '{current_filepath}' to '{final_new_full_path}': {e}")
             # If an error occurs, ensure the event is removed from the ignored list
             with watcher.event_handler.ignored_events_lock:
-                if (current_filepath, final_new_full_path) in watcher.event_handler.ignored_move_tuples:
-                    watcher.event_handler.ignored_move_tuples.remove((current_filepath, final_new_full_path))
+                if (current_filepath, final_new_full_path) in watcher.event_handler.ignored_events_tuples:
+                    watcher.event_handler.ignored_events_tuples.remove((current_filepath, final_new_full_path))
         # No finally block needed for removing from ignored_move_events, as it's removed by the watchdog handler
 
     except Exception as e:
@@ -447,12 +447,12 @@ def process_library_organization(app, watcher):
 
         # Remove outdated update files
         if app_settings['library']['management']['delete_older_updates']:
-            remove_outdated_update_files()
+            remove_outdated_update_files(watcher)
     except Exception as e:
         logger.error(f"Error during library organization process: {e}")
     logger.info(f"Library organization process for all libraries completed.")
 
-def remove_outdated_update_files():
+def remove_outdated_update_files(watcher):
     logger.info("Starting removal of outdated update files...")
     try:
         titles = get_all_titles()
@@ -496,6 +496,9 @@ def remove_outdated_update_files():
                                     # Remove from disk
                                     if os.path.exists(file_obj.filepath):
                                         try:
+                                            # Add the delete event to the ignored list before performing the remove
+                                            with watcher.event_handler.ignored_events_lock:
+                                                watcher.event_handler.ignored_events_tuples.add((file_obj.filepath, ""))
                                             os.remove(file_obj.filepath)
                                             logger.debug(f"Deleted physical file: {file_obj.filepath}")
                                             # Remove from database and update app owned status
@@ -503,7 +506,10 @@ def remove_outdated_update_files():
                                             remove_file_from_apps(file_obj.id)
                                         except OSError as e:
                                             logger.error(f"Error deleting physical file {file_obj.filepath}: {e}")
-                                            continue # Skip database deletion if physical file deletion fails
+                                            # If an error occurs, ensure the event is removed from the ignored list
+                                            with watcher.event_handler.ignored_events_lock:
+                                                if (file_obj.filepath, "") in watcher.event_handler.ignored_events_tuples:
+                                                    watcher.event_handler.ignored_events_tuples.remove((file_obj.filepath, ""))
                                     else:
                                         logger.warning(f"Physical file not found for deletion: {file_obj.filepath}")
                                     
