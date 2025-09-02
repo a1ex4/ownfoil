@@ -426,27 +426,89 @@ def process_library_identification(app):
     logger.info(f"Library identification process for all libraries completed.")
 
 def process_library_organization(app, watcher):
+    logger.info(f"Starting library organization process for all libraries...")
     try:
         app_settings = load_settings()
         organizer_settings = app_settings['library']['management']['organizer']
-        if not organizer_settings['enabled']:
-            return
-        logger.info(f"Starting library organization process for all libraries...")
-        with app.app_context():
-            libraries = get_libraries()
-            for library in libraries:
-                library_path = library.path
-                # Get all identified files for the current library
-                identified_files = Files.query.filter_by(library_id=library.id, identified=True).all()
-                for file_obj in identified_files:
-                    organize_file(file_obj, library_path, organizer_settings, watcher)
-                
-                # Remove empty directories if needed
-                if organizer_settings['remove_empty_folders']:
-                    delete_empty_folders(library_path)
+        if organizer_settings['enabled']:
+            with app.app_context():
+                libraries = get_libraries()
+                for library in libraries:
+                    library_path = library.path
+                    # Get all identified files for the current library
+                    identified_files = Files.query.filter_by(library_id=library.id, identified=True).all()
+                    for file_obj in identified_files:
+                        organize_file(file_obj, library_path, organizer_settings, watcher)
+                    
+                    # Remove empty directories if needed
+                    if organizer_settings['remove_empty_folders']:
+                        delete_empty_folders(library_path)
+
+        # Remove outdated update files
+        if app_settings['library']['management']['delete_older_updates']:
+            remove_outdated_update_files()
     except Exception as e:
         logger.error(f"Error during library organization process: {e}")
     logger.info(f"Library organization process for all libraries completed.")
+
+def remove_outdated_update_files():
+    logger.info("Starting removal of outdated update files...")
+    try:
+        titles = get_all_titles()
+        
+        for title in titles:
+            title_apps = get_all_title_apps(title.title_id)
+            
+            # Filter for owned update apps
+            owned_update_apps = [app for app in title_apps if app.get('app_type') == APP_TYPE_UPD and app.get('owned')]
+            
+            # If there's only one or no owned update apps, there's no "greater version available" to compare against.
+            if len(owned_update_apps) <= 1:
+                continue
+            
+            # Group owned update apps by their version for easy lookup
+            owned_versions = {int(app['app_version']) for app in owned_update_apps}
+            
+            # Iterate through all update apps (owned or not) for this title
+            for app_data in title_apps:
+                if app_data.get('app_type') == APP_TYPE_UPD:
+                    current_app_version = int(app_data['app_version'])
+                    
+                    # Check if there's a greater owned version available for this title
+                    has_greater_owned_version = any(
+                        owned_v > current_app_version for owned_v in owned_versions
+                    )
+                    
+                    if has_greater_owned_version:
+                        # Get the actual App object from the database
+                        app_obj = get_app_by_id_and_version(app_data['app_id'], app_data['app_version'])
+                        
+                        if app_obj:
+                            # Get files associated with this specific app version
+                            # Create a list to iterate over as the original collection might change during deletion
+                            files_to_process = list(app_obj.files) 
+                            for file_obj in files_to_process:
+                                # Check if file meets criteria: identified, not multicontent
+                                if file_obj.identified and not file_obj.multicontent:
+                                    logger.info(f"Removing outdated update file: {file_obj.filepath} (App ID: {app_obj.app_id}, Version: {app_obj.app_version}) - Greater owned version available.")
+                                    
+                                    # Remove from disk
+                                    if os.path.exists(file_obj.filepath):
+                                        try:
+                                            os.remove(file_obj.filepath)
+                                            logger.debug(f"Deleted physical file: {file_obj.filepath}")
+                                            # Remove from database and update app owned status
+                                            # This function handles db.session.delete(file_obj) and app.owned status
+                                            remove_file_from_apps(file_obj.id)
+                                        except OSError as e:
+                                            logger.error(f"Error deleting physical file {file_obj.filepath}: {e}")
+                                            continue # Skip database deletion if physical file deletion fails
+                                    else:
+                                        logger.warning(f"Physical file not found for deletion: {file_obj.filepath}")
+                                    
+        logger.info(f"Finished removal of outdated update files.")
+    except Exception as e:
+        logger.error(f"Error during removal of outdated update files: {e}")
 
 def update_titles():
     # Remove titles that no longer have any owned apps
