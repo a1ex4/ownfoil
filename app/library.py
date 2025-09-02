@@ -426,12 +426,12 @@ def process_library_identification(app):
     logger.info(f"Library identification process for all libraries completed.")
 
 def process_library_organization(app, watcher):
-    logger.info(f"Starting library organization process for all libraries...")
     try:
         app_settings = load_settings()
-        organizer_settings = app_settings['library']['organizer']
+        organizer_settings = app_settings['library']['management']['organizer']
         if not organizer_settings['enabled']:
             return
+        logger.info(f"Starting library organization process for all libraries...")
         with app.app_context():
             libraries = get_libraries()
             for library in libraries:
