@@ -54,8 +54,6 @@ def organize_file(file_obj, library_path, organizer_settings, watcher):
         if current_filepath == new_full_path:
             return
         
-        logger.info(f'Organizing file: {file_obj.filename}')
-        
         # Ensure the directory exists
         new_dir = os.path.dirname(new_full_path)
         try:
@@ -70,10 +68,13 @@ def organize_file(file_obj, library_path, organizer_settings, watcher):
         counter = 1
         final_new_full_path = new_full_path
         while os.path.exists(final_new_full_path):
+            if final_new_full_path == current_filepath:
+                return
             counter += 1
             new_filename = f"{base_name}({counter}).{file_obj.extension}"
             final_new_full_path = os.path.join(new_dir, new_filename)
-
+        
+        logger.info(f'Organizing file: {file_obj.filename}')
         try:
             # Add the move event to the ignored list before performing the move
             with watcher.event_handler.ignored_events_lock:
