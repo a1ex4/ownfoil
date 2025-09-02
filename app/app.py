@@ -399,6 +399,19 @@ def library_paths_api():
         }
     return jsonify(resp)
 
+@app.post('/api/settings/library/management')
+@access_required('admin')
+def set_library_management_settings_api():
+    data = request.json
+    set_library_management_settings(data)
+    reload_conf()
+    post_library_change()
+    resp = {
+        'success': True,
+        'errors': []
+    }
+    return jsonify(resp)
+
 @app.post('/api/upload')
 @access_required('admin')
 def upload_file():

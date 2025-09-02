@@ -90,6 +90,12 @@ def add_library_path_to_settings(path):
         yaml.dump(settings, yaml_file)
     return success, errors
 
+def set_library_management_settings(data):
+    settings = load_settings()
+    settings['library']['management'].update(data)
+    with open(CONFIG_FILE, 'w') as yaml_file:
+        yaml.dump(settings, yaml_file)
+
 def delete_library_path_from_settings(path):
     success = True
     errors = []
