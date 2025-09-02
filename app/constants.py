@@ -25,14 +25,18 @@ OWNFOIL_DB = 'sqlite:///' + DB_FILE
 DEFAULT_SETTINGS = {
     "library": {
         "paths": ["/games"],
-        "organizer": {
-            "enabled": False,
-            "remove_empty_folders": False,
-            "templates": {
-                "base": "{titleName}/{titleName} [{appId}][v{appVersion}]",
-                "update": "{titleName}/{titleName} [{appId}][v{appVersion}]",
-                "dlc": "{titleName}/{appName} [{appId}][v{appVersion}]",
-                "multi": "{titleName}/{titleName} [{titleId}]"
+        "management": {
+            "compress_files": False,
+            "delete_older_updates": False,
+            "organizer": {
+                "enabled": False,
+                "remove_empty_folders": False,
+                "templates": {
+                    "base": "{titleName}/{titleName} [{appId}][v{appVersion}]",
+                    "update": "{titleName}/{titleName} [{appId}][v{appVersion}]",
+                    "dlc": "{titleName}/{appName} [{appId}][v{appVersion}]",
+                    "multi": "{titleName}/{titleName} [{titleId}]"
+                }
             }
         }
     },
