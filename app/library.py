@@ -194,7 +194,6 @@ def init_libraries(app, watcher, paths):
                 watcher.add_directory(path)
 
 def add_files_to_library(library, files):
-    nb_to_identify = len(files)
     if isinstance(library, int) or library.isdigit():
         library_id = library
         library_path = get_library_path(library_id)
@@ -203,7 +202,18 @@ def add_files_to_library(library, files):
         library_id = get_library_id(library_path)
 
     library_path = get_library_path(library_id)
-    for n, filepath in enumerate(files):
+    
+    # Get existing file paths in the library
+    filepaths_in_db = get_library_file_paths(library_id)
+    
+    # Filter out files that are already in the database
+    new_files_to_add = [f for f in files if f not in filepaths_in_db]
+    
+    if not new_files_to_add:
+        return
+
+    nb_to_identify = len(new_files_to_add)
+    for n, filepath in enumerate(new_files_to_add):
         file = filepath.replace(library_path, "")
         logger.info(f'Getting file info ({n+1}/{nb_to_identify}): {file}')
 
