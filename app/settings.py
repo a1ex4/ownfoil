@@ -1,4 +1,5 @@
 from constants import *
+from utils import *
 import yaml
 import os, sys
 
@@ -23,16 +24,24 @@ def load_keys(key_file=KEYS_FILE):
     return valid
 
 def load_settings():
+    settings_updated = False
     if os.path.exists(CONFIG_FILE):
         logger.debug('Reading configuration file.')
         with open(CONFIG_FILE, 'r') as yaml_file:
             settings = yaml.safe_load(yaml_file)
+
+        # Merge default settings into loaded settings
+        if merge_dicts_recursive(DEFAULT_SETTINGS, settings):
+            settings_updated = True
 
         valid_keys = load_keys()
         settings['titles']['valid_keys'] = valid_keys
 
     else:
         settings = DEFAULT_SETTINGS
+        settings_updated = True
+
+    if settings_updated:
         with open(CONFIG_FILE, 'w') as yaml_file:
             yaml.dump(settings, yaml_file)
     return settings
@@ -80,6 +89,12 @@ def add_library_path_to_settings(path):
     with open(CONFIG_FILE, 'w') as yaml_file:
         yaml.dump(settings, yaml_file)
     return success, errors
+
+def set_library_management_settings(data):
+    settings = load_settings()
+    settings['library']['management'].update(data)
+    with open(CONFIG_FILE, 'w') as yaml_file:
+        yaml.dump(settings, yaml_file)
 
 def delete_library_path_from_settings(path):
     success = True
