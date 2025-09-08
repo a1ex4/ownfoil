@@ -7,8 +7,6 @@
         <div class="col">
             <div class="settings-container container mt-3">
 
-                <!-- <h1>Settings</h1> -->
-
                 {% if admin_account_created == false %}
                 <div class="alert alert-danger" role="alert">
                     <h4 class="alert-heading">Missing admin account!</h4>
@@ -28,7 +26,7 @@
                     Console keys are required to decrypt any Nintendo content, including
                     backups. Ownfoil uses this to identify files, regardless of the filename.</br>
                     <strong>Titles will be missed or misidentified if you don't fill in your keys!</strong>
-                    See <a target="_blank" href="https://gitlab.com/easyhacking/switch/-/wikis/home/getting-started/dump-keys" class="alert-link">this guide</a> on
+                    See <a target="_blank" href="https://gitea.com/KudbiOdd/easy-switch-hacking-shise/wiki/Dump-device-keys" class="alert-link">this guide</a> on
                     how to extract the
                     keys from your console, and upload them <a href="/settings#consoleKeysInput" class="alert-link">here
                         in Ownfoil.</a>
@@ -56,7 +54,7 @@
                     <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
                 </div>
 
-                <h2 id="Authentication" class="pb-3">Authentication</h2>
+                <h2 id="Authentication">Authentication</h2>
 
                 <table class="table table-hover caption-top" id="userTable">
                     <caption>List of users:</caption>
@@ -138,10 +136,10 @@
 
                 <hr>
 
-                <h2 class="pb-3">Library</h2>
+                <h2>Library</h2>
 
-                <label class="form-label">Library paths:</label>
-                <div id="libraryPathHelp" class="form-text">Path of directory containing your games.</div>
+                <h3 class="pt-3 pb-2">Paths</h3>
+                <p class="mb-2">Configure directories containing your games.</p>
                 <table class="table table-hover caption-top" id="pathsTable">
                     <thead>
                         <tr>
@@ -204,8 +202,80 @@
                     </div>
                 </div>
 
+                <h3 class="pt-4 pb-2">Management</h3>
+                <p>Configure automated library management.</p>
+                <div class="mb-3 form-check">
+                    <input type="checkbox" class="form-check-input" id="compressFilesCheck" disabled>
+                    <label class="form-check-label" for="compressFilesCheck">Compress files</label>
+                    <div class="form-text">Compress files to NSZ/XCZ format after adding them to the library (not yet implemented).</div>
+                </div>
+                <div class="mb-3 form-check">
+                    <input type="checkbox" class="form-check-input" id="deleteOlderUpdatesCheck">
+                    <label class="form-check-label" for="deleteOlderUpdatesCheck">Delete older updates</label>
+                    <div class="form-text">Deletes older update files when a newer version is available in the library.</div>
+                </div>
+
+                <h4 class="py-2">Organizer</h4>
+                <p>Keep your library organized.</p>
+                <div class="mb-3 form-check">
+                    <input type="checkbox" class="form-check-input" id="organizerEnabledCheck">
+                    <label class="form-check-label" for="organizerEnabledCheck">Enable organizer</label>
+                    <div class="form-text">Enables automatic organization of identified files in the library, according to the templates below.</div>
+                </div>
+                <div class="mb-3 form-check">
+                    <input type="checkbox" class="form-check-input" id="removeEmptyFoldersCheck">
+                    <label class="form-check-label" for="removeEmptyFoldersCheck">Remove empty folders</label>
+                    <div class="form-text">Removes empty folders after organizing files.</div>
+                </div>
+
+                <h5 class="pb-3 pt-2">Templates</h5>
+                <p>The final computed paths will be relative to the root path of the library, the file extension is added automatically.</p>
+                <div class="row">
+                    <div class="col-7">
+                        <div class="mb-3">
+                            <label for="baseTemplateInput" class="form-label">Base template:</label>
+                            <input type="text" class="form-control form-control-code" id="baseTemplateInput">
+                        </div>
+                        <div class="mb-3">
+                            <label for="updateTemplateInput" class="form-label">Update template:</label>
+                            <input type="text" class="form-control form-control-code" id="updateTemplateInput">
+                        </div>
+                        <div class="mb-3">
+                            <label for="dlcTemplateInput" class="form-label">DLC template:</label>
+                            <input type="text" class="form-control form-control-code" id="dlcTemplateInput">
+                        </div>
+                        <div class="mb-3">
+                            <label for="multiTemplateInput" class="form-label">Multi-content template:</label>
+                            <input type="text" class="form-control form-control-code" id="multiTemplateInput">
+                        </div>
+                        <p class="text-break"><strong>Make sure the templates contain <code>[{appId}][v{appVersion}]</code> for Tinfoil to recognize the apps.</strong></p>
+                    </div>
+                    <div class="col-5">
+                        <div class="alert alert-dark">
+                            <p>Available attributes for all templates:</p>
+                            <ul>
+                                <li><code>{extension}</code>: File extension (e.g., <code>nsp</code>, <code>nsz</code>)</li>
+                                <li><code>{titleId}</code>: Title ID of the game</li>
+                                <li><code>{titleName}</code>: Name of the game title</li>
+                            </ul>
+                            <p>Available attributes for Base, Update, and DLC templates:</p>
+                            <ul>
+                                <li><code>{appId}</code>: Application ID</li>
+                                <li><code>{appVersion}</code>: Application version</li>
+                                <li><code>{patchLevel}</code>: Patch level</li>
+                                <li><code>{appName}</code>: Name of the application (title or DLC name)</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+
+                <div>
+                    <button type="button" id="submitLibraryManagementSettingsBtn" class="btn btn-primary"
+                        onClick='submitLibraryManagementSettings()'>Submit</button>
+                </div>
+
                 <hr>
-                <h2 class="pb-3">Titles</h2>
+                <h2 class="pb-2">Titles</h2>
                 <p>Titles identification configuration.</p>
                 <div class="row mb-3">
                     <div class="col">
@@ -245,7 +315,8 @@
                 </form>
                 <hr>
 
-                <h2 class="pb-3">Shop</h2>
+                <h2 class="pb-2">Shop</h2>
+                <p>Shop configuration and customization.</p>
                 <!-- Shop URL -->
                 <div class="mb-3">
                     <label for="shopHostInput" class="form-label">Shop URL:</label>
@@ -683,11 +754,43 @@
         });
     }
 
+    function submitLibraryManagementSettings() {
+        $('#submitLibraryManagementSettingsBtn').prop('disabled', true);
+        data = {
+            compress_files: getCheckboxStatus("compressFilesCheck"),
+            delete_older_updates: getCheckboxStatus("deleteOlderUpdatesCheck"),
+            organizer: {
+                enabled: getCheckboxStatus("organizerEnabledCheck"),
+                remove_empty_folders: getCheckboxStatus("removeEmptyFoldersCheck"),
+                templates: {
+                    base: getInputVal("baseTemplateInput"),
+                    update: getInputVal("updateTemplateInput"),
+                    dlc: getInputVal("dlcTemplateInput"),
+                    multi: getInputVal("multiTemplateInput")
+                }
+            }
+        }
+
+        $.ajax({
+            url: "/api/settings/library/management",
+            type: 'POST',
+            data: JSON.stringify(data),
+            contentType: "application/json",
+            success: function (result) {
+                if (!result['success']) {
+                    console.log('Not Success!');
+                }
+                $('#submitLibraryManagementSettingsBtn').prop('disabled', false);
+            }
+        });
+    }
+
     $(document).ready(function () {
         fillUserTable();
         fillLibraryTable();
 
         $.getJSON("/api/settings", function (result) {
+            languages = {{ languages_from_titledb | tojson | safe }};
             Object.keys(languages).forEach(function (key) {
                 $('#selectRegion').append(`<option value="${key}">${key}</option>`);
             });
@@ -704,6 +807,17 @@
 
             // Library settings
             librarySettings = result['library'];
+            // Populate library management settings
+            $("#compressFilesCheck").prop("checked", librarySettings['management']['compress_files']);
+            $("#deleteOlderUpdatesCheck").prop("checked", librarySettings['management']['delete_older_updates']);
+            $("#organizerEnabledCheck").prop("checked", librarySettings['management']['organizer']['enabled']);
+            $("#removeEmptyFoldersCheck").prop("checked", librarySettings['management']['organizer']['remove_empty_folders']);
+            setInputVal("baseTemplateInput", librarySettings['management']['organizer']['templates']['base']);
+            setInputVal("updateTemplateInput", librarySettings['management']['organizer']['templates']['update']);
+            setInputVal("dlcTemplateInput", librarySettings['management']['organizer']['templates']['dlc']);
+            setInputVal("multiTemplateInput", librarySettings['management']['organizer']['templates']['multi']);
+
+
             // Titles settings
             titlesSettings = result['titles'];
 
@@ -731,7 +845,6 @@
     $('#checkboxNewUserShopAccess').prop('checked', true).attr("disabled", true);
     $('#checkboxNewUserBackupAccess').prop('checked', true).attr("disabled", true);
     {% endif %}
-    languages = {{ languages_from_titledb | tojson | safe }}
 </script>
 
 {% endblock %}

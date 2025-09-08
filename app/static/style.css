@@ -85,3 +85,21 @@ p.game-description {
     max-height: 200px; /* Set your desired max height */
     overflow-y: auto; /* Enable vertical scrolling */
 }
+
+/* Input code form */
+.form-control-code {
+    font-family: monospace;
+    font-size: .875em;
+    background-color: var(--bs-dark-bg-subtle);
+    color: var(--bs-code-color);
+}
+
+/* hr */
+hr {
+    margin-top: 2rem !important;
+}
+
+.h1, .h2, .h3, .h4, .h5, .h6, h1, h2, h3, h4, h5, h6 {
+  margin-top: 0 !important;
+  margin-bottom: 0 !important;
+}
