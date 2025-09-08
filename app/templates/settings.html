@@ -7,8 +7,6 @@
         <div class="col">
             <div class="settings-container container mt-3">
 
-                <!-- <h1>Settings</h1> -->
-
                 {% if admin_account_created == false %}
                 <div class="alert alert-danger" role="alert">
                     <h4 class="alert-heading">Missing admin account!</h4>
@@ -28,7 +26,7 @@
                     Console keys are required to decrypt any Nintendo content, including
                     backups. Ownfoil uses this to identify files, regardless of the filename.</br>
                     <strong>Titles will be missed or misidentified if you don't fill in your keys!</strong>
-                    See <a target="_blank" href="https://gitlab.com/easyhacking/switch/-/wikis/home/getting-started/dump-keys" class="alert-link">this guide</a> on
+                    See <a target="_blank" href="https://gitea.com/KudbiOdd/easy-switch-hacking-shise/wiki/Dump-device-keys" class="alert-link">this guide</a> on
                     how to extract the
                     keys from your console, and upload them <a href="/settings#consoleKeysInput" class="alert-link">here
                         in Ownfoil.</a>
@@ -56,7 +54,7 @@
                     <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
                 </div>
 
-                <h2 id="Authentication" class="pb-3">Authentication</h2>
+                <h2 id="Authentication">Authentication</h2>
 
                 <table class="table table-hover caption-top" id="userTable">
                     <caption>List of users:</caption>
@@ -138,10 +136,10 @@
 
                 <hr>
 
-                <h2 class="pb-3">Library</h2>
+                <h2>Library</h2>
 
-                <h3 class="pb-3">Paths</h3>
-                <div id="libraryPathHelp" class="form-text">Path of directory containing your games.</div>
+                <h3 class="pt-3 pb-2">Paths</h3>
+                <p class="mb-2">Configure directories containing your games.</p>
                 <table class="table table-hover caption-top" id="pathsTable">
                     <thead>
                         <tr>
@@ -204,7 +202,8 @@
                     </div>
                 </div>
 
-                <h3 class="pb-3">Management</h3>
+                <h3 class="pt-4 pb-2">Management</h3>
+                <p>Configure automated library management.</p>
                 <div class="mb-3 form-check">
                     <input type="checkbox" class="form-check-input" id="compressFilesCheck" disabled>
                     <label class="form-check-label" for="compressFilesCheck">Compress files</label>
@@ -213,14 +212,15 @@
                 <div class="mb-3 form-check">
                     <input type="checkbox" class="form-check-input" id="deleteOlderUpdatesCheck">
                     <label class="form-check-label" for="deleteOlderUpdatesCheck">Delete older updates</label>
-                    <div class="form-text">Deletes older update files when a newer version is added to the library.</div>
+                    <div class="form-text">Deletes older update files when a newer version is available in the library.</div>
                 </div>
 
-                <h4 class="pb-3">Organizer</h4>
+                <h4 class="py-2">Organizer</h4>
+                <p>Keep your library organized.</p>
                 <div class="mb-3 form-check">
                     <input type="checkbox" class="form-check-input" id="organizerEnabledCheck">
                     <label class="form-check-label" for="organizerEnabledCheck">Enable organizer</label>
-                    <div class="form-text">Enables automatic organization of identified files in the library.</div>
+                    <div class="form-text">Enables automatic organization of identified files in the library, according to the templates below.</div>
                 </div>
                 <div class="mb-3 form-check">
                     <input type="checkbox" class="form-check-input" id="removeEmptyFoldersCheck">
@@ -228,7 +228,7 @@
                     <div class="form-text">Removes empty folders after organizing files.</div>
                 </div>
 
-                <h5>Templates</h5>
+                <h5 class="pb-3 pt-2">Templates</h5>
                 <p>The final computed paths will be relative to the root path of the library, the file extension is added automatically.</p>
                 <div class="row">
                     <div class="col-7">
@@ -269,13 +269,13 @@
                     </div>
                 </div>
 
-                <div class="mb-3">
+                <div>
                     <button type="button" id="submitLibraryManagementSettingsBtn" class="btn btn-primary"
                         onClick='submitLibraryManagementSettings()'>Submit</button>
                 </div>
 
                 <hr>
-                <h2 class="pb-3">Titles</h2>
+                <h2 class="pb-2">Titles</h2>
                 <p>Titles identification configuration.</p>
                 <div class="row mb-3">
                     <div class="col">
@@ -315,7 +315,8 @@
                 </form>
                 <hr>
 
-                <h2 class="pb-3">Shop</h2>
+                <h2 class="pb-2">Shop</h2>
+                <p>Shop configuration and customization.</p>
                 <!-- Shop URL -->
                 <div class="mb-3">
                     <label for="shopHostInput" class="form-label">Shop URL:</label>
