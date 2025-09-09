@@ -11,9 +11,8 @@ from pathlib import Path
 from binascii import hexlify as hx, unhexlify as uhx
 import logging
 
-from nstools.Fs import Pfs0, Nca, Type, factory
-from nstools.lib import FsTools
-from nstools.nut import Keys
+from nsz.Fs import Pfs0, Xci, Nsp, Nca, Type, factory
+from nsz.nut import Keys
 
 # Retrieve main logger
 logger = logging.getLogger('main')
