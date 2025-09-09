@@ -3,7 +3,7 @@ from utils import *
 import yaml
 import os, sys
 
-from nstools.nut import Keys
+from nsz.nut import Keys
 
 import logging
 
