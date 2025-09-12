@@ -449,12 +449,12 @@ def serve_game(id):
 @app.route('/game/<title_id>')
 @access_required('shop')
 def game_details(title_id):
-    """Vista de detalles de un juego específico"""
-    # Obtener información del juego desde la biblioteca
+    """Game details view for a specific game"""
+    # Get game information from library
     titles_library = generate_library()
     game = None
     
-    # Buscar el juego por title_id
+    # Search for the game by title_id
     for g in titles_library:
         if g.get('title_id') == title_id.upper():
             game = g
@@ -462,13 +462,13 @@ def game_details(title_id):
     
     if not game:
         return render_template('game_details.html', 
-                             title='Juego no encontrado',
+                             title='Game not found',
                              game=None,
                              admin_account_created=admin_account_created(),
                              valid_keys=app_settings['titles']['valid_keys'])
     
     return render_template('game_details.html',
-                         title=f'Detalles - {game.get("title_id_name", game.get("name", "Sin nombre"))}',
+                         title=f'Details - {game.get("title_id_name", game.get("name", "No name"))}',
                          game=game,
                          admin_account_created=admin_account_created(),
                          valid_keys=app_settings['titles']['valid_keys'])
