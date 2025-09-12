@@ -266,7 +266,12 @@ def tinfoil_access(f):
     return _tinfoil_access
 
 def access_shop():
-    return render_template('index.html', title='Library', admin_account_created=admin_account_created(), valid_keys=app_settings['titles']['valid_keys'])
+    return render_template('index.html', 
+                         title='Library', 
+                         admin_account_created=admin_account_created(), 
+                         valid_keys=app_settings['titles']['valid_keys'],
+                         shop_name=app_settings['shop']['name'],
+                         show_powered_by=app_settings['shop']['show_powered_by'])
 
 @access_required('shop')
 def access_shop_auth():
@@ -312,7 +317,9 @@ def settings_page():
         title='Settings',
         languages_from_titledb=languages,
         admin_account_created=admin_account_created(),
-        valid_keys=app_settings['titles']['valid_keys'])
+        valid_keys=app_settings['titles']['valid_keys'],
+        shop_name=app_settings['shop']['name'],
+        show_powered_by=app_settings['shop']['show_powered_by'])
 
 @app.get('/api/settings')
 @access_required('admin')

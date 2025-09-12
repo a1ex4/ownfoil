@@ -282,6 +282,20 @@
                 </div>
 
                 <div class="mb-3">
+                    <label for="shopNameInput" class="form-label">Shop Name:</label>
+                    <input class="form-control" id="shopNameInput" aria-describedby="shopNameHelp"
+                        placeholder="My Custom Shop">
+                    <div id="shopNameHelp" class="form-text">Custom name displayed in the top left of the web interface.</div>
+                </div>
+
+                <div class="mb-3 form-check">
+                    <input type="checkbox" class="form-check-input" id="showPoweredByCheck"
+                        aria-describedby="showPoweredByHelp">
+                    <label class="form-check-label" for="showPoweredByCheck">Show "powered by Ownfoil"</label>
+                    <div id="showPoweredByHelp" class="form-text">Display "powered by Ownfoil" text below the shop name in the navigation bar.</div>
+                </div>
+
+                <div class="mb-3">
                     <button type="button" id="submitShopSettingsBtn" class="btn btn-primary"
                         onClick='submitShopSettings()'>Submit</button>
                 </div>
@@ -658,6 +672,8 @@
             public: getCheckboxStatus("publicShopCheck"),
             encrypt: getCheckboxStatus("encryptShopCheck"),
             motd: $('#motdTextArea').val(),
+            name: $('#shopNameInput').val(),
+            show_powered_by: getCheckboxStatus("showPoweredByCheck"),
         }
 
         $.ajax({
@@ -716,8 +732,10 @@
             shopSettings = result['shop'];
             setInputVal("shopHostInput", shopSettings['host']);
             setInputVal("motdTextArea", shopSettings['motd']);
+            setInputVal("shopNameInput", shopSettings['name']);
             $("#publicShopCheck").prop("checked", shopSettings['public']);
             $("#encryptShopCheck").prop("checked", shopSettings['encrypt']);
+            $("#showPoweredByCheck").prop("checked", shopSettings['show_powered_by']);
             if (!shopSettings['host']) {
                 $("#missingShopHostAlert").css('display', '');
             } else if (!shopSettings['hauth']) {

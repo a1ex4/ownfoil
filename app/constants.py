@@ -32,6 +32,8 @@ DEFAULT_SETTINGS = {
         "valid_keys": False,
     },
     "shop": {
+        "name": "Ownfoil",
+        "show_powered_by": True,
         "motd": "Welcome to your own shop!",
         "public": False,
         "encrypt": True,
