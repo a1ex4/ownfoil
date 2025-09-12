@@ -6,9 +6,31 @@ from db import *
 from flask_login import LoginManager
 
 import logging
+import re
 
 # Retrieve main logger
 logger = logging.getLogger('main')
+
+def validate_password(password):
+    """
+    Validate password to ensure it doesn't contain special characters that cause issues with Tinfoil.
+    Rejects characters: @ & / ? # = and any non-UTF-8 characters.
+    """
+    if not password:
+        return False, "Password cannot be empty"
+    
+    # Check for problematic special characters
+    problematic_chars = r'[@&/?#=]'
+    if re.search(problematic_chars, password):
+        return False, "Password contains invalid characters. Please avoid: @ & / ? # ="
+    
+    # Check for non-UTF-8 characters (basic ASCII check)
+    try:
+        password.encode('utf-8').decode('ascii')
+    except UnicodeDecodeError:
+        return False, "Password contains non-UTF-8 characters"
+    
+    return True, "Password is valid"
 
 def admin_account_created():
     return len(User.query.filter_by(admin_access=True).all())
@@ -98,6 +120,12 @@ def create_or_update_user(username, password, admin_access=False, shop_access=Fa
     """
     Create a new user or update an existing user with the given credentials and access rights.
     """
+    # Validate password before creating/updating user
+    is_valid, error_message = validate_password(password)
+    if not is_valid:
+        logger.error(f'Password validation failed for user {username}: {error_message}')
+        raise ValueError(error_message)
+    
     user = User.query.filter_by(user=username).first()
     if user:
         logger.info(f'Updating existing user {username}')
@@ -228,8 +256,11 @@ def signup_post():
     
     if user: # if a user is found, we want to redirect back to signup page so user can try again
         logger.error(f'Error creating user {username}, user already exists')
-        # Todo redirect to incoming page or return success: false
-        return redirect(url_for('auth.signup'))
+        resp = {
+            'success': False,
+            'error': 'User already exists'
+        }
+        return jsonify(resp)
     
     existing_admin = admin_account_created()
     if not existing_admin and not admin_access:
@@ -241,10 +272,27 @@ def signup_post():
         } 
         return jsonify(resp)
 
-    # create a new user with the form data. Hash the password so the plaintext version isn't saved.
-    create_or_update_user(username, password, admin_access, shop_access, backup_access)
-    
-    logger.info(f'Successfully created user {username}.')
+    # Validate password before creating user
+    is_valid, error_message = validate_password(password)
+    if not is_valid:
+        logger.error(f'Password validation failed for user {username}: {error_message}')
+        resp = {
+            'success': False,
+            'error': error_message
+        }
+        return jsonify(resp)
+
+    try:
+        # create a new user with the form data. Hash the password so the plaintext version isn't saved.
+        create_or_update_user(username, password, admin_access, shop_access, backup_access)
+        logger.info(f'Successfully created user {username}.')
+    except ValueError as e:
+        # This should not happen since we validate above, but just in case
+        resp = {
+            'success': False,
+            'error': str(e)
+        }
+        return jsonify(resp)
 
     resp = {
         'success': signup_success
