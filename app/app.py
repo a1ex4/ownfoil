@@ -328,6 +328,15 @@ def get_settings_api():
         settings['shop']['hauth'] = False
     return jsonify(settings)
 
+@app.get('/api/shop/info')
+def get_shop_info():
+    """API pública para obtener información básica de la tienda (nombre, powered by)"""
+    reload_conf()
+    return jsonify({
+        'name': app_settings['shop']['name'],
+        'show_powered_by': app_settings['shop']['show_powered_by']
+    })
+
 @app.post('/api/settings/titles')
 @access_required('admin')
 def set_titles_settings_api():

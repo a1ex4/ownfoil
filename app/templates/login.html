@@ -36,17 +36,17 @@
 </div>
 
 <script>
-// Cargar configuración de la tienda y actualizar el nombre
-fetch('/api/settings')
+// Cargar información de la tienda y actualizar el nombre
+fetch('/api/shop/info')
     .then(response => response.json())
-    .then(settings => {
+    .then(shopInfo => {
         const shopNameElement = document.getElementById('shop-name');
-        if (shopNameElement && settings.shop && settings.shop.name) {
-            shopNameElement.textContent = settings.shop.name;
+        if (shopNameElement && shopInfo.name) {
+            shopNameElement.textContent = shopInfo.name;
         }
     })
     .catch(error => {
-        console.error('Error loading shop settings:', error);
+        console.error('Error loading shop info:', error);
     });
 </script>
 {% endblock %}

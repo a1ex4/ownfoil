@@ -26,24 +26,24 @@
     {% endblock %}
     
     <script>
-    // Cargar configuración de la tienda y actualizar elementos de navegación
-    fetch('/api/settings')
+    // Cargar información de la tienda y actualizar elementos de navegación
+    fetch('/api/shop/info')
         .then(response => response.json())
-        .then(settings => {
+        .then(shopInfo => {
             // Actualizar nombre de la tienda en la navegación
             const navShopNameElement = document.getElementById('nav-shop-name');
-            if (navShopNameElement && settings.shop && settings.shop.name) {
-                navShopNameElement.textContent = settings.shop.name;
+            if (navShopNameElement && shopInfo.name) {
+                navShopNameElement.textContent = shopInfo.name;
             }
             
             // Mostrar/ocultar "powered by Ownfoil"
             const navPoweredByElement = document.getElementById('nav-powered-by');
-            if (navPoweredByElement && settings.shop && settings.shop.show_powered_by !== undefined) {
-                navPoweredByElement.style.display = settings.shop.show_powered_by ? 'block' : 'none';
+            if (navPoweredByElement && shopInfo.show_powered_by !== undefined) {
+                navPoweredByElement.style.display = shopInfo.show_powered_by ? 'block' : 'none';
             }
         })
         .catch(error => {
-            console.error('Error loading shop settings:', error);
+            console.error('Error loading shop info:', error);
         });
     </script>
 </body>

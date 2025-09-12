@@ -3,20 +3,24 @@ version: "3"
 services:
   ownfoil:
     container_name: ownfoil
-    image: a1ex4/ownfoil:latest
+    build: 
+      context: .
+      dockerfile: Dockerfile
     environment:
       # For write permission in config directory
       - PUID=1000
       - PGID=1000
       # to create/update an admin user at startup
-      # - USER_ADMIN_NAME=admin
-      # - USER_ADMIN_PASSWORD=asdvnf!546
+      - USER_ADMIN_NAME=admin
+      - USER_ADMIN_PASSWORD=admin
       # to create/update a regular user at startup
       # - USER_GUEST_NAME=guest
       # - USER_GUEST_PASSWORD=oerze!@8981
     volumes:
-      - /your/game/directory:/games
+      - /Users/sergio/Downloads/games:/games
       - ./config:/app/config
       - ./data:/app/data
+      - ./app:/app
+      - ./docker/run.sh:/app/run.sh
     ports:
       - "8465:8465"
