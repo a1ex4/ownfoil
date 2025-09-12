@@ -1,0 +1,202 @@
+{% extends "base.html" %}
+
+{% block content %}
+{% include 'nav.html' %}
+
+<div class="container-fluid mt-3">
+    {% if game %}
+    <!-- Breadcrumb -->
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a href="/">Library</a></li>
+            <li class="breadcrumb-item active" aria-current="page">{{ game.title_id_name or game.name }}</li>
+        </ol>
+    </nav>
+
+    <!-- Game Details Card -->
+    <div class="row">
+        <div class="col-12">
+            <div class="card text-bg-dark mb-4">
+                <div class="row g-0">
+                    <!-- Game Banner/Icon -->
+                    <div class="col-md-4 d-flex align-items-center justify-content-center" style="min-height: 400px;">
+                        {% if game.app_type == 'BASE' %}
+                        <div class="w-100 h-100 d-flex align-items-center justify-content-center" style="max-height: 400px;">
+                            <img src="{{ game.bannerUrl }}" class="img-fluid rounded" alt="{{ game.title_id_name or game.name }}" style="max-width: 100%; max-height: 100%; object-fit: contain; object-position: center;">
+                        </div>
+                        {% else %}
+                        <div class="d-flex align-items-center justify-content-center w-100 h-100" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 8px;">
+                            <img src="{{ game.iconUrl }}" class="img-fluid" alt="{{ game.title_id_name or game.name }}" style="max-width: 200px; max-height: 200px;">
+                        </div>
+                        {% endif %}
+                    </div>
+                    
+                    <!-- Game Information -->
+                    <div class="col-md-8">
+                        <div class="card-body h-100 d-flex flex-column">
+                            <!-- Title and Type -->
+                            <div class="mb-3">
+                                <h1 class="card-title mb-2">{{ game.title_id_name or game.name }}</h1>
+                                <div class="d-flex gap-2 mb-2">
+                                    <span class="badge rounded-pill text-bg-{{ 'info' if game.owned else 'warning' }} fs-6">
+                                        {{ game.app_type }}
+                                    </span>
+                                    {% if game.category %}
+                                    <span class="badge rounded-pill text-bg-secondary fs-6">
+                                        {{ game.category }}
+                                    </span>
+                                    {% endif %}
+                                </div>
+                            </div>
+
+                            <!-- Game ID -->
+                            <div class="mb-3">
+                                <h6 class="text-muted mb-1">Title ID:</h6>
+                                <code class="fs-6">{{ game.title_id }}</code>
+                            </div>
+
+                            <!-- Status Information -->
+                            <div class="mb-3">
+                                <h6 class="text-muted mb-2">Estado:</h6>
+                                <div class="row g-2">
+                                    <div class="col-sm-6">
+                                        <div class="d-flex align-items-center">
+                                            <i class="bi bi-{{ 'check-circle-fill text-success' if game.owned else 'x-circle-fill text-warning' }} me-2"></i>
+                                            <span>{{ 'Disponible' if game.owned else 'No disponible' }}</span>
+                                        </div>
+                                    </div>
+                                    {% if game.has_latest_version is defined %}
+                                    <div class="col-sm-6">
+                                        <div class="d-flex align-items-center">
+                                            <i class="bi bi-{{ 'check-circle-fill text-success' if game.has_latest_version else 'arrow-down-circle text-warning' }} me-2"></i>
+                                            <span>{{ 'Actualizado' if game.has_latest_version else 'Actualización disponible' }}</span>
+                                        </div>
+                                    </div>
+                                    {% endif %}
+                                    {% if game.has_all_dlcs is defined %}
+                                    <div class="col-sm-6">
+                                        <div class="d-flex align-items-center">
+                                            <i class="bi bi-{{ 'check-circle-fill text-success' if game.has_all_dlcs else 'box-seam text-warning' }} me-2"></i>
+                                            <span>{{ 'DLCs completos' if game.has_all_dlcs else 'DLCs faltantes' }}</span>
+                                        </div>
+                                    </div>
+                                    {% endif %}
+                                </div>
+                            </div>
+
+                            <!-- Version Information -->
+                            {% if game.version and game.version|length > 0 %}
+                            <div class="mb-3">
+                                <h6 class="text-muted mb-2">Versiones disponibles:</h6>
+                                <div class="table-responsive">
+                                    <table class="table table-dark table-sm">
+                                        <thead>
+                                            <tr>
+                                                <th>Versión</th>
+                                                <th>Fecha de lanzamiento</th>
+                                                <th>Estado</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {% for version in game.version %}
+                                            <tr>
+                                                <td>v{{ version.version }}</td>
+                                                <td>{{ version.release_date }}</td>
+                                                <td>
+                                                    <span class="badge text-bg-{{ 'success' if version.owned else 'warning' }}">
+                                                        {{ 'Disponible' if version.owned else 'No disponible' }}
+                                                    </span>
+                                                </td>
+                                            </tr>
+                                            {% endfor %}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                            {% endif %}
+
+                            <!-- Action Buttons -->
+                            <div class="mt-auto">
+                                <div class="d-flex gap-2">
+                                    <a href="/" class="btn btn-outline-secondary">
+                                        <i class="bi bi-arrow-left me-1"></i>Volver a la biblioteca
+                                    </a>
+                                    {% if game.owned %}
+                                    <button class="btn btn-primary" onclick="downloadGame('{{ game.title_id }}')">
+                                        <i class="bi bi-download me-1"></i>Descargar
+                                    </button>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Additional Information -->
+    <div class="row">
+        <div class="col-12">
+            <div class="card text-bg-dark">
+                <div class="card-header">
+                    <h5 class="mb-0">Información adicional</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <h6 class="text-muted">Detalles técnicos:</h6>
+                            <ul class="list-unstyled">
+                                <li><strong>App ID:</strong> <code>{{ game.app_id }}</code></li>
+                                <li><strong>Title ID:</strong> <code>{{ game.title_id }}</code></li>
+                                {% if game.name and game.name != game.title_id_name %}
+                                <li><strong>Nombre interno:</strong> {{ game.name }}</li>
+                                {% endif %}
+                            </ul>
+                        </div>
+                        <div class="col-md-6">
+                            <h6 class="text-muted">Estado de la biblioteca:</h6>
+                            <ul class="list-unstyled">
+                                <li><strong>Tipo:</strong> {{ game.app_type }}</li>
+                                {% if game.has_base is defined %}
+                                <li><strong>Base:</strong> {{ 'Sí' if game.has_base else 'No' }}</li>
+                                {% endif %}
+                                {% if game.category %}
+                                <li><strong>Categoría:</strong> {{ game.category }}</li>
+                                {% endif %}
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {% else %}
+    <!-- Game Not Found -->
+    <div class="row">
+        <div class="col-12">
+            <div class="card text-bg-dark">
+                <div class="card-body text-center">
+                    <i class="bi bi-exclamation-triangle text-warning" style="font-size: 4rem;"></i>
+                    <h2 class="mt-3">Juego no encontrado</h2>
+                    <p class="text-muted">El juego que buscas no existe en la biblioteca.</p>
+                    <a href="/" class="btn btn-primary">
+                        <i class="bi bi-arrow-left me-1"></i>Volver a la biblioteca
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+</div>
+
+<script>
+function downloadGame(titleId) {
+    // Esta función se puede implementar para manejar la descarga del juego
+    // Por ahora solo mostramos un mensaje
+    alert('Función de descarga no implementada aún para: ' + titleId);
+}
+</script>
+
+{% endblock %}

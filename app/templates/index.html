@@ -187,7 +187,12 @@
         paginatedGames.forEach(function (game) {
             const gameCol = $('<div class="col game-col"></div>').addClass(`col-${12 / getColumnsForCardSize(cardSize)}`);
 
-            const card = $('<div class="card text-bg-dark game-card"></div>');
+            const card = $('<div class="card text-bg-dark game-card" style="cursor: pointer;"></div>');
+            
+            // Hacer la tarjeta clickeable para ir a los detalles
+            card.click(function() {
+                window.location.href = `/game/${game.title_id}`;
+            });
 
             const img = $('<img class="card-img"></img>').attr('src', game.bannerUrl);
             card.append(img);

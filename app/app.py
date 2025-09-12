@@ -446,6 +446,33 @@ def serve_game(id):
     filedir, filename = os.path.split(filepath)
     return send_from_directory(filedir, filename)
 
+@app.route('/game/<title_id>')
+@access_required('shop')
+def game_details(title_id):
+    """Vista de detalles de un juego específico"""
+    # Obtener información del juego desde la biblioteca
+    titles_library = generate_library()
+    game = None
+    
+    # Buscar el juego por title_id
+    for g in titles_library:
+        if g.get('title_id') == title_id.upper():
+            game = g
+            break
+    
+    if not game:
+        return render_template('game_details.html', 
+                             title='Juego no encontrado',
+                             game=None,
+                             admin_account_created=admin_account_created(),
+                             valid_keys=app_settings['titles']['valid_keys'])
+    
+    return render_template('game_details.html',
+                         title=f'Detalles - {game.get("title_id_name", game.get("name", "Sin nombre"))}',
+                         game=game,
+                         admin_account_created=admin_account_created(),
+                         valid_keys=app_settings['titles']['valid_keys'])
+
 
 @debounce(10)
 def post_library_change():
