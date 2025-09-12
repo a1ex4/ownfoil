@@ -512,6 +512,51 @@
         }
     });
 
+    function validatePassword(password) {
+        // Check for problematic special characters
+        const problematicChars = /[@&/?#=]/;
+        if (problematicChars.test(password)) {
+            return {
+                isValid: false,
+                message: "Password contains invalid characters. Please avoid: @ & / ? # ="
+            };
+        }
+        
+        // Check for non-ASCII characters (basic UTF-8 check)
+        try {
+            // Try to encode as UTF-8 and decode as ASCII
+            const asciiPassword = password.split('').map(char => {
+                const code = char.charCodeAt(0);
+                if (code > 127) {
+                    throw new Error('Non-ASCII character found');
+                }
+                return char;
+            }).join('');
+        } catch (e) {
+            return {
+                isValid: false,
+                message: "Password contains non-UTF-8 characters"
+            };
+        }
+        
+        return { isValid: true, message: "" };
+    }
+
+    function showPasswordError(message) {
+        $('#inputNewUserPassword').addClass('is-invalid');
+        let errorDiv = $('#inputNewUserPassword').siblings('.invalid-feedback');
+        if (errorDiv.length === 0) {
+            errorDiv = $('<div class="invalid-feedback"></div>');
+            $('#inputNewUserPassword').after(errorDiv);
+        }
+        errorDiv.text(message);
+    }
+
+    function clearPasswordError() {
+        $('#inputNewUserPassword').removeClass('is-invalid');
+        $('#inputNewUserPassword').siblings('.invalid-feedback').remove();
+    }
+
     function submitNewUser() {
         formOk = true;
         user = getInputVal("inputNewUser")
@@ -534,7 +579,23 @@
             $('#inputNewUserPassword').addClass('is-invalid');
             formOk = false;
         } else {
-            $('#inputNewUserPassword').removeClass('is-invalid');
+            // Validate password for special characters
+            const passwordValidation = validatePassword(password);
+            if (!passwordValidation.isValid) {
+                $('#inputNewUserPassword').addClass('is-invalid');
+                // Show error message
+                let errorDiv = $('#inputNewUserPassword').siblings('.invalid-feedback');
+                if (errorDiv.length === 0) {
+                    errorDiv = $('<div class="invalid-feedback"></div>');
+                    $('#inputNewUserPassword').after(errorDiv);
+                }
+                errorDiv.text(passwordValidation.message);
+                formOk = false;
+            } else {
+                $('#inputNewUserPassword').removeClass('is-invalid');
+                // Remove error message if it exists
+                $('#inputNewUserPassword').siblings('.invalid-feedback').remove();
+            }
         }
 
 
@@ -562,7 +623,28 @@
                         setInputVal("inputNewUser", "")
                         setInputVal("inputNewUserPassword", "")
                         fillUserTable();
+                    } else {
+                        // Handle backend validation errors
+                        if (result['error']) {
+                            $('#inputNewUserPassword').addClass('is-invalid');
+                            let errorDiv = $('#inputNewUserPassword').siblings('.invalid-feedback');
+                            if (errorDiv.length === 0) {
+                                errorDiv = $('<div class="invalid-feedback"></div>');
+                                $('#inputNewUserPassword').after(errorDiv);
+                            }
+                            errorDiv.text(result['error']);
+                        }
                     }
+                },
+                error: function(xhr, status, error) {
+                    console.error('Error creating user:', error);
+                    $('#inputNewUserPassword').addClass('is-invalid');
+                    let errorDiv = $('#inputNewUserPassword').siblings('.invalid-feedback');
+                    if (errorDiv.length === 0) {
+                        errorDiv = $('<div class="invalid-feedback"></div>');
+                        $('#inputNewUserPassword').after(errorDiv);
+                    }
+                    errorDiv.text('Error creating user. Please try again.');
                 }
             });
         }
@@ -686,6 +768,21 @@
     $(document).ready(function () {
         fillUserTable();
         fillLibraryTable();
+
+        // Add real-time password validation
+        $('#inputNewUserPassword').on('input', function() {
+            const password = $(this).val();
+            if (password.length > 0) {
+                const validation = validatePassword(password);
+                if (!validation.isValid) {
+                    showPasswordError(validation.message);
+                } else {
+                    clearPasswordError();
+                }
+            } else {
+                clearPasswordError();
+            }
+        });
 
         $.getJSON("/api/settings", function (result) {
             Object.keys(languages).forEach(function (key) {
