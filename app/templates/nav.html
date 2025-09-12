@@ -2,10 +2,8 @@
     <div class="container-fluid">
         <a class="navbar-brand" href="#">
             <div class="d-flex flex-column">
-                <span class="fw-bold">{{ shop_name }}</span>
-                {% if show_powered_by %}
-                <small class="text-muted" style="font-size: 0.7em; line-height: 1;">powered by Ownfoil</small>
-                {% endif %}
+                <span class="fw-bold" id="nav-shop-name">Ownfoil</span>
+                <small class="text-muted" id="nav-powered-by" style="font-size: 0.7em; line-height: 1; display: none;">powered by Ownfoil</small>
             </div>
         </a>
         <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav"
