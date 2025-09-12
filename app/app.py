@@ -446,17 +446,17 @@ def serve_game(id):
     filedir, filename = os.path.split(filepath)
     return send_from_directory(filedir, filename)
 
-@app.route('/game/<title_id>')
+@app.route('/game/<app_id>')
 @access_required('shop')
-def game_details(title_id):
+def game_details(app_id):
     """Game details view for a specific game"""
     # Get game information from library
     titles_library = generate_library()
     game = None
     
-    # Search for the game by title_id
+    # Search for the game by app_id
     for g in titles_library:
-        if g.get('title_id') == title_id.upper():
+        if g.get('app_id') == app_id.upper():
             game = g
             break
     

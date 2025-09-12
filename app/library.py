@@ -472,7 +472,7 @@ def generate_library():
             continue
             
         # Get title info from titledb
-        info_from_titledb = titles_lib.get_game_info(title['app_id'])
+        info_from_titledb = titles_lib.get_game_info(title['title_id'])
         if info_from_titledb is None:
             logger.warning(f'Info not found for game: {title}')
             continue

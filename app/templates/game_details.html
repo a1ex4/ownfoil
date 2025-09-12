@@ -25,8 +25,8 @@
                             <img src="{{ game.bannerUrl }}" class="img-fluid rounded" alt="{{ game.title_id_name or game.name }}" style="max-width: 100%; max-height: 100%; object-fit: contain; object-position: center;">
                         </div>
                         {% else %}
-                        <div class="d-flex align-items-center justify-content-center w-100 h-100" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 8px;">
-                            <img src="{{ game.iconUrl }}" class="img-fluid" alt="{{ game.title_id_name or game.name }}" style="max-width: 200px; max-height: 200px;">
+                        <div class="w-100 h-100 d-flex align-items-center justify-content-center" style="max-height: 400px;">
+                            <img src="{{ game.bannerUrl or game.iconUrl }}" class="img-fluid rounded" alt="{{ game.title_id_name or game.name }}" style="max-width: 100%; max-height: 100%; object-fit: contain; object-position: center;">
                         </div>
                         {% endif %}
                     </div>
@@ -122,7 +122,7 @@
                                         <i class="bi bi-arrow-left me-1"></i>Back to library
                                     </a>
                                     {% if game.owned %}
-                                    <button class="btn btn-primary" onclick="downloadGame('{{ game.title_id }}')">
+                                    <button class="btn btn-primary" onclick="downloadGame('{{ game.app_id }}')">
                                         <i class="bi bi-download me-1"></i>Download
                                     </button>
                                     {% endif %}
@@ -192,10 +192,10 @@
 </div>
 
 <script>
-function downloadGame(titleId) {
+function downloadGame(appId) {
     // This function can be implemented to handle game download
     // For now we just show a message
-    alert('Download function not implemented yet for: ' + titleId);
+    alert('Download function not implemented yet for: ' + appId);
 }
 </script>
 

@@ -191,7 +191,7 @@
             
             // Hacer la tarjeta clickeable para ir a los detalles
             card.click(function() {
-                window.location.href = `/game/${game.id}`;
+                window.location.href = `/game/${game.app_id}`;
             });
 
             const img = $('<img class="card-img"></img>').attr('src', game.bannerUrl);
