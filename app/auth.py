@@ -13,24 +13,71 @@ logger = logging.getLogger('main')
 
 def validate_password(password):
     """
-    Validate password to ensure it doesn't contain special characters that cause issues with Tinfoil.
-    Rejects characters: @ & / ? # = and any non-UTF-8 characters.
+    Validate password according to Basic Auth specifications and Tinfoil compatibility.
+    Rejects:
+    - Empty passwords
+    - Control characters (null, line breaks, etc.)
+    - Tinfoil forbidden characters: @ & / ? # =
+    - Non-UTF-8 characters
     """
     if not password:
         return False, "Password cannot be empty"
     
-    # Check for problematic special characters
-    problematic_chars = r'[@&/?#=]'
-    if re.search(problematic_chars, password):
+    # Check for control characters (null, line breaks, etc.)
+    # This includes: null (\x00), tab (\x09), newline (\x0A), carriage return (\x0D), and other control chars
+    control_chars = r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]'
+    if re.search(control_chars, password):
+        return False, "Password contains invalid control characters"
+    
+    # Also check for tab, newline, and carriage return explicitly
+    if '\t' in password or '\n' in password or '\r' in password:
+        return False, "Password contains invalid control characters"
+    
+    # Check for Tinfoil forbidden characters
+    tinfoil_forbidden = r'[@&/?#=]'
+    if re.search(tinfoil_forbidden, password):
         return False, "Password contains invalid characters. Please avoid: @ & / ? # ="
     
-    # Check for non-UTF-8 characters (basic ASCII check)
+    # Check for UTF-8 encoding validity
     try:
-        password.encode('utf-8').decode('ascii')
-    except UnicodeDecodeError:
-        return False, "Password contains non-UTF-8 characters"
+        password.encode('utf-8')
+    except UnicodeEncodeError:
+        return False, "Password contains invalid UTF-8 characters"
     
     return True, "Password is valid"
+
+def validate_username(username):
+    """
+    Validate username according to Basic Auth specifications.
+    Rejects:
+    - Empty usernames
+    - Colons (:)
+    - Control characters (null, line breaks, etc.)
+    - Non-UTF-8 characters
+    """
+    if not username:
+        return False, "Username cannot be empty"
+    
+    # Check for colons (not allowed in Basic Auth usernames)
+    if ':' in username:
+        return False, "Username cannot contain colons (:)"
+    
+    # Check for control characters (null, line breaks, etc.)
+    control_chars = r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]'
+    if re.search(control_chars, username):
+        return False, "Username contains invalid control characters"
+    
+    # Also check for tab, newline, and carriage return explicitly
+    if '\t' in username or '\n' in username or '\r' in username:
+        return False, "Username contains invalid control characters"
+    
+    # Check for UTF-8 encoding validity
+    try:
+        username.encode('utf-8')
+    except UnicodeEncodeError:
+        return False, "Username contains invalid UTF-8 characters"
+    
+    return True, "Username is valid"
 
 def admin_account_created():
     return len(User.query.filter_by(admin_access=True).all())
@@ -120,11 +167,17 @@ def create_or_update_user(username, password, admin_access=False, shop_access=Fa
     """
     Create a new user or update an existing user with the given credentials and access rights.
     """
+    # Validate username before creating/updating user
+    is_valid, error_message = validate_username(username)
+    if not is_valid:
+        logger.error(f'Username validation failed for user {username}: {error_message}')
+        raise ValueError(f"Username validation failed: {error_message}")
+    
     # Validate password before creating/updating user
     is_valid, error_message = validate_password(password)
     if not is_valid:
         logger.error(f'Password validation failed for user {username}: {error_message}')
-        raise ValueError(error_message)
+        raise ValueError(f"Password validation failed: {error_message}")
     
     user = User.query.filter_by(user=username).first()
     if user:
@@ -252,6 +305,26 @@ def signup_post():
         shop_access = data['shop_access']
         backup_access = data['backup_access']
 
+    # Validate username first
+    is_valid, error_message = validate_username(username)
+    if not is_valid:
+        logger.error(f'Username validation failed for user {username}: {error_message}')
+        resp = {
+            'success': False,
+            'error': f"Username validation failed: {error_message}"
+        }
+        return jsonify(resp)
+
+    # Validate password
+    is_valid, error_message = validate_password(password)
+    if not is_valid:
+        logger.error(f'Password validation failed for user {username}: {error_message}')
+        resp = {
+            'success': False,
+            'error': f"Password validation failed: {error_message}"
+        }
+        return jsonify(resp)
+
     user = User.query.filter_by(user=username).first() # if this returns a user, then the user already exists in database
     
     if user: # if a user is found, we want to redirect back to signup page so user can try again
@@ -270,16 +343,6 @@ def signup_post():
             'status_code': 400,
             'location': '/settings',
         } 
-        return jsonify(resp)
-
-    # Validate password before creating user
-    is_valid, error_message = validate_password(password)
-    if not is_valid:
-        logger.error(f'Password validation failed for user {username}: {error_message}')
-        resp = {
-            'success': False,
-            'error': error_message
-        }
         return jsonify(resp)
 
     try:
