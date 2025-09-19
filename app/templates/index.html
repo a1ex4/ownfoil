@@ -465,7 +465,7 @@
         $("#textFilter").on("input", function () {
             const attributeText = $(this).val();
             localStorage.setItem('searchTerm', attributeText);
-            filterBySearchText(attributeText);
+            applyFilters();
         });
 
         // Close popovers
@@ -481,21 +481,23 @@
     
     });
 
+    // Shared function to filter games by search term
+    function filterGamesBySearchTerm(gameList, searchTerm) {
+        if (!searchTerm || searchTerm.trim() === "") {
+            return gameList;
+        }
+        const searchText = searchTerm.toLowerCase();
+        return gameList.filter(game =>
+            game.app_id?.toLowerCase().includes(searchText) ||
+            game.title_id?.toLowerCase().includes(searchText) ||
+            game.name?.toLowerCase().includes(searchText) ||
+            game.title_id_name?.toLowerCase().includes(searchText)
+        );
+    }
+
     // Function to filter cards based on input text
     function filterBySearchText(attributeText) {
-        if (!attributeText) {
-            filteredGames = games;
-        } else {
-            searchText = attributeText.toLowerCase();
-
-            filteredGames = games.filter(game =>
-                game.app_id?.toLowerCase().includes(searchText) ||
-                game.title_id?.toLowerCase().includes(searchText) ||
-                game.name?.toLowerCase().includes(searchText) ||
-                game.title_id_name?.toLowerCase().includes(searchText)
-            )
-        }
-
+        filteredGames = filterGamesBySearchTerm(games, attributeText);
         currentPage = 1;
         renderGames();
     }
@@ -571,51 +573,51 @@
 
     // Function to apply filters and show/hide game cards with animation
     function applyFilters() {
+        // Get current search term
+        const searchTerm = $('#textFilter').val();
+        let baseList = filterGamesBySearchTerm(games, searchTerm);
 
         if (activeTypeFilters.size === 0 && activeOwnershipFilters.size === 0 && activeUpdateFilters.size === 0 && activeCompletionFilters.size === 0) {
-            filteredGames = games;
+            filteredGames = baseList;
         } else {
-            gamesFilteredByType = []
-            gamesFilteredByOwnership = []
-            gamesFilteredByUpdate = []
-            gamesFilteredByCompletion = []
+            let gamesFilteredByType = [];
+            let gamesFilteredByOwnership = [];
+            let gamesFilteredByUpdate = [];
+            let gamesFilteredByCompletion = [];
 
-            console.log(activeTypeFilters);
             if (activeTypeFilters.size > 0) {
-                filteredGames = [];
                 for (let type of activeTypeFilters) {
-                    gamesFilteredByType = gamesFilteredByType.concat(games.filter(game => game.app_type === type));
+                    gamesFilteredByType = gamesFilteredByType.concat(baseList.filter(game => game.app_type === type));
                 }
             }
 
             if (activeOwnershipFilters.has("Owned")) {
-                gamesFilteredByOwnership = gamesFilteredByOwnership.concat(games.filter(game => game.owned === true));
+                gamesFilteredByOwnership = gamesFilteredByOwnership.concat(baseList.filter(game => game.owned === true));
             }
             if (activeOwnershipFilters.has("Missing")) {
-                gamesFilteredByOwnership = gamesFilteredByOwnership.concat(games.filter(game => game.owned === false));
+                gamesFilteredByOwnership = gamesFilteredByOwnership.concat(baseList.filter(game => game.owned === false));
             }
 
             if (activeUpdateFilters.has("Up to date")) {
-                gamesFilteredByUpdate = gamesFilteredByUpdate.concat(games.filter(game => game.has_latest_version === true));
+                gamesFilteredByUpdate = gamesFilteredByUpdate.concat(baseList.filter(game => game.has_latest_version === true));
             }
             if (activeUpdateFilters.has("Outdated")) {
-                gamesFilteredByUpdate = gamesFilteredByUpdate.concat(games.filter(game => game.has_latest_version === false));
+                gamesFilteredByUpdate = gamesFilteredByUpdate.concat(baseList.filter(game => game.has_latest_version === false));
             }
-            
+
             if (activeCompletionFilters.has("Complete")) {
-                gamesFilteredByCompletion = gamesFilteredByCompletion.concat(games.filter(game => game.has_all_dlcs === true));
+                gamesFilteredByCompletion = gamesFilteredByCompletion.concat(baseList.filter(game => game.has_all_dlcs === true));
             }
             if (activeCompletionFilters.has("Missing DLC")) {
-                gamesFilteredByCompletion = gamesFilteredByCompletion.concat(games.filter(game => game.has_all_dlcs === false));
+                gamesFilteredByCompletion = gamesFilteredByCompletion.concat(baseList.filter(game => game.has_all_dlcs === false));
             }
 
             // Find common elements
-            filteredGames = findCommonElements(games, gamesFilteredByType, gamesFilteredByOwnership, gamesFilteredByUpdate, gamesFilteredByCompletion);
+            filteredGames = findCommonElements(baseList, gamesFilteredByType, gamesFilteredByOwnership, gamesFilteredByUpdate, gamesFilteredByCompletion);
         }
 
         currentPage = 1;
         renderGames();
-
     }
 
     // $('#btnApplyFilters').on('click', function () {
