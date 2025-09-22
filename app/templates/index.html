@@ -16,61 +16,69 @@
                     </button>
                     <ul class="dropdown-menu">
                         <li>
-                            <label class="form-check-label dropdown-item" for="filterCheckBase">
-                                <input class="form-check-input filterLabel" type="checkbox" value="" id="filterCheckBase">
-                                BASE
-                            </label>
-                        </li>
-                        <li>
-                            <label class="form-check-label dropdown-item" for="filterCheckDlc">
-                                <input class="form-check-input filterLabel" type="checkbox" value="" id="filterCheckDlc">
-                                DLC
-                            </label>
-                        </li>
-                        <li>
-                            <hr class="dropdown-divider">
-                        </li>
-                        <li>
-                            <label class="form-check-label dropdown-item" for="filterCheckOwned">
-                                <input class="form-check-input filterLabel" type="checkbox" value="" id="filterCheckOwned">
-                                Owned
-                            </label>
-                        </li>
-                        <li>
-                            <label class="form-check-label dropdown-item" for="filterCheckMissing">
-                                <input class="form-check-input filterLabel" type="checkbox" value="" id="filterCheckMissing">
-                                Missing
-                            </label>
+                            <div class="dropdown-item">
+                                <div class="btn-group w-100" role="group" aria-label="Type filter">
+                                    <input type="radio" class="btn-check type-toggle" name="typeFilter" id="typeAll" autocomplete="off" checked>
+                                    <label class="btn btn-outline-primary" for="typeAll">All</label>
+
+                                    <input type="radio" class="btn-check type-toggle" name="typeFilter" id="typeBase" autocomplete="off">
+                                    <label class="btn btn-outline-primary" for="typeBase">Base</label>
+
+                                    <input type="radio" class="btn-check type-toggle" name="typeFilter" id="typeDlc" autocomplete="off">
+                                    <label class="btn btn-outline-primary" for="typeDlc">DLC</label>
+                                </div>
+                            </div>
                         </li>
                         <li>
                             <hr class="dropdown-divider">
                         </li>
                         <li>
-                            <label class="form-check-label dropdown-item" for="filterCheckUpToDate">
-                                <input class="form-check-input filterLabel" type="checkbox" value="" id="filterCheckUpToDate">
-                                Up to date
-                            </label>
-                        </li>
-                        <li>
-                            <label class="form-check-label dropdown-item" for="filterCheckMissingUpdate">
-                                <input class="form-check-input filterLabel" type="checkbox" value="" id="filterCheckMissingUpdate">
-                                Missing Update
-                            </label>
+                            <div class="dropdown-item">
+                                <div class="btn-group w-100" role="group" aria-label="Ownership filter">
+                                    <input type="radio" class="btn-check ownership-toggle" name="ownershipFilter" id="ownershipAll" autocomplete="off" checked>
+                                    <label class="btn btn-outline-primary" for="ownershipAll">All</label>
+
+                                    <input type="radio" class="btn-check ownership-toggle" name="ownershipFilter" id="ownershipOwned" autocomplete="off">
+                                    <label class="btn btn-outline-primary" for="ownershipOwned">Owned</label>
+
+                                    <input type="radio" class="btn-check ownership-toggle" name="ownershipFilter" id="ownershipMissing" autocomplete="off">
+                                    <label class="btn btn-outline-primary" for="ownershipMissing">Missing</label>
+                                </div>
+                            </div>
                         </li>
                         <li>
                             <hr class="dropdown-divider">
                         </li>
                         <li>
-                            <label class="form-check-label dropdown-item" for="filterCheckComplete">
-                                <input class="form-check-input filterLabel" type="checkbox" value="" id="filterCheckComplete">
-                                Complete
-                            </label>
+                            <div class="dropdown-item">
+                                <div class="btn-group w-100" role="group" aria-label="Update filter">
+                                    <input type="radio" class="btn-check update-toggle" name="updateFilter" id="updateAll" autocomplete="off" checked>
+                                    <label class="btn btn-outline-primary" for="updateAll">All</label>
+
+                                    <input type="radio" class="btn-check update-toggle" name="updateFilter" id="updateUpToDate" autocomplete="off">
+                                    <label class="btn btn-outline-primary" for="updateUpToDate">Up to date</label>
+
+                                    <input type="radio" class="btn-check update-toggle" name="updateFilter" id="updateMissingUpdate" autocomplete="off">
+                                    <label class="btn btn-outline-primary" for="updateMissingUpdate">Missing Update</label>
+                                </div>
+                            </div>
                         </li>
                         <li>
-                            <label class="form-check-label dropdown-item" for="filterCheckMissingDlc">
-                                <input class="form-check-input filterLabel" type="checkbox" value="" id="filterCheckMissingDlc">
-                                Missing DLC
-                            </label>
+                            <hr class="dropdown-divider">
+                        </li>
+                        <li>
+                            <div class="dropdown-item">
+                                <div class="btn-group w-100" role="group" aria-label="Completion filter">
+                                    <input type="radio" class="btn-check completion-toggle" name="completionFilter" id="completionAll" autocomplete="off" checked>
+                                    <label class="btn btn-outline-primary" for="completionAll">All</label>
+
+                                    <input type="radio" class="btn-check completion-toggle" name="completionFilter" id="completionComplete" autocomplete="off">
+                                    <label class="btn btn-outline-primary" for="completionComplete">Complete</label>
+
+                                    <input type="radio" class="btn-check completion-toggle" name="completionFilter" id="completionMissingDlc" autocomplete="off">
+                                    <label class="btn btn-outline-primary" for="completionMissingDlc">Missing DLC</label>
+                                </div>
+                            </div>
                         </li>
                         <!-- <div class="text-center m-2">
                             <button id="btnApplyFilters" type="button" class="btn btn-primary" style="width: 85%;">Apply
@@ -351,16 +359,35 @@
 
     function saveFiltersToStorage() {
         const filters = {
-            type: [],
-            update: [],
-            completion: []
+            type: "",
+            ownership: "",
+            update: "",
+            completion: ""
         };
-        if ($('#filterCheckBase').is(':checked')) filters.type.push('BASE');
-        if ($('#filterCheckDlc').is(':checked')) filters.type.push('DLC');
-        if ($('#filterCheckUpToDate').is(':checked')) filters.update.push('Up to date');
-        if ($('#filterCheckMissingUpdate').is(':checked')) filters.update.push('Outdated');
-        if ($('#filterCheckComplete').is(':checked')) filters.completion.push('Complete');
-        if ($('#filterCheckMissingDlc').is(':checked')) filters.completion.push('Missing DLC');
+
+        if ($('#typeBase').is(':checked')) {
+            filters.type = 'BASE';
+        } else if ($('#typeDlc').is(':checked')) {
+            filters.type = 'DLC';
+        }
+
+        if ($('#ownershipOwned').is(':checked')) {
+            filters.ownership = 'Owned';
+        } else if ($('#ownershipMissing').is(':checked')) {
+            filters.ownership = 'Missing';
+        }
+
+        if ($('#updateUpToDate').is(':checked')) {
+            filters.update = 'Up to date';
+        } else if ($('#updateMissingUpdate').is(':checked')) {
+            filters.update = 'Outdated';
+        }
+
+        if ($('#completionComplete').is(':checked')) {
+            filters.completion = 'Complete';
+        } else if ($('#completionMissingDlc').is(':checked')) {
+            filters.completion = 'Missing DLC';
+        }
 
         localStorage.setItem('activeFilters', JSON.stringify(filters));
     }
@@ -370,24 +397,27 @@
         if (savedFilters) {
             const filters = JSON.parse(savedFilters);
 
-            $('#filterCheckBase').prop('checked', filters.type?.includes('BASE') || false);
-            $('#filterCheckDlc').prop('checked', filters.type?.includes('DLC') || false);
-            $('#filterCheckUpToDate').prop('checked', filters.update?.includes('Up to date') || false);
-            $('#filterCheckMissingUpdate').prop('checked', filters.update?.includes('Outdated') || false);
-            $('#filterCheckComplete').prop('checked', filters.completion?.includes('Complete') || false);
-            $('#filterCheckMissingDlc').prop('checked', filters.completion?.includes('Missing DLC') || false);
+            $('#typeBase').prop('checked', filters.type === 'BASE');
+            $('#typeDlc').prop('checked', filters.type === 'DLC');
+
+            $('#ownershipOwned').prop('checked', filters.ownership === 'Owned');
+            $('#ownershipMissing').prop('checked', filters.ownership === 'Missing');
+
+            $('#updateUpToDate').prop('checked', filters.update === 'Up to date');
+            $('#updateMissingUpdate').prop('checked', filters.update === 'Outdated');
+
+            $('#completionComplete').prop('checked', filters.completion === 'Complete');
+            $('#completionMissingDlc').prop('checked', filters.completion === 'Missing DLC');
 
             updateFilter();
-            applyFilters();
         }
 
         const savedSearch = localStorage.getItem('searchTerm');
         if (savedSearch) {
             $('#textFilter').val(savedSearch);
-            filterBySearchText(savedSearch);
-        } else {
-            renderGames();
         }
+
+        applyFilters()
     }
 
     $(document).ready(function () {
@@ -453,10 +483,55 @@
             }
             renderGames(games);
         });
-        
-        // Handle filter checkbox
-        $('.filterLabel').click(function() {
-            updateFilter();
+
+        // Handle type filter toggle buttons
+        $('.type-toggle').change(function () {
+            if ($('#typeBase').is(':checked')) {
+                activeTypeFilter = 'BASE';
+            } else if ($('#typeDlc').is(':checked')) {
+                activeTypeFilter = 'DLC';
+            } else {
+                activeTypeFilter = '';
+            }
+            applyFilters();
+            saveFiltersToStorage();
+        });
+
+        // Handle ownership filter toggle buttons
+        $('.ownership-toggle').change(function () {
+            if ($('#ownershipOwned').is(':checked')) {
+                activeOwnershipFilter = 'Owned';
+            } else if ($('#ownershipMissing').is(':checked')) {
+                activeOwnershipFilter = 'Missing';
+            } else {
+                activeOwnershipFilter = '';
+            }
+            applyFilters();
+            saveFiltersToStorage();
+        });
+
+        // Handle update filter toggle buttons
+        $('.update-toggle').change(function () {
+            if ($('#updateUpToDate').is(':checked')) {
+                activeUpdateFilter = 'Up to date';
+            } else if ($('#updateMissingUpdate').is(':checked')) {
+                activeUpdateFilter = 'Outdated';
+            } else {
+                activeUpdateFilter = '';
+            }
+            applyFilters();
+            saveFiltersToStorage();
+        });
+
+        // Handle completion filter toggle buttons
+        $('.completion-toggle').change(function () {
+            if ($('#completionComplete').is(':checked')) {
+                activeCompletionFilter = 'Complete';
+            } else if ($('#completionMissingDlc').is(':checked')) {
+                activeCompletionFilter = 'Missing DLC';
+            } else {
+                activeCompletionFilter = '';
+            }
             applyFilters();
             saveFiltersToStorage();
         });
@@ -503,56 +578,41 @@
     }
 
     // Set to store active filters
-    const activeTypeFilters = new Set();
-    const activeOwnershipFilters = new Set();
-    const activeUpdateFilters = new Set();
-    const activeCompletionFilters = new Set();
+    // Strings to store active filters
+    let activeTypeFilter = "";
+    let activeOwnershipFilter = "";
+    let activeUpdateFilter = "";
+    let activeCompletionFilter = "";
 
     function updateFilter() {
         // $('#filterDropdownBtn').toggle();
-        if ($('#filterCheckBase').is(":checked")) {
-            activeTypeFilters.add('BASE');
+        if ($('#typeBase').is(":checked")) {
+            activeTypeFilter = 'BASE';
+        } else if ($('#typeDlc').is(":checked")) {
+            activeTypeFilter = 'DLC';
         } else {
-            activeTypeFilters.delete('BASE');
+            activeTypeFilter = '';
         }
-        if ($('#filterCheckDlc').is(":checked")) {
-            activeTypeFilters.add('DLC');
+        if ($('#ownershipOwned').is(":checked")) {
+            activeOwnershipFilter = 'Owned';
+        } else if ($('#ownershipMissing').is(":checked")) {
+            activeOwnershipFilter = 'Missing';
         } else {
-            activeTypeFilters.delete('DLC');
+            activeOwnershipFilter = '';
         }
-        if ($('#filterCheckOwned').is(":checked")) {
-            activeOwnershipFilters.add('Owned');
+        if ($('#updateUpToDate').is(":checked")) {
+            activeUpdateFilter = 'Up to date';
+        } else if ($('#updateMissingUpdate').is(":checked")) {
+            activeUpdateFilter = 'Outdated';
         } else {
-            activeOwnershipFilters.delete('Owned');
+            activeUpdateFilter = '';
         }
-        if ($('#filterCheckMissing').is(":checked")) {
-            activeOwnershipFilters.add('Missing');
+        if ($('#completionComplete').is(":checked")) {
+            activeCompletionFilter = 'Complete';
+        } else if ($('#completionMissingDlc').is(":checked")) {
+            activeCompletionFilter = 'Missing DLC';
         } else {
-            activeOwnershipFilters.delete('Missing');
-        }
-        if ($('#filterCheckUpToDate').is(":checked")) {
-            activeUpdateFilters.add('Up to date');
-        }
-        else {
-            activeUpdateFilters.delete('Up to date');
-        }
-        if ($('#filterCheckMissingUpdate').is(":checked")) {
-            activeUpdateFilters.add('Outdated');
-        }
-        else {
-            activeUpdateFilters.delete('Outdated');
-        }
-        if ($('#filterCheckComplete').is(":checked")) {
-            activeCompletionFilters.add('Complete');
-        }
-        else {
-            activeCompletionFilters.delete('Complete');
-        }
-        if ($('#filterCheckMissingDlc').is(":checked")) {
-            activeCompletionFilters.add('Missing DLC');
-        }
-        else {
-            activeCompletionFilters.delete('Missing DLC');
+            activeCompletionFilter = '';
         }
     }
 
@@ -575,47 +635,22 @@
     function applyFilters() {
         // Get current search term
         const searchTerm = $('#textFilter').val();
-        let baseList = filterGamesBySearchTerm(games, searchTerm);
+        let filtered = filterGamesBySearchTerm(games, searchTerm);
 
-        if (activeTypeFilters.size === 0 && activeOwnershipFilters.size === 0 && activeUpdateFilters.size === 0 && activeCompletionFilters.size === 0) {
-            filteredGames = baseList;
-        } else {
-            let gamesFilteredByType = [];
-            let gamesFilteredByOwnership = [];
-            let gamesFilteredByUpdate = [];
-            let gamesFilteredByCompletion = [];
-
-            if (activeTypeFilters.size > 0) {
-                for (let type of activeTypeFilters) {
-                    gamesFilteredByType = gamesFilteredByType.concat(baseList.filter(game => game.app_type === type));
-                }
-            }
-
-            if (activeOwnershipFilters.has("Owned")) {
-                gamesFilteredByOwnership = gamesFilteredByOwnership.concat(baseList.filter(game => game.owned === true));
-            }
-            if (activeOwnershipFilters.has("Missing")) {
-                gamesFilteredByOwnership = gamesFilteredByOwnership.concat(baseList.filter(game => game.owned === false));
-            }
-
-            if (activeUpdateFilters.has("Up to date")) {
-                gamesFilteredByUpdate = gamesFilteredByUpdate.concat(baseList.filter(game => game.has_latest_version === true));
-            }
-            if (activeUpdateFilters.has("Outdated")) {
-                gamesFilteredByUpdate = gamesFilteredByUpdate.concat(baseList.filter(game => game.has_latest_version === false));
-            }
-
-            if (activeCompletionFilters.has("Complete")) {
-                gamesFilteredByCompletion = gamesFilteredByCompletion.concat(baseList.filter(game => game.has_all_dlcs === true));
-            }
-            if (activeCompletionFilters.has("Missing DLC")) {
-                gamesFilteredByCompletion = gamesFilteredByCompletion.concat(baseList.filter(game => game.has_all_dlcs === false));
-            }
-
-            // Find common elements
-            filteredGames = findCommonElements(baseList, gamesFilteredByType, gamesFilteredByOwnership, gamesFilteredByUpdate, gamesFilteredByCompletion);
+        if (activeTypeFilter) {
+            filtered = filtered.filter(game => game.app_type === activeTypeFilter);
+        }
+        if (activeOwnershipFilter) {
+            filtered = filtered.filter(game => activeOwnershipFilter === 'Owned' ? game.owned === true : game.owned === false);
+        }
+        if (activeUpdateFilter) {
+            filtered = filtered.filter(game => activeUpdateFilter === 'Up to date' ? game.has_latest_version === true : game.has_latest_version === false);
+        }
+        if (activeCompletionFilter) {
+            filtered = filtered.filter(game => activeCompletionFilter === 'Complete' ? game.has_all_dlcs === true : game.has_all_dlcs === false);
         }
 
+        filteredGames = filtered;
         currentPage = 1;
         renderGames();
     }
