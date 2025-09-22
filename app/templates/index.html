@@ -556,29 +556,7 @@
     
     });
 
-    // Shared function to filter games by search term
-    function filterGamesBySearchTerm(gameList, searchTerm) {
-        if (!searchTerm || searchTerm.trim() === "") {
-            return gameList;
-        }
-        const searchText = searchTerm.toLowerCase();
-        return gameList.filter(game =>
-            game.app_id?.toLowerCase().includes(searchText) ||
-            game.title_id?.toLowerCase().includes(searchText) ||
-            game.name?.toLowerCase().includes(searchText) ||
-            game.title_id_name?.toLowerCase().includes(searchText)
-        );
-    }
-
-    // Function to filter cards based on input text
-    function filterBySearchText(attributeText) {
-        filteredGames = filterGamesBySearchTerm(games, attributeText);
-        currentPage = 1;
-        renderGames();
-    }
-
-    // Set to store active filters
-    // Strings to store active filters
+    // Store active filters
     let activeTypeFilter = "";
     let activeOwnershipFilter = "";
     let activeUpdateFilter = "";
@@ -653,6 +631,19 @@
         filteredGames = filtered;
         currentPage = 1;
         renderGames();
+    }
+
+    function filterGamesBySearchTerm(gameList, searchTerm) {
+        if (!searchTerm || searchTerm.trim() === "") {
+            return gameList;
+        }
+        const searchText = searchTerm.toLowerCase();
+        return gameList.filter(game =>
+            game.app_id?.toLowerCase().includes(searchText) ||
+            game.title_id?.toLowerCase().includes(searchText) ||
+            game.name?.toLowerCase().includes(searchText) ||
+            game.title_id_name?.toLowerCase().includes(searchText)
+        );
     }
 
     // $('#btnApplyFilters').on('click', function () {
