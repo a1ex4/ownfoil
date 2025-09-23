@@ -95,7 +95,7 @@ p.game-description {
 }
 
 /* hr */
-hr {
+.hr-settings {
     margin-top: 2rem !important;
 }
 
