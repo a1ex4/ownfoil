@@ -103,3 +103,22 @@ hr {
   margin-top: 0 !important;
   margin-bottom: 0 !important;
 }
+
+/* Only highlight the active filter label, not the entire row */
+.btn-check:active + .btn-outline-primary,
+.btn-check:focus + .btn-outline-primary,
+.btn-check:checked + .btn-outline-primary {
+    background-color: #0d6efd;
+    color: #fff;
+    outline: none;
+    border-color: #0d6efd;
+}
+
+.btn-group:focus-within,
+.btn-group:active,
+.btn-group:focus,
+.dropdown-item:active,
+.dropdown-item:focus {
+    background: none;
+    box-shadow: none;
+}
