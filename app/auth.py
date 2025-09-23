@@ -6,9 +6,78 @@ from db import *
 from flask_login import LoginManager
 
 import logging
+import re
 
 # Retrieve main logger
 logger = logging.getLogger('main')
+
+def validate_password(password):
+    """
+    Validate password according to Basic Auth specifications and Tinfoil compatibility.
+    Rejects:
+    - Empty passwords
+    - Control characters (null, line breaks, etc.)
+    - Tinfoil forbidden characters: @ & / ? # =
+    - Non-UTF-8 characters
+    """
+    if not password:
+        return False, "Password cannot be empty"
+    
+    # Check for control characters (null, line breaks, etc.)
+    # This includes: null (\x00), tab (\x09), newline (\x0A), carriage return (\x0D), and other control chars
+    control_chars = r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]'
+    if re.search(control_chars, password):
+        return False, "Password contains invalid control characters"
+    
+    # Also check for tab, newline, and carriage return explicitly
+    if '\t' in password or '\n' in password or '\r' in password:
+        return False, "Password contains invalid control characters"
+    
+    # Check for Tinfoil forbidden characters
+    tinfoil_forbidden = r'[@&/?#=]'
+    if re.search(tinfoil_forbidden, password):
+        return False, "Password contains invalid characters. Please avoid: @ & / ? # ="
+    
+    # Check for UTF-8 encoding validity
+    try:
+        password.encode('utf-8')
+    except UnicodeEncodeError:
+        return False, "Password contains invalid UTF-8 characters"
+    
+    return True, "Password is valid"
+
+def validate_username(username):
+    """
+    Validate username according to Basic Auth specifications.
+    Rejects:
+    - Empty usernames
+    - Colons (:)
+    - Control characters (null, line breaks, etc.)
+    - Non-UTF-8 characters
+    """
+    if not username:
+        return False, "Username cannot be empty"
+    
+    # Check for colons (not allowed in Basic Auth usernames)
+    if ':' in username:
+        return False, "Username cannot contain colons (:)"
+    
+    # Check for control characters (null, line breaks, etc.)
+    control_chars = r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]'
+    if re.search(control_chars, username):
+        return False, "Username contains invalid control characters"
+    
+    # Also check for tab, newline, and carriage return explicitly
+    if '\t' in username or '\n' in username or '\r' in username:
+        return False, "Username contains invalid control characters"
+    
+    # Check for UTF-8 encoding validity
+    try:
+        username.encode('utf-8')
+    except UnicodeEncodeError:
+        return False, "Username contains invalid UTF-8 characters"
+    
+    return True, "Username is valid"
 
 def admin_account_created():
     return len(User.query.filter_by(admin_access=True).all())
@@ -98,6 +167,18 @@ def create_or_update_user(username, password, admin_access=False, shop_access=Fa
     """
     Create a new user or update an existing user with the given credentials and access rights.
     """
+    # Validate username before creating/updating user
+    is_valid, error_message = validate_username(username)
+    if not is_valid:
+        logger.error(f'Username validation failed for user {username}: {error_message}')
+        raise ValueError(f"Username validation failed: {error_message}")
+    
+    # Validate password before creating/updating user
+    is_valid, error_message = validate_password(password)
+    if not is_valid:
+        logger.error(f'Password validation failed for user {username}: {error_message}')
+        raise ValueError(f"Password validation failed: {error_message}")
+    
     user = User.query.filter_by(user=username).first()
     if user:
         logger.info(f'Updating existing user {username}')
@@ -224,12 +305,35 @@ def signup_post():
         shop_access = data['shop_access']
         backup_access = data['backup_access']
 
+    # Validate username first
+    is_valid, error_message = validate_username(username)
+    if not is_valid:
+        logger.error(f'Username validation failed for user {username}: {error_message}')
+        resp = {
+            'success': False,
+            'error': f"Username validation failed: {error_message}"
+        }
+        return jsonify(resp)
+
+    # Validate password
+    is_valid, error_message = validate_password(password)
+    if not is_valid:
+        logger.error(f'Password validation failed for user {username}: {error_message}')
+        resp = {
+            'success': False,
+            'error': f"Password validation failed: {error_message}"
+        }
+        return jsonify(resp)
+
     user = User.query.filter_by(user=username).first() # if this returns a user, then the user already exists in database
     
     if user: # if a user is found, we want to redirect back to signup page so user can try again
         logger.error(f'Error creating user {username}, user already exists')
-        # Todo redirect to incoming page or return success: false
-        return redirect(url_for('auth.signup'))
+        resp = {
+            'success': False,
+            'error': 'User already exists'
+        }
+        return jsonify(resp)
     
     existing_admin = admin_account_created()
     if not existing_admin and not admin_access:
@@ -241,10 +345,17 @@ def signup_post():
         } 
         return jsonify(resp)
 
-    # create a new user with the form data. Hash the password so the plaintext version isn't saved.
-    create_or_update_user(username, password, admin_access, shop_access, backup_access)
-    
-    logger.info(f'Successfully created user {username}.')
+    try:
+        # create a new user with the form data. Hash the password so the plaintext version isn't saved.
+        create_or_update_user(username, password, admin_access, shop_access, backup_access)
+        logger.info(f'Successfully created user {username}.')
+    except ValueError as e:
+        # This should not happen since we validate above, but just in case
+        resp = {
+            'success': False,
+            'error': str(e)
+        }
+        return jsonify(resp)
 
     resp = {
         'success': signup_success
