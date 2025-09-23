@@ -583,6 +583,131 @@
         }
     });
 
+    function validatePassword(password) {
+        if (!password) {
+            return {
+                isValid: false,
+                message: "Password cannot be empty"
+            };
+        }
+        
+        // Check for control characters (null, line breaks, etc.)
+        const controlChars = /[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/;
+        if (controlChars.test(password)) {
+            return {
+                isValid: false,
+                message: "Password contains invalid control characters"
+            };
+        }
+        
+        // Also check for tab, newline, and carriage return explicitly
+        if (password.includes('\t') || password.includes('\n') || password.includes('\r')) {
+            return {
+                isValid: false,
+                message: "Password contains invalid control characters"
+            };
+        }
+        
+        // Check for Tinfoil forbidden characters
+        const tinfoilForbidden = /[@&/?#=]/;
+        if (tinfoilForbidden.test(password)) {
+            return {
+                isValid: false,
+                message: "Password contains invalid characters. Please avoid: @ & / ? # ="
+            };
+        }
+        
+        // Check for UTF-8 encoding validity
+        try {
+            // Try to encode as UTF-8
+            new TextEncoder().encode(password);
+        } catch (e) {
+            return {
+                isValid: false,
+                message: "Password contains invalid UTF-8 characters"
+            };
+        }
+        
+        return { isValid: true, message: "" };
+    }
+
+    function validateUsername(username) {
+        if (!username) {
+            return {
+                isValid: false,
+                message: "Username cannot be empty"
+            };
+        }
+        
+        // Check for colons (not allowed in Basic Auth usernames)
+        if (username.includes(':')) {
+            return {
+                isValid: false,
+                message: "Username cannot contain colons (:)"
+            };
+        }
+        
+        // Check for control characters (null, line breaks, etc.)
+        const controlChars = /[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/;
+        if (controlChars.test(username)) {
+            return {
+                isValid: false,
+                message: "Username contains invalid control characters"
+            };
+        }
+        
+        // Also check for tab, newline, and carriage return explicitly
+        if (username.includes('\t') || username.includes('\n') || username.includes('\r')) {
+            return {
+                isValid: false,
+                message: "Username contains invalid control characters"
+            };
+        }
+        
+        // Check for UTF-8 encoding validity
+        try {
+            // Try to encode as UTF-8
+            new TextEncoder().encode(username);
+        } catch (e) {
+            return {
+                isValid: false,
+                message: "Username contains invalid UTF-8 characters"
+            };
+        }
+        
+        return { isValid: true, message: "" };
+    }
+
+    function showPasswordError(message) {
+        $('#inputNewUserPassword').addClass('is-invalid');
+        let errorDiv = $('#inputNewUserPassword').siblings('.invalid-feedback');
+        if (errorDiv.length === 0) {
+            errorDiv = $('<div class="invalid-feedback"></div>');
+            $('#inputNewUserPassword').after(errorDiv);
+        }
+        errorDiv.text(message);
+    }
+
+    function clearPasswordError() {
+        $('#inputNewUserPassword').removeClass('is-invalid');
+        $('#inputNewUserPassword').siblings('.invalid-feedback').remove();
+    }
+
+    function showUsernameError(message) {
+        $('#inputNewUser').addClass('is-invalid');
+        let errorDiv = $('#inputNewUser').siblings('.invalid-feedback');
+        if (errorDiv.length === 0) {
+            errorDiv = $('<div class="invalid-feedback"></div>');
+            $('#inputNewUser').after(errorDiv);
+        }
+        errorDiv.text(message);
+    }
+
+    function clearUsernameError() {
+        $('#inputNewUser').removeClass('is-invalid');
+        $('#inputNewUser').siblings('.invalid-feedback').remove();
+    }
+
     function submitNewUser() {
         formOk = true;
         user = getInputVal("inputNewUser")
@@ -591,21 +716,25 @@
         backup_access = getCheckboxStatus("checkboxNewUserBackupAccess")
         admin_access = getCheckboxStatus("checkboxNewUserAdminAccess")
 
-        if (user == '') {
-            $('#inputNewUser').addClass('is-invalid');
+        // Validate username
+        const usernameValidation = validateUsername(user);
+        if (!usernameValidation.isValid) {
+            showUsernameError(usernameValidation.message);
             formOk = false;
         } else if (allUsernames.includes(user)) {
-            $('#inputNewUser').addClass('is-invalid');
+            showUsernameError('User already exists');
             formOk = false;
         } else {
-            $('#inputNewUser').removeClass('is-invalid');
+            clearUsernameError();
         }
 
-        if (password == '') {
-            $('#inputNewUserPassword').addClass('is-invalid');
+        // Validate password
+        const passwordValidation = validatePassword(password);
+        if (!passwordValidation.isValid) {
+            showPasswordError(passwordValidation.message);
             formOk = false;
         } else {
-            $('#inputNewUserPassword').removeClass('is-invalid');
+            clearPasswordError();
         }
 
 
@@ -633,7 +762,28 @@
                         setInputVal("inputNewUser", "")
                         setInputVal("inputNewUserPassword", "")
                         fillUserTable();
+                    } else {
+                        // Handle backend validation errors
+                        if (result['error']) {
+                            $('#inputNewUserPassword').addClass('is-invalid');
+                            let errorDiv = $('#inputNewUserPassword').siblings('.invalid-feedback');
+                            if (errorDiv.length === 0) {
+                                errorDiv = $('<div class="invalid-feedback"></div>');
+                                $('#inputNewUserPassword').after(errorDiv);
+                            }
+                            errorDiv.text(result['error']);
+                        }
                     }
+                },
+                error: function(xhr, status, error) {
+                    console.error('Error creating user:', error);
+                    $('#inputNewUserPassword').addClass('is-invalid');
+                    let errorDiv = $('#inputNewUserPassword').siblings('.invalid-feedback');
+                    if (errorDiv.length === 0) {
+                        errorDiv = $('<div class="invalid-feedback"></div>');
+                        $('#inputNewUserPassword').after(errorDiv);
+                    }
+                    errorDiv.text('Error creating user. Please try again.');
                 }
             });
         }
@@ -788,6 +938,30 @@
     $(document).ready(function () {
         fillUserTable();
         fillLibraryTable();
+
+        // Add real-time password validation
+        $('#inputNewUserPassword').on('input', function() {
+            const password = $(this).val();
+            const validation = validatePassword(password);
+            if (!validation.isValid) {
+                showPasswordError(validation.message);
+            } else {
+                clearPasswordError();
+            }
+        });
+
+        // Add real-time username validation
+        $('#inputNewUser').on('input', function() {
+            const username = $(this).val();
+            const validation = validateUsername(username);
+            if (!validation.isValid) {
+                showUsernameError(validation.message);
+            } else if (allUsernames.includes(username)) {
+                showUsernameError('User already exists');
+            } else {
+                clearUsernameError();
+            }
+        });
 
         $.getJSON("/api/settings", function (result) {
             languages = {{ languages_from_titledb | tojson | safe }};
