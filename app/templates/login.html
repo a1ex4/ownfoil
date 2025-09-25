@@ -8,6 +8,7 @@
 
             <div class="card">
                 <div class="card-body">
+                    <h3 class="card-title text-center mb-4" id="shop-name">Ownfoil</h3>
                     <h5 class="card-title">Login</h5>
 
 
@@ -33,4 +34,19 @@
         </div>
     </div>
 </div>
+
+<script>
+// Cargar información de la tienda y actualizar el nombre
+fetch('/api/shop/info')
+    .then(response => response.json())
+    .then(shopInfo => {
+        const shopNameElement = document.getElementById('shop-name');
+        if (shopNameElement && shopInfo.name) {
+            shopNameElement.textContent = shopInfo.name;
+        }
+    })
+    .catch(error => {
+        console.error('Error loading shop info:', error);
+    });
+</script>
 {% endblock %}

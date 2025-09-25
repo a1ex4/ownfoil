@@ -203,7 +203,7 @@ app = create_app()
 
 def tinfoil_error(error):
     return jsonify({
-        'error': error
+        'error': f"[{app_settings['shop']['name']}] {error}"
     })
 
 def tinfoil_access(f):
@@ -266,7 +266,10 @@ def tinfoil_access(f):
     return _tinfoil_access
 
 def access_shop():
-    return render_template('index.html', title='Library', admin_account_created=admin_account_created(), valid_keys=app_settings['titles']['valid_keys'])
+    return render_template('index.html', 
+                         title='Library', 
+                         admin_account_created=admin_account_created(), 
+                         valid_keys=app_settings['titles']['valid_keys'])
 
 @access_required('shop')
 def access_shop_auth():
@@ -278,7 +281,7 @@ def index():
     @tinfoil_access
     def access_tinfoil_shop():
         shop = {
-            "success": app_settings['shop']['motd']
+            "success": f"[{app_settings['shop']['name']}] {app_settings['shop']['motd']}"
         }
         
         if request.verified_host is not None:
@@ -324,6 +327,15 @@ def get_settings_api():
     else:
         settings['shop']['hauth'] = False
     return jsonify(settings)
+
+@app.get('/api/shop/info')
+def get_shop_info():
+    """API pública para obtener información básica de la tienda (nombre, powered by)"""
+    reload_conf()
+    return jsonify({
+        'name': app_settings['shop']['name'],
+        'show_powered_by': app_settings['shop']['show_powered_by']
+    })
 
 @app.post('/api/settings/titles')
 @access_required('admin')
