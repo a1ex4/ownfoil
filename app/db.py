@@ -381,7 +381,7 @@ def get_title(title_id):
 
 def get_title_id_db_id(title_id):
     title = get_title(title_id)
-    return title.id
+    return title.id if title else None
 
 def add_title_id_in_db(title_id):
     existing_title = Titles.query.filter_by(title_id=title_id).first()
@@ -393,7 +393,7 @@ def add_title_id_in_db(title_id):
 
 def get_all_title_apps(title_id):
     title = Titles.query.options(joinedload(Titles.apps)).filter_by(title_id=title_id).first()
-    return[to_dict(a)  for a in title.apps]
+    return [] if title is None else [to_dict(a)  for a in title.apps]
 
 def get_app_by_id_and_version(app_id, app_version):
     """Get app entry for a specific app_id and version (unique due to constraint)"""
