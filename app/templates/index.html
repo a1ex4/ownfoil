@@ -590,29 +590,46 @@
 
     function saveFiltersToStorage() {
         const filters = {
-            type:        getCheckedId('typeFilter'),
-            ownership:   getCheckedId('ownershipFilter'),
-            update:      getCheckedId('updateFilter'),
-            completion:  getCheckedId('completionFilter'),
-            override:    getCheckedId('overrideFilter'),
+            type:        normalizeId(getCheckedId('typeFilter')),
+            ownership:   normalizeId(getCheckedId('ownershipFilter')),
+            update:      normalizeId(getCheckedId('updateFilter')),
+            completion:  normalizeId(getCheckedId('completionFilter')),
+            override:    normalizeId(getCheckedId('overrideFilter')),
         };
         localStorage.setItem('activeFilters', JSON.stringify(filters));
     }
 
+    function normalizeId(raw) {
+        const s = (raw || '').toString().trim();
+        // strip one or more leading '#'
+        return s.replace(/^#+/,'');
+    }
+    
+    function checkIfExistsAndSet(id) {
+        const norm = normalizeId(id);
+        if (!norm) return;
+        const el = document.getElementById(norm);
+        if (el) $(el).prop('checked', true);
+        }
+
     function loadFiltersFromStorage() {
-        const saved = localStorage.getItem('activeFilters');
-        if (saved) {
-            const f = JSON.parse(saved);
-            if (f.type)       $(`#${f.type}`).prop('checked', true);
-            if (f.ownership)  $(`#${f.ownership}`).prop('checked', true);
-            if (f.update)     $(`#${f.update}`).prop('checked', true);
-            if (f.completion) $(`#${f.completion}`).prop('checked', true);
-            if (f.override)   $(`#${f.override}`).prop('checked', true);
+        let f = null;
+        try { f = JSON.parse(localStorage.getItem('activeFilters') || 'null'); }
+        catch { f = null; }
+
+        if (f) {
+            if (f.type)       checkIfExistsAndSet(f.type);
+            if (f.ownership)  checkIfExistsAndSet(f.ownership);
+            if (f.update)     checkIfExistsAndSet(f.update);
+            if (f.completion) checkIfExistsAndSet(f.completion);
+            if (f.override)   checkIfExistsAndSet(f.override);
         }
 
         updateFilter();
+
         const savedSearch = localStorage.getItem('searchTerm');
-        if (savedSearch) $('#textFilter').val(savedSearch);
+        if (typeof savedSearch === 'string') $('#textFilter').val(savedSearch);
+
         applyFilters();
     }
 
