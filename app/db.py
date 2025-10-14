@@ -294,39 +294,12 @@ def get_files_with_identification_from_library(library_id, identification_type):
     return Files.query.filter_by(library_id=library_id, identification_type=identification_type).all()
 
 def get_shop_files():
-    shop_files = []
-    results = Files.query.options(db.joinedload(Files.apps).joinedload(Apps.title)).all()
-
-    def _with_unidentified_suffix(name: str, ext: str) -> str:
-        # safer than .replace(): only strip the final extension
-        if name.endswith(f".{ext}"):
-            base = name[:-(len(ext) + 1)]
-        else:
-            base = name
-        return f"{base} (unidentified).{ext}"
-
-    for file in results:
-        # Get the first app associated with this file using the many-to-many relationship
-        app = file.apps[0] if file.apps else None
-        ext = file.extension.lower() if file.extension else "unknown"
-
-        if app:
-            if file.multicontent or ext.startswith('x'):
-                # multi-content / XC* / XCI case: use title_id bracket
-                title_id = app.title.title_id
-                final_filename = f"[{title_id}].{ext}"
-            else:
-                # single-content NSP/NSZ etc.: use app_id + version bracket
-                final_filename = f"[{app.app_id}][v{app.app_version}].{ext}"
-        else:
-            final_filename = _with_unidentified_suffix(file.filename, ext)
-
-        shop_files.append({
-            "id": file.id,
-            "filename": final_filename,
-            "size": file.size,
-        })
-
+    results = Files.query.all()
+    shop_files = [{
+        "id": file.id,
+        "filename": file.filename,
+        "size": file.size
+    } for file in results]
     return shop_files
 
 def get_libraries():
