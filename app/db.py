@@ -37,7 +37,7 @@ def get_current_db_version():
     
 def create_db_backup():
     current_revision = get_current_db_version()
-    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.datetime.utcnow().strftime("%Y%m%d_%H%M%S")
     backup_filename = f".backup_v{current_revision}_{timestamp}.db"
     backup_path = os.path.join(CONFIG_DIR, backup_filename)
     shutil.copy2(DB_FILE, backup_path)
@@ -79,7 +79,7 @@ class Files(db.Model):
     identification_type = db.Column(db.String)
     identification_error = db.Column(db.String)
     identification_attempts = db.Column(db.Integer, default=0)
-    last_attempt = db.Column(db.DateTime, default=datetime.datetime.now())
+    last_attempt = db.Column(db.DateTime, default=datetime.datetime.utcnow)
 
     library = db.relationship('Libraries', backref=db.backref('files', lazy=True, cascade="all, delete-orphan"))
 
@@ -137,6 +137,64 @@ class User(UserMixin, db.Model):
             return self.has_shop_access()
         elif access == 'backup':
             return self.has_backup_access()
+
+class TitleOverrides(db.Model):
+    __tablename__ = 'title_overrides'
+
+    id = db.Column(db.Integer, primary_key=True)
+
+    # ---- Target selectors (at least one) ----
+    # Prefer title_id (stable); fall back to file_basename for unidentifed items.
+    title_id = db.Column(db.String, index=True, nullable=True)
+    file_basename = db.Column(db.String, index=True, nullable=True)
+
+    # (Optional) If you ever need to target specific app entries
+    app_id = db.Column(db.String, nullable=True, index=True)
+    app_version = db.Column(db.String, nullable=True)
+
+    # ---- Overridable metadata (all optional) ----
+    name = db.Column(db.String(512), nullable=True)
+    publisher = db.Column(db.String(256), nullable=True)
+    region = db.Column(db.String(32), nullable=True)
+    description = db.Column(db.Text, nullable=True)
+    content_type = db.Column(db.String(64), nullable=True)  # e.g., Base/Update/DLC
+    version = db.Column(db.String(64), nullable=True)
+
+    # ---- Artwork: store relative paths under /static/... ----
+    icon_path = db.Column(db.String(1024), nullable=True)    # e.g., "manual-icons/foo.jpg"
+    banner_path = db.Column(db.String(1024), nullable=True)  # e.g., "manual-banners/foo.jpg"
+
+    enabled = db.Column(db.Boolean, nullable=False, default=True)
+
+    created_at   = db.Column(db.DateTime, nullable=False, default=datetime.datetime.utcnow)
+    updated_at   = db.Column(db.DateTime, nullable=False, default=datetime.datetime.utcnow,
+                            onupdate=datetime.datetime.utcnow)
+
+    # One override per target tuple (prevents accidental duplicates)
+    __table_args__ = (
+        db.UniqueConstraint('title_id', 'file_basename', 'app_id', 'app_version',
+                            name='uq_user_overrides_target'),
+    )
+
+    def as_dict(self):
+        return {
+            'id': self.id,
+            'title_id': self.title_id,
+            'file_basename': self.file_basename,
+            'app_id': self.app_id,
+            'app_version': self.app_version,
+            'name': self.name,
+            'publisher': self.publisher,
+            'region': self.region,
+            'description': self.description,
+            'content_type': self.content_type,
+            'version': self.version,
+            'icon_path': self.icon_path,
+            'banner_path': self.banner_path,
+            'enabled': self.enabled,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+        }
 
 def init_db(app):
     with app.app_context():
@@ -239,26 +297,34 @@ def get_shop_files():
     shop_files = []
     results = Files.query.options(db.joinedload(Files.apps).joinedload(Apps.title)).all()
 
-    for file in results:
-        if file.identified:
-            # Get the first app associated with this file using the many-to-many relationship
-            app = file.apps[0] if file.apps else None
-
-            if app:
-                if file.multicontent or file.extension.startswith('x'):
-                    title_id = app.title.title_id
-                    final_filename = f"[{title_id}].{file.extension}"
-                else:
-                    final_filename = f"[{app.app_id}][v{app.app_version}].{file.extension}"
-            else:
-                final_filename = file.filename.replace(f'.{file.extension}', '') + ' (unidentified).' + file.extension
+    def _with_unidentified_suffix(name: str, ext: str) -> str:
+        # safer than .replace(): only strip the final extension
+        if name.endswith(f".{ext}"):
+            base = name[:-(len(ext) + 1)]
         else:
-            final_filename = file.filename.replace(f'.{file.extension}', '') + ' (unidentified).' + file.extension
+            base = name
+        return f"{base} (unidentified).{ext}"
+
+    for file in results:
+        # Get the first app associated with this file using the many-to-many relationship
+        app = file.apps[0] if file.apps else None
+        ext = file.extension.lower() if file.extension else "unknown"
+
+        if app:
+            if file.multicontent or ext.startswith('x'):
+                # multi-content / XC* / XCI case: use title_id bracket
+                title_id = app.title.title_id
+                final_filename = f"[{title_id}].{ext}"
+            else:
+                # single-content NSP/NSZ etc.: use app_id + version bracket
+                final_filename = f"[{app.app_id}][v{app.app_version}].{ext}"
+        else:
+            final_filename = _with_unidentified_suffix(file.filename, ext)
 
         shop_files.append({
             "id": file.id,
             "filename": final_filename,
-            "size": file.size
+            "size": file.size,
         })
 
     return shop_files
@@ -304,7 +370,7 @@ def get_library_file_paths(library_id):
 
 def set_library_scan_time(library_id, scan_time=None):
     library = get_library(library_id)
-    library.last_scan = scan_time or datetime.datetime.now()
+    library.last_scan = scan_time or datetime.datetime.utcnow()
     db.session.commit()
 
 def get_all_titles():
@@ -406,7 +472,7 @@ def delete_files_by_library(library_path):
     errors = []
     try:
         # Find all files with the given library
-        files_to_delete = Files.query.filter_by(library=library_path).all()
+        files_to_delete = Files.query.filter_by(library_id=get_library_id(library_path)).all()
         
         # Update Apps table before deleting files
         total_apps_updated = 0

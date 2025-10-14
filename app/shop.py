@@ -3,8 +3,10 @@ from Crypto.PublicKey import RSA
 from Crypto.Cipher import PKCS1_OAEP
 from Crypto.Hash import SHA256
 from Crypto.Cipher import AES
+from sqlalchemy import func
 import zstandard as zstd
 import random
+import re
 import json
 
 # https://github.com/blawar/tinfoil/blob/master/docs/files/public.key 1160174fa2d7589831f74d149bc403711f3991e4
@@ -17,6 +19,65 @@ INFy4vISmf6L1TgAryJ8l2K4y8QbymyLeMsABdlEI3yRHAm78PSezU57XtQpHW5I
 aupup8Es6bcDZQKkRsbOeR9T74tkj+k44QrjZo8xpX9tlJAKEEmwDlyAg0O5CLX3
 CQIDAQAB
 -----END PUBLIC KEY-----'''
+
+def _version_str_to_int(version_str):
+    """
+    Convert '1.2.3' -> 10203 (A*10000 + B*100 + C).
+    Returns None if not parseable. Tinfoil wants numeric `version`.
+    """
+    if not version_str:
+        return None
+    parts = re.findall(r"\d+", str(version_str))
+    if not parts:
+        return None
+    a, b, c = (int(p) for p in (parts + ["0", "0"])[:3])
+    return a * 10000 + b * 100 + c
+
+def build_titledb_from_overrides():
+    """
+    Build top-level `titledb` from enabled TitleOverrides that have a title_id.
+    Keys are Title IDs; values are Tinfoil fields:
+      id, name, version(int), region, publisher, description, rank(optional)
+    """
+    titledb_map = {}
+
+    rows = db.session.query(TitleOverrides).filter(TitleOverrides.enabled.is_(True)).all()
+    for ov in rows:
+        tid = (ov.title_id or "").strip().upper()
+        if not tid:
+            # titledb only works when we have a TitleID; skip file_basename-only overrides
+            continue
+
+        entry = {"id": tid}
+
+        if ov.name:
+            entry["name"] = ov.name
+        vnum = _version_str_to_int(ov.version)
+        if vnum is not None:
+            entry["version"] = vnum
+        if ov.region:
+            entry["region"] = ov.region
+        if ov.publisher:
+            entry["publisher"] = ov.publisher
+        if ov.description:
+            entry["description"] = ov.description
+
+        total_bytes = (
+            db.session.query(func.sum(Files.size))
+            .join(Files.apps)
+            .join(Apps.title)
+            .filter(Titles.title_id == tid)
+            .scalar()
+        )
+        if total_bytes:
+            entry["size"] = int(total_bytes)
+
+        # Optional: we can include a 'rank' entry, if we choose to add a column later
+        # if ov.rank is not None: entry["rank"] = int(ov.rank)
+
+        titledb_map[tid] = entry
+
+    return titledb_map
 
 def gen_shop_files(db):
     shop_files = []

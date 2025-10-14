@@ -18,6 +18,7 @@ from auth import *
 import titles
 from utils import *
 from library import *
+from overrides import *
 import titledb
 import os
 
@@ -107,6 +108,8 @@ def init():
 
 os.makedirs(CONFIG_DIR, exist_ok=True)
 os.makedirs(DATA_DIR, exist_ok=True)
+os.makedirs(BANNERS_UPLOAD_DIR, exist_ok=True)
+os.makedirs(ICONS_UPLOAD_DIR, exist_ok=True)
 
 ## Global variables
 app_settings = {}
@@ -188,12 +191,17 @@ def create_app():
     # TODO: generate random secret_key
     app.config['SECRET_KEY'] = '8accb915665f11dfa15c2db1a4e8026905f57716'
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+    app.config.setdefault("BANNERS_UPLOAD_DIR", BANNERS_UPLOAD_DIR)
+    app.config.setdefault("BANNERS_UPLOAD_URL_PREFIX", BANNERS_UPLOAD_URL_PREFIX)
+    app.config.setdefault("ICONS_UPLOAD_DIR", ICONS_UPLOAD_DIR)
+    app.config.setdefault("ICONS_UPLOAD_URL_PREFIX", ICONS_UPLOAD_URL_PREFIX)
 
     db.init_app(app)
     migrate.init_app(app, db)
     login_manager.init_app(app)
 
     app.register_blueprint(auth_blueprint)
+    app.register_blueprint(overrides_blueprint)
 
     return app
 
@@ -286,6 +294,7 @@ def index():
             shop["referrer"] = f"https://{request.verified_host}"
             
         shop["files"] = gen_shop_files(db)
+        shop["titledb"] = build_titledb_from_overrides()
 
         if app_settings['shop']['encrypt']:
             return Response(encrypt_shop(shop), mimetype='application/octet-stream')
@@ -440,6 +449,13 @@ def upload_file():
     } 
     return jsonify(resp)
 
+@app.route("/uploads/banners/<path:filename>")
+def uploaded_banners(filename):
+    return send_from_directory(app.config["BANNERS_UPLOAD_DIR"], filename, conditional=True)
+
+@app.route("/uploads/icons/<path:filename>")
+def uploaded_icons(filename):
+    return send_from_directory(app.config["ICONS_UPLOAD_DIR"], filename, conditional=True)
 
 @app.route('/api/titles', methods=['GET'])
 @access_required('shop')
