@@ -127,33 +127,3 @@ def delete_empty_folders(path):
 
         if not deleted_any_in_pass:
             break # No more empty directories found in this pass, so we are done
-
-# match Flask-Login’s pattern of exempting OPTIONS preflight
-EXEMPT_METHODS = frozenset({"OPTIONS"})
-
-def admin_required(func):
-    """
-    Like Flask-Login's login_required, but also requires current_user.is_admin.
-
-    Behavior:
-    - If LOGIN_DISABLED is True or method is in EXEMPT_METHODS (e.g., OPTIONS), bypass.
-    - If not authenticated, call LoginManager.unauthorized() (same as login_required).
-    - If authenticated but not admin, raise 403 Forbidden.
-    - Uses current_app.ensure_sync when available (Flask >= 2.0).
-    """
-    @wraps(func)
-    def decorated_view(*args, **kwargs):
-        if request.method in EXEMPT_METHODS or current_app.config.get("LOGIN_DISABLED"):
-            pass
-        elif not current_user.is_authenticated:
-            return current_app.login_manager.unauthorized()
-        elif not getattr(current_user, "is_admin", False):
-            raise Forbidden("Admin access required.")
-
-        # Flask 2.x compatibility: ensure_sync
-        ensure_sync = getattr(current_app, "ensure_sync", None)
-        if callable(ensure_sync):
-            return ensure_sync(func)(*args, **kwargs)
-        return func(*args, **kwargs)
-
-    return decorated_view

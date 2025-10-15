@@ -143,46 +143,38 @@ class AppOverrides(db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
 
-    # ---- Target selectors (at least one) ----
-    # Prefer title_id (stable); fall back to file_basename for unidentifed items.
-    title_id = db.Column(db.String, index=True, nullable=True)
-    file_basename = db.Column(db.String, index=True, nullable=True)
-
-    # (Optional) If you ever need to target specific app entries
-    app_id = db.Column(db.String, nullable=True, index=True)
-    app_version = db.Column(db.String, nullable=True)
+    # ---- Target selector (per-app) ----
+    app_id = db.Column(db.String(32), index=True, unique=True, nullable=False)
 
     # ---- Overridable metadata (all optional) ----
-    name = db.Column(db.String(512), nullable=True)
+    name         = db.Column(db.String(512), nullable=True)
     release_date = db.Column(db.Date, nullable=True)
-    region = db.Column(db.String(32), nullable=True)
-    description = db.Column(db.Text, nullable=True)
-    content_type = db.Column(db.String(64), nullable=True)  # e.g., Base/Update/DLC
-    version = db.Column(db.String(64), nullable=True)
+    region       = db.Column(db.String(32), nullable=True)
+    description  = db.Column(db.Text, nullable=True)
+    content_type = db.Column(db.String(64), nullable=True)   # e.g., Base/Update/DLC
+    version      = db.Column(db.String(64), nullable=True)
 
-    # ---- Artwork: store relative paths under /static/... ----
-    icon_path = db.Column(db.String(1024), nullable=True)    # e.g., "manual-icons/foo.jpg"
-    banner_path = db.Column(db.String(1024), nullable=True)  # e.g., "manual-banners/foo.jpg"
+    # ---- Artwork (relative paths under /static/...) ----
+    icon_path   = db.Column(db.String(1024), nullable=True)
+    banner_path = db.Column(db.String(1024), nullable=True)
 
-    enabled = db.Column(db.Boolean, nullable=False, default=True)
+    enabled    = db.Column(db.Boolean, nullable=False, default=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.datetime.utcnow)
+    updated_at = db.Column(
+        db.DateTime,
+        nullable=False,
+        default=datetime.datetime.utcnow,
+        onupdate=datetime.datetime.utcnow
+    )
 
-    created_at   = db.Column(db.DateTime, nullable=False, default=datetime.datetime.utcnow)
-    updated_at   = db.Column(db.DateTime, nullable=False, default=datetime.datetime.utcnow,
-                            onupdate=datetime.datetime.utcnow)
-
-    # One override per target tuple (prevents accidental duplicates)
     __table_args__ = (
-        db.UniqueConstraint('title_id', 'file_basename', 'app_id', 'app_version',
-                            name='uq_user_overrides_target'),
+        db.UniqueConstraint('app_id', name='uq_user_overrides_app'),
     )
 
     def as_dict(self):
         return {
             'id': self.id,
-            'title_id': self.title_id,
-            'file_basename': self.file_basename,
             'app_id': self.app_id,
-            'app_version': self.app_version,
             'name': self.name,
             'release_date': self.release_date.isoformat() if self.release_date else None,
             'region': self.region,

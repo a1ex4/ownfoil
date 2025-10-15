@@ -9,7 +9,7 @@
   let ARTWORK_BUSTER = Date.now();
 
   // --- Overrides state ---
-  // key: title_id or "file:<file_basename>"  -> override object
+  // key: app_id  -> override object
   const overridesByKey = new Map();
 
   // external environment (supplied by index.html)
@@ -31,8 +31,7 @@
     return Number.isFinite(n) ? n : null;
   };
   const addBuster = (url) => !url || (/^(data:|blob:)/i.test(url)) ? url : `${url}${url.includes('?') ? '&' : '?'}b=${ARTWORK_BUSTER}`;
-  const keyForGame = (game) =>  game?.title_id || (game?.file_basename ? `file:${game?.file_basename}` : '');
-  const keyForOverride = (ovr) => ovr?.title_id ? ovr.title_id : (ovr?.file_basename ? `file:${ovr.file_basename}` : '');
+  const appKey = (gameOrOverride) => gameOrOverride?.app_id || '';
 
   // Recognition flags (stable against overrides)
   const computeRecognitionFlags = (game) => {
@@ -58,7 +57,7 @@
   const applyOverrideToGamesByKey = (key, games) => {
     if (!key || !Array.isArray(games)) return;
     const ovr = overridesByKey.get(key) || null;
-    const affecteds = games.filter(g => keyForGame(g) === key);
+    const affecteds = games.filter(g => appKey(g) === key);
 
     affecteds.forEach(g => {
       if (!g._orig) {
@@ -88,7 +87,7 @@
   const reapplyAllOverridesToGames = (games) => {
     if (!Array.isArray(games)) return;
     const keys = new Set();
-    games.forEach(g => keys.add(keyForGame(g)));
+    games.forEach(g => keys.add(appKey(g)));
     keys.forEach(k => applyOverrideToGamesByKey(k, games));
   }
 
@@ -103,7 +102,7 @@
       const list = await res.json();
       overridesByKey.clear();
       (Array.isArray(list.items) ? list.items : []).forEach(o => {
-        const k = keyForOverride(o);
+        const k = appKey(o);
         if (k) overridesByKey.set(k, o);
       });
 
@@ -137,7 +136,7 @@
     );
   }
 
-  const getOverrideForGame = (game) => { const k = keyForGame(game); return k ? overridesByKey.get(k) : null; }
+  const getOverrideForGame = (game) => { const k = appKey(game); return k ? overridesByKey.get(k) : null; }
 
   const hasActiveOverride = (game) => { const o = getOverrideForGame(game); return !!(o && o.enabled !== false); }
 
@@ -223,12 +222,12 @@
 
   // ----------------- Modal open / Save / Reset -----------------
   const openOverrideEditor = (game) => {
-    const k = keyForGame(game);
+    if (!window.IS_ADMIN) return;
+    const k = appKey(game);
     const ovr = k ? overridesByKey.get(k) : null;
 
     $('#ovr-id').val(ovr?.id || '');
-    $('#ovr-title-id').val(game.title_id || '');
-    $('#ovr-file-basename').val(game.file_basename || '');
+    $('#ovr-app-id').val(game.app_id || '');
     $('#ovr-file-name').text(game.file_basename || '');
 
     $('#ovr-name').val(ovr?.name ?? (game.title_id_name || game.name || ''));
@@ -344,9 +343,7 @@
 
   const saveOverride = async () => {
     const id = $('#ovr-id').val().trim();
-    const title_id = $('#ovr-title-id').val().trim();
-    const file_basename = $('#ovr-file-basename').val().trim();
-    const key = title_id ? title_id : (file_basename ? ('file:' + file_basename) : '');
+    const app_id = $('#ovr-app-id').val().trim();
 
     const payload = {
       name: trimOrNull($('#ovr-name').val()),
@@ -356,8 +353,7 @@
       release_date: trimOrNull($('#ov-release-date').val()), // yyyy-MM-dd or null
       enabled: true
     };
-    if (title_id) payload.title_id = title_id;
-    else if (file_basename) payload.file_basename = file_basename;
+    if (!id) payload.app_id = app_id;
 
     // Pending artwork (set by change/drop handlers)
     const bannerFileToUpload = $('#ovr-banner-file').data('pending') || null;
@@ -402,19 +398,19 @@
     let saved = null;
     try { saved = await res.json(); } catch {}
 
-    if (saved && (saved.title_id || saved.file_basename)) {
-      const k = keyForOverride(saved);
-      if (k) {
-        overridesByKey.set(k, saved);
+    if (saved && saved.app_id) {
+      const key = appKey(saved);
+      if (key) {
+        overridesByKey.set(key, saved);
         ARTWORK_BUSTER++; // refresh override artwork
-        finishOverrideMutationAndRefresh(k);
+        finishOverrideMutationAndRefresh(key);
         return;
       }
     }
 
     await fetchOverrides();
     ARTWORK_BUSTER++;
-    finishOverrideMutationAndRefresh(key);
+    finishOverrideMutationAndRefresh(app_id);
   }
 
   const resetOverride = async () => {
@@ -429,18 +425,16 @@
       alert('Failed to delete override'); return;
     }
 
-    const title_id = $('#ovr-title-id').val().trim();
-    const file_basename = $('#ovr-file-basename').val().trim();
-    const key = title_id ? title_id : (file_basename ? ('file:' + file_basename) : '');
+    const app_id = $('#ovr-app-id').val().trim();
 
-    if (key && overridesByKey.has(key)) {
-      overridesByKey.delete(key);
+    if (app_id && overridesByKey.has(app_id)) {
+      overridesByKey.delete(app_id);
     } else {
       await fetchOverrides();
     }
 
     ARTWORK_BUSTER++;
-    finishOverrideMutationAndRefresh(key);
+    finishOverrideMutationAndRefresh(app_id);
   }
 
   // ----------------- DOM bindings for modal & DnD -----------------

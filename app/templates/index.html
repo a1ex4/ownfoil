@@ -4,6 +4,7 @@
 <script>
   window.DEFAULT_BANNER = 'https://placehold.co/400x225/png?text=Image+Unavailable';
   window.DEFAULT_ICON   = 'https://placehold.co/400x400/png?text=Image+Unavailable';
+  window.IS_ADMIN = {{ (current_user.is_authenticated and current_user.is_admin) | tojson }};
 </script>
 {% include 'nav.html' %}
 <div id="content" class="container-fluid mt-3">
@@ -169,8 +170,7 @@
       </div>
       <div class="modal-body">
         <input type="hidden" id="ovr-id">
-        <input type="hidden" id="ovr-title-id">
-        <input type="hidden" id="ovr-file-basename">
+        <input type="hidden" id="ovr-app-id">
 
         <div class="mb-2">
           <label class="form-label">Name</label>
@@ -424,14 +424,16 @@
             }
 
             // Override edit pill
-            const hasOvr = window.Overrides.hasActiveOverride(game);
-            const editPill = $('<button type="button" class="override-pill btn rounded-pill game-tag"></button>')
-                .addClass(hasOvr ? 'btn-success' : 'btn-secondary')
-                .attr('title', hasOvr ? 'Metadata override active. Click to edit.' : 'No override. Click to edit metadata.')
-                .html('<i class="bi bi-pencil-square"></i>')
-                .on('click', () => window.Overrides.openOverrideEditor(game));
-            tagsContainer.append(editPill);
-
+            if (window.IS_ADMIN === true || window.IS_ADMIN === 'true') {
+                const hasOvr = window.Overrides.hasActiveOverride(game);
+                const editPill = $('<button type="button" class="override-pill btn rounded-pill game-tag"></button>')
+                    .addClass(hasOvr ? 'btn-success' : 'btn-secondary')
+                    .attr('title', hasOvr ? 'Metadata override active. Click to edit.' : 'No override. Click to edit metadata.')
+                    .html('<i class="bi bi-pencil-square"></i>')
+                    .on('click', () => window.Overrides.openOverrideEditor(game));
+                tagsContainer.append(editPill);
+            }
+            
             cardOverlay.append(tagsContainer);
             card.append(cardOverlay);
             gameCol.append(card);
@@ -626,7 +628,7 @@
 
     function loadFiltersFromStorage() {
         let f = null;
-        try { f = JSON.parse(localStorage.getItem('activeFilters') || 'null'); }
+               try { f = JSON.parse(localStorage.getItem('activeFilters') || 'null'); }
         catch { f = null; }
 
         if (f) {

@@ -1,4 +1,5 @@
 from db import *
+from titles import identify_appId, APP_TYPE_BASE
 from Crypto.PublicKey import RSA
 from Crypto.Cipher import PKCS1_OAEP
 from Crypto.Hash import SHA256
@@ -35,47 +36,75 @@ def _version_str_to_int(version_str):
 
 def build_titledb_from_overrides():
     """
-    Build top-level `titledb` from enabled AppOverrides that have a title_id.
+    Build top-level `titledb` from enabled AppOverrides,
+    but include only BASE app overrides (ignore DLC/Updates).
     Keys are Title IDs; values are Tinfoil fields:
-      id, name, version(int), region, publisher, description, rank(optional)
+      id, name, version(int), region, releaseDate(int yyyymmdd), description, size
     """
     titledb_map = {}
 
-    rows = db.session.query(AppOverrides).filter(AppOverrides.enabled.is_(True)).all()
+    # Build once: map app_id -> title_id
+    app_to_title = {
+        a.app_id: a.title.title_id if getattr(a, "title", None) else a.title_id
+        for a in db.session.query(Apps).all()
+        if a.app_id
+    }
+
+    rows = (
+        db.session.query(AppOverrides)
+        .filter(AppOverrides.enabled.is_(True))
+        .filter(AppOverrides.app_id.isnot(None))
+        .all()
+    )
+
     for ov in rows:
-        tid = (ov.title_id or "").strip().upper()
+        tid = app_to_title.get(ov.app_id)
         if not tid:
-            # titledb only works when we have a TitleID; skip file_basename-only overrides
+            continue
+        tid = tid.strip().upper()
+        app_id = ov.app_id.strip().upper()
+
+        # Identify app type
+        try:
+            _, app_type = identify_appId(app_id)
+        except Exception:
+            app_type = None
+
+        # Skip non-base apps (DLCs, updates, etc.)
+        if app_type != APP_TYPE_BASE or tid != app_id:
             continue
 
         entry = {"id": tid}
 
         if ov.name:
             entry["name"] = ov.name
+
         vnum = _version_str_to_int(ov.version)
         if vnum is not None:
             entry["version"] = vnum
+
         if ov.region:
             entry["region"] = ov.region
+
         if ov.release_date:
             entry["releaseDate"] = int(ov.release_date.strftime("%Y%m%d"))
+
         if ov.description:
             entry["description"] = ov.description
 
+        # Sum all file sizes for this base app_id
         total_bytes = (
             db.session.query(func.sum(Files.size))
             .join(Files.apps)
-            .join(Apps.title)
-            .filter(Titles.title_id == tid)
+            .filter(Apps.app_id == app_id)
             .scalar()
         )
         if total_bytes:
             entry["size"] = int(total_bytes)
 
-        # Optional: we can include a 'rank' entry, if we choose to add a column later
-        # if ov.rank is not None: entry["rank"] = int(ov.rank)
-
-        titledb_map[tid] = entry
+        # Keep the first base override we see for this TitleID
+        if tid not in titledb_map:
+            titledb_map[tid] = entry
 
     return titledb_map
 
