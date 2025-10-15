@@ -94,12 +94,12 @@
   // ----------------- Fetching -----------------
   const fetchOverrides = async () => {
     try {
-      const res = await fetch('/api/overrides', { cache: 'no-store' });
-      if (!res.ok) {
-        overridesByKey.clear();
-        return;
-      }
-      const list = await res.json();
+      const list = await $.get({
+        url: '/api/overrides',
+        dataType: 'json',
+        cache: false
+      });
+
       overridesByKey.clear();
       (Array.isArray(list.items) ? list.items : []).forEach(o => {
         const k = appKey(o);
@@ -107,10 +107,10 @@
       });
 
       if (env.getGames) reapplyAllOverridesToGames(env.getGames());
-    } catch {
+    } catch (e) {
       overridesByKey.clear();
     }
-  }
+  };
 
   // ----------------- Derived artwork URLs -----------------
   const bannerUrlFor = (game) => {
