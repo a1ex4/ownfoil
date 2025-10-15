@@ -8,7 +8,7 @@ from PIL import Image, ImageOps
 from werkzeug.exceptions import BadRequest, Conflict, NotFound
 from werkzeug.utils import secure_filename
 
-from app.auth import access_required
+from auth import access_required
 from db import db, AppOverrides
 
 # --- api blueprint ---------------------------------------------------------
