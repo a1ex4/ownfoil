@@ -90,6 +90,43 @@ p.game-description {
     overflow-y: auto; /* Enable vertical scrolling */
 }
 
+/* Input code form */
+.form-control-code {
+    font-family: monospace;
+    font-size: .875em;
+    background-color: var(--bs-dark-bg-subtle);
+    color: var(--bs-code-color);
+}
+
+/* hr */
+.hr-settings {
+    margin-top: 2rem !important;
+}
+
+
+.h1, .h2, .h3, .h4, .h5, .h6, h1, h2, h3, h4, h5, h6 {
+  margin-top: 0 !important;
+  margin-bottom: 0 !important;
+}
+
+/* Only highlight the active filter label, not the entire row */
+.btn-check:active + .btn-outline-primary,
+.btn-check:focus + .btn-outline-primary,
+.btn-check:checked + .btn-outline-primary {
+    background-color: #0d6efd;
+    color: #fff;
+    outline: none;
+}
+
+.btn-group:focus-within,
+.btn-group:active,
+.btn-group:focus,
+.dropdown-item:active,
+.dropdown-item:focus {
+    background: none;
+    box-shadow: none;
+}
+
 /* Override styles */
 .override-pill {
     font-size: .85rem;
