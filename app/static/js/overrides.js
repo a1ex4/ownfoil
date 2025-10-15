@@ -6,7 +6,9 @@
   const DEFAULT_ICON   = window.DEFAULT_ICON   || 'https://placehold.co/400x400/png?text=Image+Unavailable';
 
   // Forces browsers to refetch updated artwork after saves/resets
-  let ARTWORK_BUSTER = Date.now();
+  const ARTWORK_BUSTERS = new Map(); // app_id -> integer
+  const getBuster = (appId) => ARTWORK_BUSTERS.get(appId) || 0;
+  const bumpBuster = (appId) => ARTWORK_BUSTERS.set(appId, getBuster(appId) + 1);
 
   // --- Overrides state ---
   // key: app_id  -> override object
@@ -30,7 +32,10 @@
     const n = Number(t);
     return Number.isFinite(n) ? n : null;
   };
-  const addBuster = (url) => !url || (/^(data:|blob:)/i.test(url)) ? url : `${url}${url.includes('?') ? '&' : '?'}b=${ARTWORK_BUSTER}`;
+  const addBuster = (url, buster = 0) =>
+    !url || (/^(data:|blob:)/i.test(url)) || !buster
+    ? url
+    : `${url}${url.includes('?') ? '&' : '?'}b=${buster}`;
   const appKey = (gameOrOverride) => gameOrOverride?.app_id || '';
 
   // Recognition flags (stable against overrides)
@@ -117,7 +122,7 @@
   const bannerUrlFor = (game) => {
     const ovr = getOverrideForGame(game);
     const ovrUrl = _trimmedOrNull(ovr?.banner_path) || _trimmedOrNull(ovr?.bannerUrl);
-    if (ovrUrl) return addBuster(ovrUrl);
+    if (ovrUrl) return addBuster(ovrUrl, getBuster(game.app_id));
 
     return (
       _trimmedOrNull(game.banner_path) || _trimmedOrNull(game.bannerUrl) || _trimmedOrNull(game.banner) ||
@@ -128,7 +133,7 @@
   const iconUrlFor = (game) =>{
     const ovr = getOverrideForGame(game);
     const ovrUrl = _trimmedOrNull(ovr?.icon_path) || _trimmedOrNull(ovr?.iconUrl);
-    if (ovrUrl) return addBuster(ovrUrl);
+    if (ovrUrl) return addBuster(ovrUrl, getBuster(game.app_id));
 
     return (
       _trimmedOrNull(game.iconUrl) || _trimmedOrNull(game.icon) ||
@@ -254,8 +259,8 @@
     const gameBanner = game.banner_path || game.bannerUrl || game.banner || null;
     const gameIcon   = game.iconUrl || null;
 
-    let currentBanner = ovrBanner ? addBuster(ovrBanner) : (gameBanner || null);
-    let currentIcon   = ovrIcon   ? addBuster(ovrIcon)   : (gameIcon   || null);
+    let currentBanner = ovrBanner ? addBuster(ovrBanner, getBuster(game.app_id)) : (gameBanner || null);
+    let currentIcon   = ovrIcon   ? addBuster(ovrIcon,   getBuster(game.app_id)) : (gameIcon   || null);
 
     if (!currentBanner && currentIcon) {
       const img = new Image();
@@ -406,14 +411,14 @@
       const key = appKey(res);
       if (key) {
         overridesByKey.set(key, res);
-        ARTWORK_BUSTER++; // refresh override artwork
+        if (needMultipart) bumpBuster(key); // refresh override artwork if changed
         finishOverrideMutationAndRefresh(key);
         return;
       }
     }
 
     await fetchOverrides();
-    ARTWORK_BUSTER++;
+    if (needMultipart) bumpBuster(app_id);
     finishOverrideMutationAndRefresh(app_id);
   }
 
@@ -440,7 +445,7 @@
       await fetchOverrides();
     }
 
-    ARTWORK_BUSTER++;
+    bumpBuster(app_id);
     finishOverrideMutationAndRefresh(app_id);
   }
 
