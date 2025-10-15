@@ -177,8 +177,20 @@
           <input id="ovr-name" type="text" class="form-control" placeholder="Title name">
         </div>
         <div class="mb-2">
-          <label class="form-label">Publisher</label>
-          <input id="ovr-publisher" type="text" class="form-control" placeholder="Publisher">
+          <label for="ov-release-date" class="form-label">Release date</label>
+            <!-- Disable manual typing/pasting to ensure consistent format -->
+            <input
+              type="date"
+              class="form-control"
+              id="ov-release-date"
+              name="release_date"
+              placeholder="yyyy-MM-dd"
+              inputmode="numeric"
+              pattern="\d{4}-\d{2}-\d{2}"
+              onkeydown="return false"
+              onpaste="return false"
+            />
+          <div class="form-text">Click or tap to select a date</div>
         </div>
         <div class="mb-2">
           <label class="form-label">Region</label>

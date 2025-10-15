@@ -2,14 +2,14 @@ import os
 import re
 
 import datetime
-from flask import Blueprint, request, jsonify, current_app
+from flask import abort, Blueprint, request, jsonify, current_app
 from io import BytesIO
 from PIL import Image, ImageOps
 from werkzeug.exceptions import BadRequest, NotFound
 from werkzeug.utils import secure_filename
 
 from utils import admin_required
-from db import db, TitleOverrides
+from db import db, AppOverrides
 
 # --- api blueprint ---------------------------------------------------------
 overrides_blueprint = Blueprint("overrides_blueprint", __name__, url_prefix="/api/overrides")
@@ -26,17 +26,17 @@ def list_overrides():
     app_id = request.args.get("app_id")
     enabled = request.args.get("enabled")
 
-    q = TitleOverrides.query
+    q = AppOverrides.query
     if title_id:
-        q = q.filter(TitleOverrides.title_id == title_id)
+        q = q.filter(AppOverrides.title_id == title_id)
     if file_basename:
-        q = q.filter(TitleOverrides.file_basename == file_basename)
+        q = q.filter(AppOverrides.file_basename == file_basename)
     if app_id:
-        q = q.filter(TitleOverrides.app_id == app_id)
+        q = q.filter(AppOverrides.app_id == app_id)
     if enabled is not None and enabled.strip() != "":
         # treat "true"/"1" as True, "false"/"0" as False
         enabled_bool = enabled.lower() in ("1", "true", "yes", "on")
-        q = q.filter(TitleOverrides.enabled.is_(enabled_bool))
+        q = q.filter(AppOverrides.enabled.is_(enabled_bool))
 
     # simple pagination
     try:
@@ -46,7 +46,7 @@ def list_overrides():
         raise BadRequest("Invalid pagination params.")
 
     rows = (
-        q.order_by(TitleOverrides.updated_at.desc())
+        q.order_by(AppOverrides.updated_at.desc())
         .paginate(page=page, per_page=page_size, error_out=False)
     )
 
@@ -61,10 +61,10 @@ def list_overrides():
 @overrides_blueprint.get("/<int:oid>")
 @admin_required
 def get_override(oid: int):
-    uo = TitleOverrides.query.get(oid)
-    if not uo:
+    ov = AppOverrides.query.get(oid)
+    if not ov:
         raise NotFound("Override not found.")
-    return jsonify(_serialize_with_art_urls(uo))
+    return jsonify(_serialize_with_art_urls(ov))
 
 @overrides_blueprint.post("")
 @admin_required
@@ -80,13 +80,13 @@ def create_override():
     # Empty strings → None for text fields
     for k in (
         "file_basename", "name", "title_id", "app_id",
-        "publisher", "region", "description", "content_type",
-        "version", "icon_path", "banner_path"
+        "region", "description", "content_type",
+        "version", "icon_path", "banner_path", "release_date"
     ):
         if k in data and isinstance(data[k], str) and not data[k].strip():
             data[k] = None
 
-    # Normalize app_version & version (int or None)
+    # Normalize numeric fields
     for key in ("app_version", "version"):
         if key in data:
             try:
@@ -94,122 +94,27 @@ def create_override():
             except (TypeError, ValueError):
                 data[key] = None
 
-    # Require at least one targeting key after normalization
+    # Normalize release_date using helper
+    if "release_date" in data:
+        data["release_date"] = _parse_iso_date_or_none(data["release_date"])
+
+    # Require at least one targeting key
     if not any(data.get(k) for k in ("title_id", "file_basename", "app_id")):
         raise BadRequest("Provide at least one target: title_id, file_basename, or app_id.")
 
     # Create + apply fields
-    uo = TitleOverrides()
-    _apply_fields(uo, data)
+    ov = AppOverrides()
+    _apply_fields(ov, data)
 
-    # Handle explicit removals first
-    if banner_remove and uo.banner_path:
-        _delete_art_file_if_owned(uo.banner_path, "banner")
-        uo.banner_path = None
-    if icon_remove and uo.icon_path:
-        _delete_art_file_if_owned(uo.icon_path, "icon")
-        uo.icon_path = None
+    # Handle explicit removals
+    if banner_remove and ov.banner_path:
+        _delete_art_file_if_owned(ov.banner_path, "banner")
+        ov.banner_path = None
+    if icon_remove and ov.icon_path:
+        _delete_art_file_if_owned(ov.icon_path, "icon")
+        ov.icon_path = None
 
-    title_id_for_assets = uo.title_id or data.get("title_id")
-    if banner_file or icon_file:
-        title_id_for_assets = _safe_title_id_or_badreq(title_id_for_assets)
-    
-    banner_raw = None
-    icon_raw = None
-
-    # Validate & read first (so we can reuse the original bytes)
-    if banner_file:
-        _validate_upload(banner_file)
-        banner_raw = _read_upload_bytes(banner_file)
-
-    if icon_file:
-        _validate_upload(icon_file)
-        icon_raw = _read_upload_bytes(icon_file)
-
-    # 1) Save the *uploaded* assets
-    if banner_raw:
-        uo.banner_path = _save_art_from_bytes(title_id_for_assets, banner_raw, "banner")
-    if icon_raw:
-        uo.icon_path = _save_art_from_bytes(title_id_for_assets, icon_raw, "icon")
-
-    # 2) Only if the counterpart is STILL missing (and not explicitly removed),
-    #    derive it from the same raw bytes we just read.
-    if banner_raw and not uo.icon_path and not icon_remove:
-        uo.icon_path = _save_art_from_bytes(title_id_for_assets, banner_raw, "icon")
-
-    if icon_raw and not uo.banner_path and not banner_remove:
-        uo.banner_path = _save_art_from_bytes(title_id_for_assets, icon_raw, "banner")
-
-    # Timestamps
-    uo.created_at = datetime.datetime.utcnow()
-    uo.updated_at = datetime.datetime.utcnow()
-
-    # Persist
-    db.session.add(uo)
-    try:
-        db.session.commit()
-    except Exception as e:
-        current_app.logger.exception("Create override failed")
-        db.session.rollback()
-        raise BadRequest("Could not create override.")
-
-    return jsonify(_serialize_with_art_urls(uo)), 201
-
-@overrides_blueprint.put("/<int:oid>")
-@admin_required
-def update_override(oid: int):
-    data, banner_file, banner_remove, icon_file, icon_remove = _parse_payload()
-    data = data or {}
-
-    if "enabled" in data and isinstance(data["enabled"], str):
-        data["enabled"] = data["enabled"].lower() in ("1", "true", "yes", "on")
-
-    # Empty strings → None for text fields
-    for k in (
-        "file_basename", "name", "title_id", "app_id",
-        "publisher", "region", "description", "content_type",
-        "version", "icon_path", "banner_path"
-    ):
-        if k in data and isinstance(data[k], str) and not data[k].strip():
-            data[k] = None
-
-    # Normalize app_version (int or None)
-    for key in ("app_version", "version"):
-        if key in data:
-            try:
-                data[key] = int(data[key]) if data[key] not in (None, "") else None
-            except (TypeError, ValueError):
-                data[key] = None
-
-    uo = TitleOverrides.query.get(oid)
-    if not uo:
-        raise NotFound("Override not found.")
-
-    # Capture the old title_id to detect changes.
-    old_title_id = uo.title_id
-
-    # Apply updated fields (title_id may change)
-    _apply_fields(uo, data)
-
-    # Handle explicit removals first
-    if banner_remove and uo.banner_path:
-        _delete_art_file_if_owned(uo.banner_path, "banner")
-        uo.banner_path = None
-    if icon_remove and uo.icon_path:
-        _delete_art_file_if_owned(uo.icon_path, "icon")
-        uo.icon_path = None
-
-    # If title_id changed but there are no new uploads, keep existing owned art in sync by renaming.
-    # (Runs before computing title_id_for_assets; safe even if paths are None.)
-    if old_title_id and uo.title_id and (uo.title_id != old_title_id) and not banner_file and not icon_file:
-        safe_new_tid = _safe_title_id_or_badreq(uo.title_id)
-        if uo.banner_path:
-            uo.banner_path = _rename_owned_art_if_needed(uo.banner_path, "banner", safe_new_tid)
-        if uo.icon_path:
-            uo.icon_path = _rename_owned_art_if_needed(uo.icon_path, "icon", safe_new_tid)
-
-    # New uploads (respect possibly updated title_id)
-    title_id_for_assets = uo.title_id or data.get("title_id")
+    title_id_for_assets = ov.title_id or data.get("title_id")
     if banner_file or icon_file:
         title_id_for_assets = _safe_title_id_or_badreq(title_id_for_assets)
     
@@ -225,44 +130,137 @@ def update_override(oid: int):
         _validate_upload(icon_file)
         icon_raw = _read_upload_bytes(icon_file)
 
-    # 1) Save direct uploads
+    # Save uploaded assets
     if banner_raw:
-        uo.banner_path = _save_art_from_bytes(title_id_for_assets, banner_raw, "banner")
+        ov.banner_path = _save_art_from_bytes(title_id_for_assets, banner_raw, "banner")
     if icon_raw:
-        uo.icon_path = _save_art_from_bytes(title_id_for_assets, icon_raw, "icon")
+        ov.icon_path = _save_art_from_bytes(title_id_for_assets, icon_raw, "icon")
 
-    # 2) Only derive if counterpart is missing *after* direct saves and not removed
-    if banner_raw and not uo.icon_path and not icon_remove:
-        uo.icon_path = _save_art_from_bytes(title_id_for_assets, banner_raw, "icon")
+    # Derive counterpart if missing
+    if banner_raw and not ov.icon_path and not icon_remove:
+        ov.icon_path = _save_art_from_bytes(title_id_for_assets, banner_raw, "icon")
+    if icon_raw and not ov.banner_path and not banner_remove:
+        ov.banner_path = _save_art_from_bytes(title_id_for_assets, icon_raw, "banner")
 
-    if icon_raw and not uo.banner_path and not banner_remove:
-        uo.banner_path = _save_art_from_bytes(title_id_for_assets, icon_raw, "banner")
+    # Timestamps
+    ov.created_at = datetime.datetime.utcnow()
+    ov.updated_at = datetime.datetime.utcnow()
 
-    uo.updated_at = datetime.datetime.utcnow()
+    db.session.add(ov)
+    try:
+        db.session.commit()
+    except Exception:
+        current_app.logger.exception("Create override failed")
+        db.session.rollback()
+        raise BadRequest("Could not create override.")
+
+    return jsonify(_serialize_with_art_urls(ov)), 201
+
+@overrides_blueprint.put("/<int:oid>")
+@admin_required
+def update_override(oid: int):
+    data, banner_file, banner_remove, icon_file, icon_remove = _parse_payload()
+    data = data or {}
+
+    if "enabled" in data and isinstance(data["enabled"], str):
+        data["enabled"] = data["enabled"].lower() in ("1", "true", "yes", "on")
+
+    # Empty strings → None for text fields
+    for k in (
+        "file_basename", "name", "title_id", "app_id",
+        "region", "description", "content_type",
+        "version", "icon_path", "banner_path", "release_date"
+    ):
+        if k in data and isinstance(data[k], str) and not data[k].strip():
+            data[k] = None
+
+    # Normalize numeric fields
+    for key in ("app_version", "version"):
+        if key in data:
+            try:
+                data[key] = int(data[key]) if data[key] not in (None, "") else None
+            except (TypeError, ValueError):
+                data[key] = None
+
+    # Normalize release_date using helper
+    if "release_date" in data:
+        data["release_date"] = _parse_iso_date_or_none(data["release_date"])
+
+    ov = AppOverrides.query.get(oid)
+    if not ov:
+        raise NotFound("Override not found.")
+
+    old_title_id = ov.title_id
+
+    _apply_fields(ov, data)
+
+    # Handle explicit removals
+    if banner_remove and ov.banner_path:
+        _delete_art_file_if_owned(ov.banner_path, "banner")
+        ov.banner_path = None
+    if icon_remove and ov.icon_path:
+        _delete_art_file_if_owned(ov.icon_path, "icon")
+        ov.icon_path = None
+
+    # If title_id changed and no new uploads, rename owned art
+    if old_title_id and ov.title_id and (ov.title_id != old_title_id) and not banner_file and not icon_file:
+        safe_new_tid = _safe_title_id_or_badreq(ov.title_id)
+        if ov.banner_path:
+            ov.banner_path = _rename_owned_art_if_needed(ov.banner_path, "banner", safe_new_tid)
+        if ov.icon_path:
+            ov.icon_path = _rename_owned_art_if_needed(ov.icon_path, "icon", safe_new_tid)
+
+    title_id_for_assets = ov.title_id or data.get("title_id")
+    if banner_file or icon_file:
+        title_id_for_assets = _safe_title_id_or_badreq(title_id_for_assets)
+    
+    banner_raw = None
+    icon_raw = None
+
+    if banner_file:
+        _validate_upload(banner_file)
+        banner_raw = _read_upload_bytes(banner_file)
+    if icon_file:
+        _validate_upload(icon_file)
+        icon_raw = _read_upload_bytes(icon_file)
+
+    # Save uploaded assets
+    if banner_raw:
+        ov.banner_path = _save_art_from_bytes(title_id_for_assets, banner_raw, "banner")
+    if icon_raw:
+        ov.icon_path = _save_art_from_bytes(title_id_for_assets, icon_raw, "icon")
+
+    # Derive counterpart if missing
+    if banner_raw and not ov.icon_path and not icon_remove:
+        ov.icon_path = _save_art_from_bytes(title_id_for_assets, banner_raw, "icon")
+    if icon_raw and not ov.banner_path and not banner_remove:
+        ov.banner_path = _save_art_from_bytes(title_id_for_assets, icon_raw, "banner")
+
+    ov.updated_at = datetime.datetime.utcnow()
 
     try:
         db.session.commit()
-    except Exception as e:
+    except Exception:
         current_app.logger.exception("Update override failed")
         db.session.rollback()
         raise BadRequest("Could not update override.")
 
-    return jsonify(_serialize_with_art_urls(uo))
+    return jsonify(_serialize_with_art_urls(ov))
 
 @overrides_blueprint.delete("/<int:oid>")
 @admin_required
 def delete_override(oid: int):
-    uo = TitleOverrides.query.get(oid)
-    if not uo:
+    ov = AppOverrides.query.get(oid)
+    if not ov:
         raise NotFound("Override not found.")
 
-    if uo.banner_path:
-        _delete_art_file_if_owned(uo.banner_path, "banner")
-    if uo.icon_path:
-        _delete_art_file_if_owned(uo.icon_path, "icon")
+    if ov.banner_path:
+        _delete_art_file_if_owned(ov.banner_path, "banner")
+    if ov.icon_path:
+        _delete_art_file_if_owned(ov.icon_path, "icon")
 
     try:
-        db.session.delete(uo)
+        db.session.delete(ov)
         db.session.commit()
     except Exception as e:
         current_app.logger.exception("Delete override failed")
@@ -312,16 +310,25 @@ def _parse_payload():
     icon_remove   = bool(data.get("icon_remove"))   if isinstance(data, dict) else False
     return data, None, banner_remove, None, icon_remove
 
-def _apply_fields(uo: TitleOverrides, data: dict):
+def _apply_fields(ov: AppOverrides, data: dict):
     # Only touch known fields; ignore extras to keep it robust.
     fields = [
         "title_id", "file_basename", "app_id", "app_version",
-        "name", "publisher", "region", "description", "content_type", "version",
+        "name", "release_date", "region", "description", "content_type", "version",
         "enabled",
     ]
     for f in fields:
         if f in data:
-            setattr(uo, f, data[f])
+            setattr(ov, f, data[f])
+
+def _parse_iso_date_or_none(value):
+    if not value:
+        return None
+    try:
+        # Accept strict yyyy-MM-dd
+        return datetime.date.fromisoformat(value)
+    except Exception:
+        abort(400, description="Invalid release_date. Expected format: yyyy-MM-dd.")
 
 def _allowed_image(filename: str) -> bool:
     if not filename:
@@ -339,8 +346,8 @@ def _ext_for_content_type(content_type: str) -> str:
         return '.webp'
     return ''
 
-def _serialize_with_art_urls(uo: TitleOverrides) -> dict:
-    d = uo.as_dict()
+def _serialize_with_art_urls(ov: AppOverrides) -> dict:
+    d = ov.as_dict()
     # expose camelCase read-only fields the UI expects
     d["bannerUrl"] = d.get("banner_path")
     d["iconUrl"]   = d.get("icon_path")

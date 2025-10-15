@@ -62,7 +62,7 @@
 
     affecteds.forEach(g => {
       if (!g._orig) {
-        g._orig = { name: g.name, title_id_name: g.title_id_name };
+        g._orig = { name: g.name, title_id_name: g.title_id_name, release_date: g.release_date ?? null };
       }
 
       if (ovr && ovr.enabled !== false) {
@@ -70,10 +70,16 @@
           g.title_id_name = ovr.name;
           g.name = ovr.name;
         }
+        // apply release_date if present (allow clearing with null)
+        if ('release_date' in ovr) {
+          g.release_date = ovr.release_date ?? null; // expected yyyy-MM-dd string (server sends ISO)
+        }
       } else {
+        // restore originals
         if (g._orig) {
           g.title_id_name = g._orig.title_id_name;
           g.name = g._orig.name;
+          g.release_date = g._orig.release_date ?? null;
         }
       }
     });
@@ -226,8 +232,8 @@
     $('#ovr-file-name').text(game.file_basename || '');
 
     $('#ovr-name').val(ovr?.name ?? (game.title_id_name || game.name || ''));
-    $('#ovr-publisher').val(ovr?.publisher ?? (game.publisher || ''));
     $('#ovr-region').val(ovr?.region ?? '');
+    $('#ov-release-date').val(ovr?.release_date ?? (game.release_date || ''));
     $('#ovr-description').val(ovr?.description ?? '');
     $('#ovr-version').val(ovr?.version ?? '');
 
@@ -252,80 +258,80 @@
     let currentIcon   = ovrIcon   ? addBuster(ovrIcon)   : (gameIcon   || null);
 
     if (!currentBanner && currentIcon) {
-        const img = new Image();
-        img.crossOrigin = 'anonymous'; // allow CORS-safe draw if server sends ACAO
-        img.onload = () => {
-            const canvas = document.createElement('canvas');
-            canvas.width = 400; canvas.height = 225;
-            const ctx = canvas.getContext('2d');
-            const scale = Math.max(400 / img.width, 225 / img.height);
-            const w = Math.round(img.width * scale);
-            const h = Math.round(img.height * scale);
-            const dx = Math.round((400 - w) / 2);
-            const dy = Math.round((225 - h) / 2);
-            ctx.imageSmoothingEnabled = true;
-            ctx.imageSmoothingQuality = 'high';
-            ctx.clearRect(0, 0, 400, 225);
-            ctx.drawImage(img, dx, dy, w, h);
-            try {
-                const dataURL = canvas.toDataURL('image/png');
-                $('#ovr-banner-preview-img').attr('src', dataURL);
-            } catch (_) {
-                // Canvas tainted (no CORS) — fall back to the original image URL or default
-                $('#ovr-banner-preview-img').attr('src', currentIcon || DEFAULT_BANNER);
-            }
-            $('#ovr-banner-preview-img').data('ovr', !!ovrBanner);
-            $('#ovr-banner-remove').toggle(!!ovrBanner);
-        };
-        img.onerror = () => {
-            $('#ovr-banner-preview-img').attr('src', DEFAULT_BANNER);
-            $('#ovr-banner-preview-img').data('ovr', !!ovrBanner);
-            $('#ovr-banner-remove').toggle(!!ovrBanner);
-        };
-        img.src = currentIcon;
-        } else {
-        $('#ovr-banner-preview-img').attr('src', currentBanner || DEFAULT_BANNER);
+      const img = new Image();
+      img.crossOrigin = 'anonymous'; // allow CORS-safe draw if server sends ACAO
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = 400; canvas.height = 225;
+        const ctx = canvas.getContext('2d');
+        const scale = Math.max(400 / img.width, 225 / img.height);
+        const w = Math.round(img.width * scale);
+        const h = Math.round(img.height * scale);
+        const dx = Math.round((400 - w) / 2);
+        const dy = Math.round((225 - h) / 2);
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+        ctx.clearRect(0, 0, 400, 225);
+        ctx.drawImage(img, dx, dy, w, h);
+        try {
+          const dataURL = canvas.toDataURL('image/png');
+          $('#ovr-banner-preview-img').attr('src', dataURL);
+        } catch (_) {
+          // Canvas tainted (no CORS) — fall back to the original image URL or default
+          $('#ovr-banner-preview-img').attr('src', currentIcon || DEFAULT_BANNER);
+        }
         $('#ovr-banner-preview-img').data('ovr', !!ovrBanner);
         $('#ovr-banner-remove').toggle(!!ovrBanner);
-        }
+      };
+      img.onerror = () => {
+        $('#ovr-banner-preview-img').attr('src', DEFAULT_BANNER);
+        $('#ovr-banner-preview-img').data('ovr', !!ovrBanner);
+        $('#ovr-banner-remove').toggle(!!ovrBanner);
+      };
+      img.src = currentIcon;
+    } else {
+      $('#ovr-banner-preview-img').attr('src', currentBanner || DEFAULT_BANNER);
+      $('#ovr-banner-preview-img').data('ovr', !!ovrBanner);
+      $('#ovr-banner-remove').toggle(!!ovrBanner);
+    }
 
     if (!currentIcon && currentBanner) {
-        const img = new Image();
-        img.crossOrigin = 'anonymous';
-        img.onload = () => {
-            const canvas = document.createElement('canvas');
-            canvas.width = 400; canvas.height = 400;
-            const ctx = canvas.getContext('2d');
-            const scale = Math.max(400 / img.width, 400 / img.height);
-            const w = Math.round(img.width * scale);
-            const h = Math.round(img.height * scale);
-            const dx = Math.round((400 - w) / 2);
-            const dy = Math.round((400 - h) / 2);
-            ctx.imageSmoothingEnabled = true;
-            ctx.imageSmoothingQuality = 'high';
-            ctx.clearRect(0, 0, 400, 400);
-            ctx.drawImage(img, dx, dy, w, h);
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = 400; canvas.height = 400;
+        const ctx = canvas.getContext('2d');
+        const scale = Math.max(400 / img.width, 400 / img.height);
+        const w = Math.round(img.width * scale);
+        const h = Math.round(img.height * scale);
+        const dx = Math.round((400 - w) / 2);
+        const dy = Math.round((400 - h) / 2);
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+        ctx.clearRect(0, 0, 400, 400);
+        ctx.drawImage(img, dx, dy, w, h);
 
-            try {
-                const dataURL = canvas.toDataURL('image/png');
-                $('#ovr-icon-preview-img').attr('src', dataURL);
-            } catch (_) {
-                $('#ovr-icon-preview-img').attr('src', currentBanner || DEFAULT_ICON);
-            }
-            $('#ovr-icon-preview-img').data('ovr', !!ovrIcon);
-            $('#ovr-icon-remove').toggle(!!ovrIcon);
-        };
-        img.onerror = () => {
-            $('#ovr-icon-preview-img').attr('src', DEFAULT_ICON);
-            $('#ovr-icon-preview-img').data('ovr', !!ovrIcon);
-            $('#ovr-icon-remove').toggle(!!ovrIcon);
-        };
-        img.src = currentBanner;
-        } else {
-            $('#ovr-icon-preview-img').attr('src', currentIcon || DEFAULT_ICON);
-            $('#ovr-icon-preview-img').data('ovr', !!ovrIcon);
-            $('#ovr-icon-remove').toggle(!!ovrIcon);
+        try {
+          const dataURL = canvas.toDataURL('image/png');
+          $('#ovr-icon-preview-img').attr('src', dataURL);
+        } catch (_) {
+          $('#ovr-icon-preview-img').attr('src', currentBanner || DEFAULT_ICON);
         }
+        $('#ovr-icon-preview-img').data('ovr', !!ovrIcon);
+        $('#ovr-icon-remove').toggle(!!ovrIcon);
+      };
+      img.onerror = () => {
+        $('#ovr-icon-preview-img').attr('src', DEFAULT_ICON);
+        $('#ovr-icon-preview-img').data('ovr', !!ovrIcon);
+        $('#ovr-icon-remove').toggle(!!ovrIcon);
+      };
+      img.src = currentBanner;
+    } else {
+      $('#ovr-icon-preview-img').attr('src', currentIcon || DEFAULT_ICON);
+      $('#ovr-icon-preview-img').data('ovr', !!ovrIcon);
+      $('#ovr-icon-remove').toggle(!!ovrIcon);
+    }
 
     overrideModal().show();
   }
@@ -344,10 +350,10 @@
 
     const payload = {
       name: trimOrNull($('#ovr-name').val()),
-      publisher: trimOrNull($('#ovr-publisher').val()),
       region: trimOrNull($('#ovr-region').val()),
       description: trimOrNull($('#ovr-description').val()),
       version: numOrNull($('#ovr-version').val()),
+      release_date: trimOrNull($('#ov-release-date').val()), // yyyy-MM-dd or null
       enabled: true
     };
     if (title_id) payload.title_id = title_id;
@@ -441,96 +447,96 @@
   const initDomBindings = () => {
     // Banner change
     $('#ovr-banner-file').off('change').on('change', function () {
-        const f = this.files && this.files[0];
-        $(this).data('pending', f || null);
-        $('#ovr-banner-remove').data('remove', false);
+      const f = this.files && this.files[0];
+      $(this).data('pending', f || null);
+      $('#ovr-banner-remove').data('remove', false);
 
-        if (!f) {
-            const current = $('#ovr-banner-preview-img').data('ovr') ? $('#ovr-banner-preview-img').attr('src') : null;
-            $('#ovr-banner-preview-img').attr('src', current || DEFAULT_BANNER);
-            $('#ovr-banner-remove').toggle(!!$('#ovr-banner-preview-img').data('ovr'));
-            return;
-        }
+      if (!f) {
+        const current = $('#ovr-banner-preview-img').data('ovr') ? $('#ovr-banner-preview-img').attr('src') : null;
+        $('#ovr-banner-preview-img').attr('src', current || DEFAULT_BANNER);
+        $('#ovr-banner-remove').toggle(!!$('#ovr-banner-preview-img').data('ovr'));
+        return;
+      }
 
-        cropBannerFileToDataURL(f, (dataURL) => {
-            if (!dataURL) {
-            const fr = new FileReader();
-            fr.onload = e => {
-                $('#ovr-banner-preview-img').attr('src', e.target.result);
-                $('#ovr-banner-remove').show();
-                $('#ovr-banner-preview-img').removeData('ovr');
-            };
-            fr.readAsDataURL(f);
-            } else {
-            $('#ovr-banner-preview-img').attr('src', dataURL);
+      cropBannerFileToDataURL(f, (dataURL) => {
+        if (!dataURL) {
+          const fr = new FileReader();
+          fr.onload = e => {
+            $('#ovr-banner-preview-img').attr('src', e.target.result);
             $('#ovr-banner-remove').show();
             $('#ovr-banner-preview-img').removeData('ovr');
-            }
+          };
+          fr.readAsDataURL(f);
+        } else {
+          $('#ovr-banner-preview-img').attr('src', dataURL);
+          $('#ovr-banner-remove').show();
+          $('#ovr-banner-preview-img').removeData('ovr');
+        }
 
-            if (!$('#ovr-icon-file').data('pending') && !$('#ovr-icon-preview-img').data('ovr')) {
-            cropIconFileToDataURL(f, (iconURL) => {
-                $('#ovr-icon-preview-img').attr('src', iconURL || DEFAULT_ICON);
-                if (iconURL) { $('#ovr-icon-remove').show(); $('#ovr-icon-preview-img').removeData('ovr'); }
-            });
-            }
-        });
+        if (!$('#ovr-icon-file').data('pending') && !$('#ovr-icon-preview-img').data('ovr')) {
+          cropIconFileToDataURL(f, (iconURL) => {
+            $('#ovr-icon-preview-img').attr('src', iconURL || DEFAULT_ICON);
+            if (iconURL) { $('#ovr-icon-remove').show(); $('#ovr-icon-preview-img').removeData('ovr'); }
+          });
+        }
+      });
     });
 
     // Icon change
     $('#ovr-icon-file').off('change').on('change', function () {
-        const f = this.files && this.files[0];
-        $(this).data('pending', f || null);
-        $('#ovr-icon-remove').data('remove', false);
+      const f = this.files && this.files[0];
+      $(this).data('pending', f || null);
+      $('#ovr-icon-remove').data('remove', false);
 
-        if (!f) {
-            const current = $('#ovr-icon-preview-img').data('ovr') ? $('#ovr-icon-preview-img').attr('src') : null;
-            $('#ovr-icon-preview-img').attr('src', current || DEFAULT_ICON);
-            $('#ovr-icon-remove').toggle(!!$('#ovr-icon-preview-img').data('ovr'));
-            return;
-        }
+      if (!f) {
+        const current = $('#ovr-icon-preview-img').data('ovr') ? $('#ovr-icon-preview-img').attr('src') : null;
+        $('#ovr-icon-preview-img').attr('src', current || DEFAULT_ICON);
+        $('#ovr-icon-remove').toggle(!!$('#ovr-icon-preview-img').data('ovr'));
+        return;
+      }
 
-        cropIconFileToDataURL(f, (dataURL) => {
-            if (!dataURL) {
-            const fr = new FileReader();
-            fr.onload = e => {
-                $('#ovr-icon-preview-img').attr('src', e.target.result);
-                $('#ovr-icon-remove').show();
-                $('#ovr-icon-preview-img').removeData('ovr');
-            };
-            fr.readAsDataURL(f);
-            } else {
-            $('#ovr-icon-preview-img').attr('src', dataURL);
+      cropIconFileToDataURL(f, (dataURL) => {
+        if (!dataURL) {
+          const fr = new FileReader();
+          fr.onload = e => {
+            $('#ovr-icon-preview-img').attr('src', e.target.result);
             $('#ovr-icon-remove').show();
             $('#ovr-icon-preview-img').removeData('ovr');
-            }
+          };
+          fr.readAsDataURL(f);
+        } else {
+          $('#ovr-icon-preview-img').attr('src', dataURL);
+          $('#ovr-icon-remove').show();
+          $('#ovr-icon-preview-img').removeData('ovr');
+        }
 
-            if (!$('#ovr-banner-file').data('pending') && !$('#ovr-banner-preview-img').data('ovr')) {
-            cropBannerFileToDataURL(f, (bannerURL) => {
-                $('#ovr-banner-preview-img').attr('src', bannerURL || DEFAULT_BANNER);
-                if (bannerURL) { $('#ovr-banner-remove').show(); $('#ovr-banner-preview-img').removeData('ovr'); }
-            });
-            }
-        });
+        if (!$('#ovr-banner-file').data('pending') && !$('#ovr-banner-preview-img').data('ovr')) {
+          cropBannerFileToDataURL(f, (bannerURL) => {
+            $('#ovr-banner-preview-img').attr('src', bannerURL || DEFAULT_BANNER);
+            if (bannerURL) { $('#ovr-banner-remove').show(); $('#ovr-banner-preview-img').removeData('ovr'); }
+          });
+        }
+      });
     });
 
     // Remove buttons
     $('#ovr-banner-remove').off('click').on('click', function () {
-        $('#ovr-banner-file').data('pending', null).val('');
-        $(this).data('remove', true);
-        $('#ovr-banner-preview-img').removeData('ovr').attr('src', DEFAULT_BANNER);
-        $(this).hide();
+      $('#ovr-banner-file').data('pending', null).val('');
+      $(this).data('remove', true);
+      $('#ovr-banner-preview-img').removeData('ovr').attr('src', DEFAULT_BANNER);
+      $(this).hide();
     });
 
     $('#ovr-icon-remove').off('click').on('click', function () {
-        $('#ovr-icon-file').data('pending', null).val('');
-        $(this).data('remove', true);
-        $('#ovr-icon-preview-img').removeData('ovr').attr('src', DEFAULT_ICON);
-        $(this).hide();
+      $('#ovr-icon-file').data('pending', null).val('');
+      $(this).data('remove', true);
+      $('#ovr-icon-preview-img').removeData('ovr').attr('src', DEFAULT_ICON);
+      $(this).hide();
     });
 
     // Pencil/edit buttons
     $('#ovr-banner-edit').off('click').on('click', () => $('#ovr-banner-file').trigger('click'));
-$('#ovr-icon-edit').off('click').on('click',   () => $('#ovr-icon-file').trigger('click'));
+    $('#ovr-icon-edit').off('click').on('click',   () => $('#ovr-icon-file').trigger('click'));
 
     // Drag & drop zones
     const wireDropZone = ($wrap, kind) => {
@@ -593,6 +599,9 @@ $('#ovr-icon-edit').off('click').on('click',   () => $('#ovr-icon-file').trigger
     // Save/Reset buttons
     $('#btn-save-override').off('click').on('click', saveOverride);
     $('#btn-reset-override').off('click').on('click', resetOverride);
+
+    // Date picker (if supported)
+    $('#ov-release-date').off('click').on('click', function() { this.showPicker?.(); });
   }
 
   // ----------------- Public API -----------------

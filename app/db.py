@@ -138,8 +138,8 @@ class User(UserMixin, db.Model):
         elif access == 'backup':
             return self.has_backup_access()
 
-class TitleOverrides(db.Model):
-    __tablename__ = 'title_overrides'
+class AppOverrides(db.Model):
+    __tablename__ = 'app_overrides'
 
     id = db.Column(db.Integer, primary_key=True)
 
@@ -154,7 +154,7 @@ class TitleOverrides(db.Model):
 
     # ---- Overridable metadata (all optional) ----
     name = db.Column(db.String(512), nullable=True)
-    publisher = db.Column(db.String(256), nullable=True)
+    release_date = db.Column(db.Date, nullable=True)
     region = db.Column(db.String(32), nullable=True)
     description = db.Column(db.Text, nullable=True)
     content_type = db.Column(db.String(64), nullable=True)  # e.g., Base/Update/DLC
@@ -184,7 +184,7 @@ class TitleOverrides(db.Model):
             'app_id': self.app_id,
             'app_version': self.app_version,
             'name': self.name,
-            'publisher': self.publisher,
+            'release_date': self.release_date.isoformat() if self.release_date else None,
             'region': self.region,
             'description': self.description,
             'content_type': self.content_type,

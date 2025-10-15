@@ -35,13 +35,13 @@ def _version_str_to_int(version_str):
 
 def build_titledb_from_overrides():
     """
-    Build top-level `titledb` from enabled TitleOverrides that have a title_id.
+    Build top-level `titledb` from enabled AppOverrides that have a title_id.
     Keys are Title IDs; values are Tinfoil fields:
       id, name, version(int), region, publisher, description, rank(optional)
     """
     titledb_map = {}
 
-    rows = db.session.query(TitleOverrides).filter(TitleOverrides.enabled.is_(True)).all()
+    rows = db.session.query(AppOverrides).filter(AppOverrides.enabled.is_(True)).all()
     for ov in rows:
         tid = (ov.title_id or "").strip().upper()
         if not tid:
@@ -57,8 +57,8 @@ def build_titledb_from_overrides():
             entry["version"] = vnum
         if ov.region:
             entry["region"] = ov.region
-        if ov.publisher:
-            entry["publisher"] = ov.publisher
+        if ov.release_date:
+            entry["releaseDate"] = int(ov.release_date.strftime("%Y%m%d"))
         if ov.description:
             entry["description"] = ov.description
 
