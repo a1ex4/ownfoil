@@ -13,10 +13,10 @@ def upgrade():
         "app_overrides",
         sa.Column("id", sa.Integer(), primary_key=True),
 
-        # ---- Target selector (per-app only) ----
-        sa.Column("app_id", sa.String(length=32), nullable=False),
+        # One-to-one to apps.id; cascade on delete
+        sa.Column("app_fk", sa.Integer(), sa.ForeignKey("apps.id", ondelete="CASCADE"), nullable=False, unique=True),
 
-        # ---- Overridable metadata ----
+        # Overridable metadata
         sa.Column("name", sa.String(length=512), nullable=True),
         sa.Column("release_date", sa.Date(), nullable=True),
         sa.Column("region", sa.String(length=32), nullable=True),
@@ -24,7 +24,7 @@ def upgrade():
         sa.Column("content_type", sa.String(length=64), nullable=True),
         sa.Column("version", sa.String(length=64), nullable=True),
 
-        # ---- Artwork ----
+        # Artwork
         sa.Column("icon_path", sa.String(length=1024), nullable=True),
         sa.Column("banner_path", sa.String(length=1024), nullable=True),
 
@@ -33,12 +33,10 @@ def upgrade():
         sa.Column("updated_at", sa.DateTime(), nullable=False),
     )
 
-    # ---- Indexes and constraints ----
-    op.create_index("ix_app_overrides_app_id", "app_overrides", ["app_id"])
-    op.create_unique_constraint("uq_user_overrides_app", "app_overrides", ["app_id"])
+    # Helpful index for joins/filters
+    op.create_index("ix_app_overrides_app_fk", "app_overrides", ["app_fk"])
 
 
 def downgrade():
-    op.drop_constraint("uq_user_overrides_app", "app_overrides", type_="unique")
-    op.drop_index("ix_app_overrides_app_id", table_name="app_overrides")
+    op.drop_index("ix_app_overrides_app_fk", table_name="app_overrides")
     op.drop_table("app_overrides")

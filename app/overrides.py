@@ -2,14 +2,16 @@ import os
 import re
 
 import datetime
+from typing import Optional
 from flask import abort, Blueprint, request, jsonify, current_app
 from io import BytesIO
 from PIL import Image, ImageOps
+from sqlalchemy.orm import joinedload
 from werkzeug.exceptions import BadRequest, Conflict, NotFound
 from werkzeug.utils import secure_filename
 
 from auth import access_required
-from db import db, AppOverrides
+from db import db, Apps, AppOverrides
 
 # --- api blueprint ---------------------------------------------------------
 overrides_blueprint = Blueprint("overrides_blueprint", __name__, url_prefix="/api/overrides")
@@ -23,9 +25,10 @@ def list_overrides():
     app_id = request.args.get("app_id")
     enabled = request.args.get("enabled")
 
-    q = AppOverrides.query
+    q = AppOverrides.query.options(joinedload(AppOverrides.app))
     if app_id:
-        q = q.filter(AppOverrides.app_id == app_id)
+        q = q.join(Apps).filter(Apps.app_id == app_id)
+
     if enabled is not None and str(enabled).strip() != "":
         # treat "true"/"1" as True, "false"/"0" as False
         enabled_bool = str(enabled).lower() in ("1", "true", "yes", "on")
@@ -55,7 +58,7 @@ def list_overrides():
 @overrides_blueprint.get("/<int:oid>")
 @access_required('shop')
 def get_override(oid: int):
-    ov = AppOverrides.query.get(oid)
+    ov = AppOverrides.query.options(joinedload(AppOverrides.app)).get(oid)
     if not ov:
         raise NotFound("Override not found.")
     return jsonify(_serialize_with_art_urls(ov))
@@ -66,36 +69,37 @@ def get_override(oid: int):
 def create_override():
     data, banner_file, banner_remove, icon_file, icon_remove = _parse_payload()
 
-    # Defaults / normalization
     data = data or {}
     data.setdefault("enabled", True)
     if "enabled" in data and isinstance(data["enabled"], str):
         data["enabled"] = data["enabled"].lower() in ("1", "true", "yes", "on")
 
     # Empty strings → None for text fields
-    for k in (
-        "app_id", "name", "region", "description", "content_type",
-        "version", "icon_path", "banner_path", "release_date"
-    ):
+    for k in ("app_id", "name", "region", "description", "content_type", "version", "icon_path", "banner_path", "release_date"):
         if k in data and isinstance(data[k], str) and not data[k].strip():
             data[k] = None
 
-    # Normalize release_date using helper
+    # Normalize release_date
     if "release_date" in data:
         data["release_date"] = _parse_iso_date_or_none(data["release_date"])
 
-    # Require app_id (per-app model). app_id is READ-ONLY after creation.
+    # Require app_id (string) from client, but we map it to the Apps row
     app_id = data.get("app_id")
     if not app_id:
         raise BadRequest("app_id is required.")
     _safe_app_id_or_badreq(app_id)
 
-    # Enforce uniqueness early (friendlier than DB error)
-    if AppOverrides.query.filter_by(app_id=app_id).first():
-        raise Conflict("An override already exists for this app_id.")
+    # Find the target Apps row for this logical app_id
+    app = _resolve_target_app(app_id)
+    if not app:
+        raise NotFound("No app found for the given app_id.")
 
-    # Create + apply fields (app_id set explicitly, not through _apply_fields)
-    ov = AppOverrides(app_id=app_id)
+    # Enforce uniqueness per Apps row (one override per app_fk)
+    if AppOverrides.query.filter_by(app_fk=app.id).first():
+        raise Conflict("An override already exists for this app.")
+
+    # Create the override attached to the Apps row
+    ov = AppOverrides(app=app)
     _apply_fields(ov, data)
 
     # Handle explicit removals
@@ -118,17 +122,17 @@ def create_override():
         _validate_upload(icon_file)
         icon_raw = _read_upload_bytes(icon_file)
 
-    # Save uploaded assets
+    # Save uploaded assets (use the related app's app_id for filenames)
     if banner_raw:
-        ov.banner_path = _save_art_from_bytes(app_id, banner_raw, "banner")
+        ov.banner_path = _save_art_from_bytes(ov.app.app_id, banner_raw, "banner")
     if icon_raw:
-        ov.icon_path = _save_art_from_bytes(app_id, icon_raw, "icon")
+        ov.icon_path = _save_art_from_bytes(ov.app.app_id, icon_raw, "icon")
 
     # Derive counterpart if missing
     if banner_raw and not ov.icon_path and not icon_remove:
-        ov.icon_path = _save_art_from_bytes(app_id, banner_raw, "icon")
+        ov.icon_path = _save_art_from_bytes(ov.app.app_id, banner_raw, "icon")
     if icon_raw and not ov.banner_path and not banner_remove:
-        ov.banner_path = _save_art_from_bytes(app_id, icon_raw, "banner")
+        ov.banner_path = _save_art_from_bytes(ov.app.app_id, icon_raw, "banner")
 
     # Timestamps
     ov.created_at = datetime.datetime.utcnow()
@@ -197,15 +201,15 @@ def update_override(oid: int):
 
     # Save uploaded assets
     if banner_raw:
-        ov.banner_path = _save_art_from_bytes(ov.app_id, banner_raw, "banner")
+        ov.banner_path = _save_art_from_bytes(ov.app.app_id, banner_raw, "banner")
     if icon_raw:
-        ov.icon_path = _save_art_from_bytes(ov.app_id, icon_raw, "icon")
+        ov.icon_path  = _save_art_from_bytes(ov.app.app_id, icon_raw, "icon")
 
     # Derive counterpart if missing
     if banner_raw and not ov.icon_path and not icon_remove:
-        ov.icon_path = _save_art_from_bytes(ov.app_id, banner_raw, "icon")
+        ov.icon_path = _save_art_from_bytes(ov.app.app_id, banner_raw, "icon")
     if icon_raw and not ov.banner_path and not banner_remove:
-        ov.banner_path = _save_art_from_bytes(ov.app_id, icon_raw, "banner")
+        ov.banner_path = _save_art_from_bytes(ov.app.app_id, icon_raw, "banner")
 
     ov.updated_at = datetime.datetime.utcnow()
 
@@ -464,3 +468,52 @@ def _safe_app_id_or_badreq(app_id: str) -> str:
     if not app_id or not _SAFE_APP_ID.match(app_id):
         raise BadRequest("Invalid app_id. Expected 16 or 32 hex characters.")
     return app_id
+
+def _resolve_target_app(app_id: str) -> Optional[Apps]:
+    """
+    Map a logical 16/32-hex app_id string to a specific Apps row.
+    Preference order:
+      1) highest numeric app_version among rows with app_type == 'BASE'
+      2) otherwise highest numeric app_version among all rows
+    """
+    q = Apps.query.filter(Apps.app_id == app_id)
+
+    # Try BASE first
+    base_rows = q.filter((Apps.app_type == 'BASE') | (Apps.app_type == 'Base')).all()
+    if base_rows:
+        def v(a): 
+            try: return int(a.app_version or 0)
+            except: return 0
+        return sorted(base_rows, key=v, reverse=True)[0]
+
+    rows = q.all()
+    if not rows:
+        return None
+
+    def v2(a):
+        try: return int(a.app_version or 0)
+        except: return 0
+    return sorted(rows, key=v2, reverse=True)[0]
+
+def garbage_collect_orphan_art_files():
+    """Remove banner/icon files on disk with no matching override record."""
+    from db import AppOverrides  # local import to avoid cycles
+    existing = {ov.banner_path for ov in AppOverrides.query if ov.banner_path} \
+             | {ov.icon_path for ov in AppOverrides.query if ov.icon_path}
+
+    for kind, dir_key, url_key in (
+        ("banner", "BANNERS_UPLOAD_DIR", "BANNERS_UPLOAD_URL_PREFIX"),
+        ("icon",   "ICONS_UPLOAD_DIR",  "ICONS_UPLOAD_URL_PREFIX"),
+    ):
+        upload_dir = current_app.config.get(dir_key) or current_app.config["BANNERS_UPLOAD_DIR"]
+        if not os.path.isdir(upload_dir):
+            continue
+        for name in os.listdir(upload_dir):
+            if not name.endswith((".png", ".jpg", ".jpeg", ".webp")):
+                continue
+            path = os.path.join(upload_dir, name)
+            url_prefix = (current_app.config.get(url_key) or current_app.config["BANNERS_UPLOAD_URL_PREFIX"]).rstrip("/")
+            public = f"{url_prefix}/{name}"
+            if public not in existing:
+                try: os.remove(path)
+                except OSError: pass

@@ -43,26 +43,27 @@ def build_titledb_from_overrides():
     """
     titledb_map = {}
 
-    # Build once: map app_id -> title_id
-    app_to_title = {
-        a.app_id: a.title.title_id if getattr(a, "title", None) else a.title_id
-        for a in db.session.query(Apps).all()
-        if a.app_id
-    }
-
+    # Preload joins to avoid N+1 queries
     rows = (
         db.session.query(AppOverrides)
+        .options(
+            db.joinedload(AppOverrides.app).joinedload(Apps.title),
+            db.joinedload(AppOverrides.app).joinedload(Apps.files),
+        )
         .filter(AppOverrides.enabled.is_(True))
-        .filter(AppOverrides.app_id.isnot(None))
         .all()
     )
 
     for ov in rows:
-        tid = app_to_title.get(ov.app_id)
-        if not tid:
+        if not ov.app:      # safety: should exist due to FK, but be defensive
             continue
+        app = ov.app
+        tid = (app.title.title_id if getattr(app, "title", None) else app.title_id)
+        if not tid or not app.app_id:
+            continue
+
         tid = tid.strip().upper()
-        app_id = ov.app_id.strip().upper()
+        app_id = app.app_id.strip().upper()
 
         # Identify app type
         try:
@@ -71,6 +72,7 @@ def build_titledb_from_overrides():
             app_type = None
 
         # Skip non-base apps (DLCs, updates, etc.)
+        # For base apps, TitleID == AppID by definition
         if app_type != APP_TYPE_BASE or tid != app_id:
             continue
 
@@ -92,7 +94,7 @@ def build_titledb_from_overrides():
         if ov.description:
             entry["description"] = ov.description
 
-        # Sum all file sizes for this base app_id
+        # Sum all file sizes for this base app_id (do it in SQL)
         total_bytes = (
             db.session.query(func.sum(Files.size))
             .join(Files.apps)
@@ -108,7 +110,7 @@ def build_titledb_from_overrides():
 
     return titledb_map
 
-def gen_shop_files(db):
+def gen_shop_files():
     shop_files = []
     files = get_shop_files()
     for file in files:

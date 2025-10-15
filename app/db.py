@@ -107,6 +107,15 @@ class Apps(db.Model):
     title = db.relationship('Titles', backref=db.backref('apps', lazy=True, cascade="all, delete-orphan"))
     files = db.relationship('Files', secondary=app_files, backref=db.backref('apps', lazy='select'))
 
+    # One-to-one: delete override automatically when an Apps row is deleted
+    overrides = db.relationship(
+        'AppOverrides',
+        back_populates='app',
+        cascade='all, delete-orphan',
+        passive_deletes=True,
+        uselist=False
+    )
+
     __table_args__ = (db.UniqueConstraint('app_id', 'app_version', name='uq_apps_app_version'),)
 
 class User(UserMixin, db.Model):
@@ -143,8 +152,11 @@ class AppOverrides(db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
 
-    # ---- Target selector (per-app) ----
-    app_id = db.Column(db.String(32), index=True, unique=True, nullable=False)
+    # FK to Apps (one-to-one), cascades on app delete
+    app_fk = db.Column(db.Integer, db.ForeignKey('apps.id', ondelete='CASCADE'), nullable=False, unique=True)
+
+    # ORM relationship
+    app = db.relationship('Apps', back_populates='overrides')
 
     # ---- Overridable metadata (all optional) ----
     name         = db.Column(db.String(512), nullable=True)
@@ -167,14 +179,15 @@ class AppOverrides(db.Model):
         onupdate=datetime.datetime.utcnow
     )
 
-    __table_args__ = (
-        db.UniqueConstraint('app_id', name='uq_user_overrides_app'),
-    )
+    # Convenience: expose app.app_id without storing it in this table
+    @property
+    def app_id(self):
+        return self.app.app_id if self.app else None
 
     def as_dict(self):
         return {
             'id': self.id,
-            'app_id': self.app_id,
+            'app_id': self.app.app_id if self.app else None,
             'name': self.name,
             'release_date': self.release_date.isoformat() if self.release_date else None,
             'region': self.region,
@@ -209,6 +222,9 @@ def init_db(app):
                     create_db_backup()
                     upgrade()
                     logger.info("Database migration applied successfully.")
+
+        # cleanup any stale banner/icon files
+        _garbage_collect_orphaned_art()
 
 def file_exists_in_db(filepath):
     return Files.query.filter_by(filepath=filepath).first() is not None
@@ -312,6 +328,7 @@ def delete_library(library):
         
     db.session.delete(get_library(library))
     db.session.commit()
+    _garbage_collect_orphaned_art()
 
 def get_library(library_id):
     return Libraries.query.filter_by(id=library_id).first()
@@ -430,6 +447,10 @@ def remove_titles_without_owned_apps():
             db.session.delete(title)
             titles_removed += 1
     
+    if titles_removed:
+        db.session.commit()
+        _garbage_collect_orphaned_art()
+    
     return titles_removed
 
 def delete_files_by_library(library_path):
@@ -451,6 +472,7 @@ def delete_files_by_library(library_path):
         
         # Commit the changes
         db.session.commit()
+        _garbage_collect_orphaned_art()
         
         logger.info(f"All entries with library '{library_path}' have been deleted.")
         if total_apps_updated > 0:
@@ -481,7 +503,8 @@ def delete_file_by_filepath(filepath):
         
         # Commit the changes
         db.session.commit()
-        
+        _garbage_collect_orphaned_art()
+
         logger.info(f"File '{filepath}' removed from database.")
         if apps_updated > 0:
             logger.info(f"Updated {apps_updated} app entries to remove file reference.")
@@ -520,6 +543,7 @@ def remove_missing_files_from_db():
             Files.query.filter(Files.id.in_(ids_to_delete)).delete(synchronize_session=False)
             
             db.session.commit()
+            _garbage_collect_orphaned_art()
             
             logger.info(f"Deleted {len(ids_to_delete)} files from the database.")
             if total_apps_updated > 0:
@@ -531,3 +555,13 @@ def remove_missing_files_from_db():
     except Exception as e:
         db.session.rollback()  # Rollback in case of an error
         logger.error(f"An error occurred while removing missing files: {str(e)}")
+
+def _garbage_collect_orphaned_art():
+    try:
+        # Local import to avoid circular imports
+        from overrides import garbage_collect_orphan_art_files
+        from flask import current_app
+        with current_app.app_context():
+            garbage_collect_orphan_art_files()
+    except Exception as e:
+        logger.warning(f"GC of orphan override art failed: {e}")

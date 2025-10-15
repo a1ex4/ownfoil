@@ -293,8 +293,12 @@ def index():
             # enforce client side host verification
             shop["referrer"] = f"https://{request.verified_host}"
             
-        shop["files"] = gen_shop_files(db)
-        shop["titledb"] = build_titledb_from_overrides()
+        shop["files"] = gen_shop_files()
+        try:
+            shop["titledb"] = build_titledb_from_overrides()
+        except Exception as e:
+            logger.error(f"Error building titledb from overrides: {e}")
+            shop["titledb"] = {}
 
         if app_settings['shop']['encrypt']:
             return Response(encrypt_shop(shop), mimetype='application/octet-stream')
