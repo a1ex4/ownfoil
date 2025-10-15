@@ -94,8 +94,9 @@
   // ----------------- Fetching -----------------
   const fetchOverrides = async () => {
     try {
-      const list = await $.get({
+      const list = await $.ajax({
         url: '/api/overrides',
+        method: 'GET',
         dataType: 'json',
         cache: false
       });
@@ -380,12 +381,18 @@
     }
 
     let res;
-    try { res = await fetch(url, options); }
-    catch { alert('Failed to save override'); return; }
-
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      alert(err?.error || 'Failed to save override');
+    const isFD = (options.body instanceof FormData);
+    try {
+      res = await $.ajax({
+        url,
+        type: options.method,
+        data: isFD ? options.body : options.body, // FormData or JSON string
+        processData: false,                        // keep raw body for both cases
+        contentType: isFD ? false : 'application/json',
+        dataType: 'json'                           // parse JSON response for you
+      });
+    } catch {
+      alert('Failed to save override');
       return;
     }
 
@@ -395,13 +402,10 @@
     $('#ovr-banner-remove').data('remove', false);
     $('#ovr-icon-remove').data('remove', false);
 
-    let saved = null;
-    try { saved = await res.json(); } catch {}
-
-    if (saved && saved.app_id) {
-      const key = appKey(saved);
+    if (res && res.app_id) {
+      const key = appKey(res);
       if (key) {
-        overridesByKey.set(key, saved);
+        overridesByKey.set(key, res);
         ARTWORK_BUSTER++; // refresh override artwork
         finishOverrideMutationAndRefresh(key);
         return;
@@ -419,10 +423,13 @@
     if (!confirm('Remove override and revert to default metadata?')) return;
 
     try {
-      const res = await fetch(`/api/overrides/${id}`, { method: 'DELETE' });
-      if (!res.ok) { alert('Failed to delete override'); return; }
+      await $.ajax({
+        url: `/api/overrides/${id}`,
+        method: 'DELETE'
+      });
     } catch {
-      alert('Failed to delete override'); return;
+      alert('Failed to delete override');
+      return;
     }
 
     const app_id = $('#ovr-app-id').val().trim();
