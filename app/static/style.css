@@ -103,7 +103,6 @@ p.game-description {
     margin-top: 2rem !important;
 }
 
-
 .h1, .h2, .h3, .h4, .h5, .h6, h1, h2, h3, h4, h5, h6 {
   margin-top: 0 !important;
   margin-bottom: 0 !important;
@@ -116,6 +115,7 @@ p.game-description {
     background-color: #0d6efd;
     color: #fff;
     outline: none;
+    border-color: #0d6efd;
 }
 
 .btn-group:focus-within,
