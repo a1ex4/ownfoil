@@ -1,5 +1,5 @@
 from db import *
-from titles import identify_appId, APP_TYPE_BASE
+from titles import APP_TYPE_BASE, identify_appId, load_titledb, unload_titledb
 from Crypto.PublicKey import RSA
 from Crypto.Cipher import PKCS1_OAEP
 from Crypto.Hash import SHA256
@@ -42,72 +42,78 @@ def build_titledb_from_overrides():
       id, name, version(int), region, releaseDate(int yyyymmdd), description, size
     """
     titledb_map = {}
-
-    # Preload joins to avoid N+1 queries
-    rows = (
-        db.session.query(AppOverrides)
-        .options(
-            db.joinedload(AppOverrides.app).joinedload(Apps.title),
-            db.joinedload(AppOverrides.app).joinedload(Apps.files),
+    try:
+        # load title db to identify apps from cnmts db
+        load_titledb()
+        
+        # Preload joins to avoid N+1 queries
+        rows = (
+            db.session.query(AppOverrides)
+            .options(
+                db.joinedload(AppOverrides.app).joinedload(Apps.title),
+                db.joinedload(AppOverrides.app).joinedload(Apps.files),
+            )
+            .filter(AppOverrides.enabled.is_(True))
+            .all()
         )
-        .filter(AppOverrides.enabled.is_(True))
-        .all()
-    )
 
-    for ov in rows:
-        if not ov.app:      # safety: should exist due to FK, but be defensive
-            continue
-        app = ov.app
-        tid = (app.title.title_id if getattr(app, "title", None) else app.title_id)
-        if not tid or not app.app_id:
-            continue
+        for ov in rows:
+            if not ov.app:      # safety: should exist due to FK, but be defensive
+                continue
 
-        tid = tid.strip().upper()
-        app_id = app.app_id.strip().upper()
+            app = ov.app
+            tid = (app.title.title_id if getattr(app, "title", None) else app.title_id)
+            if not tid or not app.app_id:
+                continue
 
-        # Identify app type
-        try:
-            _, app_type = identify_appId(app_id)
-        except Exception:
-            app_type = None
+            tid = tid.strip().upper()
+            app_id = app.app_id.strip().upper()
 
-        # Skip non-base apps (DLCs, updates, etc.)
-        # For base apps, TitleID == AppID by definition
-        if app_type != APP_TYPE_BASE or tid != app_id:
-            continue
+            # Identify app type
+            try:
+                _, app_type = identify_appId(app_id)
+            except Exception:
+                app_type = None
 
-        entry = {"id": tid}
+            # Skip non-base apps (DLCs, updates, etc.)
+            # For base apps, TitleID == AppID by definition
+            if app_type != APP_TYPE_BASE or tid != app_id:
+                continue
 
-        if ov.name:
-            entry["name"] = ov.name
+            entry = {"id": tid}
 
-        vnum = _version_str_to_int(ov.version)
-        if vnum is not None:
-            entry["version"] = vnum
+            if ov.name:
+                entry["name"] = ov.name
 
-        if ov.region:
-            entry["region"] = ov.region
+            vnum = _version_str_to_int(ov.version)
+            if vnum is not None:
+                entry["version"] = vnum
 
-        if ov.release_date:
-            entry["releaseDate"] = int(ov.release_date.strftime("%Y%m%d"))
+            if ov.region:
+                entry["region"] = ov.region
 
-        if ov.description:
-            entry["description"] = ov.description
+            if ov.release_date:
+                entry["releaseDate"] = int(ov.release_date.strftime("%Y%m%d"))
 
-        # Sum all file sizes for this base app_id (do it in SQL)
-        total_bytes = (
-            db.session.query(func.sum(Files.size))
-            .join(Files.apps)
-            .filter(Apps.app_id == app_id)
-            .scalar()
-        )
-        if total_bytes:
-            entry["size"] = int(total_bytes)
+            if ov.description:
+                entry["description"] = ov.description
 
-        # Keep the first base override we see for this TitleID
-        if tid not in titledb_map:
-            titledb_map[tid] = entry
+            # Sum all file sizes for this base app_id (do it in SQL)
+            total_bytes = (
+                db.session.query(func.sum(Files.size))
+                .join(Files.apps)
+                .filter(Apps.app_id == app_id)
+                .scalar()
+            )
+            if total_bytes:
+                entry["size"] = int(total_bytes)
 
+            # Keep the first base override we see for this TitleID
+            if tid not in titledb_map:
+                titledb_map[tid] = entry
+    finally:
+        unload_titledb()
+    
     return titledb_map
 
 def gen_shop_files():
