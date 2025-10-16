@@ -2,8 +2,9 @@
 
 {% block content %}
 <script>
-  window.DEFAULT_BANNER = 'https://placehold.co/400x225/png?text=Image+Unavailable';
-  window.DEFAULT_ICON   = 'https://placehold.co/400x400/png?text=Image+Unavailable';
+  window.PLACEHOLDER_TEXT = {{ (placeholder_text | default('Image Unavailable', true)) | tojson }};
+  window.DEFAULT_BANNER = `https://placehold.co/400x225/png?text=${encodeURIComponent(window.PLACEHOLDER_TEXT)}`;
+  window.DEFAULT_ICON   = `https://placehold.co/400x400/png?text=${encodeURIComponent(window.PLACEHOLDER_TEXT)}`;
   window.IS_ADMIN = {{ (current_user.is_authenticated and current_user.is_admin) | tojson }};
 </script>
 {% include 'nav.html' %}

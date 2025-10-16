@@ -2,8 +2,10 @@
 // Attaches as window.Overrides (no module build needed).
 
 (() => {
-  const DEFAULT_BANNER = window.DEFAULT_BANNER || 'https://placehold.co/400x225/png?text=Image+Unavailable';
-  const DEFAULT_ICON   = window.DEFAULT_ICON   || 'https://placehold.co/400x400/png?text=Image+Unavailable';
+  const PLACEHOLDER_TEXT = () => window.PLACEHOLDER_TEXT || "Image Unavailable";
+  const DEFAULT_BANNER = () => window.DEFAULT_BANNER || `https://placehold.co/400x225/png?text=${encodeURIComponent(PLACEHOLDER_TEXT())}`;
+  const DEFAULT_ICON   = () => window.DEFAULT_ICON   || `https://placehold.co/400x400/png?text=${encodeURIComponent(PLACEHOLDER_TEXT())}`;
+
 
   // Forces browsers to refetch updated artwork after saves/resets
   const ARTWORK_BUSTERS = new Map(); // app_id -> integer
@@ -126,7 +128,7 @@
 
     return (
       _trimmedOrNull(game.banner_path) || _trimmedOrNull(game.bannerUrl) || _trimmedOrNull(game.banner) ||
-      _trimmedOrNull(game.iconUrl) || DEFAULT_BANNER
+      _trimmedOrNull(game.iconUrl) || DEFAULT_BANNER()
     );
   }
 
@@ -138,7 +140,7 @@
     return (
       _trimmedOrNull(game.iconUrl) || _trimmedOrNull(game.icon) ||
       _trimmedOrNull(game.banner_path) || _trimmedOrNull(game.bannerUrl) || _trimmedOrNull(game.banner) ||
-      DEFAULT_ICON
+      DEFAULT_ICON()
     );
   }
 
@@ -283,19 +285,19 @@
           $('#ovr-banner-preview-img').attr('src', dataURL);
         } catch (_) {
           // Canvas tainted (no CORS) — fall back to the original image URL or default
-          $('#ovr-banner-preview-img').attr('src', currentIcon || DEFAULT_BANNER);
+          $('#ovr-banner-preview-img').attr('src', currentIcon || DEFAULT_BANNER());
         }
         $('#ovr-banner-preview-img').data('ovr', !!ovrBanner);
         $('#ovr-banner-remove').toggle(!!ovrBanner);
       };
       img.onerror = () => {
-        $('#ovr-banner-preview-img').attr('src', DEFAULT_BANNER);
+        $('#ovr-banner-preview-img').attr('src', DEFAULT_BANNER());
         $('#ovr-banner-preview-img').data('ovr', !!ovrBanner);
         $('#ovr-banner-remove').toggle(!!ovrBanner);
       };
       img.src = currentIcon;
     } else {
-      $('#ovr-banner-preview-img').attr('src', currentBanner || DEFAULT_BANNER);
+      $('#ovr-banner-preview-img').attr('src', currentBanner || DEFAULT_BANNER());
       $('#ovr-banner-preview-img').data('ovr', !!ovrBanner);
       $('#ovr-banner-remove').toggle(!!ovrBanner);
     }
@@ -321,19 +323,19 @@
           const dataURL = canvas.toDataURL('image/png');
           $('#ovr-icon-preview-img').attr('src', dataURL);
         } catch (_) {
-          $('#ovr-icon-preview-img').attr('src', currentBanner || DEFAULT_ICON);
+          $('#ovr-icon-preview-img').attr('src', currentBanner || DEFAULT_ICON());
         }
         $('#ovr-icon-preview-img').data('ovr', !!ovrIcon);
         $('#ovr-icon-remove').toggle(!!ovrIcon);
       };
       img.onerror = () => {
-        $('#ovr-icon-preview-img').attr('src', DEFAULT_ICON);
+        $('#ovr-icon-preview-img').attr('src', DEFAULT_ICON());
         $('#ovr-icon-preview-img').data('ovr', !!ovrIcon);
         $('#ovr-icon-remove').toggle(!!ovrIcon);
       };
       img.src = currentBanner;
     } else {
-      $('#ovr-icon-preview-img').attr('src', currentIcon || DEFAULT_ICON);
+      $('#ovr-icon-preview-img').attr('src', currentIcon || DEFAULT_ICON());
       $('#ovr-icon-preview-img').data('ovr', !!ovrIcon);
       $('#ovr-icon-remove').toggle(!!ovrIcon);
     }
@@ -459,7 +461,7 @@
 
       if (!f) {
         const current = $('#ovr-banner-preview-img').data('ovr') ? $('#ovr-banner-preview-img').attr('src') : null;
-        $('#ovr-banner-preview-img').attr('src', current || DEFAULT_BANNER);
+        $('#ovr-banner-preview-img').attr('src', current || DEFAULT_BANNER());
         $('#ovr-banner-remove').toggle(!!$('#ovr-banner-preview-img').data('ovr'));
         return;
       }
@@ -481,7 +483,7 @@
 
         if (!$('#ovr-icon-file').data('pending') && !$('#ovr-icon-preview-img').data('ovr')) {
           cropIconFileToDataURL(f, (iconURL) => {
-            $('#ovr-icon-preview-img').attr('src', iconURL || DEFAULT_ICON);
+            $('#ovr-icon-preview-img').attr('src', iconURL || DEFAULT_ICON());
             if (iconURL) { $('#ovr-icon-remove').show(); $('#ovr-icon-preview-img').removeData('ovr'); }
           });
         }
@@ -496,7 +498,7 @@
 
       if (!f) {
         const current = $('#ovr-icon-preview-img').data('ovr') ? $('#ovr-icon-preview-img').attr('src') : null;
-        $('#ovr-icon-preview-img').attr('src', current || DEFAULT_ICON);
+        $('#ovr-icon-preview-img').attr('src', current || DEFAULT_ICON());
         $('#ovr-icon-remove').toggle(!!$('#ovr-icon-preview-img').data('ovr'));
         return;
       }
@@ -518,7 +520,7 @@
 
         if (!$('#ovr-banner-file').data('pending') && !$('#ovr-banner-preview-img').data('ovr')) {
           cropBannerFileToDataURL(f, (bannerURL) => {
-            $('#ovr-banner-preview-img').attr('src', bannerURL || DEFAULT_BANNER);
+            $('#ovr-banner-preview-img').attr('src', bannerURL || DEFAULT_BANNER());
             if (bannerURL) { $('#ovr-banner-remove').show(); $('#ovr-banner-preview-img').removeData('ovr'); }
           });
         }
@@ -529,14 +531,14 @@
     $('#ovr-banner-remove').off('click').on('click', function () {
       $('#ovr-banner-file').data('pending', null).val('');
       $(this).data('remove', true);
-      $('#ovr-banner-preview-img').removeData('ovr').attr('src', DEFAULT_BANNER);
+      $('#ovr-banner-preview-img').removeData('ovr').attr('src', DEFAULT_BANNER());
       $(this).hide();
     });
 
     $('#ovr-icon-remove').off('click').on('click', function () {
       $('#ovr-icon-file').data('pending', null).val('');
       $(this).data('remove', true);
-      $('#ovr-icon-preview-img').removeData('ovr').attr('src', DEFAULT_ICON);
+      $('#ovr-icon-preview-img').removeData('ovr').attr('src', DEFAULT_ICON());
       $(this).hide();
     });
 
@@ -571,7 +573,7 @@
               }
               if (!$('#ovr-icon-preview-img').data('ovr')) {
                 cropIconFileToDataURL(file, (iconURL) => {
-                  $('#ovr-icon-preview-img').attr('src', iconURL || DEFAULT_ICON);
+                  $('#ovr-icon-preview-img').attr('src', iconURL || DEFAULT_ICON());
                   if (iconURL) { $('#ovr-icon-remove').show(); $('#ovr-icon-preview-img').removeData('ovr'); }
                 });
               }
@@ -589,7 +591,7 @@
               }
               if (!$('#ovr-banner-preview-img').data('ovr')) {
                 cropBannerFileToDataURL(file, (bannerURL) => {
-                  $('#ovr-banner-preview-img').attr('src', bannerURL || DEFAULT_BANNER);
+                  $('#ovr-banner-preview-img').attr('src', bannerURL || DEFAULT_BANNER());
                   if (bannerURL) { $('#ovr-banner-remove').show(); $('#ovr-banner-preview-img').removeData('ovr'); }
                 });
               }
