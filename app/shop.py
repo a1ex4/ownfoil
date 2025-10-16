@@ -1,5 +1,11 @@
 from db import *
-from titles import APP_TYPE_BASE, identify_appId, load_titledb, unload_titledb
+from titles import (
+    APP_TYPE_BASE,
+    APP_TYPE_DLC,
+    identify_appId,
+    load_titledb,
+    unload_titledb
+)
 from Crypto.PublicKey import RSA
 from Crypto.Cipher import PKCS1_OAEP
 from Crypto.Hash import SHA256
@@ -36,17 +42,18 @@ def _version_str_to_int(version_str):
 
 def build_titledb_from_overrides():
     """
-    Build top-level `titledb` from enabled AppOverrides,
-    but include only BASE app overrides (ignore DLC/Updates).
+    Build top-level `titledb` from enabled AppOverrides.
+    - Include BASE and DLC overrides (ignore Updates/others)
+    - One entry per TitleID - BASE preferred over DLC
     Keys are Title IDs; values are Tinfoil fields:
-      id, name, version(int), region, releaseDate(int yyyymmdd), description, size
+      id (AppID), name, version (int), region, releaseDate (int yyyymmdd), description, size
     """
     titledb_map = {}
     try:
         # load title db to identify apps from cnmts db
         load_titledb()
-        
-        # Preload joins to avoid N+1 queries
+
+        # preload joins to avoid N+1 queries
         rows = (
             db.session.query(AppOverrides)
             .options(
@@ -58,29 +65,29 @@ def build_titledb_from_overrides():
         )
 
         for ov in rows:
-            if not ov.app:      # safety: should exist due to FK, but be defensive
+            app = getattr(ov, "app", None)
+            if not app:  # safety: should exist due to FK, but be defensive
                 continue
 
-            app = ov.app
             tid = (app.title.title_id if getattr(app, "title", None) else app.title_id)
-            if not tid or not app.app_id:
+            app_id = app.app_id
+            if not tid or not app_id:
                 continue
 
             tid = tid.strip().upper()
-            app_id = app.app_id.strip().upper()
+            app_id = app_id.strip().upper()
 
-            # Identify app type
+            # determine app type once
             try:
                 _, app_type = identify_appId(app_id)
             except Exception:
                 app_type = None
 
-            # Skip non-base apps (DLCs, updates, etc.)
-            # For base apps, TitleID == AppID by definition
-            if app_type != APP_TYPE_BASE or tid != app_id:
+            # should never hit because overrides don't apply to updates
+            if app_type not in (APP_TYPE_BASE, APP_TYPE_DLC):
                 continue
 
-            entry = {"id": tid}
+            entry = {"id": app_id}
 
             if ov.name:
                 entry["name"] = ov.name
@@ -98,7 +105,7 @@ def build_titledb_from_overrides():
             if ov.description:
                 entry["description"] = ov.description
 
-            # Sum all file sizes for this base app_id (do it in SQL)
+            # size: sum all file sizes for THIS app_id (do it in SQL)
             total_bytes = (
                 db.session.query(func.sum(Files.size))
                 .join(Files.apps)
@@ -108,13 +115,23 @@ def build_titledb_from_overrides():
             if total_bytes:
                 entry["size"] = int(total_bytes)
 
-            # Keep the first base override we see for this TitleID
-            if tid not in titledb_map:
-                titledb_map[tid] = entry
+            # Check for existing entry
+            existing = titledb_map.get(tid)
+
+            if not existing:
+                # Store both the entry and type internally
+                titledb_map[tid] = {"entry": entry, "type": app_type}
+            else:
+                # Replace only if new entry is BASE and existing is DLC
+                if existing["type"] == APP_TYPE_DLC and app_type == APP_TYPE_BASE:
+                    titledb_map[tid] = {"entry": entry, "type": app_type}
+                # Otherwise, keep existing (BASE > DLC)
+
     finally:
         unload_titledb()
-    
-    return titledb_map
+
+    # Flatten map for final output (strip out type metadata)
+    return {tid: data["entry"] for tid, data in titledb_map.items()}
 
 def gen_shop_files():
     shop_files = []
