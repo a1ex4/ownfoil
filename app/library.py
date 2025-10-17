@@ -924,6 +924,7 @@ def generate_base_library():
                     })
 
                 title['version'] = sorted(version_list, key=lambda x: x['version'])
+                title['owned'] = any(app.get('owned') for app in dlc_apps)
 
                 # Check if this DLC has latest version
                 if dlc_apps:
