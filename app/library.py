@@ -929,8 +929,11 @@ def generate_base_library():
                 # Check if this DLC has latest version
                 if dlc_apps:
                     highest_version = max(int(app['app_version']) for app in dlc_apps)
-                    highest_owned_version = max((int(app['app_version']) for app in dlc_apps if app.get('owned')), default=0)
-                    title['has_latest_version'] = highest_owned_version >= highest_version
+                    owned_versions = [int(app['app_version']) for app in dlc_apps if app.get('owned')]
+                    # Only true if at least one version is OWNED and the highest owned >= highest available
+                    title['has_latest_version'] = (
+                        len(owned_versions) > 0 and max(owned_versions) >= highest_version
+                    )
                 else:
                     title['has_latest_version'] = True
 
