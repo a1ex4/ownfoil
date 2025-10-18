@@ -360,10 +360,13 @@ def add_missing_apps_to_db():
         title_id = title.title_id
         title_db_id = get_title_id_db_id(title_id)
         
-        # Add base game if not present
-        existing_base = get_app_by_id_and_version(title_id, "0")
-        
-        if not existing_base:
+        # Add base game if not present at all (any version)
+        existing_bases = [
+            a for a in get_all_title_apps(title_id)
+            if a.get("app_type") == APP_TYPE_BASE
+        ]
+
+        if not existing_bases:
             new_base_app = Apps(
                 app_id=title_id,
                 app_version="0",
