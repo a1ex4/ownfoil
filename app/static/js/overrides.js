@@ -243,6 +243,7 @@
     $('#ov-release-date').val(ovr?.release_date ?? (game.release_date || ''));
     $('#ovr-description').val(ovr?.description ?? '');
     $('#ovr-version').val(ovr?.version ?? '');
+    $('#ovCorrectedTitleId').val(ovr?.corrected_title_id ?? (game.corrected_title_id || ''));
 
     $('#btn-reset-override').toggle(!!ovr?.id);
 
@@ -361,6 +362,17 @@
       release_date: trimOrNull($('#ov-release-date').val()), // yyyy-MM-dd or null
       enabled: true
     };
+    // Normalize corrected Title ID from the input (0x prefix allowed)
+    let correctedTitleId = trimOrNull($('#ovCorrectedTitleId').val());
+    if (correctedTitleId) {
+      correctedTitleId = correctedTitleId.toUpperCase();
+      if (correctedTitleId.startsWith('0X')) correctedTitleId = correctedTitleId.slice(2);
+      if (!/^[0-9A-F]{16}$/.test(correctedTitleId)) {
+        alert('Corrected Title ID must be exactly 16 hex characters (optionally prefixed by 0x).');
+        return;
+      }
+    }
+    if (correctedTitleId) payload.corrected_title_id = correctedTitleId;
     if (!id) payload.app_id = app_id;
 
     // Pending artwork (set by change/drop handlers)
@@ -414,6 +426,13 @@
       if (key) {
         overridesByKey.set(key, res);
         if (needMultipart) bumpBuster(key); // refresh override artwork if changed
+
+        // If a corrected ID is present, hint the current in-memory game for a badge
+        if (res.corrected_title_id && env.getGames) {
+          const games = env.getGames();
+          const g = games.find(x => x.app_id === key);
+          if (g) g.recognized_via_correction = true;
+        }
         finishOverrideMutationAndRefresh(key);
         return;
       }

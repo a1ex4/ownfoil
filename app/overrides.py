@@ -75,13 +75,17 @@ def create_override():
         data["enabled"] = data["enabled"].lower() in ("1", "true", "yes", "on")
 
     # Empty strings → None for text fields
-    for k in ("app_id", "name", "region", "description", "content_type", "version", "icon_path", "banner_path", "release_date"):
+    for k in ("app_id", "name", "region", "description", "content_type", "version", "icon_path", "banner_path", "release_date", "corrected_title_id"):
         if k in data and isinstance(data[k], str) and not data[k].strip():
             data[k] = None
 
     # Normalize release_date
     if "release_date" in data:
         data["release_date"] = _parse_iso_date_or_none(data["release_date"])
+    
+    # Normalize corrected_title_id
+    if "corrected_title_id" in data:
+        data["corrected_title_id"] = _parse_title_id_or_none(data["corrected_title_id"])
 
     # Require app_id (string) from client, but we map it to the Apps row
     app_id = data.get("app_id")
@@ -162,7 +166,7 @@ def update_override(oid: int):
     # Empty strings → None for text fields
     for k in (
         "name", "region", "description", "content_type",
-        "version", "icon_path", "banner_path", "release_date"
+        "version", "icon_path", "banner_path", "release_date", "corrected_title_id"
     ):
         if k in data and isinstance(data[k], str) and not data[k].strip():
             data[k] = None
@@ -174,6 +178,10 @@ def update_override(oid: int):
     # Normalize release_date using helper
     if "release_date" in data:
         data["release_date"] = _parse_iso_date_or_none(data["release_date"])
+
+    # Normalize corrected_title_id
+    if "corrected_title_id" in data:
+        data["corrected_title_id"] = _parse_title_id_or_none(data["corrected_title_id"])
 
     ov = AppOverrides.query.get(oid)
     if not ov:
@@ -247,6 +255,22 @@ def delete_override(oid: int):
 # --- helpers ---------------------------------------------------------------
 ALLOWED_IMAGE_EXTS = {'.jpg', '.jpeg', '.png', '.webp'}
 _SAFE_APP_ID = re.compile(r'^(?:[0-9A-Fa-f]{16}|[0-9A-Fa-f]{32})$')  # accept 16/32 hex strings
+_SAFE_TITLE_ID = re.compile(r'^[0-9A-F]{16}$')
+
+def _parse_title_id_or_none(raw: Optional[str]) -> Optional[str]:
+    """
+    Normalize a Title ID string to 16-char uppercase hex, or return None if empty/invalid.
+    Accepts optional '0x' prefix.
+    """
+    if not raw:
+        return None
+    s = str(raw).strip().upper()
+    if s.startswith("0X") and len(s) == 18:
+        s = s[2:]
+    if _SAFE_TITLE_ID.match(s):
+        return s
+    return None
+
 
 # Note: UI sends multipart only when a banner or icon upload/removal is requested; otherwise JSON.
 # This keeps existing JSON flows working while enabling binary upload.
@@ -291,7 +315,7 @@ def _apply_fields(ov: AppOverrides, data: dict):
     # Only touch known fields; ignore extras to keep it robust.
     fields = [
         "name", "release_date", "region", "description", "content_type", "version",
-        "enabled",
+        "enabled", "corrected_title_id",
     ]
     for f in fields:
         if f in data:
@@ -494,6 +518,54 @@ def _resolve_target_app(app_id: str) -> Optional[Apps]:
         try: return int(a.app_version or 0)
         except: return 0
     return sorted(rows, key=v2, reverse=True)[0]
+
+def build_override_index(include_disabled: bool = False) -> dict:
+    """
+    Build a lightweight index of overrides keyed by app_id.
+    Only fields needed by the library merge path are included.
+    Structure:
+        {
+          "by_app": {
+            "<APP_ID>": {
+               "id": <override id>,
+               "app_fk": <apps.id>,
+               "enabled": true/false,
+               "corrected_title_id": "0100....",
+               # (optional) a few display fields if you want them downstream:
+               "name": "...",
+               "description": "...",
+               "release_date": "yyyy-mm-dd" | None,
+               "banner_path": "...",
+               "icon_path": "..."
+            },
+            ...
+          },
+          "count": <number of entries>
+        }
+    """
+    q = AppOverrides.query.options(joinedload(AppOverrides.app))
+    if not include_disabled:
+        q = q.filter(AppOverrides.enabled.is_(True))
+
+    by_app = {}
+    for ov in q.all():
+        app_id = ov.app.app_id if ov.app else None
+        if not app_id:
+            continue
+        by_app[app_id] = {
+            "id": ov.id,
+            "app_fk": ov.app_fk,
+            "enabled": bool(ov.enabled),
+            "corrected_title_id": ov.corrected_title_id,
+            # optional extras that can be handy for UI merges (not required):
+            "name": ov.name,
+            "description": ov.description,
+            "release_date": ov.release_date.isoformat() if ov.release_date else None,
+            "banner_path": ov.banner_path,
+            "icon_path": ov.icon_path,
+        }
+
+    return {"by_app": by_app, "count": len(by_app)}
 
 def garbage_collect_orphan_art_files():
     """Remove banner/icon files on disk with no matching override record."""

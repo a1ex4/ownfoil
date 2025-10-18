@@ -28,15 +28,20 @@ def upgrade():
         sa.Column("icon_path", sa.String(length=1024), nullable=True),
         sa.Column("banner_path", sa.String(length=1024), nullable=True),
 
+        # Corrected Title ID (for TitleDB lookup)
+        sa.Column("corrected_title_id", sa.String(length=16), nullable=True),
+
         sa.Column("enabled", sa.Boolean(), nullable=False, server_default=sa.text("1")),
         sa.Column("created_at", sa.DateTime(), nullable=False),
         sa.Column("updated_at", sa.DateTime(), nullable=False),
     )
 
-    # Helpful index for joins/filters
+    # Helpful indexes
     op.create_index("ix_app_overrides_app_fk", "app_overrides", ["app_fk"])
+    op.create_index("ix_app_overrides_corrected_title_id", "app_overrides", ["corrected_title_id"])
 
 
 def downgrade():
+    op.drop_index("ix_app_overrides_corrected_title_id", table_name="app_overrides")
     op.drop_index("ix_app_overrides_app_fk", table_name="app_overrides")
     op.drop_table("app_overrides")

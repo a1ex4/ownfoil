@@ -170,6 +170,9 @@ class AppOverrides(db.Model):
     icon_path   = db.Column(db.String(1024), nullable=True)
     banner_path = db.Column(db.String(1024), nullable=True)
 
+    # ---- Corrected Title ID (for TitleDB lookups/merge only) ----
+    corrected_title_id = db.Column(db.String(16), index=True, nullable=True)  # NEW
+
     enabled    = db.Column(db.Boolean, nullable=False, default=True)
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.datetime.utcnow)
     updated_at = db.Column(
@@ -196,6 +199,7 @@ class AppOverrides(db.Model):
             'version': self.version,
             'icon_path': self.icon_path,
             'banner_path': self.banner_path,
+            'corrected_title_id': self.corrected_title_id,
             'enabled': self.enabled,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
@@ -391,17 +395,28 @@ def is_app_owned(app_id, app_version):
     app = get_app_by_id_and_version(app_id, app_version)
     return app.owned if app else False
 
-def add_file_to_app(app_id, app_version, file_id):
-    """Add a file to an existing app using many-to-many relationship"""
-    app = get_app_by_id_and_version(app_id, app_version)
-    if app:
-        file_obj = get_file_from_db(file_id)
-        if file_obj and file_obj not in app.files:
-            app.files.append(file_obj)
-            app.owned = True
-            db.session.commit()
-            return True
-    return False
+def add_file_to_app(app_id, app_version, file_id, *, commit=True):
+    """Add a file to an existing app using many-to-many relationship (idempotent)."""
+    ver = str(app_version if app_version is not None else "0")
+    app = get_app_by_id_and_version(app_id, ver)
+    if not app:
+        return False
+
+    file_obj = get_file_from_db(file_id)
+    if not file_obj:
+        return False
+
+    # Link if missing
+    if file_obj not in app.files:
+        app.files.append(file_obj)
+
+    # Ensure owned reflects reality once any file is linked
+    if not app.owned:
+        app.owned = True
+
+    if commit:
+        db.session.commit()
+    return True
 
 def remove_file_from_apps(file_id):
     """Remove a file from all apps that reference it and update owned status"""

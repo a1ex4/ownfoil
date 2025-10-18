@@ -5,6 +5,7 @@ import os
 import shutil
 from constants import *
 from db import *
+from overrides import build_override_index
 import titles as titles_lib
 from pathlib import Path
 from sqlalchemy import or_
@@ -376,27 +377,22 @@ def identify_library_files(library):
                         # Upsert Apps and attach file via M2M
                         title_id_in_db = get_title_id_db_id(file_content["title_id"])
 
-                        existing_app = get_app_by_id_and_version(
-                            file_content["app_id"],
-                            file_content["version"]
+                        # Idempotent get-or-create, then link file and flip owned=True
+                        app_row, created = _get_or_create_app(
+                            app_id=file_content["app_id"],
+                            app_version=file_content["version"],
+                            app_type=file_content["type"],
+                            title_db_id=title_id_in_db
                         )
 
-                        if existing_app:
-                            add_file_to_app(file_content["app_id"], file_content["version"], file_id)
-                        else:
-                            new_app = Apps(
-                                app_id=file_content["app_id"],
-                                app_version=file_content["version"],
-                                app_type=file_content["type"],
-                                owned=True,
-                                title_id=title_id_in_db
-                            )
-                            db.session.add(new_app)
-                            db.session.flush()  # to get new_app id
-
+                        # Ensure a newly-added row is visible to the session query used by add_file_to_app
+                        db.session.flush()
+                        linked = add_file_to_app(file_content["app_id"], file_content["version"], file_id, commit=False)
+                        if not linked:
                             file_obj = get_file_from_db(file_id)
-                            if file_obj:
-                                new_app.files.append(file_obj)
+                            if file_obj and file_obj not in app_row.files:
+                                app_row.files.append(file_obj)
+                            app_row.owned = True
 
                         nb_content += 1
 
@@ -448,69 +444,52 @@ def add_missing_apps_to_db():
     logger.info('Adding missing apps to database...')
     titles = get_all_titles()
     apps_added = 0
-    
+
     for n, title in enumerate(titles):
         title_id = title.title_id
         title_db_id = get_title_id_db_id(title_id)
-        
-        # Add base game if not present at all (any version)
-        existing_bases = [
-            a for a in get_all_title_apps(title_id)
-            if a.get("app_type") == APP_TYPE_BASE
-        ]
 
-        if not existing_bases:
-            new_base_app = Apps(
-                app_id=title_id,
-                app_version="0",
-                app_type=APP_TYPE_BASE,
-                owned=False,
-                title_id=title_db_id
-            )
-            db.session.add(new_base_app)
+        # Add base game if not present at all (any version, safe if already exists) ---
+        _, created = _get_or_create_app(
+            app_id=title_id,
+            app_version="0",
+            app_type=APP_TYPE_BASE,
+            title_db_id=title_db_id
+        )
+        if created:
             apps_added += 1
             logger.debug(f'Added missing base app: {title_id}')
-        
+
         # Add missing update versions
-        title_versions = titles_lib.get_all_existing_versions(title_id)
+        title_versions = titles_lib.get_all_existing_versions(title_id) or []
+        update_app_id = title_id[:-3] + '800'  # base->update transform
         for version_info in title_versions:
             version = str(version_info['version'])
-            update_app_id = title_id[:-3] + '800'  # Convert base ID to update ID
-            
-            existing_update = get_app_by_id_and_version(update_app_id, version)
-            
-            if not existing_update:
-                new_update_app = Apps(
-                    app_id=update_app_id,
-                    app_version=version,
-                    app_type=APP_TYPE_UPD,
-                    owned=False,
-                    title_id=title_db_id
-                )
-                db.session.add(new_update_app)
+            _, created = _get_or_create_app(
+                app_id=update_app_id,
+                app_version=version,
+                app_type=APP_TYPE_UPD,
+                title_db_id=title_db_id
+            )
+            if created:
                 apps_added += 1
                 logger.debug(f'Added missing update app: {update_app_id} v{version}')
-        
-        # Add missing DLC
-        title_dlc_ids = titles_lib.get_all_existing_dlc(title_id)
+
+        # --- DLCs (all known DLC app_ids + versions) ---
+        title_dlc_ids = titles_lib.get_all_existing_dlc(title_id) or []
         for dlc_app_id in title_dlc_ids:
-            dlc_versions = titles_lib.get_all_app_existing_versions(dlc_app_id)
-            if dlc_versions:
-                for dlc_version in dlc_versions:
-                    existing_dlc = get_app_by_id_and_version(dlc_app_id, str(dlc_version))
-                    
-                    if not existing_dlc:
-                        new_dlc_app = Apps(
-                            app_id=dlc_app_id,
-                            app_version=str(dlc_version),
-                            app_type=APP_TYPE_DLC,
-                            owned=False,
-                            title_id=title_db_id
-                        )
-                        db.session.add(new_dlc_app)
-                        apps_added += 1
-                        logger.debug(f'Added missing DLC app: {dlc_app_id} v{dlc_version}')
-        
+            dlc_versions = titles_lib.get_all_app_existing_versions(dlc_app_id) or []
+            for dlc_version in dlc_versions:
+                _, created = _get_or_create_app(
+                    app_id=dlc_app_id,
+                    app_version=str(dlc_version),
+                    app_type=APP_TYPE_DLC,
+                    title_db_id=title_db_id
+                )
+                if created:
+                    apps_added += 1
+                    logger.debug(f'Added missing DLC app: {dlc_app_id} v{dlc_version}')
+
         # Commit every 100 titles to avoid excessive memory use
         if (n + 1) % 100 == 0:
             db.session.commit()
@@ -518,7 +497,7 @@ def add_missing_apps_to_db():
     
     # Final commit
     db.session.commit()
-    logger.info(f'Finished adding missing apps to database. Total apps added: {apps_added}')
+    logger.info(f'Finished adding missing apps. Total apps added: {apps_added}')
 
 def process_library_identification(app):
     logger.info(f"Starting library identification process for all libraries...")
@@ -691,8 +670,15 @@ def update_titles():
 
 def get_library_status(title_id):
     title = get_title(title_id)
-    title_apps = get_all_title_apps(title_id)
+    if not title:
+        return {
+            'has_base': False,
+            'has_latest_version': False,
+            'version': [],
+            'has_all_dlcs': False
+        }
 
+    title_apps = get_all_title_apps(title_id)
     available_versions = titles_lib.get_all_existing_versions(title_id)
     for version in available_versions:
         if len(list(filter(lambda x: x.get('app_type') == APP_TYPE_UPD and str(x.get('app_version')) == str(version['version']), title_apps))):
@@ -754,18 +740,19 @@ def load_library_from_disk():
 def generate_library():
     """
     Public entry-point for routes:
-    
-    - Load BASE library from disk if unchanged,
+
+    - Load library from disk if unchanged,
+    - Apply corrected_title_id merges (non-destructive),
     - Return the list used by the API layer.
     """
-    # Load base from disk or regenerate if hash changed
-    base = load_base_library()  # {'hash': ..., 'library': [...]}
-    if not base or 'library' not in base:
+    # Load library from disk or regenerate if hash changed
+    saved = _load_library()  # {'hash': ..., 'library': [...]}
+    if not saved or 'library' not in saved:
         return []
 
-    return base['library']
+    return _with_overridden_title_ids(saved)
 
-def load_base_library():
+def _load_library():
     """
     Load the BASE library (no overrides) from disk if hash unchanged.
     Otherwise, regenerate and save.
@@ -775,81 +762,11 @@ def load_base_library():
         return saved
 
     # Hash changed or cache missing/corrupt -> regenerate
-    return generate_base_library()
+    return _generate_library()
 
-def _infer_file_basename_for_app(app_id: str, app_version: str | int | None) -> str | None:
-    """
-    Return a representative file basename for the given app (id+version),
-    using the Apps.files relationship. If multiple files are linked, prefer the
-    most recently identified one; otherwise just pick a deterministic first.
-    """
-    if not app_id:
-        return None
-
-    app_row = Apps.query.filter_by(app_id=app_id, app_version=str(app_version or "0")).first()
-    if not app_row or not getattr(app_row, "files", None):
-        return None
-
-    def _score(f):
-        # Prefer latest identification attempt; fall back to the earliest date
-        return (f.last_attempt or datetime.datetime.min,)
-
-    best = sorted(app_row.files, key=_score, reverse=True)[0]
-
-    # Prefer Files.filename; fall back to basename(filepath)
-    if getattr(best, "filename", None):
-        return best.filename
-    if getattr(best, "filepath", None):
-        return os.path.basename(best.filepath)
-    return None
-
-def _add_files_without_apps(games_info):
-    unid_files = Files.query.filter(
-        or_(
-            Files.identified.is_(False),
-            Files.identification_type.in_(["unidentified", "exception"])
-        )
-    ).all()
-
-    for f in unid_files:
-        # If this file is already linked to an App it will already be represented; skip here
-        if getattr(f, "apps", None):
-            try:
-                if len(f.apps) > 0:
-                    continue
-            except Exception:
-                # if relationship not configured to be immediately usable, just continue
-                pass
-
-        fname = f.filename or (os.path.basename(f.filepath) if f.filepath else None)
-
-        games_info.append({
-            # No app or title linkage
-            'name': None,
-            'app_id': None,
-            'app_version': None,
-            'app_type': APP_TYPE_BASE,        # treat as base-ish for filtering
-            'title_id': None,
-            'title_id_name': None,
-
-            # Identification flags
-            'identified': False,
-            'identification_type': (f.identification_type or 'unidentified'),
-
-            # What the UI needs
-            'file_basename': fname,
-            'filename': fname,
-
-            # Other fields the UI expects to exist
-            'owned': True,
-            'has_latest_version': True,
-            'has_all_dlcs': True,
-            'version': [],
-        })
-
-def generate_base_library():
+def _generate_library():
     """Generate the BASE game library from Apps table (NO overrides), and cache it to disk."""
-    logger.info('Generating BASE library ...')
+    logger.info('Generating library ...')
 
     titles_lib.load_titledb()
     try:
@@ -866,7 +783,7 @@ def generate_base_library():
                 continue
 
             # Get title info from titledb
-            info_from_titledb = titles_lib.get_game_info(title['app_id'])
+            info_from_titledb = titles_lib.get_game_info(title['title_id'])
             if info_from_titledb is None:
                 logger.warning(f'Info not found for game: {title}')
                 continue
@@ -945,8 +862,8 @@ def generate_base_library():
                 title['title_id_name'] = titleid_info['name'] if titleid_info else 'Unrecognized'
 
             title['file_basename'] = _infer_file_basename_for_app(
-                title.get('app_id'),
-                title.get('app_version')
+                title.get('app_id', ""),
+                title.get('app_version', "")
             )
             games_info.append(title)
         
@@ -970,3 +887,167 @@ def generate_base_library():
     finally:
         titles_lib.identification_in_progress_count -= 1
         titles_lib.unload_titledb()
+
+def _with_overridden_title_ids(base_library):
+    # Build a lightweight override map by app_id -> { corrected_title_id, ... }
+    try:
+        ov_idx = build_override_index() or {}
+        by_app = ov_idx.get("by_app") or {}
+    except Exception:
+        by_app = {}
+
+    # Apply corrected TitleDB merges per item (does not change title_id)
+    titles_lib.load_titledb()
+    try:
+        out = [_merge_corrected_titledb(item, by_app) for item in base_library['library']]
+    finally:
+        titles_lib.unload_titledb()
+
+    return out
+
+def _infer_file_basename_for_app(app_id: str, app_version: str | int | None) -> str | None:
+    """
+    Return a representative file basename for the given app (id+version),
+    using the Apps.files relationship. If multiple files are linked, prefer the
+    most recently identified one; otherwise just pick a deterministic first.
+    """
+    if not app_id:
+        return None
+
+    app_row = Apps.query.filter_by(app_id=app_id, app_version=str(app_version or "0")).first()
+    if not app_row or not getattr(app_row, "files", None):
+        return None
+
+    def _score(f):
+        # Prefer latest identification attempt; fall back to the earliest date
+        return (f.last_attempt or datetime.datetime.min,)
+
+    best = sorted(app_row.files, key=_score, reverse=True)[0]
+
+    # Prefer Files.filename; fall back to basename(filepath)
+    if getattr(best, "filename", None):
+        return best.filename
+    if getattr(best, "filepath", None):
+        return os.path.basename(best.filepath)
+    return None
+
+def _add_files_without_apps(games_info):
+    unid_files = Files.query.filter(
+        or_(
+            Files.identified.is_(False),
+            Files.identification_type.in_(["unidentified", "exception"])
+        )
+    ).all()
+
+    for f in unid_files:
+        # If this file is already linked to an App it will already be represented; skip here
+        if getattr(f, "apps", None):
+            try:
+                if len(f.apps) > 0:
+                    continue
+            except Exception:
+                # if relationship not configured to be immediately usable, just continue
+                pass
+
+        fname = f.filename or (os.path.basename(f.filepath) if f.filepath else None)
+
+        games_info.append({
+            # No app or title linkage
+            'name': None,
+            'app_id': None,
+            'app_version': None,
+            'app_type': APP_TYPE_BASE,        # treat as base-ish for filtering
+            'title_id': None,
+            'title_id_name': None,
+
+            # Identification flags
+            'identified': False,
+            'identification_type': (f.identification_type or 'unidentified'),
+
+            # What the UI needs
+            'file_basename': fname,
+            'filename': fname,
+
+            # Other fields the UI expects to exist
+            'owned': True,
+            'has_latest_version': True,
+            'has_all_dlcs': True,
+            'version': [],
+        })
+
+def _merge_corrected_titledb(record: dict, override_map: dict) -> dict:
+    """
+    If there's an override for this app_id with a corrected_title_id, pull
+    TitleDB metadata for that ID and merge onto a shallow copy of `record`.
+    Does NOT change title_id; sets `recognized_via_correction` flag and
+    echoes `corrected_title_id` for the UI.
+    """
+    app_id = record.get("app_id")
+    if not app_id:
+        return record
+
+    ov = (override_map or {}).get(app_id)
+    corrected_id = (ov or {}).get("corrected_title_id")
+    if not corrected_id:
+        return record
+
+    td = titles_lib.get_game_info_by_title_id(corrected_id)
+    if not td:
+        # Nothing to merge if TitleDB doesn't have the corrected ID
+        return record
+
+    dst = record.copy()
+    # Only lift display fields; never mutate the actual title_id.
+    if td.get("name"):
+        dst["name"] = td["name"]
+        # keep the original base-name for sorting, but if absent, sync it:
+        if dst.get("app_type") == APP_TYPE_BASE and not dst.get("title_id_name"):
+            dst["title_id_name"] = td["name"]
+    if td.get("bannerUrl"):
+        dst["bannerUrl"] = td["bannerUrl"]
+    if td.get("iconUrl"):
+        dst["iconUrl"] = td["iconUrl"]
+    if "category" in td and td["category"] is not None:
+        dst["category"] = td["category"]
+
+    # Surface flags for the UI
+    dst["recognized_via_correction"] = True
+    dst["corrected_title_id"] = corrected_id
+    return dst
+
+def _get_or_create_app(app_id: str, app_version, app_type: str, title_db_id: int):
+    """
+    Get or create an Apps row by (app_id, app_version).
+    - app_version is normalized to str
+    - If row exists, fill in missing fields (title_id/app_type) but DO NOT
+      overwrite 'owned' or other set fields.
+    Returns: (app, created_bool)
+    """
+    ver = str(app_version if app_version is not None else "0")
+    app = Apps.query.filter_by(app_id=app_id, app_version=ver).first()
+    if app:
+        # Backfill minimal fields if missing
+        if not app.title_id and title_db_id:
+            app.title_id = title_db_id
+
+        # Only fill in app_type if missing — warn if a conflicting one is detected
+        if not app.app_type and app_type:
+            app.app_type = app_type
+        elif app.app_type and app_type and app.app_type != app_type:
+            logger.warning(
+                f"Conflicting app_type for app_id={app_id} v{ver}: "
+                f"existing={app.app_type}, new={app_type}. Keeping existing value."
+            )
+
+        return app, False
+
+    # No existing row — create a new one
+    app = Apps(
+        app_id=app_id,
+        app_version=ver,
+        app_type=app_type,
+        owned=False,
+        title_id=title_db_id
+    )
+    db.session.add(app)
+    return app, True

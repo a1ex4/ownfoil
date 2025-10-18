@@ -21,6 +21,7 @@ Pfs0.Print.silent = True
 
 app_id_regex = r"\[([0-9A-Fa-f]{16})\]"
 version_regex = r"\[v(\d+)\]"
+_TITLE_ID_RE = re.compile(r'^[0-9A-F]{16}$')
 
 # Global variables for TitleDB data
 identification_in_progress_count = 0
@@ -29,6 +30,15 @@ _cnmts_db = None
 _titles_db = None
 _versions_db = None
 _versions_txt_db = None
+_titles_by_title_id = None
+
+def _normalize_title_id(raw: str):
+    if not raw:
+        return None
+    s = str(raw).strip().upper()
+    if s.startswith('0X') and len(s) == 18:
+        s = s[2:]
+    return s if _TITLE_ID_RE.match(s) else None
 
 def getDirsAndFiles(path):
     entries = os.listdir(path)
@@ -142,6 +152,7 @@ def load_titledb():
     global _versions_txt_db
     global identification_in_progress_count
     global _titles_db_loaded
+    global _titles_by_title_id
 
     identification_in_progress_count += 1
     if not _titles_db_loaded:
@@ -164,6 +175,14 @@ def load_titledb():
                 if not version:
                     version = "0"
                 _versions_txt_db[app_id] = version
+
+        # build fast by_title_id map from _titles_db ----
+        _titles_by_title_id = {}
+        for _k, rec in _titles_db.items():
+            tid = (rec.get('id') or rec.get('title_id') or '').upper()
+            if len(tid) == 16:
+                _titles_by_title_id[tid] = rec
+
         _titles_db_loaded = True
         logger.info("TitleDBs loaded.")
 
@@ -175,6 +194,7 @@ def unload_titledb():
     global _versions_txt_db
     global identification_in_progress_count
     global _titles_db_loaded
+    global _titles_by_title_id
 
     if identification_in_progress_count:
         logger.debug('Identification still in progress, not unloading TitleDB.')
@@ -185,6 +205,7 @@ def unload_titledb():
     _titles_db = None
     _versions_db = None
     _versions_txt_db = None
+    _titles_by_title_id = None
     _titles_db_loaded = False
     logger.info("TitleDBs unloaded.")
 
@@ -294,30 +315,39 @@ def identify_file(filepath):
 
 def has_title_id(title_id: str) -> bool:
     """Return True if TitleDB has a recognized entry for this title_id."""
-    global _titles_db
-    if _titles_db is None:
-        logger.error("titles_db is not loaded. Call load_titledb first.")
+    global _titles_by_title_id
+    if _titles_by_title_id is None:
+        logger.error("titles_by_title_id is not loaded. Call load_titledb first.")
         return False
+    tid = (title_id or "").upper()
     try:
-        return title_id in _titles_db
+        return tid in _titles_by_title_id
     except Exception as e:
         logger.warning(f"Error checking TitleDB membership for {title_id}: {e}")
         return False
 
 def get_game_info(title_id: str):
-    global _titles_db
-    if _titles_db is None:
-        logger.error("titles_db is not loaded. Call load_titledb first.")
+    global _titles_by_title_id
+    if _titles_by_title_id is None:
+        logger.error("titles_by_title_id is not loaded. Call load_titledb first.")
         return None
 
     try:
-        title_info = [_titles_db[t] for t in list(_titles_db.keys()) if _titles_db[t]['id'] == title_id][0]
+        tid = (title_id or "").upper()
+        title_info = _titles_by_title_id.get(tid)
+        if not title_info:
+            logger.error(f"Title ID not found in titledb: {tid}")
+            return {
+                'name': None,
+                'id': tid,
+                'category': '',
+            }
         return {
-            'name': title_info['name'],
-            'bannerUrl': title_info['bannerUrl'],
-            'iconUrl': title_info['iconUrl'],
-            'id': title_info['id'],
-            'category': title_info['category'],
+            'name': title_info.get('name'),
+            'bannerUrl': title_info.get('bannerUrl'),
+            'iconUrl': title_info.get('iconUrl'),
+            'id': title_info.get('id') or tid,
+            'category': title_info.get('category', ''),
         }
     except Exception:
         logger.error(f"Title ID not found in titledb: {title_id}")
@@ -326,6 +356,16 @@ def get_game_info(title_id: str):
             'id': title_id,
             'category': '',
         }
+
+def get_game_info_by_title_id(title_id: str):
+    """
+    Return the TitleDB record dict (same shape as get_game_info) for a Title ID,
+    or a minimal fallback if not found. Accepts optional 0x prefix.
+    """
+    tid = _normalize_title_id(title_id)
+    if not tid:
+        return None
+    return get_game_info(tid)
 
 def get_update_number(version):
     return int(version)//65536

@@ -173,6 +173,13 @@
         <input type="hidden" id="ovr-id">
         <input type="hidden" id="ovr-app-id">
 
+        <!-- Corrected Title ID -->
+        <div class="mb-2">
+            <label class="form-label" for="ovCorrectedTitleId">Title ID</label>
+            <input id="ovCorrectedTitleId" type="text" class="form-control" placeholder="e.g. 01009EA00B714000" maxlength="18">
+            <div class="form-text">Optional. 16 hex chars (0x prefix allowed). Used to pull metadata from TitleDB.</div>
+        </div>
+
         <div class="mb-2">
           <label class="form-label">Name</label>
           <input id="ovr-name" type="text" class="form-control" placeholder="Title name">
@@ -377,7 +384,13 @@
                 const smallName = $('<small></small>').text(`${game.name} | `);
                 description.append(smallName);
             }
-            const smallId = $('<small></small>').text(game.id || game.title_id || game.app_id || '');
+            const smallId = $('<small></small>').text(game.corrected_title_id || game.id || game.title_id || game.app_id || '');
+
+            if (game.recognized_via_correction) {
+                // Highlight the ID if it's using a corrected Title ID
+                smallId.addClass('text-warning fw-semibold'); // Bootstrap yellow + slight weight
+            }
+
             description.append(smallId);
             cardOverlay.append(description);
 
