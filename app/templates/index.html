@@ -173,11 +173,35 @@
         <input type="hidden" id="ovr-id">
         <input type="hidden" id="ovr-app-id">
 
-        <!-- Corrected Title ID -->
-        <div class="mb-2">
-            <label class="form-label" for="ovCorrectedTitleId">Title ID</label>
-            <input id="ovCorrectedTitleId" type="text" class="form-control" placeholder="e.g. 01009EA00B714000" maxlength="18">
-            <div class="form-text">Optional. 16 hex chars (0x prefix allowed). Used to pull metadata from TitleDB.</div>
+        <!-- Title ID (inline display with click-to-edit) -->
+        <div class="mb-2" id="ovTitleIdRow">
+            <label class="form-label me-2 mb-0">Title ID</label>
+            <span id="ovTitleIdDisplay" class="text-monospace me-2"></span>
+            <button type="button" id="ovTitleIdEditBtn" class="btn btn-sm btn-outline-secondary">
+                Click to edit
+            </button>
+
+            <!-- Hidden edit row; appears only when editing -->
+            <div id="ovTitleIdEditRow" class="mt-2 d-none">
+                <div class="input-group">
+                <input
+                    id="ovCorrectedTitleId"
+                    type="text"
+                    class="form-control"
+                    placeholder="e.g. 01009EA00B714000"
+                    maxlength="18"
+                    inputmode="text"
+                    autocomplete="off"
+                    spellcheck="false"
+                >
+                <button type="button" id="ovTitleIdCancelBtn" class="btn btn-outline-secondary">
+                    Cancel
+                </button>
+                </div>
+                <div class="form-text">
+                16 hex chars (0x prefix allowed). Used to pull metadata from TitleDB.
+                </div>
+            </div>
         </div>
 
         <div class="mb-2">

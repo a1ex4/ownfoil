@@ -243,7 +243,22 @@
     $('#ov-release-date').val(ovr?.release_date ?? (game.release_date || ''));
     $('#ovr-description').val(ovr?.description ?? '');
     $('#ovr-version').val(ovr?.version ?? '');
-    $('#ovCorrectedTitleId').val(ovr?.corrected_title_id ?? (game.corrected_title_id || ''));
+    const displayTid =
+      (ovr?.corrected_title_id && ovr.corrected_title_id.trim()) ||
+      (game.corrected_title_id && game.corrected_title_id.trim()) ||
+      (game.title_id && game.title_id.trim()) ||
+      (game.id && game.id.toString().trim()) ||
+      '';
+
+    $('#ovTitleIdDisplay').text(displayTid || '(none)');
+    $('#ovCorrectedTitleId').val(displayTid);
+
+    $('#ovCorrectedTitleId')
+      .data('origTid', displayTid || '')
+      .data('everEdited', false);
+
+    $('#ovTitleIdEditRow').addClass('d-none');
+    $('#ovTitleIdEditBtn').removeClass('d-none');
 
     $('#btn-reset-override').toggle(!!ovr?.id);
 
@@ -362,17 +377,39 @@
       release_date: trimOrNull($('#ov-release-date').val()), // yyyy-MM-dd or null
       enabled: true
     };
-    // Normalize corrected Title ID from the input (0x prefix allowed)
-    let correctedTitleId = trimOrNull($('#ovCorrectedTitleId').val());
+
+    // --- Title ID override logic (include only if user edited AND changed) ---
+    const $tid = $('#ovCorrectedTitleId');
+    const origTid = ($tid.data('origTid') || '').toUpperCase();
+    const everEdited = $tid.data('everEdited') === true;
+
+    let correctedTitleId = trimOrNull($tid.val());
     if (correctedTitleId) {
       correctedTitleId = correctedTitleId.toUpperCase();
       if (correctedTitleId.startsWith('0X')) correctedTitleId = correctedTitleId.slice(2);
-      if (!/^[0-9A-F]{16}$/.test(correctedTitleId)) {
-        alert('Corrected Title ID must be exactly 16 hex characters (optionally prefixed by 0x).');
-        return;
-      }
     }
-    if (correctedTitleId) payload.corrected_title_id = correctedTitleId;
+
+    if (everEdited) {
+      // If edited, only send when valid AND different from the original shown
+      if (correctedTitleId) {
+        if (!/^[0-9A-F]{16}$/.test(correctedTitleId)) {
+          // invalid -> abort
+          alert('Corrected Title ID must be exactly 16 hex characters (optionally prefixed by 0x).');
+          return;
+        }
+        if (correctedTitleId !== origTid) {
+          // changed -> include
+          payload.corrected_title_id = correctedTitleId;
+        } else {
+          // unchanged -> do not include
+        }
+      } else {
+        // edited but left empty (user cleared field) -> do NOT include (no silent clearing)
+      }
+    } else {
+      // never edited -> do not include
+    }
+
     if (!id) payload.app_id = app_id;
 
     // Pending artwork (set by change/drop handlers)
@@ -630,6 +667,34 @@
     // Date picker (if supported)
     $('#ov-release-date').off('click').on('click', function() { this.showPicker?.(); });
   }
+
+  // Title ID "click to edit"
+  $('#ovTitleIdEditBtn').off('click').on('click', function () {
+    $('#ovTitleIdEditRow').removeClass('d-none');
+    $('#ovTitleIdEditBtn').addClass('d-none');
+    // Mark that the user intentionally entered edit mode
+    $('#ovCorrectedTitleId').data('everEdited', true);
+    // Focus input and place caret at end
+    const $inp = $('#ovCorrectedTitleId');
+    const v = $inp.val() || '';
+    $inp.focus().val('').val(v);
+  });
+
+  // Also allow clicking the displayed Title ID to enter edit mode
+  $('#ovTitleIdDisplay').off('click').on('click', function () {
+    $('#ovTitleIdEditBtn').trigger('click');
+  });
+
+  // Cancel returns to collapsed view (discard any unsaved edits)
+  $('#ovTitleIdCancelBtn').off('click').on('click', function () {
+    const orig = $('#ovCorrectedTitleId').data('origTid') || '';
+    $('#ovCorrectedTitleId').val(orig);
+    // User backed out; treat as never-edited for saving
+    $('#ovCorrectedTitleId').data('everEdited', false);
+
+    $('#ovTitleIdEditRow').addClass('d-none');
+    $('#ovTitleIdEditBtn').removeClass('d-none');
+  });
 
   // ----------------- Public API -----------------
   window.Overrides = {

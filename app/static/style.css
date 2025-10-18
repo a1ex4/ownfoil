@@ -213,3 +213,5 @@ p.game-description {
 .ovr-edit-btn:hover {
     background: #fff;
 }
+
+#ovTitleIdDisplay { user-select: text; }
