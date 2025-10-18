@@ -53,8 +53,10 @@ def organize_file(file_obj, library_path, organizer_settings, watcher):
                 format_data["appName"] = title_info['name']
         
         # Format the new relative path and remove leading slash if present
-        new_relative_path = template.format(**format_data).lstrip('/')
-
+        raw_path = template.format(**format_data).lstrip('/')
+        safe_parts = [sanitize_filename(part) for part in Path(raw_path).parts]
+        new_relative_path = os.path.join(*safe_parts)
+        
         # Construct the full new path
         new_full_path = os.path.join(library_path, new_relative_path)
 
