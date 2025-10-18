@@ -378,12 +378,19 @@ def identify_library_files(library):
                         title_id_in_db = get_title_id_db_id(file_content["title_id"])
 
                         # Idempotent get-or-create, then link file and flip owned=True
-                        app_row, created = _get_or_create_app(
-                            app_id=file_content["app_id"],
-                            app_version=file_content["version"],
-                            app_type=file_content["type"],
-                            title_db_id=title_id_in_db
-                        )
+                        if file_content["type"] == APP_TYPE_BASE:
+                            app_row, _ = _ensure_single_latest_base(
+                                app_id=file_content["app_id"],
+                                detected_version=file_content["version"],
+                                title_db_id=title_id_in_db
+                            )
+                        else:
+                            app_row, _ = _get_or_create_app(
+                                app_id=file_content["app_id"],
+                                app_version=file_content["version"],
+                                app_type=file_content["type"],
+                                title_db_id=title_id_in_db
+                            )
 
                         # Ensure a newly-added row is visible to the session query used by add_file_to_app
                         db.session.flush()
@@ -449,16 +456,18 @@ def add_missing_apps_to_db():
         title_id = title.title_id
         title_db_id = get_title_id_db_id(title_id)
 
-        # Add base game if not present at all (any version, safe if already exists) ---
-        _, created = _get_or_create_app(
-            app_id=title_id,
-            app_version="0",
-            app_type=APP_TYPE_BASE,
-            title_db_id=title_db_id
-        )
-        if created:
-            apps_added += 1
-            logger.debug(f'Added missing base app: {title_id}')
+        # --- BASE (create placeholder v0 only if no BASE exists at all) ---
+        has_any_base = Apps.query.filter_by(app_id=title_id, app_type=APP_TYPE_BASE).first() is not None
+        if not has_any_base:
+            _, created = _get_or_create_app(
+                app_id=title_id,
+                app_version="0",
+                app_type=APP_TYPE_BASE,
+                title_db_id=title_db_id
+            )
+            if created:
+                apps_added += 1
+                logger.debug(f'Added missing base app placeholder v0: {title_id}')
 
         # Add missing update versions
         title_versions = titles_lib.get_all_existing_versions(title_id) or []
@@ -494,7 +503,7 @@ def add_missing_apps_to_db():
         if (n + 1) % 100 == 0:
             db.session.commit()
             logger.info(f'Processed {n + 1}/{len(titles)} titles, added {apps_added} missing apps so far')
-    
+
     # Final commit
     db.session.commit()
     logger.info(f'Finished adding missing apps. Total apps added: {apps_added}')
@@ -1014,6 +1023,87 @@ def _merge_corrected_titledb(record: dict, override_map: dict) -> dict:
     dst["recognized_via_correction"] = True
     dst["corrected_title_id"] = corrected_id
     return dst
+
+def _v(s) -> int:
+    # Accepts int or str like "65536" / "0" / "v0"
+    if s is None:
+        return 0
+    if isinstance(s, int):
+        return s
+    s = str(s).lower().lstrip("v")
+    try:
+        return int(s, 10)
+    except Exception:
+        return 0
+
+def _ensure_single_latest_base(app_id: str, detected_version, title_db_id=None):
+    """
+    Guarantee a single BASE row for app_id holding the HIGHEST version.
+    - If none exists, create one at detected_version.
+    - If one exists at lower version, upgrade that row (in-place) to detected_version.
+    - If multiple exist, pick highest as winner, migrate files & overrides to it, delete losers.
+    Returns: (winner_app, created_or_upgraded: bool)
+    """
+    Vnew = _v(detected_version)
+
+    rows = Apps.query.filter_by(app_id=app_id, app_type=APP_TYPE_BASE).all()
+
+    if not rows:
+        # Create brand-new BASE
+        winner, _ = _get_or_create_app(
+            app_id=app_id,
+            app_version=str(Vnew),
+            app_type=APP_TYPE_BASE,
+            title_db_id=title_db_id
+        )
+        # sanity: make sure version is exactly Vnew
+        winner.app_version = str(Vnew)
+        db.session.flush()
+        return winner, True
+
+    # If exactly one exists, upgrade in-place if needed
+    if len(rows) == 1:
+        winner = rows[0]
+        Vold = _v(winner.app_version)
+        if Vnew > Vold:
+            winner.app_version = str(Vnew)
+            if title_db_id is not None:
+                winner.title_db_id = title_db_id
+            db.session.flush()
+            return winner, True
+        else:
+            return winner, False
+
+    # Multiple exist → collapse
+    rows_sorted = sorted(rows, key=lambda r: _v(r.app_version), reverse=True)
+    winner = rows_sorted[0]
+    Vwin = _v(winner.app_version)
+
+    # If detected version is higher than current winner, upgrade winner in-place
+    if Vnew > Vwin:
+        winner.app_version = str(Vnew)
+        if title_db_id is not None:
+            winner.title_db_id = title_db_id
+        db.session.flush()
+
+    # Migrate files & overrides from losers → winner
+    losers = rows_sorted[1:]
+    for loser in losers:
+        # move Files relationships
+        for f in list(loser.files):
+            if winner not in f.apps:
+                f.apps.append(winner)
+        # move overrides
+        for ov in AppOverrides.query.filter_by(app_id=loser.id).all():
+            ov.app_id = winner.id
+        # delete loser
+        db.session.delete(loser)
+
+    # update owned based on files presence
+    winner.owned = bool(getattr(winner, "files", []))
+    db.session.flush()
+
+    return winner, True
 
 def _get_or_create_app(app_id: str, app_version, app_type: str, title_db_id: int):
     """
