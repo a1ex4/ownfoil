@@ -239,6 +239,9 @@
     $('#ovr-file-name').text(game.file_basename || '');
 
     $('#ovr-name').val(ovr?.name ?? (game.title_id_name || game.name || ''));
+    $('#ovr-name')
+      .data('origName', ovr?.name ?? (game.title_id_name || game.name || ''))
+      .data('everEdited', false);
     $('#ovr-region').val(ovr?.region ?? '');
     $('#ov-release-date').val(ovr?.release_date ?? (game.release_date || ''));
     $('#ovr-description').val(ovr?.description ?? '');
@@ -370,13 +373,34 @@
     const app_id = $('#ovr-app-id').val().trim();
 
     const payload = {
-      name: trimOrNull($('#ovr-name').val()),
+      // name is handled conditionally below
       region: trimOrNull($('#ovr-region').val()),
       description: trimOrNull($('#ovr-description').val()),
       version: numOrNull($('#ovr-version').val()),
       release_date: trimOrNull($('#ov-release-date').val()), // yyyy-MM-dd or null
       enabled: true
     };
+
+    // --- Name override logic: only include if user edited ---
+    const $name = $('#ovr-name');
+    const origName  = (trimOrNull($name.data('origName')) || '');
+    const nameEdited = $name.data('everEdited') === true;
+    const nameVal    = trimOrNull($name.val());
+
+    if (nameEdited) {
+      if (nameVal && nameVal !== origName) {
+        // user changed to a new non-empty value -> set it
+        payload.name = nameVal;
+      } else if (!nameVal && origName) {
+        // user cleared it -> explicitly clear on backend
+        payload.name = null;
+      } else {
+        // unchanged (nameVal === origName), omit from payload
+      }
+    } else {
+      // never edited, omit from payload
+    }
+
 
     // --- Title ID override logic (include only if user edited AND changed) ---
     const $tid = $('#ovCorrectedTitleId');
@@ -666,35 +690,42 @@
 
     // Date picker (if supported)
     $('#ov-release-date').off('click').on('click', function() { this.showPicker?.(); });
+
+    // Title ID "click to edit"
+    $('#ovTitleIdEditBtn').off('click').on('click', function () {
+      $('#ovTitleIdEditRow').removeClass('d-none');
+      $('#ovTitleIdEditBtn').addClass('d-none');
+      // Mark that the user intentionally entered edit mode
+      $('#ovCorrectedTitleId').data('everEdited', true);
+      // Focus input and place caret at end
+      const $inp = $('#ovCorrectedTitleId');
+      const v = $inp.val() || '';
+      $inp.focus().val('').val(v);
+    });
+
+    // Also allow clicking the displayed Title ID to enter edit mode
+    $('#ovTitleIdDisplay').off('click').on('click', function () {
+      $('#ovTitleIdEditBtn').trigger('click');
+    });
+
+    // Cancel returns to collapsed view (discard any unsaved edits)
+    $('#ovTitleIdCancelBtn').off('click').on('click', function () {
+      const orig = $('#ovCorrectedTitleId').data('origTid') || '';
+      $('#ovCorrectedTitleId').val(orig);
+      // User backed out; treat as never-edited for saving
+      $('#ovCorrectedTitleId').data('everEdited', false);
+
+      $('#ovTitleIdEditRow').addClass('d-none');
+      $('#ovTitleIdEditBtn').removeClass('d-none');
+    });
+
+    // Mark that the Name field was intentionally edited
+    $('#ovr-name').off('input').on('input', function () {
+      $(this).data('everEdited', true);
+    });
   }
 
-  // Title ID "click to edit"
-  $('#ovTitleIdEditBtn').off('click').on('click', function () {
-    $('#ovTitleIdEditRow').removeClass('d-none');
-    $('#ovTitleIdEditBtn').addClass('d-none');
-    // Mark that the user intentionally entered edit mode
-    $('#ovCorrectedTitleId').data('everEdited', true);
-    // Focus input and place caret at end
-    const $inp = $('#ovCorrectedTitleId');
-    const v = $inp.val() || '';
-    $inp.focus().val('').val(v);
-  });
-
-  // Also allow clicking the displayed Title ID to enter edit mode
-  $('#ovTitleIdDisplay').off('click').on('click', function () {
-    $('#ovTitleIdEditBtn').trigger('click');
-  });
-
-  // Cancel returns to collapsed view (discard any unsaved edits)
-  $('#ovTitleIdCancelBtn').off('click').on('click', function () {
-    const orig = $('#ovCorrectedTitleId').data('origTid') || '';
-    $('#ovCorrectedTitleId').val(orig);
-    // User backed out; treat as never-edited for saving
-    $('#ovCorrectedTitleId').data('everEdited', false);
-
-    $('#ovTitleIdEditRow').addClass('d-none');
-    $('#ovTitleIdEditBtn').removeClass('d-none');
-  });
+  
 
   // ----------------- Public API -----------------
   window.Overrides = {
