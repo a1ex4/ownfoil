@@ -1018,12 +1018,23 @@ def _merge_corrected_titledb(record: dict, override_map: dict) -> dict:
             td = None
 
         if td:
-            # Use TitleDB from corrected ID as baseline (display-only fields)
-            if td.get("name"):
-                dst["name"] = td["name"]
-                # base items usually mirror name into title_id_name for sorting/search
+            td_name = (td.get("name") or "").strip()
+            if td_name:
+                # Split into base + DLC parts (if any)
+                base_part, dlc_part = td_name, ""
+                if " - " in td_name:
+                    base_part, dlc_part = td_name.split(" - ", 1)
+
+                # Always use the corrected base for main heading
+                dst["title_id_name"] = base_part
+
                 if dst.get("app_type") == APP_TYPE_BASE:
-                    dst["title_id_name"] = td["name"]
+                    # BASE: show just base name
+                    dst["name"] = base_part
+                else:
+                    # DLC: show full combined English title (Base – DLC)
+                    dst["name"] = td_name
+
             if td.get("bannerUrl"):
                 dst["bannerUrl"] = td["bannerUrl"]
             if td.get("iconUrl"):
