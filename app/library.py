@@ -622,9 +622,9 @@ def update_titles():
         have_base = len(owned_base_apps) > 0
 
         # check up_to_date - find highest owned update version
-        owned_update_apps = [app for app in title_apps if app.get('app_type') == APP_TYPE_UPD and app.get('owned')]
-        available_update_apps = [app for app in title_apps if app.get('app_type') == APP_TYPE_UPD]
-        
+        available_update_apps = [a for a in title_apps if a.get('app_type') == APP_TYPE_UPD]
+        owned_update_apps = [a for a in available_update_apps if a.get('owned')]
+
         if not available_update_apps:
             # No updates available, consider up to date
             up_to_date = True
@@ -633,8 +633,8 @@ def update_titles():
             up_to_date = False
         else:
             # Find highest available version and highest owned version
-            highest_available_version = max(int(app['app_version']) for app in available_update_apps)
-            highest_owned_version = max(int(app['app_version']) for app in owned_update_apps)
+            highest_available_version = max(int(app['app_version'] or 0) for app in available_update_apps)
+            highest_owned_version = max(int(app['app_version'] or 0) for app in owned_update_apps)
             up_to_date = highest_owned_version >= highest_available_version
 
         # check complete - latest version of all available DLC are owned
@@ -880,7 +880,7 @@ def _generate_library():
 
         # Persist snapshot to disk
         save_library_to_disk(library_data)
-        logger.info('Generating BASE library done.')
+        logger.info('Generating library done.')
 
         return library_data
 
