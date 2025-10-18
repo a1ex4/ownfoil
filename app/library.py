@@ -986,42 +986,80 @@ def _add_files_without_apps(games_info):
 
 def _merge_corrected_titledb(record: dict, override_map: dict) -> dict:
     """
-    If there's an override for this app_id with a corrected_title_id, pull
-    TitleDB metadata for that ID and merge onto a shallow copy of `record`.
-    Does NOT change title_id; sets `recognized_via_correction` flag and
-    echoes `corrected_title_id` for the UI.
+    If there's an override for this app_id with a corrected_title_id, pull TitleDB
+    metadata for that ID and merge onto a shallow copy of `record`. Then apply any
+    explicit override fields.
+    - Does NOT change the underlying title_id in the DB.
+    - Echoes corrected_title_id and sets recognized_via_correction when applicable.
     """
     app_id = record.get("app_id")
     if not app_id:
         return record
 
-    ov = (override_map or {}).get(app_id)
-    corrected_id = (ov or {}).get("corrected_title_id")
-    if not corrected_id:
-        return record
-
-    td = titles_lib.get_game_info_by_title_id(corrected_id)
-    if not td:
-        # Nothing to merge if TitleDB doesn't have the corrected ID
-        return record
-
     dst = record.copy()
-    # Only lift display fields; never mutate the actual title_id.
-    if td.get("name"):
-        dst["name"] = td["name"]
-        # keep the original base-name for sorting, but if absent, sync it:
-        if dst.get("app_type") == APP_TYPE_BASE and not dst.get("title_id_name"):
-            dst["title_id_name"] = td["name"]
-    if td.get("bannerUrl"):
-        dst["bannerUrl"] = td["bannerUrl"]
-    if td.get("iconUrl"):
-        dst["iconUrl"] = td["iconUrl"]
-    if "category" in td and td["category"] is not None:
-        dst["category"] = td["category"]
 
-    # Surface flags for the UI
-    dst["recognized_via_correction"] = True
-    dst["corrected_title_id"] = corrected_id
+    # --- Preserve ORIGINAL recognition flags (before any override) ---
+    tid_name_raw = (record.get("title_id_name") or "").strip().lower()
+    orig_recognized = bool(tid_name_raw and tid_name_raw not in ("unrecognized", "unidentified"))
+    dst["hasTitleDb"] = orig_recognized
+    dst["isUnrecognized"] = not orig_recognized
+
+    ov = (override_map or {}).get(app_id)
+    if not ov:
+        return dst
+
+    # --- Apply corrected_title_id merge from TitleDB (if any) ---
+    corrected_id = (ov.get("corrected_title_id") or "").strip().upper()
+    used_correction = False
+    if corrected_id:
+        try:
+            td = titles_lib.get_game_info_by_title_id(corrected_id)
+        except Exception:
+            td = None
+
+        if td:
+            # Use TitleDB from corrected ID as baseline (display-only fields)
+            if td.get("name"):
+                dst["name"] = td["name"]
+                # base items usually mirror name into title_id_name for sorting/search
+                if dst.get("app_type") == APP_TYPE_BASE:
+                    dst["title_id_name"] = td["name"]
+            if td.get("bannerUrl"):
+                dst["bannerUrl"] = td["bannerUrl"]
+            if td.get("iconUrl"):
+                dst["iconUrl"] = td["iconUrl"]
+            if "category" in td and td["category"] is not None:
+                dst["category"] = td["category"]
+            used_correction = True
+
+        # Surface the corrected ID for the UI
+        dst["corrected_title_id"] = corrected_id
+
+    # --- Apply explicit override fields (only when present on the override) ---
+    # Name
+    if "name" in ov:
+        if ov["name"] is not None:
+            name_val = (ov["name"] or "").strip()
+            if name_val:
+                dst["name"] = name_val
+                dst["title_id_name"] = name_val  # keep search/sort in sync for BASE rows
+
+    # Release date (may be None to clear)
+    if "release_date" in ov:
+        dst["release_date"] = ov["release_date"]
+
+    # Artwork overrides (prefer file paths from override if present)
+    banner_override = ov.get("banner_path")
+    icon_override   = ov.get("icon_path")
+    if banner_override:
+        dst["banner_path"] = banner_override
+        dst["bannerUrl"] = banner_override
+    if icon_override:
+        dst["icon_path"] = icon_override
+        dst["iconUrl"] = icon_override
+
+    dst["recognized_via_correction"] = bool(used_correction)
+
     return dst
 
 def _v(s) -> int:

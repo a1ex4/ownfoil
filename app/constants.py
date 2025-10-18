@@ -57,6 +57,7 @@ DEFAULT_SETTINGS = {
         "clientCertKey": "-----BEGIN PRIVATE KEY-----",
         "host": "",
         "hauth": "",
+        "placeholder_text": "Image Unavailable",
     }
 }
 
