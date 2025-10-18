@@ -873,11 +873,13 @@ def generate_base_library():
             title.update(info_from_titledb)
 
             if title['app_type'] == APP_TYPE_BASE:
-                # Get title status from Titles table (already calculated by update_titles)
                 title_obj = get_title(title['title_id'])
                 if title_obj:
                     title['has_base'] = title_obj.have_base
-                    title['has_latest_version'] = title_obj.up_to_date
+                    # Only mark as up to date if the base itself is owned and up_to_date
+                    title['has_latest_version'] = (
+                        title_obj.have_base and title_obj.up_to_date
+                    )
                     title['has_all_dlcs'] = title_obj.complete
                 else:
                     title['has_base'] = False
