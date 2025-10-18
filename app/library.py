@@ -873,6 +873,7 @@ def generate_base_library():
             title.update(info_from_titledb)
 
             if title['app_type'] == APP_TYPE_BASE:
+                # Get title status from Titles table (already calculated by update_titles)
                 title_obj = get_title(title['title_id'])
                 if title_obj:
                     title['has_base'] = title_obj.have_base
