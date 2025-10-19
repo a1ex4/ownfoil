@@ -80,6 +80,34 @@
     return flags.isUnrecognized;
   };
 
+  // Find the base game for a DLC by TitleID prefix (first 12 hex chars are shared).
+  const findBaseForDlc = (dlcGame, allGames) => {
+    if (!dlcGame || !Array.isArray(allGames)) return null;
+    if ((dlcGame.app_type || '').toUpperCase() !== 'DLC') return null;
+
+    const appId = (dlcGame.app_id || '').toUpperCase();
+    if (!hex16(appId)) return null;
+
+    const familyPrefix = appId.slice(0, 12); // e.g. 010056E00853
+    const base = allGames.find(g =>
+      (g.app_type || '').toUpperCase() === 'BASE' &&
+      typeof g.app_id === 'string' &&
+      g.app_id.toUpperCase().startsWith(familyPrefix)
+    );
+    return base || null;
+  };
+
+  // return the correct display title for the big card header.
+  const displayTitleFor = (game, allGames) => {
+    const type = (game?.app_type || '').toUpperCase();
+    if (type === 'DLC') {
+      // Always show the BASE title for DLC cards
+      const base = findBaseForDlc(game, allGames);
+      if (base) return (base.title_id_name || base.name || 'Unrecognized');
+    }
+    // For BASE (and anything else), use TitleDB name then fallback
+    return (game?.title_id_name || game?.name || 'Unrecognized');
+  };
   
   const pickTidForDisplay = (game, ovr) => {
     const candidates = [
@@ -97,6 +125,10 @@
     return '';
   };
 
+  const pickNameForEdit = (game, ovr) => (ovr && typeof ovr.name === 'string' && ovr.name.trim())
+    ? ovr.name.trim()
+    : (game?.name || game?.title_id_name || '').trim();
+
   // ----------------- Overlay helpers -----------------
   // Apply (or remove) a single override onto matching games in memory.
   const applyOverrideToGamesByKey = (key, games) => {
@@ -105,21 +137,30 @@
     const affecteds = games.filter(g => appKey(g) === key);
 
     affecteds.forEach(g => {
-      if (!g._orig) {
-        g._orig = { name: g.name, title_id_name: g.title_id_name, release_date: g.release_date ?? null };
-      }
+      if (!g._orig)  g._orig = { name: g.name, title_id_name: g.title_id_name, release_date: g.release_date ?? null, app_type: g.app_type };
+      const type = (g.app_type || '').toUpperCase();
 
-      if (ovr && ovr.enabled !== false) {
+      if (ovr && ovr.enabled) {
+        // --- NAME override ---
         if (ovr.name && typeof ovr.name === 'string' && ovr.name.trim().length) {
-          g.title_id_name = ovr.name;
-          g.name = ovr.name;
+          const ovrName = ovr.name.trim();
+          g.name = ovrName;
+          if (type !== 'DLC')
+            g.title_id_name = ovrName;
+        } else {
+          // No override name provided -> revert names to originals
+          if (g._orig) {
+            g.name = g._orig.name;
+            g.title_id_name = g._orig.title_id_name;
+          }
         }
+
         // apply release_date if present (allow clearing with null)
         if ('release_date' in ovr) {
           g.release_date = ovr.release_date ?? null; // expected yyyy-MM-dd string (server sends ISO)
         }
       } else {
-        // restore originals
+        // Override disabled/absent -> restore originals
         if (g._orig) {
           g.title_id_name = g._orig.title_id_name;
           g.name = g._orig.name;
@@ -127,7 +168,7 @@
         }
       }
     });
-  }
+  };
 
   const reapplyAllOverridesToGames = (games) => {
     if (!Array.isArray(games)) return;
@@ -276,7 +317,7 @@
     $('#ovr-app-id').val(game.app_id || '');
     $('#ovr-file-name').text(game.file_basename || '');
 
-    $('#ovr-name').val(ovr?.name ?? (game.title_id_name || game.name || ''));
+    $('#ovr-name').val(pickNameForEdit(game, ovr));
     $('#ovr-name')
       .data('origName', ovr?.name ?? (game.title_id_name || game.name || ''))
       .data('everEdited', false);
@@ -778,6 +819,9 @@
 
     // flags helpers to compute once per game
     computeRecognitionFlags,
-    isUnrecognizedGame
+    isUnrecognizedGame,
+    pickTidForDisplay,
+    getOverrideForGame,
+    displayTitleFor,
   };
 })();

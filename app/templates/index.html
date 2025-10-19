@@ -319,6 +319,18 @@
 
                 games = list.map(g => {
                     const clone = { ...g };
+                    clone._orig = {
+                        name: clone.name,
+                        title_id_name: clone.title_id_name,
+                        release_date: clone.release_date ?? null,
+                        app_type: clone.app_type
+                    };
+
+                    // remember base title for DLC at fetch-time
+                    if ((clone.app_type || '').toUpperCase() === 'DLC') {
+                        clone.base_name = clone.title_id_name;
+                    }
+
                     // compute & attach client flags (invariant to overrides)
                     const flags = window.Overrides.computeRecognitionFlags(clone);
                     clone.isUnrecognized = flags.isUnrecognized;
@@ -400,18 +412,19 @@
             const cardOverlay = $('<div class="card-img-overlay game-info"></div>');
 
             const titleLine = $('<div class="d-flex align-items-center justify-content-between"></div>');
-            const title = $('<h5 class="card-title game-title mb-1"></h5>').text(game.title_id_name || game.name || 'Unrecognized');
+            const bigTitle = window.Overrides.displayTitleFor(game, games);
+            const title = $('<h5 class="card-title game-title mb-1"></h5>').text(bigTitle);
             titleLine.append(title);
             cardOverlay.append(titleLine);
 
             const description = $('<p class="card-text game-description mb-2"></p>');
             if (game.app_type === 'DLC') {
                 let dlcName = (game.name || '').trim();
-                const baseName = (game.base_name || game.title_id_name || '').trim();
 
-                // Strip duplicated base title prefix if it's an exact match
+                // derive base name used in the header
+                const baseName = window.Overrides.displayTitleFor(game, games).trim();
+
                 if (baseName && dlcName.toLowerCase().startsWith(baseName.toLowerCase())) {
-                    // Remove the prefix and common separators like ": ", " - ", or " – "
                     dlcName = dlcName.slice(baseName.length).replace(/^(\s*[-–:]\s*)?/, '');
                 }
 
@@ -790,14 +803,26 @@
         if (!term) return src.slice();
 
         return src.filter(game => {
+            // computed header = base title for DLC, or TitleDB name for BASE
+            const computedHeader = (window.Overrides?.displayTitleFor)
+                ? (window.Overrides.displayTitleFor(game, games) || '')
+                : (game.title_id_name || '');
+
+            // combine header + app/DLC name (helps full dlc name queries like "A Hat in Time Seal the Deal")
+            const headerPlusName = `${computedHeader} ${game.name || ''}`.trim();
+
             const fields = [
                 game.app_id,
                 game.title_id,
-                game.name,
-                game.title_id_name,
-                game.override_name,
-                game.original_name,
+                game._orig.title_id,
+                game.name,               // DLC/app name (possibly overridden)
+                game.title_id_name,      // server/base name (may be DLC-overridden sometimes)
+                game.override_name,      // overridden name
+                game.original_name,      // original name
+                computedHeader,          // what we actually show in the big title
+                headerPlusName           // combined for convenience matches
             ];
+
             return fields.some(v => typeof v === 'string' && v.toLowerCase().includes(term));
         });
     }
