@@ -40,6 +40,41 @@ def _normalize_title_id(raw: str):
         s = s[2:]
     return s if _TITLE_ID_RE.match(s) else None
 
+def _normalize_release_date(val):
+    """
+    Accepts:
+      - int like 20230915
+      - str '20230915' or '2023-09-15'
+      - None / 'Unknown'
+    Returns 'YYYY-MM-DD' or None.
+    """
+    if not val or str(val).strip().lower() == 'unknown':
+        return None
+    s = str(val).strip()
+    if len(s) == 8 and s.isdigit():
+        return f"{s[0:4]}-{s[4:6]}-{s[6:8]}"
+    if len(s) == 10 and s[4] == '-' and s[7] == '-':
+        return s
+    # Fallback: try to coerce digits only
+    digits = ''.join(ch for ch in s if ch.isdigit())
+    if len(digits) == 8:
+        return f"{digits[0:4]}-{digits[4:6]}-{digits[6:8]}"
+    return None
+
+def get_raw_titledb_record(title_id: str):
+    """
+    Return the raw TitleDB record dict for a Title ID (no projection/trimming).
+    Accepts optional 0x prefix. Returns None if not found.
+    """
+    global _titles_by_title_id
+    if _titles_by_title_id is None:
+        logger.error("titles_by_title_id is not loaded. Call load_titledb first.")
+        return None
+    tid = _normalize_title_id(title_id)
+    if not tid:
+        return None
+    return _titles_by_title_id.get(tid)
+
 def getDirsAndFiles(path):
     entries = os.listdir(path)
     allFiles = []
@@ -341,13 +376,35 @@ def get_game_info(title_id: str):
                 'name': None,
                 'id': tid,
                 'category': '',
+                'region': None,
+                'description': None,
+                'release_date': None,
             }
+
+        # Tolerate different key spellings from TitleDB
+        release_raw = (
+            title_info.get('release_date') or
+            title_info.get('releaseDate') or
+            None
+        )
+        description = (
+            title_info.get('description') or
+            title_info.get('longDescription') or
+            title_info.get('desc') or
+            None
+        )
+        region = title_info.get('region')
+
         return {
             'name': title_info.get('name'),
             'bannerUrl': title_info.get('bannerUrl'),
             'iconUrl': title_info.get('iconUrl'),
             'id': title_info.get('id') or tid,
             'category': title_info.get('category', ''),
+            'region': region,
+            'description': description,
+            # leave normalization to library.py (_normalize_release_date)
+            'release_date': release_raw,
         }
     except Exception:
         logger.error(f"Title ID not found in titledb: {title_id}")
@@ -355,6 +412,9 @@ def get_game_info(title_id: str):
             'name': None,
             'id': title_id,
             'category': '',
+            'region': None,
+            'description': None,
+            'release_date': None,
         }
 
 def get_game_info_by_title_id(title_id: str):
@@ -389,7 +449,7 @@ def get_all_existing_versions(titleid):
         {
             'version': int(version_from_db),
             'update_number': get_update_number(version_from_db),
-            'release_date': _versions_db[titleid][str(version_from_db)],
+            'release_date': _normalize_release_date(_versions_db[titleid][str(version_from_db)]),
         }
         for version_from_db in versions_from_db
     ]

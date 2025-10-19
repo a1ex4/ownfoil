@@ -40,9 +40,51 @@
     : `${url}${url.includes('?') ? '&' : '?'}b=${buster}`;
   const appKey = (gameOrOverride) => gameOrOverride?.app_id || '';
 
+  // Derive Version for the modal:
+  // - BASE  -> latest OWNED update version (fallback: latest available; fallback: app_version)
+  // - DLC   -> app_version of the DLC itself
+  const deriveTitleDbVersion = (game) => {
+    if (!game) return null;
+
+    const parseNum = (x) => {
+      if (typeof x === 'number' && Number.isFinite(x)) return x;
+      if (typeof x === 'string' && /^\d+$/.test(x))   return Number(x);
+      return null;
+    };
+
+    const type = (game.app_type || '').toUpperCase();
+
+    if (type === 'DLC') {
+      // DLCs: show the app's own version (app_version)
+      return parseNum(game.app_version);
+    }
+
+    // BASE (or anything else): prefer latest OWNED update version
+    const updates = Array.isArray(game.version) ? game.version : [];
+
+    const pickMaxVersion = (arr) => {
+      let max = null;
+      for (const item of arr) {
+        const n = parseNum(item?.version);
+        if (n !== null && (max === null || n > max)) max = n;
+      }
+      return max;
+    };
+
+    if (updates.length) {
+      const owned = updates.filter(u => u && u.owned === true);
+      const maxOwned = owned.length ? pickMaxVersion(owned) : null;
+      if (maxOwned !== null) return maxOwned;
+
+      const maxAny = pickMaxVersion(updates);
+      if (maxAny !== null) return maxAny;
+    }
+
+    // No updates? fall back to the app's own version (often 0 for v0 base)
+    return parseNum(game.app_version);
+  };
+
   // Recognition flags (stable against overrides)
-  // More tolerant: uses _orig if present; otherwise falls back to current fields.
-  // Also accepts server booleans (has_title_db / hasTitleDb) when provided.
   const computeRecognitionFlags = (game) => {
     if (!game || typeof game !== 'object') return { isUnrecognized: true, hasTitleDb: false };
 
@@ -56,7 +98,7 @@
       (typeof game.hasTitleDb  === 'boolean') ? game.hasTitleDb  :
       null;
 
-    // Heuristic name check (treat literal "Unrecognized"/"Unidentified" as unrecognized)
+      // Heuristic name check (treat literal "Unrecognized"/"Unidentified" as unrecognized)
     const looksNamed = !!anyName && !/^(unrecognized|unidentified)$/i.test(anyName);
 
     // A plausible 16-hex TitleID anywhere we usually carry it
@@ -156,8 +198,8 @@
         }
 
         // apply release_date if present (allow clearing with null)
-        if ('release_date' in ovr) {
-          g.release_date = ovr.release_date ?? null; // expected yyyy-MM-dd string (server sends ISO)
+        if (ovr.release_date && typeof ovr.release_date === 'string' && ovr.release_date.trim().length) {
+          g.release_date = ovr.release_date.trim();
         }
       } else {
         // Override disabled/absent -> restore originals
@@ -317,15 +359,47 @@
     $('#ovr-app-id').val(game.app_id || '');
     $('#ovr-file-name').text(game.file_basename || '');
 
+    // --- TitleDB baselines for the 4 fields ---
+    const tdReleaseDate = trimOrNull(game.release_date);
+    const tdRegion      = trimOrNull(game.region);
+    const tdDescription = trimOrNull(game.description);
+    const tdVersionNum  = deriveTitleDbVersion(game); // number or null
+
+    // Name
     $('#ovr-name').val(pickNameForEdit(game, ovr));
     $('#ovr-name')
       .data('origName', ovr?.name ?? (game.title_id_name || game.name || ''))
       .data('everEdited', false);
-    $('#ovr-region').val(ovr?.region ?? '');
-    $('#ov-release-date').val(ovr?.release_date ?? (game.release_date || ''));
-    $('#ovr-description').val(ovr?.description ?? '');
-    $('#ovr-version').val(ovr?.version ?? '');
 
+    // Region
+    const initialRegion = (ovr?.region != null) ? trimOrNull(ovr.region) : tdRegion;
+    $('#ovr-region')
+      .val(initialRegion ?? '')
+      .data('origVal', initialRegion ?? '')
+      .data('everEdited', false);
+
+    // Release date
+    const initialReleaseDate = (ovr?.release_date != null) ? trimOrNull(ovr.release_date) : tdReleaseDate;
+    $('#ov-release-date')
+      .val(initialReleaseDate ?? '')
+      .data('origVal', initialReleaseDate ?? '')
+      .data('everEdited', false);
+
+    // Description
+    const initialDescription = (ovr?.description != null) ? trimOrNull(ovr.description) : tdDescription;
+    $('#ovr-description')
+      .val(initialDescription ?? '')
+      .data('origVal', initialDescription ?? '')
+      .data('everEdited', false);
+
+    // Version (numeric)
+    const initialVersion = (ovr?.version != null) ? ovr.version : tdVersionNum;
+    $('#ovr-version')
+      .val((initialVersion ?? '') === '' ? '' : String(initialVersion))
+      .data('origVal', (initialVersion ?? '') === '' ? '' : String(initialVersion))
+      .data('everEdited', false);
+
+    // TID display/edit
     const displayTid = pickTidForDisplay(game, ovr);
     $('#ovTitleIdDisplay').text(displayTid || '(none)');
     $('#ovCorrectedTitleId')
@@ -446,15 +520,10 @@
     const app_id = $('#ovr-app-id').val().trim();
 
     const payload = {
-      // name is handled conditionally below
-      region: trimOrNull($('#ovr-region').val()),
-      description: trimOrNull($('#ovr-description').val()),
-      version: numOrNull($('#ovr-version').val()),
-      release_date: trimOrNull($('#ov-release-date').val()), // yyyy-MM-dd or null
       enabled: true
     };
 
-    // --- Name override logic: only include if user edited ---
+    // --- Name (send only if edited & changed; allow explicit clearing)
     const $name = $('#ovr-name');
     const origName  = (trimOrNull($name.data('origName')) || '');
     const nameEdited = $name.data('everEdited') === true;
@@ -467,13 +536,62 @@
       } else if (!nameVal && origName) {
         // user cleared it -> explicitly clear on backend
         payload.name = null;
-      } else {
-        // unchanged (nameVal === origName), omit from payload
       }
-    } else {
-      // never edited, omit from payload
     }
 
+    // --- Region (send only if edited & changed; allow explicit clearing)
+    const $region = $('#ovr-region');
+    const regionEdited = $region.data('everEdited') === true;
+    const regionOrig = trimOrNull($region.data('origVal')) || '';
+    const regionVal  = trimOrNull($region.val());
+
+    if (regionEdited) {
+      if ((regionVal || '') !== regionOrig) {
+        payload.region = (regionVal ?? null);
+      }
+    }
+
+    // --- Release date (yyyy-MM-dd) same rules
+    const $rd = $('#ov-release-date');
+    const rdEdited = $rd.data('everEdited') === true;
+    const rdOrig = trimOrNull($rd.data('origVal')) || '';
+    const rdVal  = trimOrNull($rd.val()); // or null
+
+    if (rdEdited) {
+      if ((rdVal || '') !== rdOrig) {
+        payload.release_date = (rdVal ?? null);
+      }
+    }
+
+    // --- Description (send only if edited & changed; allow clearing)
+    const $desc = $('#ovr-description');
+    const descEdited = $desc.data('everEdited') === true;
+    const descOrig = trimOrNull($desc.data('origVal')) || '';
+    const descVal  = trimOrNull($desc.val());
+
+    if (descEdited) {
+      if ((descVal || '') !== descOrig) {
+        payload.description = (descVal ?? null);
+      }
+    }
+
+    // --- Version (number) — send only if edited & changed; allow clearing
+    const $ver = $('#ovr-version');
+    const verEdited = $ver.data('everEdited') === true;
+    const verOrigStr = ($ver.data('origVal') ?? '').toString();
+    const verOrigNum = numOrNull(verOrigStr);
+    const verValNum  = numOrNull($ver.val());
+
+    if (verEdited) {
+      // Note: treat NaN/null as "cleared"
+      const changed =
+        (verValNum === null && verOrigNum !== null) ||
+        (verValNum !== null && verOrigNum === null) ||
+        (verValNum !== null && verOrigNum !== null && verValNum !== verOrigNum);
+      if (changed) {
+        payload.version = (verValNum === null ? null : verValNum);
+      }
+    }
 
     // --- Title ID override logic (include only if user edited AND changed) ---
     const $tid = $('#ovCorrectedTitleId');
@@ -497,14 +615,8 @@
         if (correctedTitleId !== origTid) {
           // changed -> include
           payload.corrected_title_id = correctedTitleId;
-        } else {
-          // unchanged -> do not include
         }
-      } else {
-        // edited but left empty (user cleared field) -> do NOT include (no silent clearing)
       }
-    } else {
-      // never edited -> do not include
     }
 
     if (!id) payload.app_id = app_id;
@@ -539,10 +651,10 @@
       res = await $.ajax({
         url,
         type: options.method,
-        data: isFD ? options.body : options.body, // FormData or JSON string
-        processData: false,                        // keep raw body for both cases
+        data: isFD ? options.body : options.body,
+        processData: false,
         contentType: isFD ? false : 'application/json',
-        dataType: 'json'                           // parse JSON response for you
+        dataType: 'json'
       });
     } catch {
       alert('Failed to save override');
@@ -764,6 +876,12 @@
     // Date picker (if supported)
     $('#ov-release-date').off('click').on('click', function() { this.showPicker?.(); });
 
+    // Mark "everEdited" for region/description/version/release_date
+    $('#ovr-region').off('input').on('input', function(){ $(this).data('everEdited', true); });
+    $('#ovr-description').off('input').on('input', function(){ $(this).data('everEdited', true); });
+    $('#ovr-version').off('input').on('input', function(){ $(this).data('everEdited', true); });
+    $('#ov-release-date').off('change input').on('change input', function(){ $(this).data('everEdited', true); });
+
     // Title ID "click to edit"
     $('#ovTitleIdEditBtn').off('click').on('click', function () {
       $('#ovTitleIdEditRow').removeClass('d-none');
@@ -787,7 +905,6 @@
       $('#ovCorrectedTitleId').val(orig);
       // User backed out; treat as never-edited for saving
       $('#ovCorrectedTitleId').data('everEdited', false);
-
       $('#ovTitleIdEditRow').addClass('d-none');
       $('#ovTitleIdEditBtn').removeClass('d-none');
     });
@@ -797,8 +914,6 @@
       $(this).data('everEdited', true);
     });
   }
-
-  
 
   // ----------------- Public API -----------------
   window.Overrides = {
