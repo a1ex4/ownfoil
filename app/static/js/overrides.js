@@ -6,11 +6,11 @@
   const DEFAULT_BANNER = () => window.DEFAULT_BANNER || `https://placehold.co/400x225/png?text=${encodeURIComponent(PLACEHOLDER_TEXT())}`;
   const DEFAULT_ICON   = () => window.DEFAULT_ICON   || `https://placehold.co/400x400/png?text=${encodeURIComponent(PLACEHOLDER_TEXT())}`;
 
-
   // Forces browsers to refetch updated artwork after saves/resets
   const ARTWORK_BUSTERS = new Map(); // app_id -> integer
   const getBuster = (appId) => ARTWORK_BUSTERS.get(appId) || 0;
   const bumpBuster = (appId) => ARTWORK_BUSTERS.set(appId, getBuster(appId) + 1);
+  const hex16 = (s) => /^[0-9A-F]{16}$/i.test((s || '').toString().trim());
 
   // --- Overrides state ---
   // key: app_id  -> override object
@@ -41,23 +41,61 @@
   const appKey = (gameOrOverride) => gameOrOverride?.app_id || '';
 
   // Recognition flags (stable against overrides)
+  // More tolerant: uses _orig if present; otherwise falls back to current fields.
+  // Also accepts server booleans (has_title_db / hasTitleDb) when provided.
   const computeRecognitionFlags = (game) => {
-    const tidNameRaw = (game?._orig?.title_id_name ?? game.title_id_name ?? '').trim();
-    const hasTitleDb =
-      !!tidNameRaw &&
-      tidNameRaw.toLowerCase() !== 'unrecognized' &&
-      tidNameRaw.toLowerCase() !== 'unidentified';
+    if (!game || typeof game !== 'object') return { isUnrecognized: true, hasTitleDb: false };
+
+    const origName = (game?._orig?.title_id_name ?? '').trim();
+    const curName  = (game?.title_id_name ?? game?.name ?? '').trim();
+    const anyName  = origName || curName;
+
+    // Prefer server-provided boolean if available
+    const explicit =
+      (typeof game.has_title_db === 'boolean') ? game.has_title_db :
+      (typeof game.hasTitleDb  === 'boolean') ? game.hasTitleDb  :
+      null;
+
+    // Heuristic name check (treat literal "Unrecognized"/"Unidentified" as unrecognized)
+    const looksNamed = !!anyName && !/^(unrecognized|unidentified)$/i.test(anyName);
+
+    // A plausible 16-hex TitleID anywhere we usually carry it
+    const idGuess = (game.app_id ?? game.title_id ?? game.id ?? '').toString().trim();
+    const hasHexId = hex16(idGuess);
+
+    // Decision: explicit boolean wins; otherwise require both a real-looking name and a 16-hex id
+    const hasTitleDb = (explicit !== null) ? explicit : (looksNamed && hasHexId);
+
     return { isUnrecognized: !hasTitleDb, hasTitleDb };
-  }
+  };
 
   const isUnrecognizedGame = (game) => {
     if (!game) return false;
-    if (typeof game.isUnrecognized === 'boolean') return game.isUnrecognized;
+    if (typeof game.isUnrecognized === 'boolean' && typeof game.hasTitleDb === 'boolean') {
+      return game.isUnrecognized || !game.hasTitleDb;
+    }
     const flags = computeRecognitionFlags(game);
-    game.isUnrecognized = flags.isUnrecognized;
-    game.hasTitleDb = flags.hasTitleDb;
-    return game.isUnrecognized;
-  }
+    game.isUnrecognized = flags.isUnrecognized; // cache
+    game.hasTitleDb     = flags.hasTitleDb;     // cache
+    return flags.isUnrecognized;
+  };
+
+  
+  const pickTidForDisplay = (game, ovr) => {
+    const candidates = [
+      ovr?.corrected_title_id,     // explicit override first
+      game?.corrected_title_id,    // server-computed corrected id if present
+      game?.app_id,                // app-specific id (BASE or DLC)
+      game?.dlc_title_id,          // distinct DLC id if existing
+      game?.title_id,              // family/base id (fallback)
+      game?.id                     // last resort
+    ];
+    for (const c of candidates) {
+      const t = (c || '').toString().trim();
+      if (hex16(t)) return t.toUpperCase();
+    }
+    return '';
+  };
 
   // ----------------- Overlay helpers -----------------
   // Apply (or remove) a single override onto matching games in memory.
@@ -246,17 +284,11 @@
     $('#ov-release-date').val(ovr?.release_date ?? (game.release_date || ''));
     $('#ovr-description').val(ovr?.description ?? '');
     $('#ovr-version').val(ovr?.version ?? '');
-    const displayTid =
-      (ovr?.corrected_title_id && ovr.corrected_title_id.trim()) ||
-      (game.corrected_title_id && game.corrected_title_id.trim()) ||
-      (game.title_id && game.title_id.trim()) ||
-      (game.id && game.id.toString().trim()) ||
-      '';
 
+    const displayTid = pickTidForDisplay(game, ovr);
     $('#ovTitleIdDisplay').text(displayTid || '(none)');
-    $('#ovCorrectedTitleId').val(displayTid);
-
     $('#ovCorrectedTitleId')
+      .val(displayTid)
       .data('origTid', displayTid || '')
       .data('everEdited', false);
 

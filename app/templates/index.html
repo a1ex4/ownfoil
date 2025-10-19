@@ -406,14 +406,31 @@
 
             const description = $('<p class="card-text game-description mb-2"></p>');
             if (game.app_type === 'DLC') {
-                const smallName = $('<small></small>').text(`${game.name} | `);
-                description.append(smallName);
-            }
-            const smallId = $('<small></small>').text(game.corrected_title_id || game.id || game.title_id || game.app_id || '');
+                let dlcName = (game.name || '').trim();
+                const baseName = (game.base_name || game.title_id_name || '').trim();
 
-            if (game.recognized_via_correction) {
-                // Highlight the ID if it's using a corrected Title ID
-                smallId.addClass('text-warning fw-semibold'); // Bootstrap yellow + slight weight
+                // Strip duplicated base title prefix if it's an exact match
+                if (baseName && dlcName.toLowerCase().startsWith(baseName.toLowerCase())) {
+                    // Remove the prefix and common separators like ": ", " - ", or " – "
+                    dlcName = dlcName.slice(baseName.length).replace(/^(\s*[-–:]\s*)?/, '');
+                }
+
+                if (dlcName) {
+                    description.append($('<small></small>').text(`${dlcName} | `));
+                }
+            }
+
+            // Prefer corrected → app_id (app-specific) → dlc_title_id → title_id → id
+            const tidToShow = (window.Overrides.pickTidForDisplay
+                ? window.Overrides.pickTidForDisplay(game, window.Overrides.getOverrideForGame?.(game))
+                : (game.corrected_title_id || game.app_id || game.dlc_title_id || game.title_id || game.id || '')
+            ).toString().trim().toUpperCase();
+
+            const smallId = $('<small></small>').text(tidToShow);
+
+            // Highlight only if the displayed TID is the corrected one
+            if (tidToShow && game.corrected_title_id && tidToShow === game.corrected_title_id.toString().trim().toUpperCase()) {
+                smallId.addClass('text-warning fw-semibold');
             }
 
             description.append(smallId);
