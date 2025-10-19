@@ -95,12 +95,17 @@ def encrypt_shop(shop):
 
 def build_titledb_from_overrides():
     """
-    Build top-level `titledb` from enabled AppOverrides.
-    Keys are Title IDs; values per Tinfoil:
-      id (AppID/TitleID per type), name, version (int), region, releaseDate (yyyymmdd), description, size.
+    Build `titledb` from enabled AppOverrides.
 
-    If an override has corrected_title_id, we emit under that Title ID. For BASE, we also set entry["id"]
-    to the corrected Title ID (Tinfoil expects base 'id' == Title ID). For DLC, 'id' remains the DLC app id.
+    Rules:
+      - BASE override:
+          * Keyed by corrected_title_id if provided, else by the base TitleID from Titles.
+          * entry["id"] == that same key (Tinfoil expects base id == TitleID).
+      - DLC override:
+          * Keyed by corrected_title_id if provided, else by the DLC's app_id (DLC TitleID).
+          * entry["id"] == that same key (use the DLC's own TitleID).
+      - Include any overridden fields: name, version (int), region, releaseDate (yyyymmdd), description, size.
+      - One node per override; DLCs are NOT nested under the base.
     """
     titledb_map = {}
     try:
@@ -121,15 +126,16 @@ def build_titledb_from_overrides():
             if not app:
                 continue
 
-            tid_db = (app.title.title_id if getattr(app, "title", None) else app.title_id)
+            # Family/base TitleID from Titles row when present; otherwise app.title_id
+            base_tid = (app.title.title_id if getattr(app, "title", None) else app.title_id)
             app_id = app.app_id
-            if not tid_db or not app_id:
+            if not base_tid or not app_id:
                 continue
 
-            tid_db = tid_db.strip().upper()
+            base_tid = base_tid.strip().upper()
             app_id = app_id.strip().upper()
 
-            # Determine type (BASE/DLC only relevant here)
+            # Determine type (BASE/DLC relevant here)
             try:
                 _, app_type = identify_appId(app_id)
             except Exception:
@@ -137,18 +143,20 @@ def build_titledb_from_overrides():
             if app_type not in (APP_TYPE_BASE, APP_TYPE_DLC):
                 continue
 
-            # >>> Use corrected Title ID when provided
-            tid_emit = (ov.corrected_title_id or tid_db).strip().upper()
-
-            entry = {}
-
-            # For BASE, Tinfoil treats 'id' as the base Title ID
+            # Compute the key to emit and the entry["id"]
             if app_type == APP_TYPE_BASE:
-                entry["id"] = tid_emit
+                # BASE: corrected_title_id (if set) becomes the emitted TitleID; otherwise use base title id
+                tid_emit = (ov.corrected_title_id.strip().upper() if ov.corrected_title_id else base_tid)
             else:
-                # For DLC, keep the DLC app id
-                entry["id"] = app_id
+                # DLC: corrected_title_id (if set) becomes the emitted TitleID; otherwise use the DLC app_id
+                tid_emit = (ov.corrected_title_id.strip().upper() if ov.corrected_title_id else app_id)
 
+            # id field mirrors the emitted key for both base and dlc
+            entry = {
+                "id": tid_emit,
+            }
+
+            # Optional overridden fields
             if ov.name:
                 entry["name"] = ov.name
 
@@ -165,6 +173,7 @@ def build_titledb_from_overrides():
             if ov.description:
                 entry["description"] = ov.description
 
+            # Aggregate file sizes for this *app* (base or dlc)
             total_bytes = (
                 db.session.query(func.sum(Files.size))
                 .join(Files.apps)
@@ -174,18 +183,13 @@ def build_titledb_from_overrides():
             if total_bytes:
                 entry["size"] = int(total_bytes)
 
-            # Keep one entry per Title ID; prefer BASE over DLC
-            existing = titledb_map.get(tid_emit)
-            if not existing:
-                titledb_map[tid_emit] = {"entry": entry, "type": app_type}
-            else:
-                if existing["type"] == APP_TYPE_DLC and app_type == APP_TYPE_BASE:
-                    titledb_map[tid_emit] = {"entry": entry, "type": app_type}
+            # Emit/overwrite this node (last writer wins — deterministic enough for our use)
+            titledb_map[tid_emit] = entry
 
     finally:
         unload_titledb()
 
-    return {tid: data["entry"] for tid, data in titledb_map.items()}
+    return titledb_map
 
 def _version_str_to_int(version_str):
     """
