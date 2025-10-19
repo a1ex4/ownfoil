@@ -867,8 +867,24 @@ def _generate_library():
                     title['has_latest_version'] = True
 
                 # Get title name for DLC
-                titleid_info = titles_lib.get_game_info(title['title_id'])
-                title['title_id_name'] = titleid_info['name'] if titleid_info else 'Unrecognized'
+                titleid_info = (
+                    titles_lib.get_game_info_by_title_id(title['app_id'])  # exact DLC row if it exists
+                    or titles_lib.get_game_info(title['app_id'])           # family/base fallback
+                )
+                logger.debug(f'DLC TitleID info for {title["app_id"]}: {titleid_info}')
+
+                if title.get('name') is not None:
+                    title['title_id_name'] = title['name']
+                title['name'] = titleid_info['name'] if titleid_info else 'Unrecognized'
+
+                # ALSO override artwork from the exact DLC row if it exists
+                if titleid_info:
+                    if titleid_info.get('bannerUrl'):
+                        title['bannerUrl'] = titleid_info['bannerUrl']
+                    if titleid_info.get('iconUrl'):
+                        title['iconUrl'] = titleid_info['iconUrl']
+                    if 'category' in titleid_info and titleid_info['category'] is not None:
+                        title['category'] = titleid_info['category']
 
             title['file_basename'] = _infer_file_basename_for_app(
                 title.get('app_id', ""),
