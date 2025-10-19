@@ -311,6 +311,11 @@
     let cardSize = 3; // Default card size
     let currentView = 'card'; // Default view is 'card'
 
+    // --- Search debounce ---
+    const SEARCH_DEBOUNCE_MS = 300;
+    let searchDebounceTimer = null;
+    // -----------------------
+
     function fetchGames() {
         return new Promise((resolve) => {
             $.get(`/api/titles`, function (data) {
@@ -896,11 +901,32 @@
             saveFiltersToStorage();
         });
 
-        // Search
+        // Search (debounced, but skip on Enter)
         $("#textFilter").on("input", function () {
             const val = $(this).val();
             localStorage.setItem('searchTerm', val);
+
+            clearTimeout(searchDebounceTimer);
+            searchDebounceTimer = setTimeout(() => {
+                applyFilters();
+            }, SEARCH_DEBOUNCE_MS);
+        });
+
+        // Apply immediately when the field loses focus
+        $("#textFilter").on("blur", function () {
+            clearTimeout(searchDebounceTimer);
             applyFilters();
+        });
+
+        // Apply immediately when Enter is pressed (skip debounce)
+        $("#textFilter").on("keydown", function (e) {
+            if (e.key === "Enter" || e.keyCode === 13) {
+                e.preventDefault();                 // prevent form submit/page nav
+                clearTimeout(searchDebounceTimer);  // cancel any pending debounce
+                const val = $(this).val();
+                localStorage.setItem('searchTerm', val);
+                applyFilters();
+            }
         });
 
         // Close popovers on document click
