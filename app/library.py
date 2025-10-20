@@ -778,10 +778,11 @@ def _generate_library():
                 version_list = []
                 for update_app in update_apps:
                     app_version = int(update_app['app_version'])
+                    rd = version_release_dates.get(app_version)
                     version_list.append({
                         'version': app_version,
                         'owned': update_app.get('owned', False),
-                        'release_date': version_release_dates.get(app_version)
+                        'release_date': rd.isoformat() if isinstance(rd, (datetime.datetime, datetime.date)) else rd
                     })
 
                 title['version'] = sorted(version_list, key=lambda x: x['version'])
@@ -821,6 +822,8 @@ def _generate_library():
 
             # File basename hint for organizer/UI
             title['file_basename'] = _best_file_basename(title.get('files'))
+            # We don't need to send the full files payload to the client cache, and it can carry datetimes which are not serializable
+            title.pop('files', None)
 
             games_info.append(title)
 
@@ -836,7 +839,7 @@ def _generate_library():
         }
 
         # Persist snapshot to disk
-        save_json(library_data, LIBRARY_CACHE_FILE)
+        save_json(library_data, LIBRARY_CACHE_FILE, default=_json_default)
         logger.info('Generating library done.')
 
         return library_data
@@ -1032,3 +1035,9 @@ def _normalize_version_int(s) -> int:
         return int(s, 10)
     except Exception:
         return 0
+
+def _json_default(o):
+    if isinstance(o, (datetime.datetime, datetime.date)):
+        return o.isoformat()
+    # Let json raise for anything else non-serializable so we don’t hide bugs
+    raise TypeError(f'Object of type {o.__class__.__name__} is not JSON serializable')
