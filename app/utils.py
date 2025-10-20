@@ -72,6 +72,25 @@ def safe_write_json(path, data, **dump_kwargs):
         # Atomically replace target file
         os.replace(tmp_path, path)
 
+def save_json(data, path, **dump_kwargs):
+    """
+    Save JSON atomically using safe_write_json, ensuring the parent
+    directory exists. Accepts extra json.dump kwargs.
+    """
+    dirpath = os.path.dirname(path) or "."
+    os.makedirs(dirpath, exist_ok=True)
+    safe_write_json(path, data, **dump_kwargs)
+
+def load_json(path, default=None):
+    """
+    Load JSON from disk. Returns `default` if the file is missing.
+    Raises on decode or IO errors so callers can handle/report.
+    """
+    if not os.path.exists(path):
+        return default
+    with open(path, "r", encoding="utf-8") as f:
+        return json.load(f)
+
 def merge_dicts_recursive(source, destination):
     """
     Recursively merges source dictionary into destination dictionary.

@@ -1,5 +1,6 @@
 import hashlib
 import json
+import os
 
 import datetime
 from typing import Optional
@@ -12,6 +13,9 @@ from db import db, Apps, AppOverrides
 import titles as titles_lib
 from utils import *
 from images import *
+from constants import *
+import logging
+logger = logging.getLogger('main')
 
 # --- api blueprint ---------------------------------------------------------
 overrides_blueprint = Blueprint("overrides_blueprint", __name__, url_prefix="/api/overrides")
@@ -20,71 +24,11 @@ overrides_blueprint = Blueprint("overrides_blueprint", __name__, url_prefix="/ap
 @overrides_blueprint.route("", methods=["GET"])
 @access_required("shop")
 def list_overrides():
-    rows = (
-        db.session.query(AppOverrides)
-        .order_by(AppOverrides.created_at.desc())
-        .all()
-    )
-
-    # Serialize overrides (cheap; no TitleDB work here)
-    items = [_serialize_with_art_urls(r) for r in rows]
-
-    # Build a "redirects_key" map that only includes corrected IDs (cheap)
-    redirects_key = {}
-    for ov in rows:
-        corr = getattr(ov, "corrected_title_id", None)
-        appid = getattr(getattr(ov, "app", None), "app_id", None) or getattr(ov, "app_id", None)
-        if appid and corr:
-            redirects_key[appid] = corr
-
-    # ---- Phase A: pre-ETag (no TitleDB load) -------------------------------
-    titledb_commit = titles_lib.get_titledb_commit_hash()
-
-    pre_payload_for_hash = {
-        "items": items,
-        "redirects_key": redirects_key,   # only { app_id: corrected_title_id }
-        "titledb_commit": titledb_commit, # bumps when local TitleDB updates
-    }
-    pre_etag = hashlib.sha256(
-        json.dumps(pre_payload_for_hash, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    ).hexdigest()
-
-    # If client already has this snapshot, short-circuit BEFORE heavy work
-    if pre_etag in request.if_none_match:
-        resp = jsonify({})
-        resp.set_etag(pre_etag)
-        resp.headers["Vary"] = "Authorization"
-        resp.headers["Cache-Control"] = "no-cache, private"
-        return resp.make_conditional(request)
-
-    # ---- Phase B: only now load TitleDB and build projections --------------
-    redirects = {}
-    try:
-        titles_lib.load_titledb()
-        for ov in rows:
-            corr = getattr(ov, "corrected_title_id", None)
-            appid = getattr(getattr(ov, "app", None), "app_id", None) or getattr(ov, "app_id", None)
-            if not (appid and corr):
-                continue
-            projection = _project_titledb_block(corr)  # (no "versions" key anymore)
-            redirects[appid] = {
-                "corrected_title_id": corr,
-                "projection": projection,
-            }
-    finally:
-        try:
-            titles_lib.unload_titledb()
-        except Exception:
-            pass
-
-    # Full payload (use the SAME pre_etag so revalidation is cheap next time)
-    payload = {
-        "items": items,
-        "redirects": redirects,
-    }
+    payload, etag_hash = generate_overrides()
 
     resp = jsonify(payload)
-    resp.set_etag(pre_etag)
+    # Use the same ETag semantics as library: enable cheap 304 revalidation by clients
+    resp.set_etag(etag_hash)
     resp.headers["Vary"] = "Authorization"
     resp.headers["Cache-Control"] = "no-cache, private"
     return resp.make_conditional(request)
@@ -183,8 +127,9 @@ def create_override():
     db.session.add(ov)
     try:
         db.session.commit()
+        _invalidate_overrides_cache()
     except Exception:
-        current_app.logger.exception("Create override failed")
+        logger.error("Create override failed")
         db.session.rollback()
         raise BadRequest("Could not create override.")
 
@@ -261,8 +206,9 @@ def update_override(oid: int):
 
     try:
         db.session.commit()
+        _invalidate_overrides_cache()
     except Exception:
-        current_app.logger.exception("Update override failed")
+        logger.error("Update override failed")
         db.session.rollback()
         raise BadRequest("Could not update override.")
 
@@ -285,11 +231,144 @@ def delete_override(oid: int):
         db.session.delete(ov)
         db.session.commit()
     except Exception:
-        current_app.logger.exception("Delete override failed")
+        logger.error("Delete override failed")
         db.session.rollback()
         raise BadRequest("Could not delete override.")
     return jsonify({"ok": True, "deleted_id": oid})
 
+def generate_overrides():
+    """
+    Public entry-point for routes.
+    Always returns the latest cached payload (regenerating when needed).
+    """
+    snap = _load_or_generate_overrides_snapshot()
+    return snap["payload"], snap["hash"]
+
+def _load_or_generate_overrides_snapshot():
+    """
+    Load from disk if hash unchanged, otherwise regenerate + save.
+    """
+    saved = load_json(OVERRIDES_CACHE_FILE)
+    current_hash = _current_overrides_hash()
+
+    if saved and isinstance(saved, dict) and saved.get("hash") == current_hash:
+        return saved
+
+    # Cache missing or stale → regenerate
+    return _generate_overrides_snapshot()
+
+def _generate_overrides_snapshot():
+    """
+    Build the final payload:
+      {
+        "items": [...override rows serialized...],
+        "redirects": {
+          "<app_id>": {
+            "corrected_title_id": "...",
+            "projection": {...}   # from TitleDB
+          },
+          ...
+        }
+      }
+
+    Includes TitleDB projections; writes to disk with a 'hash' top-level key.
+    """
+    # Query rows once
+    rows = (
+        db.session.query(AppOverrides)
+        .order_by(AppOverrides.created_at.desc())
+        .all()
+    )
+
+    # Cheap part: items + redirects_key (no TitleDB yet)
+    items = [_serialize_with_art_urls(r) for r in rows]
+
+    redirects = {}
+    titles_lib.load_titledb()
+    try:
+        for ov in rows:
+            corr = getattr(ov, "corrected_title_id", None)
+            appid = getattr(getattr(ov, "app", None), "app_id", None) or getattr(ov, "app_id", None)
+            if not (appid and corr):
+                continue
+            projection = _project_titledb_block(corr)  # (as per your current code)
+            redirects[appid] = {
+                "corrected_title_id": corr,
+                "projection": projection,
+            }
+    finally:
+        try:
+            titles_lib.unload_titledb()
+        except Exception:
+            pass
+
+    # Compute the fresh hash *after* querying DB but without TitleDB load costs in the hash
+    current_hash = _current_overrides_hash()
+
+    snapshot = {
+        "hash": current_hash,
+        "payload": {
+            "items": items,
+            "redirects": redirects,
+        }
+    }
+    save_json(snapshot, OVERRIDES_CACHE_FILE)
+    return snapshot
+
+def _compute_overrides_fingerprint_rows():
+    """
+    Return a minimal, ordered list of tuples that reflect output-significant state
+    without heavy joins. Keep this cheap.
+    """
+    rows = (
+        db.session.query(
+            AppOverrides.id,
+            AppOverrides.updated_at,
+            AppOverrides.corrected_title_id,
+            AppOverrides.banner_path,
+            AppOverrides.icon_path,
+            AppOverrides.enabled,
+        )
+        .order_by(AppOverrides.id.asc())
+        .all()
+    )
+    # Normalize datetimes to ISO strings for stable hashing
+    norm = [
+        (
+            r[0],
+            (r[1].isoformat(timespec='seconds') if isinstance(r[1], datetime.datetime) else str(r[1])),
+            r[2] or None,
+            r[3] or None,
+            r[4] or None,
+            bool(r[5]),
+        )
+        for r in rows
+    ]
+    return norm
+
+def _current_overrides_hash():
+    """
+    Hash = sha256 of a JSON blob that includes:
+      - DB fingerprint rows (id, updated_at, corrected_title_id, artwork paths, enabled)
+      - TitleDB commit hash (so we regenerate if TitleDB updates)
+    """
+    titledb_commit = titles_lib.get_titledb_commit_hash()
+    payload_for_hash = {
+        "rows": _compute_overrides_fingerprint_rows(),
+        "titledb_commit": titledb_commit,
+    }
+    return hashlib.sha256(
+        json.dumps(payload_for_hash, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+
+def _invalidate_overrides_cache():
+    try:
+        os.remove(OVERRIDES_CACHE_FILE)
+        logger.info(f"[overrides] invalidated cache: {OVERRIDES_CACHE_FILE}")
+    except FileNotFoundError:
+        pass
+    except Exception as e:
+        logger.warning(f"[overrides] cache invalidation failed: {e}")
 
 def build_override_index(include_disabled: bool = False) -> dict:
     """
@@ -362,8 +441,8 @@ def _parse_payload():
         icon_remove   = _to_bool(data.get("icon_remove"))
     else:
         data = request.form.to_dict()
-        banner_file = request.files.get("banner")
-        icon_file   = request.files.get("icon")
+        banner_file = request.files.get("banner_file")
+        icon_file   = request.files.get("icon_file")
         banner_remove = _to_bool(data.get("banner_remove"))
         icon_remove   = _to_bool(data.get("icon_remove"))
 

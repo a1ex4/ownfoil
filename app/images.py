@@ -7,6 +7,8 @@ from werkzeug.exceptions import BadRequest
 from werkzeug.utils import secure_filename
 
 from utils import *
+import logging
+logger = logging.getLogger('main')
 
 ALLOWED_IMAGE_EXTS = {'.jpg', '.jpeg', '.png', '.webp'}
 
@@ -63,6 +65,7 @@ def save_art_from_bytes(app_id: str, raw: bytes, kind: str) -> str:
                       or current_app.config["BANNERS_UPLOAD_URL_PREFIX"]).rstrip('/')
         target_w = target_h = 400
 
+    logger.info(f"Saving {kind} for app_id={app_id} → dir={upload_dir}")
     os.makedirs(upload_dir, exist_ok=True)
     dst_path = os.path.join(upload_dir, out_name)
 
@@ -72,8 +75,8 @@ def save_art_from_bytes(app_id: str, raw: bytes, kind: str) -> str:
         if old_path != dst_path and os.path.exists(old_path):
             try:
                 os.remove(old_path)
-            except OSError:
-                pass
+            except OSError as e:
+                logger.error(f"[images] failed to remove old variant {old_path}: {e}")
 
     # Open, resize, crop, and save
     with Image.open(BytesIO(raw)) as im:
@@ -91,7 +94,7 @@ def save_art_from_bytes(app_id: str, raw: bytes, kind: str) -> str:
         # Center-crop to target size
         left = max(0, (im.width - target_w) // 2)
         top = max(0, (im.height - target_h) // 2)
-        im = im.crop((left, top, left + target_w, top + target_h))
+        im = im.crop((left, top, left + target_w, target_h + top))
 
         # Convert to RGB(A)
         if im.mode not in ("RGB", "RGBA"):
@@ -99,6 +102,7 @@ def save_art_from_bytes(app_id: str, raw: bytes, kind: str) -> str:
 
         im.save(dst_path, format="PNG", optimize=True, compress_level=9)
 
+    logger.info(f"Wrote {kind} → {dst_path}")
     return f"{url_prefix}/{out_name}"
 
 def delete_art_file_if_owned(public_path: str, kind: str) -> None:
@@ -149,6 +153,7 @@ def garbage_collect_orphan_art_files():
         upload_dir = current_app.config.get(dir_key) or current_app.config["BANNERS_UPLOAD_DIR"]
         if not os.path.isdir(upload_dir):
             continue
+        logger.info(f"Image Garbage Collection: scanning dir={upload_dir}, existing={len(existing)}")
         for name in os.listdir(upload_dir):
             if not name.endswith((".png", ".jpg", ".jpeg", ".webp")):
                 continue

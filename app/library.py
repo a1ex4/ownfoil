@@ -300,7 +300,7 @@ def scan_library_path(library_path):
     if not os.path.isdir(library_path):
         logger.warning(f'Library path {library_path} does not exists.')
         return
-    _, files = titles_lib.getDirsAndFiles(library_path)
+    _, files = titles_lib.get_dirs_and_files(library_path)
 
     filepaths_in_library = get_library_file_paths(library_id)
     new_files = [f for f in files if f not in filepaths_in_library]
@@ -702,23 +702,6 @@ def is_library_unchanged(saved_library):
     current_hash = compute_apps_hash()
     return saved_library['hash'] == current_hash
 
-def save_library_to_disk(library_data):
-    cache_path = Path(LIBRARY_CACHE_FILE)
-    # Ensure cache directory exists
-    cache_path.parent.mkdir(parents=True, exist_ok=True)
-    safe_write_json(cache_path, library_data)
-
-def load_library_from_disk():
-    cache_path = Path(LIBRARY_CACHE_FILE)
-    if not cache_path.exists():
-        return None
-
-    try:
-        with cache_path.open("r", encoding="utf-8") as f:
-            return json.load(f)
-    except:
-        return None
-
 def generate_library():
     """
     Public entry-point for routes:
@@ -739,8 +722,8 @@ def _load_library():
     Load the BASE library (no overrides) from disk if hash unchanged.
     Otherwise, regenerate and save.
     """
-    saved = load_library_from_disk()
-    if is_library_unchanged(saved):
+    saved = load_json(LIBRARY_CACHE_FILE)
+    if saved and is_library_unchanged(saved):
         return saved
 
     # Hash changed or cache missing/corrupt -> regenerate
@@ -853,7 +836,7 @@ def _generate_library():
         }
 
         # Persist snapshot to disk
-        save_library_to_disk(library_data)
+        save_json(library_data, LIBRARY_CACHE_FILE)
         logger.info('Generating library done.')
 
         return library_data
