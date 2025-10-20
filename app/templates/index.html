@@ -849,10 +849,16 @@
         const savedCardSize = localStorage.getItem('cardSize');
         if (savedCardSize) cardSize = parseInt(savedCardSize);
 
-        // Fetch overrides + games, then overlay names and render with saved filters
+        // Fetch overrides + games, then apply redirects BEFORE explicit overrides
         Promise.all([window.Overrides.fetchOverrides(), fetchGames()])
-            .then(() => {
-                window.Overrides.reapplyAllOverridesToGames(games);
+            .then(([ovFlags]) => {
+                // Only do work when needed
+                if (ovFlags?.redirectsChanged) {
+                    window.Overrides.applyRedirectsToGames(games);
+                }
+                if (ovFlags?.overridesChanged) {
+                    window.Overrides.reapplyAllOverridesToGames(games);
+                }
                 loadFiltersFromStorage();
             })
             .catch(() => {

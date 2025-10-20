@@ -1,5 +1,7 @@
 import os
 import re
+import hashlib
+import json
 
 import datetime
 from typing import Optional
@@ -12,47 +14,83 @@ from werkzeug.utils import secure_filename
 
 from auth import access_required
 from db import db, Apps, AppOverrides
+import titles as titles_lib
 
 # --- api blueprint ---------------------------------------------------------
 overrides_blueprint = Blueprint("overrides_blueprint", __name__, url_prefix="/api/overrides")
 
 # --- routes ----------------------------------------------------------------
-
-@overrides_blueprint.get("")
-@access_required('shop')
+@overrides_blueprint.route("", methods=["GET"])
+@access_required("shop")
 def list_overrides():
-    # filters (optional)
-    app_id = request.args.get("app_id")
-    enabled = request.args.get("enabled")
-
-    q = AppOverrides.query.options(joinedload(AppOverrides.app))
-    if app_id:
-        q = q.join(Apps).filter(Apps.app_id == app_id)
-
-    if enabled is not None and str(enabled).strip() != "":
-        # treat "true"/"1" as True, "false"/"0" as False
-        enabled_bool = str(enabled).lower() in ("1", "true", "yes", "on")
-        q = q.filter(AppOverrides.enabled.is_(enabled_bool))
-
-    # simple pagination
-    try:
-        page = max(1, int(request.args.get("page", 1)))
-        page_size = min(500, max(1, int(request.args.get("page_size", 100))))
-    except ValueError:
-        raise BadRequest("Invalid pagination params.")
-
     rows = (
-        q.order_by(AppOverrides.updated_at.desc())
-        .paginate(page=page, per_page=page_size, error_out=False)
+        db.session.query(AppOverrides)
+        .order_by(AppOverrides.created_at.desc())
+        .all()
     )
 
-    return jsonify({
-        "items": [_serialize_with_art_urls(r) for r in rows.items],
-        "page": rows.page,
-        "pages": rows.pages,
-        "page_size": page_size,
-        "total": rows.total,
-    })
+    # Serialize overrides (cheap; no TitleDB work here)
+    items = [_serialize_with_art_urls(r) for r in rows]
+
+    # Build a "redirects_key" map that only includes corrected IDs (cheap)
+    redirects_key = {}
+    for ov in rows:
+        corr = getattr(ov, "corrected_title_id", None)
+        appid = getattr(getattr(ov, "app", None), "app_id", None) or getattr(ov, "app_id", None)
+        if appid and corr:
+            redirects_key[appid] = corr
+
+    # ---- Phase A: pre-ETag (no TitleDB load) -------------------------------
+    titledb_commit = titles_lib.get_titledb_commit_hash()
+
+    pre_payload_for_hash = {
+        "items": items,
+        "redirects_key": redirects_key,   # only { app_id: corrected_title_id }
+        "titledb_commit": titledb_commit, # bumps when local TitleDB updates
+    }
+    pre_etag = hashlib.sha256(
+        json.dumps(pre_payload_for_hash, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+
+    # If client already has this snapshot, short-circuit BEFORE heavy work
+    if pre_etag in request.if_none_match:
+        resp = jsonify({})
+        resp.set_etag(pre_etag)
+        resp.headers["Vary"] = "Authorization"
+        resp.headers["Cache-Control"] = "no-cache, private"
+        return resp.make_conditional(request)
+
+    # ---- Phase B: only now load TitleDB and build projections --------------
+    redirects = {}
+    try:
+        titles_lib.load_titledb()
+        for ov in rows:
+            corr = getattr(ov, "corrected_title_id", None)
+            appid = getattr(getattr(ov, "app", None), "app_id", None) or getattr(ov, "app_id", None)
+            if not (appid and corr):
+                continue
+            projection = _project_titledb_block(corr)  # (no "versions" key anymore)
+            redirects[appid] = {
+                "corrected_title_id": corr,
+                "projection": projection,
+            }
+    finally:
+        try:
+            titles_lib.unload_titledb()
+        except Exception:
+            pass
+
+    # Full payload (use the SAME pre_etag so revalidation is cheap next time)
+    payload = {
+        "items": items,
+        "redirects": redirects,
+    }
+
+    resp = jsonify(payload)
+    resp.set_etag(pre_etag)
+    resp.headers["Vary"] = "Authorization"
+    resp.headers["Cache-Control"] = "no-cache, private"
+    return resp.make_conditional(request)
 
 
 @overrides_blueprint.get("/<int:oid>")
@@ -589,3 +627,74 @@ def garbage_collect_orphan_art_files():
             if public not in existing:
                 try: os.remove(path)
                 except OSError: pass
+
+# --- TitleDB projection helpers --------------------------------------------
+
+def _normalize_release_date(v):
+    """
+    Normalize dates coming from TitleDB into 'YYYY-MM-DD'.
+    Accepts int like 20230427, '20230427', or 'YYYY-MM-DD'. Returns None if unknown.
+    """
+    if v is None:
+        return None
+    try:
+        if isinstance(v, int):
+            s = str(v)
+            if len(s) == 8:
+                return f"{s[0:4]}-{s[4:6]}-{s[6:8]}"
+            return None
+        s = str(v).strip()
+        if not s:
+            return None
+        if len(s) == 8 and s.isdigit():
+            return f"{s[0:4]}-{s[4:6]}-{s[6:8]}"
+        if len(s) == 10 and s[4] == '-' and s[7] == '-':
+            return s
+    except Exception:
+        pass
+    return None
+
+def _project_titledb_block(corrected_id: str) -> dict:
+    """
+    Build the projected block for a corrected TitleID using TitleDB.
+    Includes: name, description, region, normalized release_date, bannerUrl, iconUrl
+    and category.
+    """
+    proj = titles_lib.get_game_info_by_title_id(corrected_id) or {}
+    raw  = titles_lib.get_raw_titledb_record(corrected_id) or {}
+
+    name = (proj.get("name") or raw.get("name") or "").strip() or None
+
+    # Prefer richer/longer description fields from raw when available
+    description = (
+        raw.get("description")
+        or raw.get("longDescription")
+        or raw.get("desc")
+        or raw.get("overview")
+        or proj.get("description")
+        or None
+    )
+
+    region = raw.get("region") if raw.get("region") is not None else proj.get("region")
+
+    rd = (
+        proj.get("release_date")
+        or proj.get("releaseDate")
+        or raw.get("release_date")
+        or raw.get("releaseDate")
+    )
+    release_date = _normalize_release_date(rd)
+
+    bannerUrl = proj.get("bannerUrl") or None
+    iconUrl   = proj.get("iconUrl")   or None
+    category  = proj.get("category")  if "category" in proj else raw.get("category")
+
+    return {
+        "name": name,
+        "description": description,
+        "region": region,
+        "release_date": release_date,
+        "bannerUrl": bannerUrl,
+        "iconUrl": iconUrl,
+        "category": category,
+    }

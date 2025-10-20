@@ -758,7 +758,7 @@ def generate_library():
     if not saved or 'library' not in saved:
         return []
 
-    return _with_overridden_title_ids(saved)
+    return saved['library']
 
 def _load_library():
     """
@@ -927,23 +927,6 @@ def _generate_library():
     finally:
         titles_lib.identification_in_progress_count -= 1
         titles_lib.unload_titledb()
-
-def _with_overridden_title_ids(base_library):
-    # Build a lightweight override map by app_id -> { corrected_title_id, ... }
-    try:
-        ov_idx = build_override_index() or {}
-        by_app = ov_idx.get("by_app") or {}
-    except Exception:
-        by_app = {}
-
-    # Apply corrected TitleDB merges per item (does not change title_id)
-    titles_lib.load_titledb()
-    try:
-        out = [_merge_corrected_titledb(item, by_app) for item in base_library['library']]
-    finally:
-        titles_lib.unload_titledb()
-
-    return out
 
 def _infer_file_basename_for_app(app_id: str, app_version: str | int | None) -> str | None:
     """

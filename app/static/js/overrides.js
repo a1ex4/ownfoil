@@ -16,6 +16,10 @@
   // key: app_id  -> override object
   const overridesByKey = new Map();
 
+  // --- Redirects state ---
+  // key: app_id -> { corrected_title_id, projection }
+  const redirectsByAppId = new Map();
+
   // external environment (supplied by index.html)
   const env = {
     getGames: null,      // () => games array
@@ -145,10 +149,10 @@
     if (type === 'DLC') {
       // Always show the BASE title for DLC cards
       const base = findBaseForDlc(game, allGames);
-      if (base) return (base.title_id_name || base.name || 'Unrecognized');
+      if (base) return (base.name || base.title_id_name || 'Unrecognized');
     }
     // For BASE (and anything else), use TitleDB name then fallback
-    return (game?.title_id_name || game?.name || 'Unrecognized');
+    return (game?.name || game?.title_id_name || 'Unrecognized');
   };
   
   const pickTidForDisplay = (game, ovr) => {
@@ -190,11 +194,8 @@
           if (type !== 'DLC')
             g.title_id_name = ovrName;
         } else {
-          // No override name provided -> revert names to originals
-          if (g._orig) {
-            g.name = g._orig.name;
-            g.title_id_name = g._orig.title_id_name;
-          }
+          // No explicit name override: do not touch g.name/title_id_name.
+          // This preserves any redirect projection already applied.
         }
 
         // apply release_date if present (allow clearing with null)
@@ -219,27 +220,88 @@
     keys.forEach(k => applyOverrideToGamesByKey(k, games));
   }
 
-  // ----------------- Fetching -----------------
-  const fetchOverrides = async () => {
-    try {
-      const list = await $.ajax({
-        url: '/api/overrides',
-        method: 'GET',
-        dataType: 'json',
-        cache: false
-      });
-
-      overridesByKey.clear();
-      (Array.isArray(list.items) ? list.items : []).forEach(o => {
-        const k = appKey(o);
-        if (k) overridesByKey.set(k, o);
-      });
-
-      if (env.getGames) reapplyAllOverridesToGames(env.getGames());
-    } catch (e) {
-      overridesByKey.clear();
-    }
+  // Redirect helpers
+  const getRedirectForApp = (appId) => {
+    const k = (appId || '').trim();
+    return k ? (redirectsByAppId.get(k) || null) : null;
   };
+
+  // Overlay a redirect projection onto a game (identifiers unchanged).
+  // Mutates the game object for render-time fields only; does NOT touch g._orig.
+  const applyRedirectToGame = (game) => {
+    if (!game || !game.app_id) return game;
+    const r = getRedirectForApp(game.app_id);
+    if (!r || !r.projection) return game;
+
+    const proj = r.projection;
+
+    // Mark correction context (useful for badges/logic)
+    game.corrected_title_id = r.corrected_title_id || game.corrected_title_id || null;
+    game.recognized_via_correction = true;
+
+    // Overlay display metadata (leave identifiers alone)
+    if (typeof proj.name === 'string')        game.name = proj.name;
+    if (typeof proj.description === 'string') game.description = proj.description;
+    if (typeof proj.region === 'string')      game.region = proj.region;
+    if (typeof proj.release_date === 'string') game.release_date = proj.release_date;
+
+    if (proj.bannerUrl) game.bannerUrl = proj.bannerUrl;
+    if (proj.iconUrl)   game.iconUrl   = proj.iconUrl;
+    if (Array.isArray(proj.category))  game.category = proj.category.slice();
+
+    return game;
+  };
+
+  // Apply redirects to an array of games (in-place overlay for render-time fields)
+  const applyRedirectsToGames = (gamesArray) => {
+    if (!Array.isArray(gamesArray) || redirectsByAppId.size === 0) return;
+    for (const g of gamesArray) applyRedirectToGame(g);
+  };
+
+  // ----------------- Fetching -----------------
+    const fetchOverrides = async () => {
+      try {
+        const list = await $.ajax({
+          url: '/api/overrides',
+          method: 'GET',
+          dataType: 'json',
+          ifModified: true
+        });
+
+        // If 304, jQuery resolves but `list` can be undefined/null → no change
+        if (!list) return { overridesChanged: false, redirectsChanged: false };
+
+        overridesByKey.clear();
+        (Array.isArray(list.items) ? list.items : []).forEach(o => {
+          const k = appKey(o);
+          if (k) overridesByKey.set(k, o);
+        });
+
+        // load redirects
+        redirectsByAppId.clear();
+        const r = list && list.redirects && typeof list.redirects === 'object' ? list.redirects : null;
+        if (r) {
+          Object.entries(r).forEach(([appId, val]) => {
+            if (!appId) return;
+            if (val && (typeof val === 'object') && (val.corrected_title_id || val.projection)) {
+              redirectsByAppId.set(appId, {
+                corrected_title_id: val.corrected_title_id || null,
+                projection: (val.projection && typeof val.projection === 'object') ? val.projection : null
+              });
+            }
+          });
+        }
+
+        // if some other view uses reapply immediately:
+        if (env.getGames) reapplyAllOverridesToGames(env.getGames());
+        
+        return { overridesChanged: true, redirectsChanged: true };
+      } catch (e) {
+        overridesByKey.clear();
+        redirectsByAppId.clear();
+      }
+    };
+
 
   // ----------------- Derived artwork URLs -----------------
   const bannerUrlFor = (game) => {
@@ -938,5 +1000,10 @@
     pickTidForDisplay,
     getOverrideForGame,
     displayTitleFor,
+
+    // redirects
+    getRedirectForApp,
+    applyRedirectToGame,
+    applyRedirectsToGames,
   };
 })();

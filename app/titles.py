@@ -493,3 +493,23 @@ def get_all_existing_dlc(title_id):
                 if app_id.upper() not in dlcs:
                     dlcs.append(app_id.upper())
     return dlcs
+
+def get_titledb_commit_hash() -> str:
+    """
+    Return the current TitleDB commit hash (from .latest file) as a string.
+    Returns an empty string if unavailable or unreadable.
+    """
+    try:
+        from constants import TITLEDB_DIR
+    except Exception:
+        return ""
+
+    commit_path = os.path.join(TITLEDB_DIR, ".latest")
+    try:
+        if os.path.isfile(commit_path):
+            with open(commit_path, "r", encoding="utf-8") as f:
+                return (f.read() or "").strip()
+    except Exception:
+        pass
+
+    return ""
