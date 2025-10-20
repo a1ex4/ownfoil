@@ -2,7 +2,7 @@ from db import *
 from titles import (
     APP_TYPE_BASE,
     APP_TYPE_DLC,
-    identify_appId,
+    identify_app_id,
     load_titledb,
     unload_titledb
 )
@@ -137,7 +137,7 @@ def build_titledb_from_overrides():
 
             # Determine type (BASE/DLC relevant here)
             try:
-                _, app_type = identify_appId(app_id)
+                _, app_type = identify_app_id(app_id)
             except Exception:
                 app_type = None
             if app_type not in (APP_TYPE_BASE, APP_TYPE_DLC):

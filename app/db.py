@@ -285,18 +285,34 @@ def get_all_files_without_identification(identification):
     results = Files.query.filter(Files.identification_type != identification).all()
     return[to_dict(r)['filepath']  for r in results]
 
-def get_all_apps():
-    apps_list = [
-        {
+from sqlalchemy.orm import joinedload
+
+def get_all_apps(include_files: bool = False):
+    q = Apps.query.options(db.joinedload(Apps.title))
+    if include_files:
+        q = q.options(joinedload(Apps.files))
+
+    apps_list = []
+    for app in q.all():
+        row = {
             "id": app.id,
-            "title_id": app.title.title_id,  # Access the actual title_id from Titles
+            "title_id": app.title.title_id,
             "app_id": app.app_id,
             "app_version": app.app_version,
             "app_type": app.app_type,
-            "owned": app.owned
+            "owned": app.owned,
         }
-        for app in Apps.query.options(db.joinedload(Apps.title)).all()  # Optimized with joinedload
-    ]
+        if include_files:
+            row["files"] = [{
+                "id": f.id,
+                "filename": getattr(f, "filename", None),
+                "filepath": getattr(f, "filepath", None),
+                "identification_type": (getattr(f, "identification_type", None) or "").lower(),
+                "last_attempt": getattr(f, "last_attempt", None),
+                "created_at": getattr(f, "created_at", None),
+            } for f in (app.files or [])]
+        apps_list.append(row)
+
     return apps_list
 
 def get_all_non_identified_files_from_library(library_id):
@@ -574,7 +590,7 @@ def remove_missing_files_from_db():
 def _garbage_collect_orphaned_art():
     try:
         # Local import to avoid circular imports
-        from overrides import garbage_collect_orphan_art_files
+        from images import garbage_collect_orphan_art_files
         from flask import current_app
         with current_app.app_context():
             garbage_collect_orphan_art_files()

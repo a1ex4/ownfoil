@@ -1,20 +1,17 @@
-import os
-import re
 import hashlib
 import json
 
 import datetime
 from typing import Optional
 from flask import abort, Blueprint, request, jsonify, current_app
-from io import BytesIO
-from PIL import Image, ImageOps
 from sqlalchemy.orm import joinedload
 from werkzeug.exceptions import BadRequest, Conflict, NotFound
-from werkzeug.utils import secure_filename
 
 from auth import access_required
 from db import db, Apps, AppOverrides
 import titles as titles_lib
+from utils import *
+from images import *
 
 # --- api blueprint ---------------------------------------------------------
 overrides_blueprint = Blueprint("overrides_blueprint", __name__, url_prefix="/api/overrides")
@@ -123,13 +120,16 @@ def create_override():
     
     # Normalize corrected_title_id
     if "corrected_title_id" in data:
-        data["corrected_title_id"] = _parse_title_id_or_none(data["corrected_title_id"])
+        data["corrected_title_id"] = normalize_id(data["corrected_title_id"])
 
     # Require app_id (string) from client, but we map it to the Apps row
     app_id = data.get("app_id")
     if not app_id:
         raise BadRequest("app_id is required.")
-    _safe_app_id_or_badreq(app_id)
+    
+    app_id = normalize_id(app_id, 'app')
+    if not app_id:
+        raise BadRequest("Invalid app_id format.")
 
     # Find the target Apps row for this logical app_id
     app = _resolve_target_app(app_id)
@@ -146,10 +146,10 @@ def create_override():
 
     # Handle explicit removals
     if banner_remove and ov.banner_path:
-        _delete_art_file_if_owned(ov.banner_path, "banner")
+        delete_art_file_if_owned(ov.banner_path, "banner")
         ov.banner_path = None
     if icon_remove and ov.icon_path:
-        _delete_art_file_if_owned(ov.icon_path, "icon")
+        delete_art_file_if_owned(ov.icon_path, "icon")
         ov.icon_path = None
 
     banner_raw = None
@@ -157,24 +157,24 @@ def create_override():
 
     # Validate & read first
     if banner_file:
-        _validate_upload(banner_file)
-        banner_raw = _read_upload_bytes(banner_file)
+        validate_upload(banner_file)
+        banner_raw = read_upload_bytes(banner_file)
 
     if icon_file:
-        _validate_upload(icon_file)
-        icon_raw = _read_upload_bytes(icon_file)
+        validate_upload(icon_file)
+        icon_raw = read_upload_bytes(icon_file)
 
     # Save uploaded assets (use the related app's app_id for filenames)
     if banner_raw:
-        ov.banner_path = _save_art_from_bytes(ov.app.app_id, banner_raw, "banner")
+        ov.banner_path = save_art_from_bytes(ov.app.app_id, banner_raw, "banner")
     if icon_raw:
-        ov.icon_path = _save_art_from_bytes(ov.app.app_id, icon_raw, "icon")
+        ov.icon_path = save_art_from_bytes(ov.app.app_id, icon_raw, "icon")
 
     # Derive counterpart if missing
     if banner_raw and not ov.icon_path and not icon_remove:
-        ov.icon_path = _save_art_from_bytes(ov.app.app_id, banner_raw, "icon")
+        ov.icon_path = save_art_from_bytes(ov.app.app_id, banner_raw, "icon")
     if icon_raw and not ov.banner_path and not banner_remove:
-        ov.banner_path = _save_art_from_bytes(ov.app.app_id, icon_raw, "banner")
+        ov.banner_path = save_art_from_bytes(ov.app.app_id, icon_raw, "banner")
 
     # Timestamps
     ov.created_at = datetime.datetime.utcnow()
@@ -219,7 +219,7 @@ def update_override(oid: int):
 
     # Normalize corrected_title_id
     if "corrected_title_id" in data:
-        data["corrected_title_id"] = _parse_title_id_or_none(data["corrected_title_id"])
+        data["corrected_title_id"] = normalize_id(data["corrected_title_id"])
 
     ov = AppOverrides.query.get(oid)
     if not ov:
@@ -229,33 +229,33 @@ def update_override(oid: int):
 
     # Handle explicit removals
     if banner_remove and ov.banner_path:
-        _delete_art_file_if_owned(ov.banner_path, "banner")
+        delete_art_file_if_owned(ov.banner_path, "banner")
         ov.banner_path = None
     if icon_remove and ov.icon_path:
-        _delete_art_file_if_owned(ov.icon_path, "icon")
+        delete_art_file_if_owned(ov.icon_path, "icon")
         ov.icon_path = None
 
     banner_raw = None
     icon_raw = None
 
     if banner_file:
-        _validate_upload(banner_file)
-        banner_raw = _read_upload_bytes(banner_file)
+        validate_upload(banner_file)
+        banner_raw = read_upload_bytes(banner_file)
     if icon_file:
-        _validate_upload(icon_file)
-        icon_raw = _read_upload_bytes(icon_file)
+        validate_upload(icon_file)
+        icon_raw = read_upload_bytes(icon_file)
 
     # Save uploaded assets
     if banner_raw:
-        ov.banner_path = _save_art_from_bytes(ov.app.app_id, banner_raw, "banner")
+        ov.banner_path = save_art_from_bytes(ov.app.app_id, banner_raw, "banner")
     if icon_raw:
-        ov.icon_path  = _save_art_from_bytes(ov.app.app_id, icon_raw, "icon")
+        ov.icon_path  = save_art_from_bytes(ov.app.app_id, icon_raw, "icon")
 
     # Derive counterpart if missing
     if banner_raw and not ov.icon_path and not icon_remove:
-        ov.icon_path = _save_art_from_bytes(ov.app.app_id, banner_raw, "icon")
+        ov.icon_path = save_art_from_bytes(ov.app.app_id, banner_raw, "icon")
     if icon_raw and not ov.banner_path and not banner_remove:
-        ov.banner_path = _save_art_from_bytes(ov.app.app_id, icon_raw, "banner")
+        ov.banner_path = save_art_from_bytes(ov.app.app_id, icon_raw, "banner")
 
     ov.updated_at = datetime.datetime.utcnow()
 
@@ -277,9 +277,9 @@ def delete_override(oid: int):
         raise NotFound("Override not found.")
 
     if ov.banner_path:
-        _delete_art_file_if_owned(ov.banner_path, "banner")
+        delete_art_file_if_owned(ov.banner_path, "banner")
     if ov.icon_path:
-        _delete_art_file_if_owned(ov.icon_path, "icon")
+        delete_art_file_if_owned(ov.icon_path, "icon")
 
     try:
         db.session.delete(ov)
@@ -290,272 +290,6 @@ def delete_override(oid: int):
         raise BadRequest("Could not delete override.")
     return jsonify({"ok": True, "deleted_id": oid})
 
-# --- helpers ---------------------------------------------------------------
-ALLOWED_IMAGE_EXTS = {'.jpg', '.jpeg', '.png', '.webp'}
-_SAFE_APP_ID = re.compile(r'^(?:[0-9A-Fa-f]{16}|[0-9A-Fa-f]{32})$')  # accept 16/32 hex strings
-_SAFE_TITLE_ID = re.compile(r'^[0-9A-F]{16}$')
-
-def _parse_title_id_or_none(raw: Optional[str]) -> Optional[str]:
-    """
-    Normalize a Title ID string to 16-char uppercase hex, or return None if empty/invalid.
-    Accepts optional '0x' prefix.
-    """
-    if not raw:
-        return None
-    s = str(raw).strip().upper()
-    if s.startswith("0X") and len(s) == 18:
-        s = s[2:]
-    if _SAFE_TITLE_ID.match(s):
-        return s
-    return None
-
-
-# Note: UI sends multipart only when a banner or icon upload/removal is requested; otherwise JSON.
-# This keeps existing JSON flows working while enabling binary upload.
-def _parse_payload():
-    """
-    Accept either JSON (application/json) or multipart/form-data.
-    Returns (data_dict, banner_file, banner_remove_flag, icon_file, icon_remove_flag).
-    """
-    banner_file = None
-    banner_remove = False
-    icon_file = None
-    icon_remove = False
-
-    ctype = (request.content_type or "").lower()
-
-    if ctype.startswith("multipart/form-data"):
-        form = request.form or {}
-        data = {k: form.get(k) for k in form.keys()}
-
-        for k in ("enabled", ):
-            if k in data and isinstance(data[k], str):
-                data[k] = data[k].lower() in ("1", "true", "yes", "on")
-
-        banner_remove = (form.get("banner_remove", "").lower() in ("1", "true", "yes", "on"))
-        icon_remove   = (form.get("icon_remove", "").lower()   in ("1", "true", "yes", "on"))
-
-        banner_file = request.files.get("banner_file") or request.files.get("file")
-        icon_file   = request.files.get("icon_file")
-
-        return data, banner_file, banner_remove, icon_file, icon_remove
-
-    data = request.get_json(silent=True)
-    if data is None:
-        raise BadRequest("Expected application/json or multipart/form-data body.")
-
-    banner_remove = bool(data.get("banner_remove")) if isinstance(data, dict) else False
-    icon_remove   = bool(data.get("icon_remove"))   if isinstance(data, dict) else False
-    return data, None, banner_remove, None, icon_remove
-
-
-def _apply_fields(ov: AppOverrides, data: dict):
-    # Only touch known fields; ignore extras to keep it robust.
-    fields = [
-        "name", "release_date", "region", "description", "content_type", "version",
-        "enabled", "corrected_title_id",
-    ]
-    for f in fields:
-        if f in data:
-            setattr(ov, f, data[f])
-
-
-def _parse_iso_date_or_none(value):
-    if not value:
-        return None
-    try:
-        # Accept strict yyyy-MM-dd
-        return datetime.date.fromisoformat(value)
-    except Exception:
-        abort(400, description="Invalid release_date. Expected format: yyyy-MM-dd.")
-
-
-def _allowed_image(filename: str) -> bool:
-    if not filename:
-        return False
-    _, ext = os.path.splitext(filename.lower())
-    return ext in ALLOWED_IMAGE_EXTS
-
-
-def _ext_for_content_type(content_type: str) -> str:
-    # Best-effort fallback if the filename extension is missing/untrusted
-    if content_type == 'image/jpeg':
-        return '.jpg'
-    if content_type == 'image/png':
-        return '.png'
-    if content_type == 'image/webp':
-        return '.webp'
-    return ''
-
-
-def _serialize_with_art_urls(ov: AppOverrides) -> dict:
-    d = ov.as_dict()
-    # expose camelCase read-only fields the UI expects
-    d["bannerUrl"] = d.get("banner_path")
-    d["iconUrl"]   = d.get("icon_path")
-    return d
-
-
-def _validate_upload(file_storage) -> None:
-    filename = secure_filename(file_storage.filename or "")
-    if not _allowed_image(filename):
-        ext = _ext_for_content_type(getattr(file_storage, "mimetype", "") or "")
-        if not ext or ext not in ALLOWED_IMAGE_EXTS:
-            raise BadRequest("Unsupported file type. Allowed: .jpg .jpeg .png .webp")
-
-
-def _read_upload_bytes(file_storage) -> bytes:
-    stream = getattr(file_storage, "stream", None)
-    try:
-        if stream: stream.seek(0)
-    except Exception:
-        pass
-    if hasattr(file_storage, "read"):
-        data = file_storage.read()
-    elif stream and hasattr(stream, "read"):
-        data = stream.read()
-    else:
-        raise BadRequest("Invalid upload object.")
-    try:
-        if stream: stream.seek(0)
-    except Exception:
-        pass
-    return data
-
-
-def _save_art_from_bytes(app_id: str, raw: bytes, kind: str) -> str:
-    """
-    Save banner or icon artwork from raw bytes.
-
-    Args:
-        app_id: 16- or 32-character hex app id (title/content id).
-        raw: Raw image data.
-        kind: Either "banner" or "icon".
-
-    Returns:
-        The public URL path to the saved image.
-    """
-    if kind not in ("banner", "icon"):
-        raise ValueError(f"Unknown art kind: {kind}. Expected 'banner' or 'icon'.")
-
-    # Determine target parameters
-    if kind == "banner":
-        out_name = f"{app_id}_banner.png"
-        upload_dir = current_app.config["BANNERS_UPLOAD_DIR"]
-        url_prefix = current_app.config["BANNERS_UPLOAD_URL_PREFIX"].rstrip('/')
-        target_w, target_h = 400, 225
-    else:  # icon
-        out_name = f"{app_id}_icon.png"
-        upload_dir = current_app.config.get("ICONS_UPLOAD_DIR") or current_app.config["BANNERS_UPLOAD_DIR"]
-        url_prefix = (current_app.config.get("ICONS_UPLOAD_URL_PREFIX")
-                      or current_app.config["BANNERS_UPLOAD_URL_PREFIX"]).rstrip('/')
-        target_w = target_h = 400
-
-    os.makedirs(upload_dir, exist_ok=True)
-    dst_path = os.path.join(upload_dir, out_name)
-
-    # Remove any older variants (e.g., .jpg/.webp/.png)
-    for old_ext in ALLOWED_IMAGE_EXTS.union({".png"}):
-        old_path = os.path.join(upload_dir, f"{app_id}_{kind}{old_ext}")
-        if old_path != dst_path and os.path.exists(old_path):
-            try:
-                os.remove(old_path)
-            except OSError:
-                pass
-
-    # Open, resize, crop, and save
-    with Image.open(BytesIO(raw)) as im:
-        im = ImageOps.exif_transpose(im)
-        src_w, src_h = im.size
-        if src_w == 0 or src_h == 0:
-            raise BadRequest("Invalid image.")
-
-        # Compute scale and resize
-        scale = max(target_w / src_w, target_h / src_h)
-        new_w, new_h = int(round(src_w * scale)), int(round(src_h * scale))
-        if (new_w, new_h) != (src_w, src_h):
-            im = im.resize((new_w, new_h), Image.Resampling.LANCZOS)
-
-        # Center-crop to target size
-        left = max(0, (im.width - target_w) // 2)
-        top = max(0, (im.height - target_h) // 2)
-        im = im.crop((left, top, left + target_w, top + target_h))
-
-        # Convert to RGB(A)
-        if im.mode not in ("RGB", "RGBA"):
-            im = im.convert("RGBA" if "A" in im.getbands() else "RGB")
-
-        im.save(dst_path, format="PNG", optimize=True, compress_level=9)
-
-    return f"{url_prefix}/{out_name}"
-
-
-def _delete_art_file_if_owned(public_path: str, kind: str) -> None:
-    """
-    Delete a banner or icon file if the given public URL points inside our managed upload area.
-
-    Args:
-        public_path: The public URL of the art file (banner/icon) to delete.
-        kind: Either "banner" or "icon" (determines directory/prefix rules).
-    """
-    if not public_path:
-        return
-
-    # Determine the correct URL prefix and directory
-    if kind == "banner":
-        prefix = current_app.config['BANNERS_UPLOAD_URL_PREFIX'].rstrip('/') + '/'
-        upload_dir = current_app.config['BANNERS_UPLOAD_DIR']
-    elif kind == "icon":
-        prefix = (current_app.config.get('ICONS_UPLOAD_URL_PREFIX')
-                  or current_app.config['BANNERS_UPLOAD_URL_PREFIX']).rstrip('/') + '/'
-        upload_dir = current_app.config.get('ICONS_UPLOAD_DIR') or current_app.config['BANNERS_UPLOAD_DIR']
-    else:
-        raise ValueError(f"Unknown kind: {kind}. Expected 'banner' or 'icon'.")
-
-    # Only delete if the file lives inside our configured prefix
-    if not public_path.startswith(prefix):
-        return
-
-    rel_name = public_path[len(prefix):]
-    file_path = os.path.join(upload_dir, rel_name)
-
-    if os.path.exists(file_path):
-        try:
-            os.remove(file_path)
-        except OSError:
-            pass
-
-
-def _safe_app_id_or_badreq(app_id: str) -> str:
-    if not app_id or not _SAFE_APP_ID.match(app_id):
-        raise BadRequest("Invalid app_id. Expected 16 or 32 hex characters.")
-    return app_id
-
-def _resolve_target_app(app_id: str) -> Optional[Apps]:
-    """
-    Map a logical 16/32-hex app_id string to a specific Apps row.
-    Preference order:
-      1) highest numeric app_version among rows with app_type == 'BASE'
-      2) otherwise highest numeric app_version among all rows
-    """
-    q = Apps.query.filter(Apps.app_id == app_id)
-
-    # Try BASE first
-    base_rows = q.filter((Apps.app_type == 'BASE') | (Apps.app_type == 'Base')).all()
-    if base_rows:
-        def v(a): 
-            try: return int(a.app_version or 0)
-            except: return 0
-        return sorted(base_rows, key=v, reverse=True)[0]
-
-    rows = q.all()
-    if not rows:
-        return None
-
-    def v2(a):
-        try: return int(a.app_version or 0)
-        except: return 0
-    return sorted(rows, key=v2, reverse=True)[0]
 
 def build_override_index(include_disabled: bool = False) -> dict:
     """
@@ -605,96 +339,106 @@ def build_override_index(include_disabled: bool = False) -> dict:
 
     return {"by_app": by_app, "count": len(by_app)}
 
-def garbage_collect_orphan_art_files():
-    """Remove banner/icon files on disk with no matching override record."""
-    from db import AppOverrides  # local import to avoid cycles
-    existing = {ov.banner_path for ov in AppOverrides.query if ov.banner_path} \
-             | {ov.icon_path for ov in AppOverrides.query if ov.icon_path}
-
-    for kind, dir_key, url_key in (
-        ("banner", "BANNERS_UPLOAD_DIR", "BANNERS_UPLOAD_URL_PREFIX"),
-        ("icon",   "ICONS_UPLOAD_DIR",  "ICONS_UPLOAD_URL_PREFIX"),
-    ):
-        upload_dir = current_app.config.get(dir_key) or current_app.config["BANNERS_UPLOAD_DIR"]
-        if not os.path.isdir(upload_dir):
-            continue
-        for name in os.listdir(upload_dir):
-            if not name.endswith((".png", ".jpg", ".jpeg", ".webp")):
-                continue
-            path = os.path.join(upload_dir, name)
-            url_prefix = (current_app.config.get(url_key) or current_app.config["BANNERS_UPLOAD_URL_PREFIX"]).rstrip("/")
-            public = f"{url_prefix}/{name}"
-            if public not in existing:
-                try: os.remove(path)
-                except OSError: pass
-
-# --- TitleDB projection helpers --------------------------------------------
-
-def _normalize_release_date(v):
+# Note: UI sends multipart only when a banner or icon upload/removal is requested; otherwise JSON.
+# This keeps existing JSON flows working while enabling binary upload.
+def _parse_payload():
     """
-    Normalize dates coming from TitleDB into 'YYYY-MM-DD'.
-    Accepts int like 20230427, '20230427', or 'YYYY-MM-DD'. Returns None if unknown.
+    Accept either JSON (application/json) or multipart/form-data.
+    Returns: (data_dict, banner_file, banner_remove, icon_file, icon_remove)
     """
-    if v is None:
+    def _to_bool(value):
+        if isinstance(value, bool):
+            return value
+        if value is None:
+            return False
+        s = str(value).strip().lower()
+        return s in {"1", "true", "yes", "on"}
+
+    if request.is_json:
+        data = request.get_json(silent=True) or {}
+        banner_file = None
+        icon_file = None
+        banner_remove = _to_bool(data.get("banner_remove"))
+        icon_remove   = _to_bool(data.get("icon_remove"))
+    else:
+        data = request.form.to_dict()
+        banner_file = request.files.get("banner")
+        icon_file   = request.files.get("icon")
+        banner_remove = _to_bool(data.get("banner_remove"))
+        icon_remove   = _to_bool(data.get("icon_remove"))
+
+    # Conflict resolution: if a new file is uploaded, ignore the corresponding remove flag
+    if banner_file:
+        banner_remove = False
+    if icon_file:
+        icon_remove = False
+
+    return data, banner_file, banner_remove, icon_file, icon_remove
+
+def _apply_fields(ov: AppOverrides, data: dict):
+    # Only touch known fields; ignore extras to keep it robust.
+    fields = [
+        "name", "release_date", "region", "description", "content_type", "version",
+        "enabled", "corrected_title_id",
+    ]
+    for f in fields:
+        if f in data:
+            setattr(ov, f, data[f])
+
+def _parse_iso_date_or_none(value):
+    if not value:
         return None
     try:
-        if isinstance(v, int):
-            s = str(v)
-            if len(s) == 8:
-                return f"{s[0:4]}-{s[4:6]}-{s[6:8]}"
-            return None
-        s = str(v).strip()
-        if not s:
-            return None
-        if len(s) == 8 and s.isdigit():
-            return f"{s[0:4]}-{s[4:6]}-{s[6:8]}"
-        if len(s) == 10 and s[4] == '-' and s[7] == '-':
-            return s
+        # Accept strict yyyy-MM-dd
+        return datetime.date.fromisoformat(value)
     except Exception:
-        pass
-    return None
+        abort(400, description="Invalid release_date. Expected format: yyyy-MM-dd.")
+
+def _resolve_target_app(app_id: str) -> Optional[Apps]:
+    """
+    Map a logical 16/32-hex app_id string to a specific Apps row.
+    Preference order:
+      1) highest numeric app_version among rows with app_type == 'BASE'
+      2) otherwise highest numeric app_version among all rows
+    """
+    q = Apps.query.filter(Apps.app_id == app_id)
+
+    # Try BASE first
+    base_rows = q.filter((Apps.app_type == 'BASE') | (Apps.app_type == 'Base')).all()
+    if base_rows:
+        def v(a): 
+            try: return int(a.app_version or 0)
+            except: return 0
+        return sorted(base_rows, key=v, reverse=True)[0]
+
+    rows = q.all()
+    if not rows:
+        return None
+
+    def v2(a):
+        try: return int(a.app_version or 0)
+        except: return 0
+    return sorted(rows, key=v2, reverse=True)[0]
 
 def _project_titledb_block(corrected_id: str) -> dict:
     """
     Build the projected block for a corrected TitleID using TitleDB.
-    Includes: name, description, region, normalized release_date, bannerUrl, iconUrl
-    and category.
+    Includes: name, description, region, normalized release_date, bannerUrl, iconUrl, category.
     """
-    proj = titles_lib.get_game_info_by_title_id(corrected_id) or {}
-    raw  = titles_lib.get_raw_titledb_record(corrected_id) or {}
-
-    name = (proj.get("name") or raw.get("name") or "").strip() or None
-
-    # Prefer richer/longer description fields from raw when available
-    description = (
-        raw.get("description")
-        or raw.get("longDescription")
-        or raw.get("desc")
-        or raw.get("overview")
-        or proj.get("description")
-        or None
-    )
-
-    region = raw.get("region") if raw.get("region") is not None else proj.get("region")
-
-    rd = (
-        proj.get("release_date")
-        or proj.get("releaseDate")
-        or raw.get("release_date")
-        or raw.get("releaseDate")
-    )
-    release_date = _normalize_release_date(rd)
-
-    bannerUrl = proj.get("bannerUrl") or None
-    iconUrl   = proj.get("iconUrl")   or None
-    category  = proj.get("category")  if "category" in proj else raw.get("category")
+    info = titles_lib.get_game_info(corrected_id) or {}
 
     return {
-        "name": name,
-        "description": description,
-        "region": region,
-        "release_date": release_date,
-        "bannerUrl": bannerUrl,
-        "iconUrl": iconUrl,
-        "category": category,
+        "name":         (info.get("name") or "").strip() or None,
+        "description":  info.get("description"),
+        "region":       info.get("region"),
+        "release_date": info.get("release_date"),
+        "bannerUrl":    info.get("bannerUrl"),
+        "iconUrl":      info.get("iconUrl"),
+        "category":     info.get("category"),
     }
+
+def _serialize_with_art_urls(ov: AppOverrides) -> dict:
+    d = ov.as_dict()
+    d["bannerUrl"] = d.get("banner_path")
+    d["iconUrl"]   = d.get("icon_path")
+    return d

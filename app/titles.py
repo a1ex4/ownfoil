@@ -1,5 +1,4 @@
 import os
-import sys
 import re
 import json
 
@@ -8,7 +7,6 @@ from constants import *
 from utils import *
 from settings import *
 from pathlib import Path
-from binascii import hexlify as hx, unhexlify as uhx
 import logging
 
 from nsz.Fs import Pfs0, Xci, Nsp, Nca, Type, factory
@@ -19,9 +17,8 @@ logger = logging.getLogger('main')
 
 Pfs0.Print.silent = True
 
-app_id_regex = r"\[([0-9A-Fa-f]{16})\]"
-version_regex = r"\[v(\d+)\]"
-_TITLE_ID_RE = re.compile(r'^[0-9A-F]{16}$')
+app_id_regex = FILENAME_APP_ID_RE.pattern
+version_regex = VERSION_RE.pattern
 
 # Global variables for TitleDB data
 identification_in_progress_count = 0
@@ -32,50 +29,7 @@ _versions_db = None
 _versions_txt_db = None
 _titles_by_title_id = None
 
-def _normalize_title_id(raw: str):
-    if not raw:
-        return None
-    s = str(raw).strip().upper()
-    if s.startswith('0X') and len(s) == 18:
-        s = s[2:]
-    return s if _TITLE_ID_RE.match(s) else None
-
-def _normalize_release_date(val):
-    """
-    Accepts:
-      - int like 20230915
-      - str '20230915' or '2023-09-15'
-      - None / 'Unknown'
-    Returns 'YYYY-MM-DD' or None.
-    """
-    if not val or str(val).strip().lower() == 'unknown':
-        return None
-    s = str(val).strip()
-    if len(s) == 8 and s.isdigit():
-        return f"{s[0:4]}-{s[4:6]}-{s[6:8]}"
-    if len(s) == 10 and s[4] == '-' and s[7] == '-':
-        return s
-    # Fallback: try to coerce digits only
-    digits = ''.join(ch for ch in s if ch.isdigit())
-    if len(digits) == 8:
-        return f"{digits[0:4]}-{digits[4:6]}-{digits[6:8]}"
-    return None
-
-def get_raw_titledb_record(title_id: str):
-    """
-    Return the raw TitleDB record dict for a Title ID (no projection/trimming).
-    Accepts optional 0x prefix. Returns None if not found.
-    """
-    global _titles_by_title_id
-    if _titles_by_title_id is None:
-        logger.error("titles_by_title_id is not loaded. Call load_titledb first.")
-        return None
-    tid = _normalize_title_id(title_id)
-    if not tid:
-        return None
-    return _titles_by_title_id.get(tid)
-
-def getDirsAndFiles(path):
+def get_dirs_and_files(path):
     entries = os.listdir(path)
     allFiles = []
     allDirs = []
@@ -84,7 +38,7 @@ def getDirsAndFiles(path):
         fullPath = os.path.join(path, entry)
         if os.path.isdir(fullPath):
             allDirs.append(fullPath)
-            dirs, files = getDirsAndFiles(fullPath)
+            dirs, files = get_dirs_and_files(fullPath)
             allDirs += dirs
             allFiles += files
         elif fullPath.split('.')[-1] in ALLOWED_EXTENSIONS:
@@ -127,7 +81,7 @@ def get_file_info(filepath):
         'size': get_file_size(filepath),
     }
 
-def identify_appId(app_id):
+def identify_app_id(app_id):
     app_id = app_id.lower()
     
     global _cnmts_db
@@ -255,7 +209,7 @@ def identify_file_from_filename(filename):
     if app_id is None:
         errors.append('Could not determine App ID from filename, pattern [APPID] not found. Title ID and Type cannot be derived.')
     else:
-        title_id, app_type = identify_appId(app_id)
+        title_id, app_type = identify_app_id(app_id)
 
     version = get_version_from_filename(filename)
     if version is None:
@@ -322,7 +276,7 @@ def identify_file(filepath):
                     app_type, app_id, version = content
                     if app_type != APP_TYPE_BASE:
                         # need to get the title ID from cnmts
-                        title_id, app_type = identify_appId(app_id)
+                        title_id, app_type = identify_app_id(app_id)
                     else:
                         title_id = app_id
                     contents.append((title_id, app_type, app_id, version))
@@ -348,90 +302,95 @@ def identify_file(filepath):
             } for c in contents]
     return identification, success, contents, error
 
-def has_title_id(title_id: str) -> bool:
-    """Return True if TitleDB has a recognized entry for this title_id."""
+def title_id_exists(title_id: str | None) -> bool:
+    """True if TitleDB has a record for this Title ID."""
     global _titles_by_title_id
     if _titles_by_title_id is None:
         logger.error("titles_by_title_id is not loaded. Call load_titledb first.")
         return False
-    tid = (title_id or "").upper()
-    try:
-        return tid in _titles_by_title_id
-    except Exception as e:
-        logger.warning(f"Error checking TitleDB membership for {title_id}: {e}")
+    tid = normalize_id(title_id, "title")
+    if not tid:
         return False
+    return tid in _titles_by_title_id
 
-def get_game_info(title_id: str):
+def get_game_info(title_id: str | None):
+    """
+    Retrieve a TitleDB record for a given Title ID.
+
+    - Normalizes ID (accepts '0x' prefix, lowercase, etc.)
+    - Returns a dict with name, bannerUrl, iconUrl, id, category, region, description, release_date (normalized).
+    - Returns minimal fallback if not found/invalid.
+    """
     global _titles_by_title_id
     if _titles_by_title_id is None:
         logger.error("titles_by_title_id is not loaded. Call load_titledb first.")
         return None
 
+    tid = normalize_id(title_id, "title")
+    if not tid:
+        logger.error(f"Invalid Title ID format: {title_id!r}")
+        return {
+            "name": None,
+            "id": title_id,
+            "category": "",
+            "region": None,
+            "description": None,
+            "release_date": None,
+        }
+
     try:
-        tid = (title_id or "").upper()
         title_info = _titles_by_title_id.get(tid)
         if not title_info:
             logger.error(f"Title ID not found in titledb: {tid}")
             return {
-                'name': None,
-                'id': tid,
-                'category': '',
-                'region': None,
-                'description': None,
-                'release_date': None,
+                "name": None,
+                "id": tid,
+                "category": "",
+                "region": None,
+                "description": None,
+                "release_date": None,
             }
 
-        # Tolerate different key spellings from TitleDB
+        # Accept multiple spellings & normalize immediately
         release_raw = (
-            title_info.get('release_date') or
-            title_info.get('releaseDate') or
-            None
+            title_info.get("release_date")
+            or title_info.get("releaseDate")
+            or None
         )
+        release_date = normalize_release_date(release_raw)
+
         description = (
-            title_info.get('description') or
-            title_info.get('longDescription') or
-            title_info.get('desc') or
-            None
+            title_info.get("description")
+            or title_info.get("longDescription")
+            or title_info.get("desc")
+            or title_info.get("overview")      # ← include what you previously pulled from raw
+            or None
         )
-        region = title_info.get('region')
 
         return {
-            'name': title_info.get('name'),
-            'bannerUrl': title_info.get('bannerUrl'),
-            'iconUrl': title_info.get('iconUrl'),
-            'id': title_info.get('id') or tid,
-            'category': title_info.get('category', ''),
-            'region': region,
-            'description': description,
-            # leave normalization to library.py (_normalize_release_date)
-            'release_date': release_raw,
+            "name":       (title_info.get("name") or "").strip() or None,
+            "bannerUrl":  title_info.get("bannerUrl"),
+            "iconUrl":    title_info.get("iconUrl"),
+            "id":         title_info.get("id") or tid,
+            "category":   title_info.get("category", ""),
+            "region":     title_info.get("region"),
+            "description": description,
+            "release_date": release_date,
         }
+
     except Exception:
-        logger.error(f"Title ID not found in titledb: {title_id}")
+        logger.error(f"Exception retrieving Title ID from titledb: {title_id}")
         return {
-            'name': None,
-            'id': title_id,
-            'category': '',
-            'region': None,
-            'description': None,
-            'release_date': None,
+            "name": None,
+            "id": title_id,
+            "category": "",
+            "region": None,
+            "description": None,
+            "release_date": None,
         }
-
-def get_game_info_by_title_id(title_id: str):
-    """
-    Return the TitleDB record dict (same shape as get_game_info) for a Title ID,
-    or a minimal fallback if not found. Accepts optional 0x prefix.
-    """
-    tid = _normalize_title_id(title_id)
-    if not tid:
-        return None
-    return get_game_info(tid)
 
 def get_update_number(version):
     return int(version)//65536
-
-def get_game_latest_version(all_existing_versions):
-    return max(v['version'] for v in all_existing_versions)
 
 def get_all_existing_versions(titleid):
     global _versions_db
@@ -449,7 +408,7 @@ def get_all_existing_versions(titleid):
         {
             'version': int(version_from_db),
             'update_number': get_update_number(version_from_db),
-            'release_date': _normalize_release_date(_versions_db[titleid][str(version_from_db)]),
+            'release_date': normalize_release_date(_versions_db[titleid][str(version_from_db)]),
         }
         for version_from_db in versions_from_db
     ]
@@ -471,14 +430,7 @@ def get_all_app_existing_versions(app_id):
     else:
         # print(f'DLC app ID not in cnmts.json: {app_id.upper()}')
         return None
-    
-def get_app_id_version_from_versions_txt(app_id):
-    global _versions_txt_db
-    if _versions_txt_db is None:
-        logger.error("versions_txt_db is not loaded. Call load_titledb first.")
-        return None
-    return _versions_txt_db.get(app_id, None)
-    
+
 def get_all_existing_dlc(title_id):
     global _cnmts_db
     if _cnmts_db is None:

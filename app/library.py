@@ -407,7 +407,7 @@ def identify_library_files(library):
                     file.nb_content = nb_content
 
                     # Determine if any of this file's title_ids are unknown to TitleDB
-                    needs_override = any(not titles_lib.has_title_id(tid) for tid in title_ids)
+                    needs_override = any(not titles_lib.title_id_exists(tid) for tid in title_ids)
 
                     # - identified=True means "we parsed/understood the file (CNMT etc.)"
                     # - recognition in TitleDB is tracked via identification_type
@@ -676,32 +676,6 @@ def update_titles():
 
     db.session.commit()
 
-def get_library_status(title_id):
-    title = get_title(title_id)
-    if not title:
-        return {
-            'has_base': False,
-            'has_latest_version': False,
-            'version': [],
-            'has_all_dlcs': False
-        }
-
-    title_apps = get_all_title_apps(title_id)
-    available_versions = titles_lib.get_all_existing_versions(title_id)
-    for version in available_versions:
-        if len(list(filter(lambda x: x.get('app_type') == APP_TYPE_UPD and str(x.get('app_version')) == str(version['version']), title_apps))):
-            version['owned'] = True
-        else:
-            version['owned'] = False
-
-    library_status = {
-        'has_base': title.have_base,
-        'has_latest_version': title.up_to_date,
-        'version': available_versions,
-        'has_all_dlcs': title.complete
-    }
-    return library_status
-
 def compute_apps_hash():
     """
     Computes a hash of all Apps table content to detect changes in library state.
@@ -773,12 +747,12 @@ def _load_library():
     return _generate_library()
 
 def _generate_library():
-    """Generate the BASE game library from Apps table (NO overrides), and cache it to disk."""
+    """Generate the BASE/DLC library from Apps table and cache to disk."""
     logger.info('Generating library ...')
 
     titles_lib.load_titledb()
     try:
-        titles = get_all_apps()
+        titles = get_all_apps(include_files=True)
         games_info = []
         processed_dlc_apps = set()  # Track processed DLC app_ids to avoid duplicates
 
@@ -790,38 +764,30 @@ def _generate_library():
             if title['app_type'] == APP_TYPE_UPD:
                 continue
 
-            # Get title info from titledb
             info_from_titledb = titles_lib.get_game_info(title['title_id'])
             if info_from_titledb is None:
                 logger.warning(f'Info not found for game: {title}')
                 continue
             title.update(info_from_titledb)
-
-            # Ensure modal-prefill metadata exists at top level (normalize date for safety)
-            title['description']  = info_from_titledb.get('description')
-            title['region']       = info_from_titledb.get('region')
-            title['release_date'] = _normalize_release_date(
-                info_from_titledb.get('release_date') or info_from_titledb.get('releaseDate')
-            )
+            # Stable sort/display key for both BASE and DLC
+            title['title_id_name'] = title.get('name') or 'Unrecognized'
 
             if title['app_type'] == APP_TYPE_BASE:
-                # Get title status from Titles table (already calculated by update_titles)
+                # Status flags from Titles table (computed by update_titles)
                 title_obj = get_title(title['title_id'])
                 if title_obj:
                     title['has_base'] = title_obj.have_base
                     # Only mark as up to date if the base itself is owned and up_to_date
-                    title['has_latest_version'] = (
-                        title_obj.have_base and title_obj.up_to_date
-                    )
+                    title['has_latest_version'] = (title_obj.have_base and title_obj.up_to_date)
                     title['has_all_dlcs'] = title_obj.complete
                 else:
                     title['has_base'] = False
                     title['has_latest_version'] = False
                     title['has_all_dlcs'] = False
 
-                # Get version info from Apps table and add release dates from versions_db
+                # Version list for BASE using Apps + versions DB release dates
                 title_apps = get_all_title_apps(title['title_id'])
-                update_apps = [app for app in title_apps if app.get('app_type') == APP_TYPE_UPD]
+                update_apps = [a for a in title_apps if a.get('app_type') == APP_TYPE_UPD]
 
                 available_versions = titles_lib.get_all_existing_versions(title['title_id'])
                 version_release_dates = {v['version']: v['release_date'] for v in available_versions}
@@ -832,28 +798,27 @@ def _generate_library():
                     version_list.append({
                         'version': app_version,
                         'owned': update_app.get('owned', False),
-                        'release_date': _normalize_release_date(version_release_dates.get(app_version))
+                        'release_date': version_release_dates.get(app_version)
                     })
 
                 title['version'] = sorted(version_list, key=lambda x: x['version'])
-                title['title_id_name'] = title['name']
 
             elif title['app_type'] == APP_TYPE_DLC:
                 # Skip if we've already processed this DLC app_id
-                if title['app_id'] in processed_dlc_apps:
+                app_id = title['app_id']
+                if app_id in processed_dlc_apps:
                     continue
-                processed_dlc_apps.add(title['app_id'])
+                processed_dlc_apps.add(app_id)
 
                 # Get all versions for this DLC app_id
                 title_apps = get_all_title_apps(title['title_id'])
-                dlc_apps = [app for app in title_apps if app.get('app_type') == APP_TYPE_DLC and app['app_id'] == title['app_id']]
+                dlc_apps = [app for app in title_apps if app.get('app_type') == APP_TYPE_DLC and app['app_id'] == app_id]
 
                 # Create version list for this DLC
                 version_list = []
                 for dlc_app in dlc_apps:
-                    app_version = int(dlc_app['app_version'])
                     version_list.append({
-                        'version': app_version,
+                        'version': int(dlc_app['app_version']),
                         'owned': dlc_app.get('owned', False),
                         'release_date': 'Unknown'  # DLC release dates not available in versions_db
                     })
@@ -866,47 +831,16 @@ def _generate_library():
                     highest_version = max(int(app['app_version']) for app in dlc_apps)
                     owned_versions = [int(app['app_version']) for app in dlc_apps if app.get('owned')]
                     # Only true if at least one version is OWNED and the highest owned >= highest available
-                    title['has_latest_version'] = (
-                        len(owned_versions) > 0 and max(owned_versions) >= highest_version
-                    )
+                    title['has_latest_version'] = len(owned_versions) > 0 and max(owned_versions) >= highest_version
                 else:
+                    # No local rows → nothing to update
                     title['has_latest_version'] = True
 
-                # Get title name for DLC
-                titleid_info = (
-                    titles_lib.get_game_info_by_title_id(title['app_id'])  # exact DLC row if it exists
-                    or titles_lib.get_game_info(title['app_id'])           # family/base fallback
-                )
+            # File basename hint for organizer/UI
+            title['file_basename'] = _best_file_basename(title.get('files'))
 
-                if title.get('name') is not None:
-                    title['title_id_name'] = title['name']
-                title['name'] = titleid_info['name'] if titleid_info else 'Unrecognized'
-
-                # ALSO override artwork from the exact DLC row if it exists
-                if titleid_info:
-                    if titleid_info.get('bannerUrl'):
-                        title['bannerUrl'] = titleid_info['bannerUrl']
-                    if titleid_info.get('iconUrl'):
-                        title['iconUrl'] = titleid_info['iconUrl']
-                    if 'category' in titleid_info and titleid_info['category'] is not None:
-                        title['category'] = titleid_info['category']
-
-                    # DLC-side metadata for modal prefills
-                    title['description']  = titleid_info.get('description')
-                    title['region']       = titleid_info.get('region')
-                    rd = titleid_info.get('release_date') or titleid_info.get('releaseDate')
-                    title['release_date'] = _normalize_release_date(rd)
-                else:
-                    title['description']  = None
-                    title['region']       = None
-                    title['release_date'] = None
-
-            title['file_basename'] = _infer_file_basename_for_app(
-                title.get('app_id', ""),
-                title.get('app_version', "")
-            )
             games_info.append(title)
-        
+
         _add_files_without_apps(games_info)
 
         library_data = {
@@ -928,31 +862,31 @@ def _generate_library():
         titles_lib.identification_in_progress_count -= 1
         titles_lib.unload_titledb()
 
-def _infer_file_basename_for_app(app_id: str, app_version: str | int | None) -> str | None:
-    """
-    Return a representative file basename for the given app (id+version),
-    using the Apps.files relationship. If multiple files are linked, prefer the
-    most recently identified one; otherwise just pick a deterministic first.
-    """
-    if not app_id:
+def _best_file_basename(files):
+    if not files:
         return None
 
-    app_row = Apps.query.filter_by(app_id=app_id, app_version=str(app_version or "0")).first()
-    if not app_row or not getattr(app_row, "files", None):
-        return None
+    ext_rank = {".nsz": 5, ".xcz": 5, ".nsp": 4, ".xci": 4, ".zip": 2, ".rar": 1}
+    strong_id = {"cnmt", "tik", "cert"}
 
-    def _score(f):
-        # Prefer latest identification attempt; fall back to the earliest date
-        return (f.last_attempt or datetime.datetime.min,)
+    def _ext_score(name):
+        _, ext = os.path.splitext((name or "").lower())
+        return ext_rank.get(ext, 0)
 
-    best = sorted(app_row.files, key=_score, reverse=True)[0]
+    def score(f):
+        name_for_ext = f.get("filename") or os.path.basename(f.get("filepath") or "")
+        return (
+            1 if f.get("identification_type") in strong_id else 0,            # strong ID first
+            _ext_score(name_for_ext),                                         # prefer compressed
+            f.get("last_attempt") or datetime.datetime.min,                   # recent work
+            f.get("created_at") or datetime.datetime.min,                     # stable tiebreaker
+            f.get("id") or 0,                                                 # deterministic
+        )
 
-    # Prefer Files.filename; fall back to basename(filepath)
-    if getattr(best, "filename", None):
-        return best.filename
-    if getattr(best, "filepath", None):
-        return os.path.basename(best.filepath)
-    return None
+    best = max(files, key=score)
+    if best.get("filename"):
+        return best["filename"]
+    return os.path.basename(best.get("filepath") or "") or None
 
 def _add_files_without_apps(games_info):
     unid_files = Files.query.filter(
@@ -997,140 +931,6 @@ def _add_files_without_apps(games_info):
             'has_all_dlcs': True,
             'version': [],
         })
-
-def _merge_corrected_titledb(record: dict, override_map: dict) -> dict:
-    """
-    If there's an override for this app_id with a corrected_title_id, pull TitleDB
-    metadata for that ID and merge onto a shallow copy of `record`. Then apply any
-    explicit override fields (non-None only).
-    - Does NOT change the underlying title_id in the DB.
-    - Echoes corrected_title_id and sets recognized_via_correction when applicable.
-    """
-    app_id = record.get("app_id")
-    if not app_id:
-        return record
-
-    dst = record.copy()
-
-    # Preserve flags prior to override
-    tid_name_raw = (record.get("title_id_name") or "").strip().lower()
-    orig_recognized = bool(tid_name_raw and tid_name_raw not in ("unrecognized", "unidentified"))
-    dst["hasTitleDb"] = orig_recognized
-    dst["isUnrecognized"] = not orig_recognized
-
-    ov = (override_map or {}).get(app_id)
-    if not ov:
-        return dst
-
-    corrected_id = (ov.get("corrected_title_id") or "").strip().upper()
-    used_correction = False
-
-    if corrected_id:
-        # Projected (name/art/category) + RAW (extra fields)
-        try:
-            td_proj = titles_lib.get_game_info_by_title_id(corrected_id)
-        except Exception:
-            td_proj = None
-        td_raw = titles_lib.get_raw_titledb_record(corrected_id) or {}
-
-        if td_proj or td_raw:
-            # --- Names & artwork (projected) ---
-            if td_proj:
-                td_name = (td_proj.get("name") or "").strip()
-                if td_name:
-                    base_part = td_name.split(" - ", 1)[0]
-                    dst["title_id_name"] = base_part
-                    dst["name"] = base_part if dst.get("app_type") == APP_TYPE_BASE else td_name
-
-                if td_proj.get("bannerUrl"):
-                    dst["bannerUrl"] = td_proj["bannerUrl"]
-                if td_proj.get("iconUrl"):
-                    dst["iconUrl"] = td_proj["iconUrl"]
-                if "category" in td_proj and td_proj["category"] is not None:
-                    dst["category"] = td_proj["category"]
-
-            # --- Extra metadata (RAW) ---
-            desc = (
-                td_raw.get("description")
-                or td_raw.get("longDescription")
-                or td_raw.get("desc")
-                or td_raw.get("overview")
-            )
-            if desc:
-                dst["description"] = desc
-
-            if "region" in td_raw and td_raw.get("region") is not None:
-                dst["region"] = td_raw.get("region")
-
-            rd = td_raw.get("release_date") or td_raw.get("releaseDate")
-            if rd is None:
-                # fallback: earliest version date from versions.json
-                try:
-                    corr_versions = titles_lib.get_all_existing_versions(corrected_id) or []
-                    norm_dates = [
-                        _normalize_release_date(v.get("release_date"))
-                        for v in corr_versions
-                        if v.get("release_date")
-                    ]
-                    norm_dates = [d for d in norm_dates if d]
-                    if norm_dates:
-                        rd = min(norm_dates)
-                except Exception:
-                    rd = None
-            dst_rd = _normalize_release_date(rd)
-            if dst_rd:
-                dst["release_date"] = dst_rd
-
-            # --- For BASE rows, rebuild version list from corrected TitleID ---
-            if dst.get("app_type") == APP_TYPE_BASE:
-                try:
-                    corr_versions = titles_lib.get_all_existing_versions(corrected_id) or []
-                    version_rows = [
-                        {
-                            "version": int(v["version"]),
-                            "owned": False,  # we cannot assert ownership for corrected family
-                            "release_date": _normalize_release_date(v.get("release_date")),
-                        }
-                        for v in corr_versions
-                        if "version" in v
-                    ]
-                    dst["version"] = sorted(version_rows, key=lambda x: x["version"])
-                except Exception:
-                    pass
-
-            used_correction = True
-
-        dst["corrected_title_id"] = corrected_id
-
-    # --- Apply explicit overrides, but ONLY when the value is not None ---
-    # (Prevents NULL in override from wiping out TitleDB-provided values)
-    if "name" in ov and ov["name"] is not None:
-        name_val = (ov["name"] or "").strip()
-        if name_val:
-            dst["name"] = name_val
-            dst["title_id_name"] = name_val  # search/sort for BASE rows
-
-    if "release_date" in ov and ov["release_date"] is not None:
-        dst["release_date"] = ov["release_date"]
-
-    if "description" in ov and ov["description"] is not None:
-        dst["description"] = ov["description"]
-
-    if "region" in ov and ov["region"] is not None:
-        dst["region"] = ov["region"]
-
-    # Artwork overrides (file paths win)
-    banner_override = ov.get("banner_path")
-    icon_override   = ov.get("icon_path")
-    if banner_override:
-        dst["banner_path"] = banner_override
-        dst["bannerUrl"]   = banner_override
-    if icon_override:
-        dst["icon_path"] = icon_override
-        dst["iconUrl"]   = icon_override
-
-    dst["recognized_via_correction"] = bool(used_correction)
-    return dst
 
 def _ensure_single_latest_base(app_id: str, detected_version, title_db_id=None):
     """
@@ -1249,30 +1049,3 @@ def _normalize_version_int(s) -> int:
         return int(s, 10)
     except Exception:
         return 0
-
-def _normalize_release_date(v):
-    """
-    Normalize a date coming from TitleDB into 'YYYY-MM-DD'.
-    Accepts int like 20230427, '20230427', or 'YYYY-MM-DD'. Returns None if unknown.
-    """
-    if v is None:
-        return None
-    try:
-        if isinstance(v, int):
-            # int 20230427 -> '2023-04-27'
-            s = str(v)
-            if len(s) == 8:
-                return f"{s[0:4]}-{s[4:6]}-{s[6:8]}"
-            return None
-        s = str(v).strip()
-        if not s:
-            return None
-        if len(s) == 8 and s.isdigit():
-            # str '20230427' -> '2023-04-27'
-            return f"{s[0:4]}-{s[4:6]}-{s[6:8]}"
-        if len(s) == 10 and s[4] == '-' and s[7] == '-':
-            # already in the desired format
-            return s
-    except Exception:
-        pass
-    return None

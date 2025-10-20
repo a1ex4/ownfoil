@@ -1,4 +1,5 @@
 import os
+import re
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(APP_DIR, 'data')
@@ -14,6 +15,10 @@ CACHE_DIR = os.path.join(DATA_DIR, 'cache')
 LIBRARY_CACHE_FILE = os.path.join(CACHE_DIR, 'library.json')
 ALEMBIC_DIR = os.path.join(APP_DIR, 'migrations')
 ALEMBIC_CONF = os.path.join(ALEMBIC_DIR, 'alembic.ini')
+TITLE_ID_RE = re.compile(r'^[0-9A-F]{16}$')
+APP_ID_RE = re.compile(r"^(?:[0-9A-F]{16}|[0-9A-F]{32})$")  # For validating raw IDs supplied by APIs/DB: 16 (title/app) or 32 (content) hex chars
+FILENAME_APP_ID_RE = re.compile(r"\[([0-9A-Fa-f]{16})\]")  # For filename parsing like "... [0100ABCDEF123456] ...":
+VERSION_RE = re.compile(r"\[v(\d+)\]")
 TITLEDB_DIR = os.path.join(DATA_DIR, 'titledb')
 TITLEDB_URL = 'https://github.com/blawar/titledb.git'
 TITLEDB_ARTEFACTS_URL = 'https://nightly.link/a1ex4/ownfoil/workflows/region_titles/master/titledb.zip'
