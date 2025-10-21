@@ -747,7 +747,9 @@ def _generate_library():
             if title['app_type'] == APP_TYPE_UPD:
                 continue
 
-            info_from_titledb = titles_lib.get_game_info(title['title_id'])
+            # Use DLC app_id for DLC metadata; BASE keeps family/base title_id.
+            lookup_id = title['app_id'] if title['app_type'] == APP_TYPE_DLC else title['title_id']
+            info_from_titledb = titles_lib.get_game_info(lookup_id)
             if info_from_titledb is None:
                 logger.warning(f'Info not found for game: {title}')
                 continue
