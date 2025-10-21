@@ -754,8 +754,15 @@ def _generate_library():
                 logger.warning(f'Info not found for game: {title}')
                 continue
             title.update(info_from_titledb)
-            # Stable sort/display key for both BASE and DLC
-            title['title_id_name'] = title.get('name') or 'Unrecognized'
+            # Stable sort/display key:
+            # - BASE: use its own (family) name
+            # - DLC : use the family/base title name (so DLCs sort alongside their bases)
+            if title['app_type'] == APP_TYPE_DLC:
+                family_info = titles_lib.get_game_info(title['title_id'])  # family/base lookup
+                family_name = (family_info or {}).get('name') or title.get('name')
+                title['title_id_name'] = family_name or 'Unrecognized'
+            else:
+                title['title_id_name'] = title.get('name') or 'Unrecognized'
 
             if title['app_type'] == APP_TYPE_BASE:
                 # Status flags from Titles table (computed by update_titles)
@@ -836,6 +843,7 @@ def _generate_library():
             'library': sorted(games_info, key=lambda x: (
                 "title_id_name" not in x,
                 x.get("title_id_name", "Unrecognized") or "Unrecognized",
+                0 if x.get('app_type') == APP_TYPE_BASE else 1,  # BASE first, then DLC
                 x.get('app_id', "") or ""
             ))
         }
