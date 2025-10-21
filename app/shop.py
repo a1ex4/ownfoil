@@ -11,6 +11,7 @@ from Crypto.Cipher import PKCS1_OAEP
 from Crypto.Hash import SHA256
 from Crypto.Cipher import AES
 from sqlalchemy import func
+from urllib.parse import quote
 import zstandard as zstd
 import random
 import re
@@ -49,22 +50,30 @@ def gen_shop_files():
     )
 
     for f in rows:
-        presented_name = f.filename or os.path.basename(f.filepath) or "file.nsp"
-
+        presented_name = f.filename or os.path.basename(f.filepath) or "file.nsp"        
+        presented_tid = None
         # Only attempt an ID correction when the file is not multicontent
         # and we can unambiguously pick the single linked app.
-        corrected_tid = None
-        if not f.multicontent and getattr(f, "apps", None) and len(f.apps) == 1:
+        if getattr(f, 'apps', None) and len(f.apps) == 1:
             app = f.apps[0]
-            ov = getattr(app, "overrides", None)
-            if ov and ov.enabled and ov.corrected_title_id:
-                corrected_tid = ov.corrected_title_id
+            try:
+                _, app_type = identify_app_id(app.app_id)
+            except Exception:
+                app_type = None
 
-        if corrected_tid:
-            presented_name = _with_corrected_title_id(presented_name, corrected_tid)
+            # base games: app_id == title_id, but use title_id for clarity
+            presented_tid = app.app_id if app_type == APP_TYPE_DLC else app.title_id
+
+            if _should_override_title_id(f):
+                ov = next((o for o in app.overrides if o.enabled and o.corrected_title_id), None)
+                if ov:
+                    presented_tid = ov.corrected_title_id
+
+        if presented_tid:
+            presented_name = _with_title_id(presented_name, presented_tid)
 
         shop_files.append({
-            "url": f"/api/get_game/{f.id}#{presented_name}",
+            "url": f"/api/get_game/{f.id}#{quote(presented_name)}",
             "size": f.size or 0
         })
 
@@ -121,6 +130,31 @@ def build_titledb_from_overrides():
             .all()
         )
 
+        # Build the set of relevant app_ids from the fetched overrides
+        ov_app_ids = {
+            (getattr(ov.app, "app_id", None) or ov.app_id or "").strip().upper()
+            for ov in rows
+            if (getattr(ov, "app", None) and (getattr(ov.app, "app_id", None) or getattr(ov, "app_id", None)))
+        }
+
+        if ov_app_ids:
+            size_rows = (
+                db.session
+                    .query(Apps.app_id, func.sum(Files.size))
+                    .join(Files.apps)
+                    .filter(Files.size.isnot(None))
+                    .filter(Apps.app_id.in_(ov_app_ids))
+                    .group_by(Apps.app_id)
+                    .all()
+            )
+        else:
+            size_rows = []
+
+        sizes_by_app = {
+            (app_id or "").strip().upper(): int(total or 0)
+            for app_id, total in size_rows
+        }
+
         for ov in rows:
             app = getattr(ov, "app", None)
             if not app:
@@ -168,20 +202,18 @@ def build_titledb_from_overrides():
                 entry["region"] = ov.region
 
             if ov.release_date:
-                entry["releaseDate"] = int(ov.release_date.strftime("%Y%m%d"))
+                rd = ov.release_date
+                # handle date/datetime; skip/convert if string
+                if hasattr(rd, "strftime"):
+                    entry["releaseDate"] = int(rd.strftime("%Y%m%d"))
 
             if ov.description:
                 entry["description"] = ov.description
 
             # Aggregate file sizes for this *app* (base or dlc)
-            total_bytes = (
-                db.session.query(func.sum(Files.size))
-                .join(Files.apps)
-                .filter(Apps.app_id == app_id)
-                .scalar()
-            )
+            total_bytes = sizes_by_app.get(app_id, 0)
             if total_bytes:
-                entry["size"] = int(total_bytes)
+                entry["size"] = total_bytes
 
             # Emit/overwrite this node (last writer wins — deterministic enough for our use)
             titledb_map[tid_emit] = entry
@@ -190,6 +222,8 @@ def build_titledb_from_overrides():
         unload_titledb()
 
     return titledb_map
+
+
 
 def _version_str_to_int(version_str):
     """
@@ -204,16 +238,44 @@ def _version_str_to_int(version_str):
     a, b, c = (int(p) for p in (parts + ["0", "0"])[:3])
     return a * 10000 + b * 100 + c
 
-def _with_corrected_title_id(presented_name: str, corrected_tid: str) -> str:
+def _should_override_title_id(f: Files) -> bool:
     """
-    Ensure the presented filename contains [CORRECTED_TID] before the extension.
+    Determine if a single-content file's linked app has an enabled override
+    with corrected_title_id. If so, return True; else False.
+    """
+    # Only attempt an ID correction when the file is not multicontent
+    # and we can unambiguously pick the single linked app.
+    if (
+        getattr(f, "multicontent", False)
+        or not getattr(f, "apps", None)
+        or len(f.apps) != 1
+        or not getattr(f.apps[0], "overrides", None)
+    ):
+        return False
+
+    app = f.apps[0]
+
+    for ov in app.overrides:
+        if ov.enabled and ov.corrected_title_id:
+            return True
+
+    return False
+
+def _with_title_id(presented_name: str, tid: str) -> str:
+    """
+    Ensure the presented filename contains [TITLE_ID] before the extension.
     If a [16-hex] token already exists, replace it; else insert it.
     """
-    if not presented_name:
+    if not presented_name or not tid:
         return presented_name
+    tid = tid.strip().upper()
+    if not re.fullmatch(r"[0-9A-F]{16}", tid):
+        return presented_name  # refuse to write a bad token
+
     root, ext = os.path.splitext(presented_name)
-    token = f"[{corrected_tid.upper()}]"
+    token = f"[{tid}]"
     if _TITLE_ID_BRACKET.search(presented_name):
         return _TITLE_ID_BRACKET.sub(token, presented_name)
-    # no token → append before extension
-    return f"{root} {token}{ext or ''}"
+    # insert before extension (handles no-ext too)
+    sep = "" if not root else " "
+    return f"{root}{sep}{token}{ext or ''}"
