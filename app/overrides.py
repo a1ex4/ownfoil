@@ -241,10 +241,10 @@ def generate_overrides():
     Public entry-point for routes.
     Always returns the latest cached payload (regenerating when needed).
     """
-    snap = _load_or_generate_overrides_snapshot()
+    snap = load_or_generate_overrides_snapshot()
     return snap["payload"], snap["hash"]
 
-def _load_or_generate_overrides_snapshot():
+def load_or_generate_overrides_snapshot():
     """
     Load from disk if hash unchanged, otherwise regenerate + save.
     """

@@ -1,11 +1,9 @@
 from db import *
-from titles import (
-    APP_TYPE_BASE,
-    APP_TYPE_DLC,
-    identify_app_id,
-    load_titledb,
-    unload_titledb
+from overrides import (
+    build_override_index,
+    load_or_generate_overrides_snapshot
 )
+from titles import APP_TYPE_BASE, APP_TYPE_DLC
 from Crypto.PublicKey import RSA
 from Crypto.Cipher import PKCS1_OAEP
 from Crypto.Hash import SHA256
@@ -17,6 +15,9 @@ import random
 import re
 import json
 import os
+import logging
+
+logger = logging.getLogger('main')
 
 # https://github.com/blawar/tinfoil/blob/master/docs/files/public.key 1160174fa2d7589831f74d149bc403711f3991e4
 TINFOIL_PUBLIC_KEY = '''-----BEGIN PUBLIC KEY-----
@@ -38,13 +39,15 @@ def gen_shop_files():
     corrected_title_id, present the URL with that [TITLEID] token so Tinfoil
     discovers it under the corrected ID.
     """
+    logger.info("Generating Tinfoil Shop Feed")
     shop_files = []
 
     # Preload relationships to avoid N+1
     rows = (
         db.session.query(Files)
         .options(
-            db.joinedload(Files.apps).joinedload(Apps.overrides)
+            db.joinedload(Files.apps).joinedload(Apps.overrides),
+            db.joinedload(Files.apps).joinedload(Apps.title),
         )
         .all()
     )
@@ -56,15 +59,11 @@ def gen_shop_files():
         # and we can unambiguously pick the single linked app.
         if getattr(f, 'apps', None) and len(f.apps) == 1:
             app = f.apps[0]
-            try:
-                _, app_type = identify_app_id(app.app_id)
-            except Exception:
-                app_type = None
-
+            app_type = getattr(app, "app_type", None)
+            # default to the app_id; adjust for base titles if we have Titles linkage
             presented_tid = app.app_id
-            
-            if not app_type == APP_TYPE_DLC and getattr(app, "title", None):
-                # base games: app_id == title_id, but prefer title.title_id for clarity if it's available
+            if app_type != APP_TYPE_DLC and getattr(app, "title", None):
+                # base games: prefer Titles.title_id when available
                 presented_tid = app.title.title_id
 
             if _should_override_title_id(f):
@@ -106,7 +105,7 @@ def encrypt_shop(shop):
 
 def build_titledb_from_overrides():
     """
-    Build `titledb` from enabled AppOverrides.
+    Build `titledb` from enabled AppOverrides, using on disk cache.
 
     Rules:
       - BASE override:
@@ -118,115 +117,144 @@ def build_titledb_from_overrides():
       - Include any overridden fields: name, version (int), region, releaseDate (yyyymmdd), description, size.
       - One node per override; DLCs are NOT nested under the base.
     """
-    # could probably do this cheaper from the cached overrides json now, without titledb.
-    titledb_map = {}
+    def _yyyymmdd_int(iso_date_or_none):
+        # Accepts 'YYYY-MM-DD' or date/datetime; returns int yyyymmdd or None
+        if not iso_date_or_none:
+            return None
+        rd = iso_date_or_none
+        if hasattr(rd, "strftime"):
+            return int(rd.strftime("%Y%m%d"))
+        # cheap normalization: 'YYYY-MM-DD' -> 'YYYYMMDD'
+        s = str(rd).replace("-", "")
+        return int(s) if s.isdigit() and len(s) == 8 else None
+
+    def _version_to_int(v):
+        return _version_str_to_int(v)
+
+    # Try to pull from the cached overrides snapshot if available
+    overrides_by_app = {}
     try:
-        load_titledb()
-
-        rows = (
-            db.session.query(AppOverrides)
-            .options(
-                db.joinedload(AppOverrides.app).joinedload(Apps.title),
-                db.joinedload(AppOverrides.app).joinedload(Apps.files),
-            )
-            .filter(AppOverrides.enabled.is_(True))
-            .all()
-        )
-
-        # Build the set of relevant app_ids from the fetched overrides
-        ov_app_ids = {
-            (getattr(ov.app, "app_id", None) or ov.app_id or "").strip().upper()
-            for ov in rows
-            if (getattr(ov, "app", None) and (getattr(ov.app, "app_id", None) or getattr(ov, "app_id", None)))
-        }
-
-        if ov_app_ids:
-            size_rows = (
-                db.session
-                    .query(Apps.app_id, func.sum(Files.size))
-                    .join(Files.apps)
-                    .filter(Files.size.isnot(None))
-                    .filter(Apps.app_id.in_(ov_app_ids))
-                    .group_by(Apps.app_id)
-                    .all()
-            )
-        else:
-            size_rows = []
-
-        sizes_by_app = {
-            (app_id or "").strip().upper(): int(total or 0)
-            for app_id, total in size_rows
-        }
-
-        for ov in rows:
-            app = getattr(ov, "app", None)
-            if not app:
+        snap = load_or_generate_overrides_snapshot()
+        items = (snap or {}).get("payload", {}).get("items", []) or []
+        for it in items:
+            app_id = it.get("app_id", "").strip().upper()
+            if not app_id:
                 continue
+            overrides_by_app[app_id] = {
+                "corrected_title_id": (it.get("corrected_title_id") or it.get("correctedTitleId") or None),
+                "name": it.get("name"),
+                "version": it.get("version"),
+                "region": it.get("region"),
+                "release_date": it.get("release_date") or it.get("releaseDate"),
+                "description": it.get("description"),
+            }
+    except Exception:
+        # Snapshot unavailable/corrupt; we'll fall back
+        overrides_by_app = {}
 
-            # Family/base TitleID from Titles row when present; otherwise app.app_id
-            base_tid = app.title.title_id if getattr(app, "title", None) else app.app_id
-            app_id = app.app_id
-            if not base_tid or not app_id:
+    # Fallback (or augment) from the lightweight index if needed
+    if not overrides_by_app:
+        idx = build_override_index(include_disabled=False)
+        for app_id, ov in idx.get("by_app", {}).items():
+            app_id_u = (app_id or "").strip().upper()
+            if not app_id_u:
                 continue
-
-            base_tid = base_tid.strip().upper()
-            app_id = app_id.strip().upper()
-
-            # Determine type (BASE/DLC relevant here)
-            try:
-                _, app_type = identify_app_id(app_id)
-            except Exception:
-                app_type = None
-            if app_type not in (APP_TYPE_BASE, APP_TYPE_DLC):
-                continue
-
-            # Compute the key to emit and the entry["id"]
-            if app_type == APP_TYPE_BASE:
-                # BASE: corrected_title_id (if set) becomes the emitted TitleID; otherwise use base title id
-                tid_emit = (ov.corrected_title_id.strip().upper() if ov.corrected_title_id else base_tid)
-            else:
-                # DLC: corrected_title_id (if set) becomes the emitted TitleID; otherwise use the DLC app_id
-                tid_emit = (ov.corrected_title_id.strip().upper() if ov.corrected_title_id else app_id)
-
-            # id field mirrors the emitted key for both base and dlc
-            entry = {
-                "id": tid_emit,
+            overrides_by_app[app_id_u] = {
+                "corrected_title_id": ov.get("corrected_title_id"),
+                "name": ov.get("name"),
+                "version": ov.get("version"),  # may be None if index doesn't include it
+                "region": ov.get("region"),
+                "release_date": ov.get("release_date"),
+                "description": ov.get("description"),
             }
 
-            # Optional overridden fields
-            if ov.name:
-                entry["name"] = ov.name
+    if not overrides_by_app:
+        return {}
 
-            vnum = _version_str_to_int(ov.version)
-            if vnum is not None:
-                entry["version"] = vnum
+    app_ids = list(overrides_by_app.keys())
 
-            if ov.region:
-                entry["region"] = ov.region
+    # One bulk query for app_type + base TitleID
+    meta_rows = (
+        db.session.query(
+            Apps.app_id,
+            Apps.app_type,
+            Titles.title_id,   # may be None for DLC/homebrew without a Titles row
+        )
+        .outerjoin(Apps.title)
+        .filter(Apps.app_id.in_(app_ids))
+        .all()
+    )
+    meta_by_app = {
+        (app_id or "").strip().upper(): (
+            app_type,
+            (title_id or "").strip().upper() if title_id else None,
+        )
+        for app_id, app_type, title_id in meta_rows
+    }
 
-            if ov.release_date:
-                rd = ov.release_date
-                # handle date/datetime; skip/convert if string
-                if hasattr(rd, "strftime"):
-                    entry["releaseDate"] = int(rd.strftime("%Y%m%d"))
+    # Bulk aggregate sizes per app
+    size_rows = (
+        db.session
+        .query(Apps.app_id, func.sum(Files.size))
+        .join(Files.apps)              # Apps <-> Files M2M
+        .filter(Files.size.isnot(None))
+        .filter(Apps.app_id.in_(app_ids))
+        .group_by(Apps.app_id)
+        .all()
+    )
+    sizes_by_app = {
+        (app_id or "").strip().upper(): int(total or 0)
+        for app_id, total in size_rows
+    }
 
-            if ov.description:
-                entry["description"] = ov.description
+    # Build the map
+    titledb_map = {}
 
-            # Aggregate file sizes for this *app* (base or dlc)
-            total_bytes = sizes_by_app.get(app_id, 0)
-            if total_bytes:
-                entry["size"] = total_bytes
+    for app_id_u, ov in overrides_by_app.items():
+        app_type, base_tid = meta_by_app.get(app_id_u, (None, None))
+        if app_type not in (APP_TYPE_BASE, APP_TYPE_DLC):
+            # Unknown type; skip to avoid guessing
+            continue
 
-            # Emit/overwrite this node (last writer wins — deterministic enough for our use)
-            titledb_map[tid_emit] = entry
+        corr_tid = (ov.get("corrected_title_id") or "").strip().upper() or None
 
-    finally:
-        unload_titledb()
+        if app_type == APP_TYPE_BASE:
+            # BASE → prefer corrected_title_id, else Titles.title_id, else app_id as last resort
+            tid_emit = corr_tid or base_tid or app_id_u
+        else:
+            # DLC → prefer corrected_title_id, else its own app_id
+            tid_emit = corr_tid or app_id_u
+
+        if not tid_emit:
+            continue
+
+        entry = {"id": tid_emit}
+
+        # Optional overridden fields
+        if ov.get("name"):
+            entry["name"] = ov["name"]
+
+        vnum = _version_to_int(ov.get("version"))
+        if vnum is not None:
+            entry["version"] = vnum
+
+        if ov.get("region"):
+            entry["region"] = ov["region"]
+
+        rd_int = _yyyymmdd_int(ov.get("release_date"))
+        if rd_int:
+            entry["releaseDate"] = rd_int
+
+        if ov.get("description"):
+            entry["description"] = ov["description"]
+
+        total_bytes = sizes_by_app.get(app_id_u, 0)
+        if total_bytes:
+            entry["size"] = total_bytes
+
+        titledb_map[tid_emit] = entry  # last-writer wins if collisions
 
     return titledb_map
-
-
 
 def _version_str_to_int(version_str):
     """
