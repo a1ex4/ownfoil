@@ -287,11 +287,13 @@ def _generate_overrides_snapshot():
     titles_lib.load_titledb()
     try:
         for ov in rows:
+            if not getattr(ov, "enabled", False):
+                continue
             corr = getattr(ov, "corrected_title_id", None)
-            appid = getattr(getattr(ov, "app", None), "app_id", None) or getattr(ov, "app_id", None)
+            appid = getattr(getattr(ov, "app", None), "app_id", None)
             if not (appid and corr):
                 continue
-            projection = _project_titledb_block(corr)  # (as per your current code)
+            projection = _project_titledb_block(corr)
             redirects[appid] = {
                 "corrected_title_id": corr,
                 "projection": projection,
@@ -518,6 +520,12 @@ def _project_titledb_block(corrected_id: str) -> dict:
 
 def _serialize_with_art_urls(ov: AppOverrides) -> dict:
     d = ov.as_dict()
+    # Ensure app_id string is present even though the model uses app_fk
+    try:
+        if "app_id" not in d or not d["app_id"]:
+            d["app_id"] = ov.app.app_id if ov.app else None
+    except Exception:
+        d.setdefault("app_id", None)
     d["bannerUrl"] = d.get("banner_path")
     d["iconUrl"]   = d.get("icon_path")
     return d

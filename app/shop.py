@@ -137,6 +137,8 @@ def build_titledb_from_overrides():
         snap = load_or_generate_overrides_snapshot()
         items = (snap or {}).get("payload", {}).get("items", []) or []
         for it in items:
+            if it.get("enabled") is False:
+                continue
             app_id = it.get("app_id", "").strip().upper()
             if not app_id:
                 continue
@@ -196,7 +198,7 @@ def build_titledb_from_overrides():
     size_rows = (
         db.session
         .query(Apps.app_id, func.sum(Files.size))
-        .join(Files.apps)              # Apps <-> Files M2M
+        .join(Apps.files)  # Apps -> Files
         .filter(Files.size.isnot(None))
         .filter(Apps.app_id.in_(app_ids))
         .group_by(Apps.app_id)
@@ -271,25 +273,13 @@ def _version_str_to_int(version_str):
 
 def _should_override_title_id(f: Files) -> bool:
     """
-    Determine if a single-content file's linked app has an enabled override
-    with corrected_title_id. If so, return True; else False.
+    True when the file has exactly one linked App and that App has an
+    enabled override with a corrected_title_id.
     """
-    # Only attempt an ID correction when the file is not multicontent
-    # and we can unambiguously pick the single linked app.
-    if (
-        getattr(f, "multicontent", False)
-        or not getattr(f, "apps", None)
-        or len(f.apps) != 1
-        or not getattr(f.apps[0], "overrides", None)
-    ):
+    if not getattr(f, "apps", None) or len(f.apps) != 1:
         return False
-
-    app = f.apps[0]
-
-    if app.overrides.enabled and app.overrides.corrected_title_id:
-        return True
-
-    return False
+    ov = getattr(f.apps[0], "overrides", None)
+    return bool(ov and getattr(ov, "enabled", False) and getattr(ov, "corrected_title_id", None))
 
 def _with_title_id(presented_name: str, tid: str) -> str:
     """

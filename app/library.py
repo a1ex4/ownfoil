@@ -986,8 +986,8 @@ def _ensure_single_latest_base(app_id: str, detected_version, title_db_id=None):
             if winner not in f.apps:
                 f.apps.append(winner)
         # move overrides
-        for ov in AppOverrides.query.filter_by(app_id=loser.id).all():
-            ov.app_id = winner.id
+        for ov in AppOverrides.query.filter_by(app_fk=loser).all():
+            ov.app_fk = winner.id
         # delete loser
         db.session.delete(loser)
 
