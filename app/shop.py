@@ -61,13 +61,15 @@ def gen_shop_files():
             except Exception:
                 app_type = None
 
-            # base games: app_id == title_id, but use title_id for clarity
-            presented_tid = app.app_id if app_type == APP_TYPE_DLC else app.title_id
+            presented_tid = app.app_id
+            
+            if not app_type == APP_TYPE_DLC and getattr(app, "title", None):
+                # base games: app_id == title_id, but prefer title.title_id for clarity if it's available
+                presented_tid = app.title.title_id
 
             if _should_override_title_id(f):
-                ov = next((o for o in app.overrides if o.enabled and o.corrected_title_id), None)
-                if ov:
-                    presented_tid = ov.corrected_title_id
+                if app.overrides:
+                    presented_tid = app.overrides.corrected_title_id
 
         if presented_tid:
             presented_name = _with_title_id(presented_name, presented_tid)
@@ -116,6 +118,7 @@ def build_titledb_from_overrides():
       - Include any overridden fields: name, version (int), region, releaseDate (yyyymmdd), description, size.
       - One node per override; DLCs are NOT nested under the base.
     """
+    # could probably do this cheaper from the cached overrides json now, without titledb.
     titledb_map = {}
     try:
         load_titledb()
@@ -160,8 +163,8 @@ def build_titledb_from_overrides():
             if not app:
                 continue
 
-            # Family/base TitleID from Titles row when present; otherwise app.title_id
-            base_tid = (app.title.title_id if getattr(app, "title", None) else app.title_id)
+            # Family/base TitleID from Titles row when present; otherwise app.app_id
+            base_tid = app.title.title_id if getattr(app, "title", None) else app.app_id
             app_id = app.app_id
             if not base_tid or not app_id:
                 continue
@@ -255,9 +258,8 @@ def _should_override_title_id(f: Files) -> bool:
 
     app = f.apps[0]
 
-    for ov in app.overrides:
-        if ov.enabled and ov.corrected_title_id:
-            return True
+    if app.overrides.enabled and app.overrides.corrected_title_id:
+        return True
 
     return False
 
