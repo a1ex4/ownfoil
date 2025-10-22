@@ -60,15 +60,19 @@ def gen_shop_files():
         if getattr(f, 'apps', None) and len(f.apps) == 1:
             app = f.apps[0]
             app_type = getattr(app, "app_type", None)
-            # default to the app_id; adjust for base titles if we have Titles linkage
-            presented_tid = app.app_id
-            if app_type != APP_TYPE_DLC and getattr(app, "title", None):
-                # base games: prefer Titles.title_id when available
-                presented_tid = app.title.title_id
 
-            if _should_override_title_id(f):
-                if app.overrides:
-                    presented_tid = app.overrides.corrected_title_id
+            # 1) If there is an effective corrected TitleID, use that.
+            corr = _effective_corrected_title_id_for_file(f)
+            if corr:
+                presented_tid = corr
+            else:
+                # 2) Otherwise, choose a sane default:
+                #    - BASE/UPD: use family/base TitleID (so the ID groups under the base)
+                #    - DLC: use the DLC's own app_id
+                if app_type == APP_TYPE_DLC:
+                    presented_tid = app.app_id
+                else:
+                    presented_tid = getattr(app, "title").title_id if getattr(app, "title", None) else app.app_id
 
         if presented_tid:
             presented_name = _with_title_id(presented_name, presented_tid)
@@ -78,6 +82,7 @@ def gen_shop_files():
             "size": f.size or 0
         })
 
+    logger.info("Tinfoil Shop Feed Generation Finished.")
     return shop_files
 
 def encrypt_shop(shop):
@@ -271,15 +276,42 @@ def _version_str_to_int(version_str):
     a, b, c = (int(p) for p in (parts + ["0", "0"])[:3])
     return a * 10000 + b * 100 + c
 
-def _should_override_title_id(f: Files) -> bool:
+def _effective_corrected_title_id_for_file(f: Files) -> str | None:
     """
-    True when the file has exactly one linked App and that App has an
-    enabled override with a corrected_title_id.
+    Return the corrected TitleID to present for this file, if any.
+    Rules:
+      - If the single linked App has an enabled override with corrected_title_id → use it.
+      - If the App is an UPDATE, inherit the BASE app's override (same Title family).
+      - DLCs do NOT inherit from BASE (only use their own override).
     """
     if not getattr(f, "apps", None) or len(f.apps) != 1:
-        return False
-    ov = getattr(f.apps[0], "overrides", None)
-    return bool(ov and getattr(ov, "enabled", False) and getattr(ov, "corrected_title_id", None))
+        return None
+    app = f.apps[0]
+
+    # direct override on this app?
+    ov = getattr(app, "overrides", None)
+    if ov and getattr(ov, "enabled", False) and getattr(ov, "corrected_title_id", None):
+        return ov.corrected_title_id.strip().upper()
+
+    # UPDATE inherits BASE override
+    if getattr(app, "app_type", None) == APP_TYPE_UPD:
+        base = None
+        # We already joined Titles; ask it for the base id and fetch the BASE app row
+        base_tid = getattr(getattr(app, "title", None), "title_id", None)
+        if base_tid:
+            base = (
+                db.session.query(Apps)
+                .options(db.joinedload(Apps.overrides))
+                .filter(Apps.app_id == base_tid, Apps.app_type == APP_TYPE_BASE)
+                .first()
+            )
+        if base:
+            bov = getattr(base, "overrides", None)
+            if bov and getattr(bov, "enabled", False) and getattr(bov, "corrected_title_id", None):
+                return bov.corrected_title_id.strip().upper()
+
+    # DLCs do not inherit base override
+    return None
 
 def _with_title_id(presented_name: str, tid: str) -> str:
     """

@@ -3,6 +3,7 @@ import json
 import hashlib
 import os
 import shutil
+from typing import Optional
 from constants import *
 from db import *
 from overrides import build_override_index
@@ -938,6 +939,14 @@ def _ensure_single_latest_base(app_id: str, detected_version, title_db_id=None):
     """
     Vnew = _normalize_version_int(detected_version)
 
+    # If we weren't handed a Titles FK, resolve it from app_id (BASE app_id == TitleID)
+    if title_db_id is None:
+        try:
+            add_title_id_in_db(app_id)                 # idempotent (ensures Titles row exists)
+            title_db_id = get_title_id_db_id(app_id)   # integer FK (or None if something’s off)
+        except Exception:
+            title_db_id = None  # fail-soft; we’ll still create/upgrade the app row
+
     rows = Apps.query.filter_by(app_id=app_id, app_type=APP_TYPE_BASE).all()
 
     if not rows:
@@ -948,6 +957,9 @@ def _ensure_single_latest_base(app_id: str, detected_version, title_db_id=None):
             app_type=APP_TYPE_BASE,
             title_db_id=title_db_id
         )
+        # ensure FK is correct if resolver succeeded
+        if title_db_id is not None:
+            winner.title_id = title_db_id
         # sanity: make sure version is exactly Vnew
         winner.app_version = str(Vnew)
         db.session.flush()
@@ -960,7 +972,7 @@ def _ensure_single_latest_base(app_id: str, detected_version, title_db_id=None):
         if Vnew > Vold:
             winner.app_version = str(Vnew)
             if title_db_id is not None:
-                winner.title_db_id = title_db_id
+                winner.title_id = title_db_id
             db.session.flush()
             return winner, True
         else:
@@ -975,7 +987,7 @@ def _ensure_single_latest_base(app_id: str, detected_version, title_db_id=None):
     if Vnew > Vwin:
         winner.app_version = str(Vnew)
         if title_db_id is not None:
-            winner.title_db_id = title_db_id
+            winner.title_id = title_db_id
         db.session.flush()
 
     # Migrate files & overrides from losers → winner
@@ -986,7 +998,7 @@ def _ensure_single_latest_base(app_id: str, detected_version, title_db_id=None):
             if winner not in f.apps:
                 f.apps.append(winner)
         # move overrides
-        for ov in AppOverrides.query.filter_by(app_fk=loser).all():
+        for ov in AppOverrides.query.filter_by(app_fk=loser.id).all():
             ov.app_fk = winner.id
         # delete loser
         db.session.delete(loser)
@@ -997,7 +1009,7 @@ def _ensure_single_latest_base(app_id: str, detected_version, title_db_id=None):
 
     return winner, True
 
-def _get_or_create_app(app_id: str, app_version, app_type: str, title_db_id: int):
+def _get_or_create_app(app_id: str, app_version, app_type: str, title_db_id: Optional[int] = None):
     """
     Get or create an Apps row by (app_id, app_version).
     - app_version is normalized to str
@@ -1006,6 +1018,36 @@ def _get_or_create_app(app_id: str, app_version, app_type: str, title_db_id: int
     Returns: (app, created_bool)
     """
     ver = str(app_version if app_version is not None else "0")
+
+    # Defensive: resolve family/base Titles FK if missing
+    if not title_db_id:
+        base_tid = None
+        try:
+            if app_type == APP_TYPE_BASE:
+                base_tid = app_id
+            elif app_type == APP_TYPE_UPD and isinstance(app_id, str) and len(app_id) == 16:
+                base_tid = app_id[:-3] + "000"
+            elif app_type == APP_TYPE_DLC:
+                info = titles_lib.get_game_info(app_id) or {}
+                base_tid = (info.get("title_id") or "").strip().upper() or None
+            if base_tid:
+                add_title_id_in_db(base_tid)               # idempotent
+                title_db_id = get_title_id_db_id(base_tid) # int or None
+        except Exception:
+            # fail-soft: leave title_db_id as None; we'll guard below
+            pass
+
+    if not title_db_id:
+        # We *cannot* create a new Apps row without a Titles FK (nullable=False).
+        # Check if a row already exists; if not, log and bail clearly.
+        existing = Apps.query.filter_by(app_id=app_id, app_version=ver).first()
+        if existing:
+            return existing, False
+
+        logger.warning(f"Cannot resolve Titles FK for app_id={app_id} v{ver} ({app_type}); skipping create.")
+        # Returning the non-existent row would break callers; raise clearly instead.
+        raise RuntimeError(f"Missing Titles FK for app_id={app_id} v{ver} ({app_type})")
+
     app = Apps.query.filter_by(app_id=app_id, app_version=ver).first()
     if app:
         # Backfill minimal fields if missing
