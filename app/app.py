@@ -489,17 +489,17 @@ def serve_game(id):
 @debounce(10)
 def post_library_change():
     with app.app_context():
-        titles.load_titledb()
-        process_library_identification(app)
-        add_missing_apps_to_db()
-        update_titles() # Ensure titles are updated after identification
-        # remove missing files
-        remove_missing_files_from_db()
-        process_library_organization(app, watcher) # Pass the watcher instance to skip organizer move/delete events
-        # The process_library_identification already handles updating titles and generating library
-        # So, we just need to ensure titles_library is updated from the generated library
-        generate_library()
-        titles.identification_in_progress_count -= 1
+        with titles.identification_session("post_library_change"):
+            titles.load_titledb()
+            process_library_identification(app)
+            add_missing_apps_to_db()
+            update_titles()  # Ensure titles are updated after identification
+            # remove missing files
+            remove_missing_files_from_db()
+            process_library_organization(app, watcher) # Pass the watcher instance to skip organizer move/delete events
+            # The process_library_identification already handles updating titles and generating library
+            # So, we just need to ensure titles_library is updated from the generated library
+            generate_library()
         titles.unload_titledb()
 
 @app.post('/api/library/scan')

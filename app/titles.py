@@ -1,7 +1,8 @@
 import os
 import re
 import json
-
+import threading
+import contextlib
 import titledb
 from constants import *
 from utils import *
@@ -28,6 +29,23 @@ _titles_db = None
 _versions_db = None
 _versions_txt_db = None
 _titles_by_title_id = None
+_ident_lock = threading.RLock()
+
+def identification_in_progress() -> bool:
+    with _ident_lock:
+        return identification_in_progress_count > 0
+
+@contextlib.contextmanager
+def identification_session(tag: str = ""):
+    """Use this to bracket any identification work. Guarantees decrement."""
+    global identification_in_progress_count
+    with _ident_lock:
+        identification_in_progress_count += 1
+    try:
+        yield
+    finally:
+        with _ident_lock:
+            identification_in_progress_count -= 1
 
 def get_dirs_and_files(path):
     entries = os.listdir(path)
@@ -139,12 +157,12 @@ def load_titledb():
     global _titles_db
     global _versions_db
     global _versions_txt_db
-    global identification_in_progress_count
     global _titles_db_loaded
     global _titles_by_title_id
 
-    identification_in_progress_count += 1
-    if not _titles_db_loaded:
+    with _ident_lock:
+        if _titles_db_loaded:
+            return
         logger.info("Loading TitleDBs into memory...")
         app_settings = load_settings()
         with open(os.path.join(TITLEDB_DIR, 'cnmts.json')) as f:
@@ -181,21 +199,25 @@ def unload_titledb():
     global _titles_db
     global _versions_db
     global _versions_txt_db
-    global identification_in_progress_count
     global _titles_db_loaded
     global _titles_by_title_id
 
-    if identification_in_progress_count:
+    if identification_in_progress():
         logger.debug('Identification still in progress, not unloading TitleDB.')
         return
 
-    logger.info("Unloading TitleDBs from memory...")
-    _cnmts_db = None
-    _titles_db = None
-    _versions_db = None
-    _versions_txt_db = None
-    _titles_by_title_id = None
-    _titles_db_loaded = False
+    with _ident_lock:
+        if identification_in_progress():
+            # Identification may have started during debounce delay
+            logger.debug('Identification restarted during unload debounce, skipping unload.')
+            return
+        logger.info("Unloading TitleDBs from memory...")
+        _cnmts_db = None
+        _titles_db = None
+        _versions_db = None
+        _versions_txt_db = None
+        _titles_by_title_id = None
+        _titles_db_loaded = False
     logger.info("TitleDBs unloaded.")
 
 def identify_file_from_filename(filename):
