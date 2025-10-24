@@ -3,7 +3,7 @@ from overrides import (
     build_override_index,
     load_or_generate_overrides_snapshot
 )
-from titles import APP_TYPE_BASE, APP_TYPE_DLC
+from titles import APP_TYPE_BASE, APP_TYPE_DLC, APP_TYPE_UPD
 from Crypto.PublicKey import RSA
 from Crypto.Cipher import PKCS1_OAEP
 from Crypto.Hash import SHA256
@@ -61,18 +61,42 @@ def gen_shop_files():
             app = f.apps[0]
             app_type = getattr(app, "app_type", None)
 
-            # 1) If there is an effective corrected TitleID, use that.
-            corr = _effective_corrected_title_id_for_file(f)
-            if corr:
-                presented_tid = corr
-            else:
-                # 2) Otherwise, choose a sane default:
-                #    - BASE/UPD: use family/base TitleID (so the ID groups under the base)
-                #    - DLC: use the DLC's own app_id
-                if app_type == APP_TYPE_DLC:
-                    presented_tid = app.app_id
+            # Choose TitleID token per type to avoid collisions in Tinfoil:
+            # - BASE: base/family TitleID (optionally corrected via override)
+            # - UPD:  its own update TitleID (NEVER inherit base corrected id)
+            # - DLC:  its own DLC TitleID
+            if app_type == APP_TYPE_DLC:
+                corr = _effective_corrected_title_id_for_file(f)  # DLC may use corrected id
+                presented_tid = corr or app.app_id
+            elif app_type == APP_TYPE_UPD:
+                # Try to find a corrected base TitleID to mirror (+0x800)
+                base_tid = getattr(getattr(app, "title", None), "title_id", None)
+                base_corr = None
+                if base_tid:
+                    base_app = (
+                        db.session
+                            .query(Apps)
+                            .options(db.joinedload(Apps.overrides))
+                            .filter(Apps.app_id == base_tid, Apps.app_type == APP_TYPE_BASE)
+                            .first()
+                    )
+                    if base_app:
+                        base_ov = getattr(base_app, "overrides", None)
+                        if base_ov and getattr(base_ov, "enabled", False) and getattr(base_ov, "corrected_title_id", None):
+                            base_corr = base_ov.corrected_title_id.strip().upper()
+
+                if base_corr:
+                    # compute the update-family TitleID (+0x800)
+                    try:
+                        presented_tid = f"{int(base_corr, 16) + 0x800:016X}"
+                    except ValueError:
+                        presented_tid = app.app_id  # fallback to real app id if malformed
                 else:
-                    presented_tid = getattr(app, "title").title_id if getattr(app, "title", None) else app.app_id
+                    # no corrected base; just use the update's real app id
+                    presented_tid = app.app_id
+            else:
+                corr = _effective_corrected_title_id_for_file(f)  # BASE may use corrected id
+                presented_tid = corr or (app.title.title_id if getattr(app, "title", None) else app.app_id)
 
         if presented_tid:
             presented_name = _with_title_id(presented_name, presented_tid)

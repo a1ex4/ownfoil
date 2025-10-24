@@ -363,7 +363,10 @@ def get_game_info(title_id: str | None):
     try:
         title_info = _titles_by_title_id.get(tid)
         if not title_info:
-            logger.error(f"Title ID not found in titledb: {tid}")
+            if tid.startswith('05'):
+                logger.info(f"Homebrew title not identified: {tid}")
+            else:
+                logger.warning(f"Title ID not found in titledb: {tid}")
             return {
                 "name": None,
                 "id": tid,
