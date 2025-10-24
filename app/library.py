@@ -694,14 +694,22 @@ def compute_apps_hash():
     return hash_md5.hexdigest()
 
 def is_library_unchanged(saved_library):
-    if not saved_library:
+    if not saved_library or not saved_library.get('hash'):
         return False
 
-    if not saved_library.get('hash'):
+    # Apps-table hash gate
+    if saved_library['hash'] != compute_apps_hash():
         return False
 
-    current_hash = compute_apps_hash()
-    return saved_library['hash'] == current_hash
+    # TitleDB commit gate
+    current_tdb = titles_lib.get_titledb_commit_hash() or ""
+    saved_tdb = saved_library.get('titledb_commit')
+
+    # Force one-time rebuild for old caches that lack the key
+    if saved_tdb is None:
+        return False
+
+    return saved_tdb == current_tdb
 
 def generate_library():
     """
@@ -842,10 +850,11 @@ def _generate_library():
 
             library_data = {
                 'hash': compute_apps_hash(),
+                'titledb_commit': titles_lib.get_titledb_commit_hash() or "",
                 'library': sorted(games_info, key=lambda x: (
                     "title_id_name" not in x,
                     x.get("title_id_name", "Unrecognized") or "Unrecognized",
-                    0 if x.get('app_type') == APP_TYPE_BASE else 1,  # BASE first, then DLC
+                    0 if x.get('app_type') == APP_TYPE_BASE else 1,
                     x.get('app_id', "") or ""
                 ))
             }
@@ -853,7 +862,6 @@ def _generate_library():
             # Persist snapshot to disk
             save_json(library_data, LIBRARY_CACHE_FILE, default=_json_default)
             logger.info('Generating library done.')
-
             return library_data
     finally:
         # After the session closes (counter back to 0 for this task), try to unload:
