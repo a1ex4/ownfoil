@@ -299,17 +299,7 @@ def index():
             # enforce client side host verification
             shop["referrer"] = f"https://{request.verified_host}"
             
-        shop["files"] = gen_shop_files()
-        try:
-            shop["titledb"] = build_titledb_from_overrides()
-        except Exception as e:
-            logger.error(f"Error building titledb from overrides: {e}")
-            shop["titledb"] = {}
-
-        if app_settings['shop']['encrypt']:
-            return Response(encrypt_shop(shop), mimetype='application/octet-stream')
-
-        return jsonify(shop)
+        return _build_tinfoil_shop_response()
     
     if all(header in request.headers for header in TINFOIL_HEADERS):
     # if True:
@@ -543,6 +533,36 @@ def scan_library():
     libraries = get_libraries()
     for library in libraries:
         scan_library_path(library.path) # Only scan, identification will be done globally
+
+def _build_tinfoil_shop_response():
+    """
+    Uses the cached shop snapshot (files + titledb) and wraps it with:
+      - success MOTD
+      - optional referrer (when host verified)
+    Returns a conditional (ETag) response, JSON or encrypted bytes depending on settings.
+    """
+    payload, etag = generate_shop()
+
+    # Wrap with MOTD and referrer (host verification happens in @tinfoil_access)
+    shop = {
+        "success": app_settings['shop']['motd']
+    }
+    if getattr(request, "verified_host", None):
+        shop["referrer"] = f"https://{request.verified_host}"
+
+    # Merge the cached payload
+    shop.update(payload)
+
+    if app_settings['shop']['encrypt']:
+        blob = encrypt_shop(shop)
+        resp = Response(blob, mimetype='application/octet-stream')
+    else:
+        resp = jsonify(shop)
+
+    # Enable cheap 304s
+    resp.set_etag(etag)
+    resp.headers["Cache-Control"] = "no-cache, private"
+    return resp.make_conditional(request)
 
 if __name__ == '__main__':
     logger.info('Starting initialization of Ownfoil...')

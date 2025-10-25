@@ -1,9 +1,11 @@
+from constants import *
 from db import *
 from overrides import (
     build_override_index,
     load_or_generate_overrides_snapshot
 )
-from titles import APP_TYPE_BASE, APP_TYPE_DLC, APP_TYPE_UPD
+import titles as titles_lib
+from utils import load_json, save_json
 from Crypto.PublicKey import RSA
 from Crypto.Cipher import PKCS1_OAEP
 from Crypto.Hash import SHA256
@@ -15,6 +17,7 @@ import random
 import re
 import json
 import os
+import hashlib
 import logging
 
 logger = logging.getLogger('main')
@@ -32,7 +35,35 @@ CQIDAQAB
 
 _TITLE_ID_BRACKET = re.compile(r"\[[0-9A-Fa-f]{16}\]")
 
-def gen_shop_files():
+def generate_shop():
+    snap = load_or_generate_shop_snapshot()
+    return snap["payload"], snap["hash"]
+
+def load_or_generate_shop_snapshot():
+    saved = load_json(SHOP_CACHE_FILE)
+    current_hash = _current_shop_hash()
+    if saved and saved.get("hash") == current_hash:
+        logger.info("[shop] cache hit")
+        return saved
+    logger.info("[shop] cache miss → regenerating")
+    return _generate_shop_snapshot()
+
+def _generate_shop_snapshot():
+    # Build only what Tinfoil needs
+    files = _gen_shop_files()
+    titledb_map = _build_titledb_from_overrides()
+
+    payload = {
+        "files": files,
+        "titledb": titledb_map,
+    }
+
+    snap = {"hash": _current_shop_hash(), "payload": payload}
+    save_json(snap, SHOP_CACHE_FILE)
+    logger.info(f"[shop] wrote cache: {SHOP_CACHE_FILE}")
+    return snap
+
+def _gen_shop_files():
     """
     Build the 'files' section for the custom index.
     If a single-content file’s linked app has an enabled override with
@@ -55,8 +86,8 @@ def gen_shop_files():
     for f in rows:
         presented_name = f.filename or os.path.basename(f.filepath) or "file.nsp"        
         presented_tid = None
-        # Only attempt an ID correction when the file is not multicontent
-        # and we can unambiguously pick the single linked app.
+        # Only attempt an ID correction when we can unambiguously pick
+        # the single linked app.
         if getattr(f, 'apps', None) and len(f.apps) == 1:
             app = f.apps[0]
             app_type = getattr(app, "app_type", None)
@@ -65,10 +96,10 @@ def gen_shop_files():
             # - BASE: base/family TitleID (optionally corrected via override)
             # - UPD:  its own update TitleID (NEVER inherit base corrected id)
             # - DLC:  its own DLC TitleID
-            if app_type == APP_TYPE_DLC:
+            if app_type == titles_lib.APP_TYPE_DLC:
                 corr = _effective_corrected_title_id_for_file(f)  # DLC may use corrected id
                 presented_tid = corr or app.app_id
-            elif app_type == APP_TYPE_UPD:
+            elif app_type == titles_lib.APP_TYPE_UPD:
                 # Try to find a corrected base TitleID to mirror (+0x800)
                 base_tid = getattr(getattr(app, "title", None), "title_id", None)
                 base_corr = None
@@ -77,7 +108,7 @@ def gen_shop_files():
                         db.session
                             .query(Apps)
                             .options(db.joinedload(Apps.overrides))
-                            .filter(Apps.app_id == base_tid, Apps.app_type == APP_TYPE_BASE)
+                            .filter(Apps.app_id == base_tid, Apps.app_type == titles_lib.APP_TYPE_BASE)
                             .first()
                     )
                     if base_app:
@@ -132,7 +163,7 @@ def encrypt_shop(shop):
     binary_data = b'TINFOIL' + flag.to_bytes(1, byteorder='little') + sessionKey + sz.to_bytes(8, 'little') + buf
     return binary_data
 
-def build_titledb_from_overrides():
+def _build_titledb_from_overrides():
     """
     Build `titledb` from enabled AppOverrides, using on disk cache.
 
@@ -243,13 +274,13 @@ def build_titledb_from_overrides():
 
     for app_id_u, ov in overrides_by_app.items():
         app_type, base_tid = meta_by_app.get(app_id_u, (None, None))
-        if app_type not in (APP_TYPE_BASE, APP_TYPE_DLC):
+        if app_type not in (titles_lib.APP_TYPE_BASE, titles_lib.APP_TYPE_DLC):
             # Unknown type; skip to avoid guessing
             continue
 
         corr_tid = (ov.get("corrected_title_id") or "").strip().upper() or None
 
-        if app_type == APP_TYPE_BASE:
+        if app_type == titles_lib.APP_TYPE_BASE:
             # BASE → prefer corrected_title_id, else Titles.title_id, else app_id as last resort
             tid_emit = corr_tid or base_tid or app_id_u
         else:
@@ -318,7 +349,7 @@ def _effective_corrected_title_id_for_file(f: Files) -> str | None:
         return ov.corrected_title_id.strip().upper()
 
     # UPDATE inherits BASE override
-    if getattr(app, "app_type", None) == APP_TYPE_UPD:
+    if getattr(app, "app_type", None) == titles_lib.APP_TYPE_UPD:
         base = None
         # We already joined Titles; ask it for the base id and fetch the BASE app row
         base_tid = getattr(getattr(app, "title", None), "title_id", None)
@@ -326,7 +357,7 @@ def _effective_corrected_title_id_for_file(f: Files) -> str | None:
             base = (
                 db.session.query(Apps)
                 .options(db.joinedload(Apps.overrides))
-                .filter(Apps.app_id == base_tid, Apps.app_type == APP_TYPE_BASE)
+                .filter(Apps.app_id == base_tid, Apps.app_type == titles_lib.APP_TYPE_BASE)
                 .first()
             )
         if base:
@@ -355,3 +386,42 @@ def _with_title_id(presented_name: str, tid: str) -> str:
     # insert before extension (handles no-ext too)
     sep = "" if not root else " "
     return f"{root}{sep}{token}{ext or ''}"
+
+def _compute_files_fingerprint_rows():
+    """
+    Tiny, stable summary of things that affect the shop 'files' section:
+      - Files.id (stable order key)
+      - size (emitted in the feed)
+      - basename (affects the presented URL fragment)
+    """
+    rows = (
+        db.session.query(Files.id, Files.size, Files.filepath)
+        .order_by(Files.id.asc())
+        .all()
+    )
+    fp = []
+    for fid, size, path in rows:
+        base = os.path.basename(path or "") if path else ""
+        fp.append((int(fid), int(size or 0), base))
+    return fp
+
+def _current_shop_hash():
+    # Overrides snapshot (hash + titledb_commit inside it)
+    ov_snap = load_or_generate_overrides_snapshot()
+    ov_hash = ov_snap.get("hash") or ""
+
+    # Library snapshot (hash + titledb_commit inside it)
+    lib_snap = load_json(LIBRARY_CACHE_FILE) or {}
+    lib_hash = lib_snap.get("hash") or ""
+
+    # Files fingerprint (sizes & basenames)
+    files_fp = _compute_files_fingerprint_rows()
+
+    shop_hash = {
+        "overrides_hash": ov_hash,
+        "library_hash": lib_hash,
+        "files": files_fp,
+    }
+    return hashlib.sha256(
+        json.dumps(shop_hash, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
