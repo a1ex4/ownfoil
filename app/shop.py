@@ -43,9 +43,7 @@ def load_or_generate_shop_snapshot():
     saved = load_json(SHOP_CACHE_FILE)
     current_hash = _current_shop_hash()
     if saved and saved.get("hash") == current_hash:
-        logger.info("[shop] cache hit")
         return saved
-    logger.info("[shop] cache miss → regenerating")
     return _generate_shop_snapshot()
 
 def _generate_shop_snapshot():
@@ -137,7 +135,7 @@ def _gen_shop_files():
             "size": f.size or 0
         })
 
-    logger.info("Tinfoil Shop Feed Generation Finished.")
+    logger.info("Tinfoil Shop Feed Generated.")
     return shop_files
 
 def encrypt_shop(shop):
