@@ -48,18 +48,23 @@ def load_or_generate_shop_snapshot():
 
 def _generate_shop_snapshot():
     # Build only what Tinfoil needs
-    files = _gen_shop_files()
-    titledb_map = _build_titledb_from_overrides()
+    logger.info("Generating shop snapshot...")
 
-    payload = {
-        "files": files,
-        "titledb": titledb_map,
-    }
+    with titles_lib.identification_session("generate_shop"):
+        titles_lib.load_titledb()
+        files = _gen_shop_files()
+        titledb_map = _build_titledb_from_overrides()
 
-    snap = {"hash": _current_shop_hash(), "payload": payload}
-    save_json(snap, SHOP_CACHE_FILE)
-    logger.info(f"[shop] wrote cache: {SHOP_CACHE_FILE}")
-    return snap
+        payload = {
+            "files": files,
+            "titledb": titledb_map,
+        }
+
+        
+        snap = {"hash": _current_shop_hash(), "payload": payload}
+        save_json(snap, SHOP_CACHE_FILE)
+        logger.info("Generating shop snapshot done.")
+        return snap
 
 def _gen_shop_files():
     """
@@ -68,7 +73,6 @@ def _gen_shop_files():
     corrected_title_id, present the URL with that [TITLEID] token so Tinfoil
     discovers it under the corrected ID.
     """
-    logger.info("Generating Tinfoil Shop Feed")
     shop_files = []
 
     # Preload relationships to avoid N+1
@@ -135,7 +139,6 @@ def _gen_shop_files():
             "size": f.size or 0
         })
 
-    logger.info("Tinfoil Shop Feed Generated.")
     return shop_files
 
 def encrypt_shop(shop):

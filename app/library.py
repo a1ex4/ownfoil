@@ -740,132 +740,128 @@ def load_or_generate_library():
 
 def _generate_library():
     """Generate the BASE/DLC library from Apps table and cache to disk."""
-    logger.info('Generating library ...')
+    logger.info('Generating library snapshot...')
 
-    try:
-        with titles_lib.identification_session("generate_library"):
-            titles_lib.load_titledb()
-            titles = get_all_apps(include_files=True)
-            games_info = []
-            processed_dlc_apps = set()  # Track processed DLC app_ids to avoid duplicates
+    with titles_lib.identification_session("generate_library"):
+        titles_lib.load_titledb()
+        titles = get_all_apps(include_files=True)
+        games_info = []
+        processed_dlc_apps = set()  # Track processed DLC app_ids to avoid duplicates
 
-            for title in titles:
-                has_none_value = any(value is None for value in title.values())
-                if has_none_value:
-                    logger.warning(f'File contains None value, it will be skipped: {title}')
-                    continue
-                if title['app_type'] == APP_TYPE_UPD:
-                    continue
+        for title in titles:
+            has_none_value = any(value is None for value in title.values())
+            if has_none_value:
+                logger.warning(f'File contains None value, it will be skipped: {title}')
+                continue
+            if title['app_type'] == APP_TYPE_UPD:
+                continue
 
-                # Use DLC app_id for DLC metadata; BASE keeps family/base title_id.
-                lookup_id = title['app_id'] if title['app_type'] == APP_TYPE_DLC else title['title_id']
-                info_from_titledb = titles_lib.get_game_info(lookup_id)
-                if info_from_titledb is None:
-                    logger.warning(f'Info not found for game: {title}')
-                    continue
-                title.update(info_from_titledb)
-                # Stable sort/display key:
-                # - BASE: use its own (family) name
-                # - DLC : use the family/base title name (so DLCs sort alongside their bases)
-                if title['app_type'] == APP_TYPE_DLC:
-                    family_info = titles_lib.get_game_info(title['title_id'])  # family/base lookup
-                    family_name = (family_info or {}).get('name') or title.get('name')
-                    title['title_id_name'] = family_name or 'Unrecognized'
+            # Use DLC app_id for DLC metadata; BASE keeps family/base title_id.
+            lookup_id = title['app_id'] if title['app_type'] == APP_TYPE_DLC else title['title_id']
+            info_from_titledb = titles_lib.get_game_info(lookup_id)
+            if info_from_titledb is None:
+                logger.warning(f'Info not found for game: {title}')
+                continue
+            title.update(info_from_titledb)
+            # Stable sort/display key:
+            # - BASE: use its own (family) name
+            # - DLC : use the family/base title name (so DLCs sort alongside their bases)
+            if title['app_type'] == APP_TYPE_DLC:
+                family_info = titles_lib.get_game_info(title['title_id'])  # family/base lookup
+                family_name = (family_info or {}).get('name') or title.get('name')
+                title['title_id_name'] = family_name or 'Unrecognized'
+            else:
+                title['title_id_name'] = title.get('name') or 'Unrecognized'
+
+            if title['app_type'] == APP_TYPE_BASE:
+                # Status flags from Titles table (computed by update_titles)
+                title_obj = get_title(title['title_id'])
+                if title_obj:
+                    title['has_base'] = title_obj.have_base
+                    # Only mark as up to date if the base itself is owned and up_to_date
+                    title['has_latest_version'] = (title_obj.have_base and title_obj.up_to_date)
+                    title['has_all_dlcs'] = title_obj.complete
                 else:
-                    title['title_id_name'] = title.get('name') or 'Unrecognized'
+                    title['has_base'] = False
+                    title['has_latest_version'] = False
+                    title['has_all_dlcs'] = False
 
-                if title['app_type'] == APP_TYPE_BASE:
-                    # Status flags from Titles table (computed by update_titles)
-                    title_obj = get_title(title['title_id'])
-                    if title_obj:
-                        title['has_base'] = title_obj.have_base
-                        # Only mark as up to date if the base itself is owned and up_to_date
-                        title['has_latest_version'] = (title_obj.have_base and title_obj.up_to_date)
-                        title['has_all_dlcs'] = title_obj.complete
-                    else:
-                        title['has_base'] = False
-                        title['has_latest_version'] = False
-                        title['has_all_dlcs'] = False
+                # Version list for BASE using Apps + versions DB release dates
+                title_apps = get_all_title_apps(title['title_id'])
+                update_apps = [a for a in title_apps if a.get('app_type') == APP_TYPE_UPD]
 
-                    # Version list for BASE using Apps + versions DB release dates
-                    title_apps = get_all_title_apps(title['title_id'])
-                    update_apps = [a for a in title_apps if a.get('app_type') == APP_TYPE_UPD]
+                available_versions = titles_lib.get_all_existing_versions(title['title_id'])
+                version_release_dates = {v['version']: v['release_date'] for v in available_versions}
 
-                    available_versions = titles_lib.get_all_existing_versions(title['title_id'])
-                    version_release_dates = {v['version']: v['release_date'] for v in available_versions}
+                version_list = []
+                for update_app in update_apps:
+                    app_version = int(update_app['app_version'])
+                    rd = version_release_dates.get(app_version)
+                    version_list.append({
+                        'version': app_version,
+                        'owned': update_app.get('owned', False),
+                        'release_date': rd.isoformat() if isinstance(rd, (datetime.datetime, datetime.date)) else rd
+                    })
 
-                    version_list = []
-                    for update_app in update_apps:
-                        app_version = int(update_app['app_version'])
-                        rd = version_release_dates.get(app_version)
-                        version_list.append({
-                            'version': app_version,
-                            'owned': update_app.get('owned', False),
-                            'release_date': rd.isoformat() if isinstance(rd, (datetime.datetime, datetime.date)) else rd
-                        })
+                title['version'] = sorted(version_list, key=lambda x: x['version'])
 
-                    title['version'] = sorted(version_list, key=lambda x: x['version'])
+            elif title['app_type'] == APP_TYPE_DLC:
+                # Skip if we've already processed this DLC app_id
+                app_id = title['app_id']
+                if app_id in processed_dlc_apps:
+                    continue
+                processed_dlc_apps.add(app_id)
 
-                elif title['app_type'] == APP_TYPE_DLC:
-                    # Skip if we've already processed this DLC app_id
-                    app_id = title['app_id']
-                    if app_id in processed_dlc_apps:
-                        continue
-                    processed_dlc_apps.add(app_id)
+                # Get all versions for this DLC app_id
+                title_apps = get_all_title_apps(title['title_id'])
+                dlc_apps = [app for app in title_apps if app.get('app_type') == APP_TYPE_DLC and app['app_id'] == app_id]
 
-                    # Get all versions for this DLC app_id
-                    title_apps = get_all_title_apps(title['title_id'])
-                    dlc_apps = [app for app in title_apps if app.get('app_type') == APP_TYPE_DLC and app['app_id'] == app_id]
+                # Create version list for this DLC
+                version_list = []
+                for dlc_app in dlc_apps:
+                    version_list.append({
+                        'version': int(dlc_app['app_version']),
+                        'owned': dlc_app.get('owned', False),
+                        'release_date': 'Unknown'  # DLC release dates not available in versions_db
+                    })
 
-                    # Create version list for this DLC
-                    version_list = []
-                    for dlc_app in dlc_apps:
-                        version_list.append({
-                            'version': int(dlc_app['app_version']),
-                            'owned': dlc_app.get('owned', False),
-                            'release_date': 'Unknown'  # DLC release dates not available in versions_db
-                        })
+                title['version'] = sorted(version_list, key=lambda x: x['version'])
+                title['owned'] = any(app.get('owned') for app in dlc_apps)
 
-                    title['version'] = sorted(version_list, key=lambda x: x['version'])
-                    title['owned'] = any(app.get('owned') for app in dlc_apps)
+                # Check if this DLC has latest version
+                if dlc_apps:
+                    highest_version = max(int(app['app_version']) for app in dlc_apps)
+                    owned_versions = [int(app['app_version']) for app in dlc_apps if app.get('owned')]
+                    # Only true if at least one version is OWNED and the highest owned >= highest available
+                    title['has_latest_version'] = len(owned_versions) > 0 and max(owned_versions) >= highest_version
+                else:
+                    # No local rows → nothing to update
+                    title['has_latest_version'] = True
 
-                    # Check if this DLC has latest version
-                    if dlc_apps:
-                        highest_version = max(int(app['app_version']) for app in dlc_apps)
-                        owned_versions = [int(app['app_version']) for app in dlc_apps if app.get('owned')]
-                        # Only true if at least one version is OWNED and the highest owned >= highest available
-                        title['has_latest_version'] = len(owned_versions) > 0 and max(owned_versions) >= highest_version
-                    else:
-                        # No local rows → nothing to update
-                        title['has_latest_version'] = True
+            # File basename hint for organizer/UI
+            title['file_basename'] = _best_file_basename(title.get('files'))
+            # We don't need to send the full files payload to the client cache, and it can carry datetimes which are not serializable
+            title.pop('files', None)
 
-                # File basename hint for organizer/UI
-                title['file_basename'] = _best_file_basename(title.get('files'))
-                # We don't need to send the full files payload to the client cache, and it can carry datetimes which are not serializable
-                title.pop('files', None)
+            games_info.append(title)
 
-                games_info.append(title)
+        _add_files_without_apps(games_info)
 
-            _add_files_without_apps(games_info)
+        library_data = {
+            'hash': compute_apps_hash(),
+            'titledb_commit': titles_lib.get_titledb_commit_hash() or "",
+            'library': sorted(games_info, key=lambda x: (
+                "title_id_name" not in x,
+                x.get("title_id_name", "Unrecognized") or "Unrecognized",
+                0 if x.get('app_type') == APP_TYPE_BASE else 1,
+                x.get('app_id', "") or ""
+            ))
+        }
 
-            library_data = {
-                'hash': compute_apps_hash(),
-                'titledb_commit': titles_lib.get_titledb_commit_hash() or "",
-                'library': sorted(games_info, key=lambda x: (
-                    "title_id_name" not in x,
-                    x.get("title_id_name", "Unrecognized") or "Unrecognized",
-                    0 if x.get('app_type') == APP_TYPE_BASE else 1,
-                    x.get('app_id', "") or ""
-                ))
-            }
-
-            # Persist snapshot to disk
-            save_json(library_data, LIBRARY_CACHE_FILE, default=_json_default)
-            logger.info('Generating library done.')
-            return library_data
-    finally:
-        # After the session closes (counter back to 0 for this task), try to unload:
-        titles_lib.unload_titledb()
+        # Persist snapshot to disk
+        save_json(library_data, LIBRARY_CACHE_FILE, default=_json_default)
+        logger.info('Generating library snapshot done.')
+        return library_data
 
 def _best_file_basename(files):
     if not files:

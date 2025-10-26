@@ -226,12 +226,12 @@ def invalidate_cache(path: str) -> bool:
     """
     try:
         os.remove(path)
-        logger.info(f"[cache] invalidated: {path}")
+        logger.info(f"Invalidated: {path}")
         return True
     except FileNotFoundError:
         return False
     except Exception as e:
-        logger.warning(f"[cache] failed to invalidate {path}: {e}")
+        logger.warning(f"Failed to invalidate {path}: {e}")
         return False
 
 def generate_snapshot(path: str):
@@ -244,19 +244,19 @@ def generate_snapshot(path: str):
         if path == LIBRARY_CACHE_FILE:
             from library import load_or_generate_library
             load_or_generate_library()
-            logger.info(f"[cache] regenerated library snapshot: {path}")
+            logger.info(f"Regenerated library snapshot: {path}")
         elif path == OVERRIDES_CACHE_FILE:
             from overrides import load_or_generate_overrides_snapshot
             load_or_generate_overrides_snapshot()
-            logger.info(f"[cache] regenerated overrides snapshot: {path}")
+            logger.info(f"Regenerated overrides snapshot: {path}")
         elif path == SHOP_CACHE_FILE:
             from shop import load_or_generate_shop_snapshot
             load_or_generate_shop_snapshot()
-            logger.info(f"[cache] regenerated shop snapshot: {path}")
+            logger.info(f"Regenerated shop snapshot: {path}")
         else:
-            logger.warning(f"[cache] unknown snapshot path: {path}")
+            logger.warning(f"Unknown snapshot path: {path}")
     except Exception as e:
-        logger.error(f"[cache] failed to regenerate {path}: {e}")
+        logger.error(f"Failed to regenerate {path}: {e}")
 
 def invalidate_and_regenerate_cache(path: str):
     """

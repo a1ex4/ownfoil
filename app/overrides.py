@@ -277,19 +277,18 @@ def _generate_overrides_snapshot():
 
     Includes TitleDB projections; writes to disk with a 'hash' top-level key.
     """
-    # Query rows once
-    rows = (
-        db.session.query(AppOverrides)
-        .order_by(AppOverrides.created_at.desc())
-        .all()
-    )
+    logger.info("Generating overrides snapshot...")
 
-    # Cheap part: items + redirects_key (no TitleDB yet)
-    items = [_serialize_with_art_urls(r) for r in rows]
-
-    redirects = {}
-    titles_lib.load_titledb()
-    try:
+    with titles_lib.identification_session("generate_overrides"):
+        titles_lib.load_titledb()
+        # Query rows once
+        rows = (
+            db.session.query(AppOverrides)
+            .order_by(AppOverrides.created_at.desc())
+            .all()
+        )
+        items = [_serialize_with_art_urls(r) for r in rows]
+        redirects = {}
         for ov in rows:
             if not getattr(ov, "enabled", False):
                 continue
@@ -302,24 +301,18 @@ def _generate_overrides_snapshot():
                 "corrected_title_id": corr,
                 "projection": projection,
             }
-    finally:
-        try:
-            titles_lib.unload_titledb()
-        except Exception:
-            pass
 
-    # Compute the fresh hash *after* querying DB but without TitleDB load costs in the hash
-    current_hash = _current_overrides_hash()
-
-    snapshot = {
-        "hash": current_hash,
-        "payload": {
-            "items": items,
-            "redirects": redirects,
+        current_hash = _current_overrides_hash()
+        snapshot = {
+            "hash": current_hash,
+            "payload": {
+                "items": items,
+                "redirects": redirects,
+            }
         }
-    }
-    save_json(snapshot, OVERRIDES_CACHE_FILE)
-    return snapshot
+        save_json(snapshot, OVERRIDES_CACHE_FILE)
+        logger.info("Generating overrides snapshot done.")
+        return snapshot
 
 def _compute_overrides_fingerprint_rows():
     """
