@@ -127,7 +127,8 @@ def create_override():
     db.session.add(ov)
     try:
         db.session.commit()
-        _invalidate_overrides_cache()
+        invalidate_and_regenerate_cache(OVERRIDES_CACHE_FILE)
+        invalidate_and_regenerate_cache(SHOP_CACHE_FILE)
     except Exception:
         logger.error("Create override failed")
         db.session.rollback()
@@ -206,7 +207,8 @@ def update_override(oid: int):
 
     try:
         db.session.commit()
-        _invalidate_overrides_cache()
+        invalidate_and_regenerate_cache(OVERRIDES_CACHE_FILE)
+        invalidate_and_regenerate_cache(SHOP_CACHE_FILE) 
     except Exception:
         logger.error("Update override failed")
         db.session.rollback()
@@ -230,6 +232,8 @@ def delete_override(oid: int):
     try:
         db.session.delete(ov)
         db.session.commit()
+        invalidate_and_regenerate_cache(OVERRIDES_CACHE_FILE)
+        invalidate_and_regenerate_cache(SHOP_CACHE_FILE)
     except Exception:
         logger.error("Delete override failed")
         db.session.rollback()
@@ -362,15 +366,6 @@ def _current_overrides_hash():
     return hashlib.sha256(
         json.dumps(payload_for_hash, sort_keys=True, separators=(",", ":")).encode("utf-8")
     ).hexdigest()
-
-def _invalidate_overrides_cache():
-    try:
-        os.remove(OVERRIDES_CACHE_FILE)
-        logger.info(f"[overrides] invalidated cache: {OVERRIDES_CACHE_FILE}")
-    except FileNotFoundError:
-        pass
-    except Exception as e:
-        logger.warning(f"[overrides] cache invalidation failed: {e}")
 
 def build_override_index(include_disabled: bool = False) -> dict:
     """

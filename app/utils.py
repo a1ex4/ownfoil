@@ -6,7 +6,9 @@ import json
 import os
 import tempfile
 
-from constants import APP_ID_RE, TITLE_ID_RE
+from constants import *
+
+logger = logging.getLogger("main")
 
 # Global lock for all JSON writes in this process
 _json_write_lock = threading.Lock()
@@ -216,3 +218,57 @@ def normalize_id(raw: str | None, kind: str = "title") -> str | None:
         return s if APP_ID_RE.fullmatch(s) else None
     else:
         raise ValueError(f"Unknown ID kind: {kind!r} (expected 'title' or 'app')")
+
+def invalidate_cache(path: str) -> bool:
+    """
+    Delete a cache file if it exists.
+    Returns True if removed, False if it wasn't there.
+    """
+    try:
+        os.remove(path)
+        logger.info(f"[cache] invalidated: {path}")
+        return True
+    except FileNotFoundError:
+        return False
+    except Exception as e:
+        logger.warning(f"[cache] failed to invalidate {path}: {e}")
+        return False
+
+def generate_snapshot(path: str):
+    """
+    Regenerate a known cache snapshot given its file path.
+    Dispatches to the correct builder so the cache is warm for next request.
+    """
+    
+    try:
+        if path == LIBRARY_CACHE_FILE:
+            from library import load_or_generate_library
+            load_or_generate_library()
+            logger.info(f"[cache] regenerated library snapshot: {path}")
+        elif path == OVERRIDES_CACHE_FILE:
+            from overrides import load_or_generate_overrides_snapshot
+            load_or_generate_overrides_snapshot()
+            logger.info(f"[cache] regenerated overrides snapshot: {path}")
+        elif path == SHOP_CACHE_FILE:
+            from shop import load_or_generate_shop_snapshot
+            load_or_generate_shop_snapshot()
+            logger.info(f"[cache] regenerated shop snapshot: {path}")
+        else:
+            logger.warning(f"[cache] unknown snapshot path: {path}")
+    except Exception as e:
+        logger.error(f"[cache] failed to regenerate {path}: {e}")
+
+def invalidate_and_regenerate_cache(path: str):
+    """
+    Invalidate and regenerate a known cache snapshot given its file path.
+    """
+    invalidate_cache(path)
+    generate_snapshot(path)
+
+def regenerate_all_caches():
+    """
+    Invalidate and regenerate all known cache snapshots.
+    """
+    for path in (LIBRARY_CACHE_FILE, OVERRIDES_CACHE_FILE, SHOP_CACHE_FILE):
+        logger.info(f"[cache] refreshing {os.path.basename(path)}")
+        invalidate_and_regenerate_cache(path)

@@ -720,13 +720,13 @@ def generate_library():
     - Return the list used by the API layer.
     """
     # Load library from disk or regenerate if hash changed
-    saved = _load_library()  # {'hash': ..., 'library': [...]}
+    saved = load_or_generate_library()  # {'hash': ..., 'library': [...]}
     if not saved or 'library' not in saved:
         return []
 
     return saved['library']
 
-def _load_library():
+def load_or_generate_library():
     """
     Load the BASE library (no overrides) from disk if hash unchanged.
     Otherwise, regenerate and save.
