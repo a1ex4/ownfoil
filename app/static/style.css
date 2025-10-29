@@ -25,6 +25,10 @@
     margin-right: 5px;
 }
 
+.game-tag:last-child {
+    margin-right: 0;
+}
+
 .card {
     border-radius: 8px !important;
     /* linear-gradient(to top, rgba(0, 0, 0, 0.7), transparent 50%), */
@@ -121,4 +125,137 @@ p.game-description {
 .dropdown-item:focus {
     background: none;
     box-shadow: none;
+}
+
+/* Override styles */
+.override-pill {
+    font-size: .85rem;
+    line-height: 1;
+}
+.override-pill:hover { opacity: .95; }
+
+.ovr-preview-grid {
+    display: grid;
+    gap: .75rem;
+    grid-template-columns: 1fr 1fr;
+    align-items: start;
+}
+.ovr-preview-wrap {
+    position: relative;
+    background: rgba(255,255,255,.03);
+    padding: .5rem;
+    border-radius: .5rem;
+    border: 1px solid rgba(255,255,255,.15);
+    transition: border-color .15s ease, background .15s ease;
+}
+.ovr-preview-wrap.dragover {
+    border-color: #0d6efd;
+    background: rgba(13,110,253,.1);
+}
+.ovr-preview-banner {
+    width: 100%;
+    aspect-ratio: 16 / 9;   /* 400x225 */
+    object-fit: cover;
+    display: block;
+}
+.ovr-preview-icon {
+    width: 100%;
+    aspect-ratio: 1 / 1;    /* 400x400 */
+    object-fit: cover;
+    display: block;
+}
+.ovr-caption {
+    font-size: .8rem;
+    opacity: .75;
+    margin-top: .25rem;
+    text-align: center;
+}
+
+/* remove button: top-left */
+.ovr-remove-x {
+    position: absolute;
+    top: .35rem;
+    left: .35rem;
+    width: 28px;
+    height: 28px;
+    line-height: 24px;
+    text-align: center;
+    border-radius: 50%;
+    border: 2px solid #000;
+    background: #fff;
+    color: #000;
+    font-weight: 800;
+    font-size: 18px;
+    cursor: pointer;
+    opacity: .9;
+    box-shadow: 0 1px 2px rgba(0,0,0,.4);
+    padding: 0;
+}
+.ovr-remove-x:hover { opacity: 1; }
+
+/* edit button: top-right */
+.ovr-edit-btn {
+    position: absolute;
+    top: .35rem;
+    right: .35rem;
+    width: 30px;
+    height: 30px;
+    border-radius: 8px;
+    border: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(255,255,255,.9);
+    color: #000;
+    cursor: pointer;
+    box-shadow: 0 1px 2px rgba(0,0,0,.4);
+}
+.ovr-edit-btn:hover {
+    background: #fff;
+}
+
+#ovTitleIdDisplay { user-select: text; }
+
+/* Pagination controls */
+#paginationControls {
+    flex-wrap: wrap;
+    gap: .35rem;
+}
+
+#paginationControls .page-item {
+    margin: 0;
+}
+
+#paginationControls .page-link {
+    min-width: 2.25rem;
+    text-align: center;
+}
+
+#paginationControls .page-ellipsis .page-link {
+    pointer-events: none;
+}
+
+#paginationControls .page-jump {
+    align-self: stretch;
+}
+
+#paginationControls .page-jump .page-jump-group {
+    max-width: 150px;
+    height: 100%;
+}
+
+#paginationControls .page-jump input {
+    min-width: 0;
+}
+
+@media (max-width: 576px) {
+    #paginationControls .page-jump {
+        flex: 1 0 100%;
+        margin-left: 0 !important;
+    }
+
+    #paginationControls .page-jump .page-jump-group {
+        max-width: none;
+        width: 100%;
+    }
 }

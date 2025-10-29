@@ -1,10 +1,13 @@
+import json
 import logging
+import os
 import re
+import tempfile
 import threading
 from functools import wraps
-import json
-import os
-import tempfile
+from typing import Any, Optional
+
+from constants import *
 
 # Global lock for all JSON writes in this process
 _json_write_lock = threading.Lock()
@@ -70,6 +73,25 @@ def safe_write_json(path, data, **dump_kwargs):
         # Atomically replace target file
         os.replace(tmp_path, path)
 
+def save_json(data: Any, path: str, **dump_kwargs: Any) -> None:
+    """
+    Save JSON atomically using safe_write_json, ensuring the parent
+    directory exists. Accepts extra json.dump kwargs.
+    """
+    dirpath = os.path.dirname(path) or "."
+    os.makedirs(dirpath, exist_ok=True)
+    safe_write_json(path, data, **dump_kwargs)
+
+def load_json(path: str, default: Any = None) -> Any:
+    """
+    Load JSON from disk. Returns `default` if the file is missing.
+    Raises on decode or IO errors so callers can handle/report.
+    """
+    if not os.path.exists(path):
+        return default
+    with open(path, "r", encoding="utf-8") as f:
+        return json.load(f)
+
 def merge_dicts_recursive(source, destination):
     """
     Recursively merges source dictionary into destination dictionary.
@@ -124,3 +146,74 @@ def delete_empty_folders(path):
 
         if not deleted_any_in_pass:
             break # No more empty directories found in this pass, so we are done
+
+def normalize_release_date(value: Any) -> Optional[str]:
+    """
+    Normalize a release date into 'YYYY-MM-DD' format.
+
+    Accepts:
+      - int like 20230915
+      - str '20230915' or '2023-09-15'
+      - str containing extra characters (e.g. '2023/09/15', '20230915 (US)')
+      - 'Unknown' / None / empty string
+
+    Returns:
+      - 'YYYY-MM-DD' if recognized
+      - None if unknown or invalid
+    """
+    if value is None:
+        return None
+
+    try:
+        s = str(value).strip()
+        if not s or s.lower() == "unknown":
+            return None
+
+        # Integer-like (either int or numeric string)
+        if s.isdigit() and len(s) == 8:
+            return f"{s[0:4]}-{s[4:6]}-{s[6:8]}"
+
+        # Already ISO-like
+        if len(s) == 10 and s[4] == "-" and s[7] == "-":
+            return s
+
+        # Fallback: extract digits from mixed strings (e.g. '2023/09/15 (JP)')
+        digits = "".join(ch for ch in s if ch.isdigit())
+        if len(digits) == 8:
+            return f"{digits[0:4]}-{digits[4:6]}-{digits[6:8]}"
+    except Exception:
+        pass
+
+    return None
+
+def normalize_id(raw: Optional[str], kind: str = "title") -> Optional[str]:
+    """
+    Normalize and validate a Nintendo ID (Title ID or App ID).
+
+    Args:
+        raw:  The raw ID string (may include '0x' prefix, lowercase, or spacing)
+        kind: Either 'title' (default, 16 hex) or 'app' (16 or 32 hex)
+
+    Returns:
+        - Normalized uppercase ID string if valid
+        - None if invalid or empty
+
+    Example:
+        normalize_id('0x0100abcd1234ef00')     -> '0100ABCD1234EF00'
+        normalize_id('0100abcd1234ef00', 'app') -> '0100ABCD1234EF00'
+        normalize_id('0100abcd1234ef001122334455667788', 'app')
+        -> '0100ABCD1234EF001122334455667788'
+    """
+    if not raw:
+        return None
+
+    s = str(raw).strip().upper()
+    if s.startswith("0X"):
+        s = s[2:]
+
+    if kind == "title":
+        return s if TITLE_ID_RE.fullmatch(s) else None
+    elif kind == "app":
+        return s if APP_ID_RE.fullmatch(s) else None
+    else:
+        raise ValueError(f"Unknown ID kind: {kind!r} (expected 'title' or 'app')")

@@ -4,6 +4,7 @@ Flask-Login==0.6.3
 Flask-Migrate==4.1.0
 flask-sqlalchemy==3.1.1
 git+https://github.com/a1ex4/nsz.git@library-improvements
+pillow==11.3.0
 PyYAML==6.0.2
 requests==2.32.5
 unzip_http==0.6

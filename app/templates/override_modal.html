@@ -1,0 +1,137 @@
+<!-- Override Editor Modal -->
+<div id="overrideEditorModal" class="modal fade" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered" style="max-width:520px;">
+    <div class="modal-content bg-dark text-light">
+      <div class="modal-header">
+        <h5 class="modal-title">Edit Override: <span id="ovr-file-name"></span></h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="ovr-id">
+        <input type="hidden" id="ovr-app-id">
+
+        <!-- Title ID (inline display with click-to-edit) -->
+        <div class="mb-2" id="ovTitleIdRow">
+            <label class="form-label me-2 mb-0">Title ID</label>
+            <span id="ovTitleIdDisplay" class="text-monospace me-2"></span>
+            <button type="button" id="ovTitleIdEditBtn" class="btn btn-sm btn-outline-secondary">
+                Click to edit
+            </button>
+
+            <!-- Hidden edit row; appears only when editing -->
+            <div id="ovTitleIdEditRow" class="mt-2 d-none">
+                <div class="input-group">
+                <input
+                    id="ovCorrectedTitleId"
+                    type="text"
+                    class="form-control"
+                    placeholder="e.g. 01009EA00B714000"
+                    maxlength="18"
+                    inputmode="text"
+                    autocomplete="off"
+                    spellcheck="false"
+                >
+                <button type="button" id="ovTitleIdCancelBtn" class="btn btn-outline-secondary">
+                    Cancel
+                </button>
+                </div>
+                <div class="form-text">
+                16 hex chars (0x prefix allowed). Used to pull metadata from TitleDB.
+                </div>
+            </div>
+        </div>
+
+        <div class="mb-2">
+          <label class="form-label">Name</label>
+          <input id="ovr-name" type="text" class="form-control" placeholder="Title name">
+          <div class="form-text">Leave empty to reset to TitleDB name.</div>
+        </div>
+        <div class="mb-2">
+          <label class="form-label">Description</label>
+          <textarea id="ovr-description" class="form-control" rows="3" placeholder="Description"></textarea>
+        </div>
+        <div class="row g-2 mb-2">
+          <div class="col-4">
+            <label for="ov-release-date" class="form-label">Release date</label>
+              <!-- Disable manual typing/pasting to ensure consistent format -->
+              <input
+                type="date"
+                class="form-control"
+                id="ov-release-date"
+                name="release_date"
+                placeholder="yyyy-MM-dd"
+                inputmode="numeric"
+                pattern="\d{4}-\d{2}-\d{2}"
+                onkeydown="return false"
+                onpaste="return false"
+              />
+          </div>
+          <div class="col-4">
+            <label class="form-label">Region</label>
+            <input id="ovr-region" type="text" class="form-control" placeholder="US, EU, JP, ...">
+          </div>
+          <div class="col-4">
+            <label class="form-label">Version</label>
+            <input id="ovr-version" type="number" class="form-control" placeholder="e.g. 10000">
+          </div>
+        </div>
+
+        <!-- Artwork (previews-only + hidden file inputs) -->
+        <div class="mb-2">
+            <label class="form-label d-block">Artwork</label>
+
+            <!-- hidden file inputs (triggered by the edit buttons) -->
+            <input id="ovr-banner-file" type="file" class="visually-hidden" accept=".jpg,.jpeg,.png,.webp">
+            <input id="ovr-icon-file"   type="file" class="visually-hidden" accept=".jpg,.jpeg,.png,.webp">
+
+            <div class="ovr-preview-grid">
+                <!-- Banner preview -->
+                <div class="ovr-preview-wrap" id="ovr-banner-preview" data-kind="banner">
+                  <img id="ovr-banner-preview-img" src="" alt="Banner preview" class="ovr-preview-banner rounded border"
+                        onerror="if(this.src!==window.DEFAULT_BANNER)this.src=window.DEFAULT_BANNER;">
+                  <!-- remove (top-left) -->
+                  <button type="button" class="ovr-remove-x" id="ovr-banner-remove"
+                          title="Remove overridden banner" aria-label="Remove overridden banner">×</button>
+                  <!-- edit (top-right) -->
+                  <button type="button" class="ovr-edit-btn" id="ovr-banner-edit"
+                          title="Choose banner image" aria-label="Choose banner image">
+                      <i class="bi bi-pencil-square"></i>
+                  </button>
+                  <div class="ovr-caption">Banner (400×225)</div>
+                </div>
+
+                <!-- Icon preview -->
+                <div class="ovr-preview-wrap" id="ovr-icon-preview" data-kind="icon">
+                  <img id="ovr-icon-preview-img" src="" alt="Icon preview" class="ovr-preview-icon rounded border"
+                        onerror="if(this.src!==window.DEFAULT_ICON)this.src=window.DEFAULT_ICON;">
+                  <!-- remove (top-left) -->
+                  <button type="button" class="ovr-remove-x" id="ovr-icon-remove"
+                          title="Remove overridden icon" aria-label="Remove overridden icon">×</button>
+                  <!-- edit (top-right) -->
+                  <button type="button" class="ovr-edit-btn" id="ovr-icon-edit"
+                          title="Choose icon image" aria-label="Choose icon image">
+                      <i class="bi bi-pencil-square"></i>
+                  </button>
+                  <div class="ovr-caption">Icon (400×400)</div>
+                </div>
+            </div>
+
+            <div class="form-text mt-1">
+                Drag & drop images onto the previews, or click the pencil to choose files.
+            </div>
+        </div>
+        <!-- /Artwork -->
+
+      </div>
+      <div class="modal-footer justify-content-between">
+        <div class="d-flex gap-2">
+          <button id="btn-reset-override" type="button" class="btn btn-danger" style="display:none;">Reset override</button>
+        </div>
+        <div>
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button id="btn-save-override" type="button" class="btn btn-primary">Save</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

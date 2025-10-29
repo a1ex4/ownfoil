@@ -352,6 +352,22 @@
                         successfully loading your shop.</div>
                 </div>
 
+                <!-- Shop placeholder text -->
+                <div class="mb-3">
+                    <label for="placeholderTextInput" class="form-label">Default placeholder text:</label>
+                    <input
+                        type="text"
+                        class="form-control"
+                        id="placeholderTextInput"
+                        maxlength="30"
+                        placeholder="Image Unavailable"
+                        aria-describedby="placeholderTextHelp">
+                    <div id="placeholderTextHelp" class="form-text">
+                        Used to build the default banner/icon when artwork is missing (max 30 characters).
+                    </div>
+                    <div id="placeholderTextFeedback" class="invalid-feedback"></div>
+                </div>
+
                 <div class="mb-3">
                     <button type="button" id="submitShopSettingsBtn" class="btn btn-primary"
                         onClick='submitShopSettings()'>Submit</button>
@@ -365,7 +381,8 @@
 <script>
 
     settings_map = {
-        'library/path': 'libraryPathInput'
+        'library/path': 'libraryPathInput',
+        'shop/placeholder_text': 'placeholderTextInput'
     };
 
 
@@ -874,34 +891,41 @@
 
     function submitShopSettings() {
         $('#submitShopSettingsBtn').prop('disabled', true);
-        data = {
-            host: $('#shopHostInput').val(),
-            public: getCheckboxStatus("publicShopCheck"),
-            encrypt: getCheckboxStatus("encryptShopCheck"),
-            motd: $('#motdTextArea').val(),
-        }
+        
+        // Gather values
+        const host = $('#shopHostInput').val();
+        const isPublic = getCheckboxStatus("publicShopCheck");
+        const encrypt = getCheckboxStatus("encryptShopCheck");
+        const motd = $('#motdTextArea').val();
+        const placeholder = ($('#placeholderTextInput').val() || "").trim();
+        const data = {
+            host: host,
+            public: isPublic,
+            encrypt: encrypt,
+            motd: motd,
+            placeholder_text: placeholder
+        };
 
         $.ajax({
             url: "/api/settings/shop",
             type: 'POST',
             data: JSON.stringify(data),
             contentType: "application/json",
-            success: function (result) {
+            success: (result) => {
                 if (!result['success']) {
                     console.log('Not Success!');
-                    result['errors'].forEach(error => {
-                        path = error['path'];
-                        formId = settings_map[path];
-                        form = $('#' + formId);
+                    (result['errors'] || []).forEach(error => {
+                        const path = error['path'];
+                        const formId = settings_map[path];
+                        const form = $('#' + formId);
                         form.addClass('is-invalid');
-                        formTextElement = form.attr('aria-describedby');
+                        const formTextElement = form.attr('aria-describedby');
                         $("#" + formTextElement).addClass('invalid-feedback');
                         $("#" + formTextElement).text(error['error']);
                     });
                 }
-                $('#submitShopSettingsBtn').prop('disabled', false);
             }
-        });
+        }).always(() => $('#submitShopSettingsBtn').prop('disabled', false));
     }
 
     function submitLibraryManagementSettings() {
@@ -963,6 +987,22 @@
             }
         });
 
+        // Add real-time placeholder text validation
+        $('#placeholderTextInput').on('input', function() {
+            const val = ($(this).val() || '').trim();
+            const fb = $('#placeholderTextFeedback');
+            $(this).removeClass('is-invalid');
+            fb.text('');
+
+            if (val.length > 30) {
+                $(this).addClass('is-invalid');
+                fb.text('Please keep it to 30 characters or fewer.');
+            } else if (/[\r\n]/.test(val)) {
+                $(this).addClass('is-invalid');
+                fb.text('Newlines are not allowed.');
+            }
+        });
+
         $.getJSON("/api/settings", function (result) {
             languages = {{ languages_from_titledb | tojson | safe }};
             Object.keys(languages).forEach(function (key) {
@@ -1004,6 +1044,7 @@
             shopSettings = result['shop'];
             setInputVal("shopHostInput", shopSettings['host']);
             setInputVal("motdTextArea", shopSettings['motd']);
+            setInputVal("placeholderTextInput", shopSettings['placeholder_text'] || "Image Unavailable");
             $("#publicShopCheck").prop("checked", shopSettings['public']);
             $("#encryptShopCheck").prop("checked", shopSettings['encrypt']);
             if (!shopSettings['host']) {
