@@ -158,6 +158,33 @@ def reload_conf():
     global watcher
     app_settings = load_settings()
 
+def _update_titledb_before_manual_scan() -> None:
+    """
+    Run a lightweight TitleDB update before a manual scan so new metadata is visible
+    without waiting for the scheduled job. Uses the existing update lock so we never
+    overlap with the scheduler.
+    """
+    global is_titledb_update_running
+    if not titledb_update_lock.acquire(blocking=False):
+        logger.info("Skipping manual TitleDB update: scheduler lock unavailable.")
+        return
+    try:
+        if is_titledb_update_running:
+            logger.info("Skipping manual TitleDB update: another update is already in progress.")
+            return
+        is_titledb_update_running = True
+        try:
+            logger.info("Checking TitleDB before manual library scan...")
+            current_settings = load_settings()
+            titledb.update_titledb(current_settings)
+            logger.info("TitleDB check for manual scan completed.")
+        except Exception as exc:
+            logger.error(f"Error updating TitleDB before manual scan: {exc}")
+        finally:
+            is_titledb_update_running = False
+    finally:
+        titledb_update_lock.release()
+
 def on_library_change(events):
     # TODO refactor: group modified and created together
     with app.app_context():
@@ -572,6 +599,7 @@ def scan_library_api():
     scan_in_progress = True
 
     try:
+        _update_titledb_before_manual_scan()
         if path is None:
             scan_library()
         else:
