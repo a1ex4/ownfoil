@@ -1,7 +1,12 @@
 {% extends "base.html" %}
 
-
 {% block content %}
+<script>
+  window.PLACEHOLDER_TEXT = {{ (placeholder_text | default('Image Unavailable', true)) | tojson }};
+  window.DEFAULT_BANNER = `https://placehold.co/400x225/png?text=${encodeURIComponent(window.PLACEHOLDER_TEXT)}`;
+  window.DEFAULT_ICON   = `https://placehold.co/400x400/png?text=${encodeURIComponent(window.PLACEHOLDER_TEXT)}`;
+  window.IS_ADMIN = {{ (current_user.is_authenticated and current_user.is_admin) | tojson }};
+</script>
 {% include 'nav.html' %}
 <div id="content" class="container-fluid mt-3">
 
@@ -80,6 +85,23 @@
                                 </div>
                             </div>
                         </li>
+                        <li>
+                            <hr class="dropdown-divider">
+                        </li>
+                        <li>
+                            <div class="dropdown-item">
+                                <div class="btn-group w-100" role="group" aria-label="Overrides filter">
+                                    <input type="radio" class="btn-check override-toggle" name="overrideFilter" id="overrideAll" autocomplete="off" checked>
+                                    <label class="btn btn-outline-primary" for="overrideAll">All</label>
+
+                                    <input type="radio" class="btn-check override-toggle" name="overrideFilter" id="overrideUnrecognized" autocomplete="off">
+                                    <label class="btn btn-outline-primary" for="overrideUnrecognized">Unrecognized</label>
+
+                                    <input type="radio" class="btn-check override-toggle" name="overrideFilter" id="overrideOverridden" autocomplete="off">
+                                    <label class="btn btn-outline-primary" for="overrideOverridden">Overridden</label>
+                                </div>
+                            </div>
+                        </li>
                         <!-- <div class="text-center m-2">
                             <button id="btnApplyFilters" type="button" class="btn btn-primary" style="width: 85%;">Apply
                                 filters</button>
@@ -139,29 +161,74 @@
     </nav>
 </div>
 
+{% if current_user.is_authenticated and current_user.is_admin %}
+  {% include 'override_modal.html' %}
+{% endif %}
+<script src="{{ url_for('static', filename='js/overrides.js') }}"></script>
+<script src="{{ url_for('static', filename='js/pagination.js') }}"></script>
+
 <script>
-    let games;
-    let filteredGames;
+    const isAdminUser = (window.IS_ADMIN === true || window.IS_ADMIN === 'true');
+    const Overrides = window.Ownfoil?.Overrides || null;
+
+    let games = [];
+    let filteredGames = [];
+    let baseFilteredGames = [];
     let itemsPerPage = 12;
     let currentPage = 1;
     let totalGames = 0;
     let cardSize = 3; // Default card size
     let currentView = 'card'; // Default view is 'card'
+    let paginationController = null;
+
+    // --- Search debounce ---
+    const SEARCH_DEBOUNCE_MS = 300;
+    let searchDebounceTimer = null;
+    // -----------------------
 
     function fetchGames() {
-        return new Promise((resolve, reject) => {
+        return new Promise((resolve) => {
             $.get(`/api/titles`, function (data) {
-                totalGames = data.total;
-                games = data.games;
-                filteredGames = games;
+                const list = Array.isArray(data?.games) ? data.games : [];
+                totalGames = Number.isFinite(data?.total) ? data.total : list.length;
+
+                games = list.map(g => {
+                    const clone = { ...g };
+                    clone._orig = {
+                        name: clone.name,
+                        title_id_name: clone.title_id_name,
+                        release_date: clone.release_date ?? null,
+                        app_type: clone.app_type
+                    };
+
+                    // remember base title for DLC at fetch-time
+                    if ((clone.app_type || '').toUpperCase() === 'DLC') {
+                        clone.base_name = clone.title_id_name;
+                    }
+
+                    // compute & attach client flags (invariant to overrides)
+                    const flags = Overrides?.computeRecognitionFlags(clone) || { isUnrecognized: true, hasTitleDb: false };
+                    clone.isUnrecognized = flags.isUnrecognized;
+                    clone.hasTitleDb = flags.hasTitleDb;
+                    return clone;
+                });
+
+                filteredGames = games.slice();
                 resolve();
-            }).fail(function() {
-                reject();
+            }).fail(function () {
+                totalGames    = 0;
+                games         = [];
+                filteredGames = [];
+                resolve();
             });
         });
     }
 
     function renderGames() {
+        // Ensure we always have arrays
+        if (!Array.isArray(games)) games = [];
+        if (!Array.isArray(filteredGames)) filteredGames = [];
+
         // Set slider to show `cardsize` columns by default
         $('#cardSizeRange').val(cardSize);
 
@@ -173,13 +240,11 @@
             adjustIconSizes();
         }
 
-        // init version tooltips
-        const tooltipTriggerList = document.querySelectorAll('[data-bs-toggle="tooltip"]')
-        const tooltipList = [...tooltipTriggerList].map(tooltipTriggerEl => new bootstrap.Tooltip(tooltipTriggerEl))
-
-        // init version popovers
-        const popoverTriggerList = document.querySelectorAll('[data-bs-toggle="popover"]')
-        const popoverList = [...popoverTriggerList].map(popoverTriggerEl => new bootstrap.Popover(popoverTriggerEl))
+        // Bootstrap tooltips & popovers
+        const tooltipTriggerList = document.querySelectorAll('[data-bs-toggle="tooltip"]');
+        [...tooltipTriggerList].forEach(el => new bootstrap.Tooltip(el));
+        const popoverTriggerList = document.querySelectorAll('[data-bs-toggle="popover"]');
+        [...popoverTriggerList].forEach(el => new bootstrap.Popover(el));
     }
 
     function renderCardView() {
@@ -187,34 +252,85 @@
         const gameGrid = $('#gameGrid');
         gameGrid.empty(); // Clear existing games
 
+        // Hard guard: nothing to render yet
+        if (!Array.isArray(filteredGames) || filteredGames.length === 0) {
+            gameGrid.append(`
+                <div class="col-12 text-center text-muted py-5">
+                    <div class="mb-2"><i class="bi bi-collection"></i></div>
+                    <div>No titles to display.</div>
+                </div>
+            `);
+            updatePaginationControls(0);
+            return;
+        }
+
+        // Keep the current page within bounds for the available results
+        const totalItems = filteredGames.length;
+        const totalPages = Math.max(1, Math.ceil(totalItems / itemsPerPage));
+        if (currentPage > totalPages) currentPage = totalPages;
+        if (currentPage < 1) currentPage = 1;
+
         // Get games for the current page
-        start = (currentPage - 1) * itemsPerPage
-        end = start + itemsPerPage
-        paginatedGames = filteredGames.slice(start, end);
+        const start = (currentPage - 1) * itemsPerPage;
+        const end = start + itemsPerPage;
+        const paginatedGames = filteredGames.slice(start, end);
 
         paginatedGames.forEach(function (game) {
             const gameCol = $('<div class="col game-col"></div>').addClass(`col-${12 / getColumnsForCardSize(cardSize)}`);
 
-            const card = $('<div class="card text-bg-dark game-card"></div>');
+            const card = $('<div class="card text-bg-dark game-card"></div>')
+                .attr('data-title-id', game.title_id || '')
+                .attr('data-file-basename', game.file_basename || '')
+                .attr('data-identification-type', (game.identification_type || '').toLowerCase());
 
-            const img = $('<img class="card-img"></img>').attr('src', game.bannerUrl);
+            const bannerSrc = Overrides?.bannerUrlFor?.(game) || window.DEFAULT_BANNER;
+            const img = $('<img class="card-img">')
+                .attr('src', bannerSrc)
+                .on('error', function () {
+                    if (this.src !== window.DEFAULT_BANNER) this.src = window.DEFAULT_BANNER;
+                });
             card.append(img);
 
             const cardOverlay = $('<div class="card-img-overlay game-info"></div>');
 
-            const title = $('<h5 class="card-title game-title"></h5>').text(game.title_id_name || game.name);
-            cardOverlay.append(title);
+            const titleLine = $('<div class="d-flex align-items-center justify-content-between"></div>');
+            const bigTitle = Overrides?.displayTitleFor?.(game, games) || game.name || '';
+            const title = $('<h5 class="card-title game-title mb-1"></h5>').text(bigTitle);
+            titleLine.append(title);
+            cardOverlay.append(titleLine);
 
-            const description = $('<p class="card-text game-description"></p>');
+            const description = $('<p class="card-text game-description mb-2"></p>');
             if (game.app_type === 'DLC') {
-                const small = $('<small></small>').text(`${game.name} | `);
-                description.append(small);
+                let dlcName = (game.name || '').trim();
+
+                // derive base name used in the header
+                const baseName = (Overrides?.displayTitleFor?.(game, games) || '').trim();
+
+                if (baseName && dlcName.toLowerCase().startsWith(baseName.toLowerCase())) {
+                    dlcName = dlcName.slice(baseName.length).replace(/^(\s*[-–:]\s*)?/, '');
+                }
+
+                if (dlcName) {
+                    description.append($('<small></small>').text(`${dlcName} | `));
+                }
             }
-            const small = $('<small></small>').text(game.id);
-            description.append(small);
+
+            // Prefer corrected → app_id (app-specific) → dlc_title_id → title_id → id
+            const fallbackTid = game.corrected_title_id || game.app_id || game.dlc_title_id || game.title_id || game.id || '';
+            const rawTid = Overrides?.pickTidForDisplay?.(game, Overrides?.getOverrideForGame?.(game)) ?? fallbackTid ?? '';
+            const tidToShow = rawTid.toString().trim().toUpperCase();
+
+            const smallId = $('<small></small>').text(tidToShow);
+
+            // Highlight only if the displayed TID is the corrected one
+            if (tidToShow && game.corrected_title_id && tidToShow === game.corrected_title_id.toString().trim().toUpperCase()) {
+                smallId.addClass('text-warning fw-semibold');
+            }
+
+            description.append(smallId);
             cardOverlay.append(description);
 
-            const tagsContainer = $('<div class="tags-container"></div>');
+            const tagsContainer = $('<div class="tags-container d-flex gap-1 align-items-center"></div>');
 
             const typeBadgeClass = (game.owned === false) ? 'text-bg-warning' : 'text-bg-info';
             const typeBadge = $(`<span class="badge rounded-pill ${typeBadgeClass} game-tag"></span>`).text(game.app_type);
@@ -225,24 +341,28 @@
                     .addClass(`text-bg-${game.has_latest_version ? 'success' : 'warning'}`)
                     .html(`<i class="bi ${game.has_latest_version ? 'bi-check-circle-fill' : 'bi-arrow-down-circle'}"></i>`);
                 if (game.version !== undefined && game.version.length && Array.isArray(game.version)) {
-                    const popoverContent = game.version.map(version => 
-                        `${version.release_date}: v${version.version} ${version.owned ? 'Owned' : 'Missing'}`
-                    ).join('\n');
-                    versionBadge.popover({
-                        content: popoverContent,
-                        trigger: 'click',
-                        placement: 'top',
-                    });
-                    versionBadge.css('cursor', 'pointer');
+                    const popoverContent = game.version.map(v =>
+                        `${v.release_date}: v${v.version} ${v.owned ? 'Owned' : 'Missing'}`
+                    ).join('<br>');
+                    versionBadge
+                        .attr('data-bs-toggle', 'popover')
+                        .attr('data-bs-placement', 'top')
+                        .attr('data-bs-trigger', 'click')
+                        .attr('data-bs-custom-class', 'version-popover')
+                        .attr('data-bs-title', `${game.name} [${game.title_id}] Updates`)
+                        .attr('data-bs-content', popoverContent)
+                        .attr('data-bs-html', 'true')
+                        .css('cursor', 'pointer');
                 } else {
                     // version tooltip on hover
-                    versionBadge.attr("data-bs-toggle", "tooltip")
-                    versionBadge.attr("data-bs-placement", "top")
+                    versionBadge
+                        .attr("data-bs-toggle", "tooltip")
+                        .attr("data-bs-placement", "top");
 
                     if (game.version !== undefined && !game.version.length && Array.isArray(game.version)){
-                        versionBadge.attr("data-bs-title", "Version v0")
+                        versionBadge.attr("data-bs-title", "Version v0");
                     } else if (game.version !== undefined && game.version.length) {
-                        versionBadge.attr("data-bs-title", "Version v" + game.version)
+                        versionBadge.attr("data-bs-title", "Version v" + game.version);
                     }
                 }
                 tagsContainer.append(versionBadge);
@@ -253,35 +373,69 @@
                 tagsContainer.append(dlcBadge);
             }
 
+            // Override edit pill
+            if (isAdminUser) {
+                const hasOvr = Overrides?.hasActiveOverride?.(game) === true;
+                const editPill = $('<button type="button" class="override-pill btn rounded-pill game-tag"></button>')
+                    .addClass(hasOvr ? 'btn-success' : 'btn-secondary')
+                    .attr('title', hasOvr ? 'Metadata override active. Click to edit.' : 'No override. Click to edit metadata.')
+                    .html('<i class="bi bi-pencil-square"></i>')
+                    .on('click', () => Overrides?.openOverrideEditor?.(game));
+                tagsContainer.append(editPill);
+            }
+            
             cardOverlay.append(tagsContainer);
             card.append(cardOverlay);
             gameCol.append(card);
             gameGrid.append(gameCol);
         });
         // Update pagination
-        updatePaginationControls(filteredGames.length)
-
+        updatePaginationControls(filteredGames.length);
     }
 
     function renderIconView() {
         // Render icon view logic...
         const gameGrid = $('#gameGrid');
         gameGrid.empty(); // Clear existing games
+
+        // Hard guard: nothing to render yet
+        if (!Array.isArray(filteredGames) || filteredGames.length === 0) {
+            gameGrid.append(`
+                <div class="col-12 text-center text-muted py-5">
+                    <div class="mb-2"><i class="bi bi-collection"></i></div>
+                    <div>No titles to display.</div>
+                </div>
+            `);
+            updatePaginationControls(0);
+            return;
+        }
+
+        // Only paginate base titles in icon view
+        const baseGames = filteredGames.filter(game => game.app_type === 'BASE');
+        const totalIconItems = baseGames.length;
+        const totalIconPages = Math.max(1, Math.ceil(totalIconItems / itemsPerPage));
+        if (currentPage > totalIconPages) currentPage = totalIconPages;
+        if (currentPage < 1) currentPage = 1;
+
         // Get games for the current page
-        start = (currentPage - 1) * itemsPerPage
-        end = start + itemsPerPage
-        baseGames = filteredGames.filter(game => game.app_type === 'BASE');
-        paginatedGames = baseGames.slice(start, end);
+        const start = (currentPage - 1) * itemsPerPage;
+        const end = start + itemsPerPage;
+        const paginatedGames = baseGames.slice(start, end);
 
         paginatedGames.forEach(game => {
-            const icon = $('<img class="game-icon">').attr('src', game.iconUrl);
+            const iconSrc = Overrides?.iconUrlFor?.(game) || window.DEFAULT_ICON;
+            const icon = $('<img class="game-icon">')
+                .attr('src', iconSrc)
+                .on('error', function () {
+                    if (this.src !== window.DEFAULT_ICON) this.src = window.DEFAULT_ICON;
+                });
             gameGrid.append(icon);
         });
 
         // Adjust icon sizes based on the slider value
-        adjustIconSizes(cardSize);
+        adjustIconSizes();
         // Update pagination
-        updatePaginationControls(baseGames.length)
+        updatePaginationControls(totalIconItems);
     }
 
     function getColumnsForCardSize(size) {
@@ -296,49 +450,7 @@
     }
 
     function updatePaginationControls(nbDisplayedGames) {
-        const paginationControls = $('#paginationControls');
-        paginationControls.empty(); // Clear existing pagination
-
-        const totalPages = Math.ceil(nbDisplayedGames / itemsPerPage);
-
-        // Previous button
-        const prevButton = $('<li class="page-item"></li>').addClass(`page-item ${currentPage === 1 ? 'disabled' : ''}`).html(`
-                <a class="page-link" href="#" aria-label="Previous">
-                    <span aria-hidden="true">&laquo;</span>
-                </a>`);
-        prevButton.click(function (e) {
-            e.preventDefault();
-            if (currentPage > 1) {
-                currentPage--;
-                renderGames();
-            }
-        });
-        paginationControls.append(prevButton);
-
-        // Page numbers
-        for (let i = 1; i <= totalPages; i++) {
-            const pageButton = $('<li class="page-item"></li>').addClass(`page-item ${i === currentPage ? 'active' : ''}`).html(`<a class="page-link" href="#">${i}</a>`);
-            pageButton.click(function (e) {
-                e.preventDefault();
-                currentPage = i;
-                renderGames();
-            });
-            paginationControls.append(pageButton);
-        }
-
-        // Next button
-        const nextButton = $('<li class="page-item"></li>').addClass(`page-item ${currentPage === totalPages ? 'disabled' : ''}`).html(`
-                <a class="page-link" href="#" aria-label="Next">
-                    <span aria-hidden="true">&raquo;</span>
-                </a>`);
-        nextButton.click(function (e) {
-            e.preventDefault();
-            if (currentPage < totalPages) {
-                currentPage++;
-                renderGames();
-            }
-        });
-        paginationControls.append(nextButton);
+        paginationController?.update(nbDisplayedGames);
     }
 
     function adjustCardSizes() {
@@ -357,89 +469,258 @@
         $('.game-icon').css('width', `${iconSize}%`);
     }
 
+    // ---- Filters persistence and application ----
+    const activeTypeFilters = new Set();
+    const activeOwnershipFilters = new Set();
+    const activeUpdateFilters = new Set();
+    const activeCompletionFilters = new Set();
+    const activeSpecialFilters = new Set();
+
+    const getCheckedId = (groupName) => $(`input[name="${groupName}"]:checked`).attr('id') || null;
+
+    function updateFilter() {
+        // clear all
+        activeTypeFilters.clear();
+        activeOwnershipFilters.clear();
+        activeUpdateFilters.clear();
+        activeCompletionFilters.clear();
+        activeSpecialFilters.clear();
+
+        // Type (All clears the set → no filtering by type)
+        switch (getCheckedId('typeFilter')) {
+            case 'typeBase': activeTypeFilters.add('BASE'); break;
+            case 'typeDlc':  activeTypeFilters.add('DLC');  break;
+        }
+
+        // Ownership
+        switch (getCheckedId('ownershipFilter')) {
+            case 'ownershipOwned':   activeOwnershipFilters.add('Owned');   break;
+            case 'ownershipMissing': activeOwnershipFilters.add('Missing'); break;
+        }
+
+        // Update  (map “Missing Update” UI to internal “Outdated”)
+        switch (getCheckedId('updateFilter')) {
+            case 'updateUpToDate':       activeUpdateFilters.add('Up to date'); break;
+            case 'updateMissingUpdate':  activeUpdateFilters.add('Outdated');    break;
+        }
+
+        // Completion
+        switch (getCheckedId('completionFilter')) {
+            case 'completionComplete':     activeCompletionFilters.add('Complete');     break;
+            case 'completionMissingDlc':   activeCompletionFilters.add('Missing DLC');  break;
+        }
+
+        // Special (Overrides)
+        switch (getCheckedId('overrideFilter')) {
+            case 'overrideUnrecognized': activeSpecialFilters.add('Unrecognized'); break;
+            case 'overrideOverridden':   activeSpecialFilters.add('Overridden');   break;
+        }
+    }
+
     function saveFiltersToStorage() {
         const filters = {
-            type: "",
-            ownership: "",
-            update: "",
-            completion: ""
+            type:        normalizeId(getCheckedId('typeFilter')),
+            ownership:   normalizeId(getCheckedId('ownershipFilter')),
+            update:      normalizeId(getCheckedId('updateFilter')),
+            completion:  normalizeId(getCheckedId('completionFilter')),
+            override:    normalizeId(getCheckedId('overrideFilter')),
         };
-
-        if ($('#typeBase').is(':checked')) {
-            filters.type = 'BASE';
-        } else if ($('#typeDlc').is(':checked')) {
-            filters.type = 'DLC';
-        }
-
-        if ($('#ownershipOwned').is(':checked')) {
-            filters.ownership = 'Owned';
-        } else if ($('#ownershipMissing').is(':checked')) {
-            filters.ownership = 'Missing';
-        }
-
-        if ($('#updateUpToDate').is(':checked')) {
-            filters.update = 'Up to date';
-        } else if ($('#updateMissingUpdate').is(':checked')) {
-            filters.update = 'Outdated';
-        }
-
-        if ($('#completionComplete').is(':checked')) {
-            filters.completion = 'Complete';
-        } else if ($('#completionMissingDlc').is(':checked')) {
-            filters.completion = 'Missing DLC';
-        }
-
         localStorage.setItem('activeFilters', JSON.stringify(filters));
     }
 
-    function loadFiltersFromStorage() {
-        const savedFilters = localStorage.getItem('activeFilters');
-        if (savedFilters) {
-            const filters = JSON.parse(savedFilters);
-
-            $('#typeBase').prop('checked', filters.type === 'BASE');
-            $('#typeDlc').prop('checked', filters.type === 'DLC');
-
-            $('#ownershipOwned').prop('checked', filters.ownership === 'Owned');
-            $('#ownershipMissing').prop('checked', filters.ownership === 'Missing');
-
-            $('#updateUpToDate').prop('checked', filters.update === 'Up to date');
-            $('#updateMissingUpdate').prop('checked', filters.update === 'Outdated');
-
-            $('#completionComplete').prop('checked', filters.completion === 'Complete');
-            $('#completionMissingDlc').prop('checked', filters.completion === 'Missing DLC');
-
-            updateFilter();
+    function normalizeId(raw) {
+        const s = (raw || '').toString().trim();
+        // strip one or more leading '#'
+        return s.replace(/^#+/,'');
+    }
+    
+    function checkIfExistsAndSet(id) {
+        const norm = normalizeId(id);
+        if (!norm) return;
+        const el = document.getElementById(norm);
+        if (el) $(el).prop('checked', true);
         }
+
+    function loadFiltersFromStorage() {
+        let f = null;
+               try { f = JSON.parse(localStorage.getItem('activeFilters') || 'null'); }
+        catch { f = null; }
+
+        if (f) {
+            if (f.type)       checkIfExistsAndSet(f.type);
+            if (f.ownership)  checkIfExistsAndSet(f.ownership);
+            if (f.update)     checkIfExistsAndSet(f.update);
+            if (f.completion) checkIfExistsAndSet(f.completion);
+            if (f.override)   checkIfExistsAndSet(f.override);
+        }
+
+        updateFilter();
 
         const savedSearch = localStorage.getItem('searchTerm');
-        if (savedSearch) {
-            $('#textFilter').val(savedSearch);
+        if (typeof savedSearch === 'string') $('#textFilter').val(savedSearch);
+
+        applyFilters();
+    }
+
+    function findCommonElements(...arrays) {
+        // Filter out empty arrays
+        const nonEmptyArrays = arrays.filter(array => Array.isArray(array) && array.length > 0);
+        if (nonEmptyArrays.length === 0) return [];
+        return nonEmptyArrays.reduce((common, currentArray) => 
+            common.filter(item => currentArray.includes(item))
+        );
+    }
+
+    // Function to apply filters and show/hide game cards with animation
+    function applyFilters() {
+        if (!Array.isArray(games)) games = [];
+
+        if (
+            activeTypeFilters.size === 0 &&
+            activeOwnershipFilters.size === 0 &&
+            activeUpdateFilters.size === 0 &&
+            activeCompletionFilters.size === 0 &&
+            activeSpecialFilters.size === 0
+        ) {
+            baseFilteredGames = games.slice();
+        } else {
+            let gamesFilteredByType = [];
+            let gamesFilteredByOwnership = [];
+            let gamesFilteredByUpdate = [];
+            let gamesFilteredByCompletion = [];
+            let gamesFilteredBySpecial = [];
+
+            if (activeTypeFilters.size > 0) {
+                for (let type of activeTypeFilters) {
+                    gamesFilteredByType = gamesFilteredByType.concat(games.filter(game => game.app_type === type));
+                }
+            }
+
+            if (activeOwnershipFilters.has("Owned")) {
+                gamesFilteredByOwnership = gamesFilteredByOwnership.concat(games.filter(game => game.owned === true));
+            }
+            if (activeOwnershipFilters.has("Missing")) {
+                gamesFilteredByOwnership = gamesFilteredByOwnership.concat(games.filter(game => game.owned === false));
+            }
+
+            if (activeUpdateFilters.has("Up to date")) {
+                gamesFilteredByUpdate = gamesFilteredByUpdate.concat(games.filter(game => game.has_latest_version === true));
+            }
+            if (activeUpdateFilters.has("Outdated")) {
+                gamesFilteredByUpdate = gamesFilteredByUpdate.concat(games.filter(game => game.has_latest_version === false));
+            }
+
+            if (activeCompletionFilters.has("Complete")) {
+                gamesFilteredByCompletion = gamesFilteredByCompletion.concat(games.filter(game => game.has_all_dlcs === true));
+            }
+            if (activeCompletionFilters.has("Missing DLC")) {
+                gamesFilteredByCompletion = gamesFilteredByCompletion.concat(games.filter(game => game.has_all_dlcs === false));
+            }
+
+            if (activeSpecialFilters.has("Unrecognized")) {
+                if (Overrides?.isUnrecognizedGame) gamesFilteredBySpecial = gamesFilteredBySpecial.concat(games.filter(game => Overrides.isUnrecognizedGame(game)));
+            }
+            if (activeSpecialFilters.has("Overridden")) {
+                if (Overrides?.hasActiveOverride) gamesFilteredBySpecial = gamesFilteredBySpecial.concat(games.filter(game => Overrides.hasActiveOverride(game)));
+            }
+
+            // Base (non-text) filtered list
+            baseFilteredGames = findCommonElements(
+                games,
+                gamesFilteredByType,
+                gamesFilteredByOwnership,
+                gamesFilteredByUpdate,
+                gamesFilteredByCompletion,
+                gamesFilteredBySpecial
+            );
         }
 
-        applyFilters()
+        // Now apply SEARCH on top of baseFilteredGames
+        currentPage = 1;
+        const term = $('#textFilter').val() || '';
+        filteredGames = filterBySearchText(baseFilteredGames, term);
+
+        renderGames();
+    }
+
+    function filterBySearchText(list, searchTerm) {
+        const src = Array.isArray(list) ? list : [];
+        const term = (searchTerm || '').trim().toLowerCase();
+        if (!term) return src.slice();
+
+        return src.filter(game => {
+            // computed header = base title for DLC, or TitleDB name for BASE
+            const computedHeader = Overrides?.displayTitleFor?.(game, games) || (game.title_id_name || '');
+
+            // combine header + app/DLC name (helps full dlc name queries like "A Hat in Time Seal the Deal")
+            const headerPlusName = `${computedHeader} ${game.name || ''}`.trim();
+
+            const fields = [
+                game.app_id,
+                game.title_id,
+                game._orig.title_id,
+                game.name,               // DLC/app name (possibly overridden)
+                game.title_id_name,      // server/base name (may be DLC-overridden sometimes)
+                game.override_name,      // overridden name
+                game.original_name,      // original name
+                computedHeader,          // what we actually show in the big title
+                headerPlusName           // combined for convenience matches
+            ];
+
+            return fields.some(v => typeof v === 'string' && v.toLowerCase().includes(term));
+        });
     }
 
     $(document).ready(function () {
-        const savedItemsPerPage = localStorage.getItem('itemsPerPage');
-        if (savedItemsPerPage) {
-            itemsPerPage = parseInt(savedItemsPerPage);
+        const overridesModule = Overrides;
+
+        // Bind overrides module to our environment
+        if (overridesModule?.bindEnvironment) {
+            overridesModule.bindEnvironment({
+                getGames: () => games,
+                applyFilters: () => applyFilters()
+            });
         }
+        if (overridesModule?.initDomBindings) {
+            overridesModule.initDomBindings();
+        }
+
+        const savedItemsPerPage = localStorage.getItem('itemsPerPage');
+        if (savedItemsPerPage) itemsPerPage = parseInt(savedItemsPerPage);
 
         const savedCurrentView = localStorage.getItem('currentView');
-        if (savedCurrentView) {
-            currentView = savedCurrentView;
-        }
+        if (savedCurrentView) currentView = savedCurrentView;
 
         const savedCardSize = localStorage.getItem('cardSize');
-        if (savedCardSize){
-            cardSize = parseInt(savedCardSize);
-        }
+        if (savedCardSize) cardSize = parseInt(savedCardSize);
 
-        // Fetch initial set of games and render
-        fetchGames().then(() => {
-            loadFiltersFromStorage();
+        paginationController = window.Ownfoil?.Pagination?.create({
+            container: '#paginationControls',
+            getCurrentPage: () => currentPage,
+            setCurrentPage: (page) => { currentPage = page; },
+            getItemsPerPage: () => itemsPerPage,
+            onPageChange: () => renderGames()
         });
+
+        // Fetch overrides for everyone, then fetch games and fold in redirect/projection data before applying explicit overrides
+        const overridesPromise = (overridesModule?.fetchOverrides)
+            ? overridesModule.fetchOverrides()
+            : Promise.resolve(null);
+
+        Promise.all([overridesPromise, fetchGames()])
+            .then(([ovFlags]) => {
+                // Only do work when needed
+                if (ovFlags?.redirectsChanged && overridesModule?.applyRedirectsToGames) {
+                    overridesModule.applyRedirectsToGames(games);
+                }
+                if (ovFlags?.overridesChanged && overridesModule?.reapplyAllOverridesToGames) {
+                    overridesModule.reapplyAllOverridesToGames(games);
+                }
+                loadFiltersFromStorage();
+            })
+            .catch(() => {
+                loadFiltersFromStorage();
+            });
 
         // Event listeners for items per page dropdown
         $('.items-per-page').click(function () {
@@ -463,11 +744,7 @@
         $('#cardSizeRange').on('input', function () {
             cardSize = parseInt($(this).val());
             localStorage.setItem('cardSize', cardSize);
-            if (currentView === 'icon') {
-                adjustIconSizes(cardSize);
-            } else {
-                adjustCardSizes(cardSize);
-            }
+            if (currentView === 'icon') adjustIconSizes(); else adjustCardSizes();
         });
 
         // Event listener for view buttons
@@ -475,76 +752,48 @@
             $('.view-toggle-btn').removeClass("active"); 
             $(this).addClass("active");
             const view = $(this).data('view');
-            localStorage.setItem('currentView', view)
-            if (view === 'card') {
-                currentView = 'card';
-            } else if (view === 'icon') {
-                currentView = 'icon';
-            }
-            renderGames(games);
+            localStorage.setItem('currentView', view);
+            currentView = view;
+            renderGames();
         });
 
-        // Handle type filter toggle buttons
-        $('.type-toggle').change(function () {
-            if ($('#typeBase').is(':checked')) {
-                activeTypeFilter = 'BASE';
-            } else if ($('#typeDlc').is(':checked')) {
-                activeTypeFilter = 'DLC';
-            } else {
-                activeTypeFilter = '';
-            }
+        // Filters
+        $('.type-toggle, .ownership-toggle, .update-toggle, .completion-toggle, .override-toggle').on('change', function() {
+            updateFilter();
             applyFilters();
             saveFiltersToStorage();
         });
 
-        // Handle ownership filter toggle buttons
-        $('.ownership-toggle').change(function () {
-            if ($('#ownershipOwned').is(':checked')) {
-                activeOwnershipFilter = 'Owned';
-            } else if ($('#ownershipMissing').is(':checked')) {
-                activeOwnershipFilter = 'Missing';
-            } else {
-                activeOwnershipFilter = '';
-            }
-            applyFilters();
-            saveFiltersToStorage();
-        });
-
-        // Handle update filter toggle buttons
-        $('.update-toggle').change(function () {
-            if ($('#updateUpToDate').is(':checked')) {
-                activeUpdateFilter = 'Up to date';
-            } else if ($('#updateMissingUpdate').is(':checked')) {
-                activeUpdateFilter = 'Outdated';
-            } else {
-                activeUpdateFilter = '';
-            }
-            applyFilters();
-            saveFiltersToStorage();
-        });
-
-        // Handle completion filter toggle buttons
-        $('.completion-toggle').change(function () {
-            if ($('#completionComplete').is(':checked')) {
-                activeCompletionFilter = 'Complete';
-            } else if ($('#completionMissingDlc').is(':checked')) {
-                activeCompletionFilter = 'Missing DLC';
-            } else {
-                activeCompletionFilter = '';
-            }
-            applyFilters();
-            saveFiltersToStorage();
-        });
-
-        // Listen to input changes in the text filter input
+        // Search (debounced, but skip on Enter)
         $("#textFilter").on("input", function () {
-            const attributeText = $(this).val();
-            localStorage.setItem('searchTerm', attributeText);
+            const val = $(this).val();
+            localStorage.setItem('searchTerm', val);
+
+            clearTimeout(searchDebounceTimer);
+            searchDebounceTimer = setTimeout(() => {
+                applyFilters();
+            }, SEARCH_DEBOUNCE_MS);
+        });
+
+        // Apply immediately when the field loses focus
+        $("#textFilter").on("blur", function () {
+            clearTimeout(searchDebounceTimer);
             applyFilters();
         });
 
-        // Close popovers
-        $(document).on('click', function (e) {
+        // Apply immediately when Enter is pressed (skip debounce)
+        $("#textFilter").on("keydown", function (e) {
+            if (e.key === "Enter" || e.keyCode === 13) {
+                e.preventDefault();                 // prevent form submit/page nav
+                clearTimeout(searchDebounceTimer);  // cancel any pending debounce
+                const val = $(this).val();
+                localStorage.setItem('searchTerm', val);
+                applyFilters();
+            }
+        });
+
+        // Close popovers on document click
+        $(document).on('click', function () {
             $('.popover').removeClass('show');
             $('.popover').remove();
         });
@@ -553,104 +802,6 @@
         $(document).on('click', '.popover', function (e) {
             e.stopPropagation(); // Prevent the click event from bubbling up
         });
-    
     });
-
-    // Store active filters
-    let activeTypeFilter = "";
-    let activeOwnershipFilter = "";
-    let activeUpdateFilter = "";
-    let activeCompletionFilter = "";
-
-    function updateFilter() {
-        // $('#filterDropdownBtn').toggle();
-        if ($('#typeBase').is(":checked")) {
-            activeTypeFilter = 'BASE';
-        } else if ($('#typeDlc').is(":checked")) {
-            activeTypeFilter = 'DLC';
-        } else {
-            activeTypeFilter = '';
-        }
-        if ($('#ownershipOwned').is(":checked")) {
-            activeOwnershipFilter = 'Owned';
-        } else if ($('#ownershipMissing').is(":checked")) {
-            activeOwnershipFilter = 'Missing';
-        } else {
-            activeOwnershipFilter = '';
-        }
-        if ($('#updateUpToDate').is(":checked")) {
-            activeUpdateFilter = 'Up to date';
-        } else if ($('#updateMissingUpdate').is(":checked")) {
-            activeUpdateFilter = 'Outdated';
-        } else {
-            activeUpdateFilter = '';
-        }
-        if ($('#completionComplete').is(":checked")) {
-            activeCompletionFilter = 'Complete';
-        } else if ($('#completionMissingDlc').is(":checked")) {
-            activeCompletionFilter = 'Missing DLC';
-        } else {
-            activeCompletionFilter = '';
-        }
-    }
-
-    function findCommonElements(...arrays) {
-        // Filter out empty arrays
-        const nonEmptyArrays = arrays.filter(array => array.length > 0);
-
-        // If there are no non-empty arrays, return an empty array
-        if (nonEmptyArrays.length === 0) {
-            return [];
-        }
-
-        // Find common elements
-        return nonEmptyArrays.reduce((common, currentArray) => 
-            common.filter(item => currentArray.includes(item))
-        );
-    }
-
-    // Function to apply filters and show/hide game cards with animation
-    function applyFilters() {
-        // Get current search term
-        const searchTerm = $('#textFilter').val();
-        let filtered = filterGamesBySearchTerm(games, searchTerm);
-
-        if (activeTypeFilter) {
-            filtered = filtered.filter(game => game.app_type === activeTypeFilter);
-        }
-        if (activeOwnershipFilter) {
-            filtered = filtered.filter(game => activeOwnershipFilter === 'Owned' ? game.owned === true : game.owned === false);
-        }
-        if (activeUpdateFilter) {
-            filtered = filtered.filter(game => activeUpdateFilter === 'Up to date' ? game.has_latest_version === true : game.has_latest_version === false);
-        }
-        if (activeCompletionFilter) {
-            filtered = filtered.filter(game => activeCompletionFilter === 'Complete' ? game.has_all_dlcs === true : game.has_all_dlcs === false);
-        }
-
-        filteredGames = filtered;
-        currentPage = 1;
-        renderGames();
-    }
-
-    function filterGamesBySearchTerm(gameList, searchTerm) {
-        if (!searchTerm || searchTerm.trim() === "") {
-            return gameList;
-        }
-        const searchText = searchTerm.toLowerCase();
-        return gameList.filter(game =>
-            game.app_id?.toLowerCase().includes(searchText) ||
-            game.title_id?.toLowerCase().includes(searchText) ||
-            game.name?.toLowerCase().includes(searchText) ||
-            game.title_id_name?.toLowerCase().includes(searchText)
-        );
-    }
-
-    // $('#btnApplyFilters').on('click', function () {
-    //     updateFilter();
-    //     applyFilters();
-    // });
-
-    
 </script>
 {% endblock %}

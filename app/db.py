@@ -37,7 +37,7 @@ def get_current_db_version():
     
 def create_db_backup():
     current_revision = get_current_db_version()
-    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.datetime.utcnow().strftime("%Y%m%d_%H%M%S")
     backup_filename = f".backup_v{current_revision}_{timestamp}.db"
     backup_path = os.path.join(CONFIG_DIR, backup_filename)
     shutil.copy2(DB_FILE, backup_path)
@@ -79,7 +79,7 @@ class Files(db.Model):
     identification_type = db.Column(db.String)
     identification_error = db.Column(db.String)
     identification_attempts = db.Column(db.Integer, default=0)
-    last_attempt = db.Column(db.DateTime, default=datetime.datetime.now())
+    last_attempt = db.Column(db.DateTime, default=datetime.datetime.utcnow)
 
     library = db.relationship('Libraries', backref=db.backref('files', lazy=True, cascade="all, delete-orphan"))
 
@@ -106,6 +106,15 @@ class Apps(db.Model):
 
     title = db.relationship('Titles', backref=db.backref('apps', lazy=True, cascade="all, delete-orphan"))
     files = db.relationship('Files', secondary=app_files, backref=db.backref('apps', lazy='select'))
+
+    # One-to-one: delete override automatically when an Apps row is deleted
+    override = db.relationship(
+        'AppOverrides',
+        back_populates='app',
+        cascade='all, delete-orphan',
+        passive_deletes=True,
+        uselist=False
+    )
 
     __table_args__ = (db.UniqueConstraint('app_id', 'app_version', name='uq_apps_app_version'),)
 
@@ -138,6 +147,64 @@ class User(UserMixin, db.Model):
         elif access == 'backup':
             return self.has_backup_access()
 
+class AppOverrides(db.Model):
+    __tablename__ = 'app_overrides'
+
+    id = db.Column(db.Integer, primary_key=True)
+
+    # FK to Apps (one-to-one), cascades on app delete
+    app_fk = db.Column(db.Integer, db.ForeignKey('apps.id', ondelete='CASCADE'), nullable=False, unique=True)
+
+    # ORM relationship
+    app = db.relationship('Apps', back_populates='override')
+
+    # ---- Overridable metadata (all optional) ----
+    name         = db.Column(db.String(512), nullable=True)
+    release_date = db.Column(db.Date, nullable=True)
+    region       = db.Column(db.String(32), nullable=True)
+    description  = db.Column(db.Text, nullable=True)
+    content_type = db.Column(db.String(64), nullable=True)   # e.g., Base/Update/DLC
+    version      = db.Column(db.String(64), nullable=True)
+
+    # ---- Artwork (relative paths under /static/...) ----
+    icon_path   = db.Column(db.String(1024), nullable=True)
+    banner_path = db.Column(db.String(1024), nullable=True)
+
+    # ---- Corrected Title ID (for TitleDB lookups/merge only) ----
+    corrected_title_id = db.Column(db.String(16), index=True, nullable=True)  # NEW
+
+    enabled    = db.Column(db.Boolean, nullable=False, default=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.datetime.utcnow)
+    updated_at = db.Column(
+        db.DateTime,
+        nullable=False,
+        default=datetime.datetime.utcnow,
+        onupdate=datetime.datetime.utcnow
+    )
+
+    # Convenience: expose app.app_id without storing it in this table
+    @property
+    def app_id(self):
+        return self.app.app_id if self.app else None
+
+    def as_dict(self):
+        return {
+            'id': self.id,
+            'app_id': self.app.app_id if self.app else None,
+            'name': self.name,
+            'release_date': self.release_date.isoformat() if self.release_date else None,
+            'region': self.region,
+            'description': self.description,
+            'content_type': self.content_type,
+            'version': self.version,
+            'icon_path': self.icon_path,
+            'banner_path': self.banner_path,
+            'corrected_title_id': self.corrected_title_id,
+            'enabled': self.enabled,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+        }
+
 def init_db(app):
     with app.app_context():
         # Ensure foreign keys are enforced when the SQLite connection is opened
@@ -159,6 +226,9 @@ def init_db(app):
                     create_db_backup()
                     upgrade()
                     logger.info("Database migration applied successfully.")
+
+        # cleanup any stale banner/icon files
+        _garbage_collect_orphaned_art()
 
 def file_exists_in_db(filepath):
     return Files.query.filter_by(filepath=filepath).first() is not None
@@ -215,18 +285,34 @@ def get_all_files_without_identification(identification):
     results = Files.query.filter(Files.identification_type != identification).all()
     return[to_dict(r)['filepath']  for r in results]
 
-def get_all_apps():
-    apps_list = [
-        {
+from sqlalchemy.orm import joinedload
+
+def get_all_apps(include_files: bool = False):
+    q = Apps.query.options(db.joinedload(Apps.title))
+    if include_files:
+        q = q.options(joinedload(Apps.files))
+
+    apps_list = []
+    for app in q.all():
+        row = {
             "id": app.id,
-            "title_id": app.title.title_id,  # Access the actual title_id from Titles
+            "title_id": app.title.title_id,
             "app_id": app.app_id,
             "app_version": app.app_version,
             "app_type": app.app_type,
-            "owned": app.owned
+            "owned": app.owned,
         }
-        for app in Apps.query.options(db.joinedload(Apps.title)).all()  # Optimized with joinedload
-    ]
+        if include_files:
+            row["files"] = [{
+                "id": f.id,
+                "filename": getattr(f, "filename", None),
+                "filepath": getattr(f, "filepath", None),
+                "identification_type": (getattr(f, "identification_type", None) or "").lower(),
+                "last_attempt": getattr(f, "last_attempt", None),
+                "created_at": getattr(f, "created_at", None),
+            } for f in (app.files or [])]
+        apps_list.append(row)
+
     return apps_list
 
 def get_all_non_identified_files_from_library(library_id):
@@ -236,31 +322,12 @@ def get_files_with_identification_from_library(library_id, identification_type):
     return Files.query.filter_by(library_id=library_id, identification_type=identification_type).all()
 
 def get_shop_files():
-    shop_files = []
-    results = Files.query.options(db.joinedload(Files.apps).joinedload(Apps.title)).all()
-
-    for file in results:
-        if file.identified:
-            # Get the first app associated with this file using the many-to-many relationship
-            app = file.apps[0] if file.apps else None
-
-            if app:
-                if file.multicontent or file.extension.startswith('x'):
-                    title_id = app.title.title_id
-                    final_filename = f"[{title_id}].{file.extension}"
-                else:
-                    final_filename = f"[{app.app_id}][v{app.app_version}].{file.extension}"
-            else:
-                final_filename = file.filename.replace(f'.{file.extension}', '') + ' (unidentified).' + file.extension
-        else:
-            final_filename = file.filename.replace(f'.{file.extension}', '') + ' (unidentified).' + file.extension
-
-        shop_files.append({
-            "id": file.id,
-            "filename": final_filename,
-            "size": file.size
-        })
-
+    results = Files.query.all()
+    shop_files = [{
+        "id": file.id,
+        "filename": file.filename,
+        "size": file.size
+    } for file in results]
     return shop_files
 
 def get_libraries():
@@ -281,6 +348,7 @@ def delete_library(library):
         
     db.session.delete(get_library(library))
     db.session.commit()
+    _garbage_collect_orphaned_art()
 
 def get_library(library_id):
     return Libraries.query.filter_by(id=library_id).first()
@@ -304,7 +372,7 @@ def get_library_file_paths(library_id):
 
 def set_library_scan_time(library_id, scan_time=None):
     library = get_library(library_id)
-    library.last_scan = scan_time or datetime.datetime.now()
+    library.last_scan = scan_time or datetime.datetime.utcnow()
     db.session.commit()
 
 def get_all_titles():
@@ -315,7 +383,7 @@ def get_title(title_id):
 
 def get_title_id_db_id(title_id):
     title = get_title(title_id)
-    return title.id
+    return title.id if title else None
 
 def add_title_id_in_db(title_id):
     existing_title = Titles.query.filter_by(title_id=title_id).first()
@@ -327,7 +395,7 @@ def add_title_id_in_db(title_id):
 
 def get_all_title_apps(title_id):
     title = Titles.query.options(joinedload(Titles.apps)).filter_by(title_id=title_id).first()
-    return[to_dict(a)  for a in title.apps]
+    return [] if title is None else [to_dict(a)  for a in title.apps]
 
 def get_app_by_id_and_version(app_id, app_version):
     """Get app entry for a specific app_id and version (unique due to constraint)"""
@@ -343,17 +411,28 @@ def is_app_owned(app_id, app_version):
     app = get_app_by_id_and_version(app_id, app_version)
     return app.owned if app else False
 
-def add_file_to_app(app_id, app_version, file_id):
-    """Add a file to an existing app using many-to-many relationship"""
-    app = get_app_by_id_and_version(app_id, app_version)
-    if app:
-        file_obj = get_file_from_db(file_id)
-        if file_obj and file_obj not in app.files:
-            app.files.append(file_obj)
-            app.owned = True
-            db.session.commit()
-            return True
-    return False
+def add_file_to_app(app_id, app_version, file_id, *, commit=True):
+    """Add a file to an existing app using many-to-many relationship (idempotent)."""
+    ver = str(app_version if app_version is not None else "0")
+    app = get_app_by_id_and_version(app_id, ver)
+    if not app:
+        return False
+
+    file_obj = get_file_from_db(file_id)
+    if not file_obj:
+        return False
+
+    # Link if missing
+    if file_obj not in app.files:
+        app.files.append(file_obj)
+
+    # Ensure owned reflects reality once any file is linked
+    if not app.owned:
+        app.owned = True
+
+    if commit:
+        db.session.commit()
+    return True
 
 def remove_file_from_apps(file_id):
     """Remove a file from all apps that reference it and update owned status"""
@@ -399,6 +478,10 @@ def remove_titles_without_owned_apps():
             db.session.delete(title)
             titles_removed += 1
     
+    if titles_removed:
+        db.session.commit()
+        _garbage_collect_orphaned_art()
+    
     return titles_removed
 
 def delete_files_by_library(library_path):
@@ -406,7 +489,7 @@ def delete_files_by_library(library_path):
     errors = []
     try:
         # Find all files with the given library
-        files_to_delete = Files.query.filter_by(library=library_path).all()
+        files_to_delete = Files.query.filter_by(library_id=get_library_id(library_path)).all()
         
         # Update Apps table before deleting files
         total_apps_updated = 0
@@ -420,6 +503,7 @@ def delete_files_by_library(library_path):
         
         # Commit the changes
         db.session.commit()
+        _garbage_collect_orphaned_art()
         
         logger.info(f"All entries with library '{library_path}' have been deleted.")
         if total_apps_updated > 0:
@@ -450,7 +534,8 @@ def delete_file_by_filepath(filepath):
         
         # Commit the changes
         db.session.commit()
-        
+        _garbage_collect_orphaned_art()
+
         logger.info(f"File '{filepath}' removed from database.")
         if apps_updated > 0:
             logger.info(f"Updated {apps_updated} app entries to remove file reference.")
@@ -489,6 +574,7 @@ def remove_missing_files_from_db():
             Files.query.filter(Files.id.in_(ids_to_delete)).delete(synchronize_session=False)
             
             db.session.commit()
+            _garbage_collect_orphaned_art()
             
             logger.info(f"Deleted {len(ids_to_delete)} files from the database.")
             if total_apps_updated > 0:
@@ -500,3 +586,13 @@ def remove_missing_files_from_db():
     except Exception as e:
         db.session.rollback()  # Rollback in case of an error
         logger.error(f"An error occurred while removing missing files: {str(e)}")
+
+def _garbage_collect_orphaned_art():
+    try:
+        # Local import to avoid circular imports
+        from images import garbage_collect_orphan_art_files
+        from flask import current_app
+        with current_app.app_context():
+            garbage_collect_orphan_art_files()
+    except Exception as e:
+        logger.warning(f"GC of orphan override art failed: {e}")
