@@ -13,4 +13,4 @@ chown -R ${uid}:${gid} /root
 
 echo "Starting ownfoil"
 
-exec sudo -E -u "#${uid}" gunicorn -w 4 -b 0.0.0.0 'app:create_app()'
+exec sudo -E -u "#${uid}" gunicorn -w ${GUNICORN_WORKERS:-4} -b 0.0.0.0:${PORT:-8465} 'app:create_app()'
