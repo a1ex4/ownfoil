@@ -57,6 +57,7 @@ ALLOWED_EXTENSIONS = [
     'nsz',
     'xci',
     'xcz',
+    'zip',
 ]
 
 APP_TYPE_BASE = 'BASE'
