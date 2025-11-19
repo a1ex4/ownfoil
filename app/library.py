@@ -136,7 +136,10 @@ def scan_library_path(library_path):
     set_library_scan_time(library_id)
 
 def get_files_to_identify(library_id):
-    non_identified_files = get_all_non_identified_files_from_library(library_id)
+    non_identified_files = [
+        f for f in get_all_non_identified_files_from_library(library_id)
+        if not f.extension or f.extension.lower() != 'zip'
+    ]
     if titles_lib.Keys.keys_loaded:
         files_to_identify_with_cnmt = get_files_with_identification_from_library(library_id, 'filename')
         non_identified_files = list(set(non_identified_files).union(files_to_identify_with_cnmt))
@@ -156,6 +159,14 @@ def identify_library_files(library):
             file_id = file.id
             filepath = file.filepath
             filename = file.filename
+
+            if file.extension and file.extension.lower() == 'zip':
+                # Savegames zipped by the user are not parsed like NSP/XCI assets
+                logger.info(f'Skipping identification for zip file ({n+1}/{nb_to_identify}): {filename}')
+                file.identification_type = 'zip'
+                file.identification_error = None
+                file.identified = False
+                continue
 
             if not os.path.exists(filepath):
                 logger.warning(f'Identifying file ({n+1}/{nb_to_identify}): {filename} no longer exists, deleting from database.')
