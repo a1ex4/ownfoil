@@ -57,7 +57,7 @@
                     <div class="mb-2">
                         <label for="converterCommandInput" class="form-label">Converter command</label>
                         <input type="text" class="form-control" id="converterCommandInput"
-                            value='{nsz_exe} -C -o "{output_dir}" "{input_file}"'>
+                            value='nsz -C -o "{output_dir}" "{input_file}"'>
                         <div class="form-text">
                             Supports placeholders: <code>{input_file}</code>, <code>{output_file}</code>, <code>{output_dir}</code>.
                         </div>
@@ -76,9 +76,17 @@
                         <div class="form-text">Only NSP/XCI files are listed.</div>
                     </div>
                     <div class="d-flex flex-wrap gap-3 align-items-center">
+                        <div class="input-group" style="max-width: 220px;">
+                            <span class="input-group-text">Library</span>
+                            <select class="form-select" id="convertLibrarySelect"></select>
+                        </div>
                         <div class="input-group" style="max-width: 180px;">
                             <span class="input-group-text">Threads</span>
                             <input type="number" min="1" class="form-control" id="convertThreadsInput" placeholder="Auto">
+                        </div>
+                        <div class="input-group" style="max-width: 200px;">
+                            <span class="input-group-text">Timeout</span>
+                            <input type="number" min="1" class="form-control" id="convertTimeoutInput" placeholder="sec">
                         </div>
                         <div class="form-check">
                             <input class="form-check-input" type="checkbox" id="convertDeleteOriginal" checked>
@@ -103,7 +111,10 @@
                 <div class="card-body d-flex flex-column">
                     <div class="d-flex align-items-center justify-content-between mb-2">
                         <h5 class="card-title mb-0">Task output</h5>
-                        <button class="btn btn-outline-secondary btn-sm" type="button" onClick="showManageOutput([])">Clear</button>
+                        <div class="btn-group">
+                            <button class="btn btn-outline-secondary btn-sm" type="button" onClick="showManageOutput([])">Clear</button>
+                            <button class="btn btn-outline-danger btn-sm" type="button" id="cancelJobBtn" onClick="cancelActiveJob()" disabled>Cancel</button>
+                        </div>
                     </div>
                     <div class="mb-2">
                         <div class="progress" style="height: 6px;">
@@ -112,8 +123,17 @@
                         <div id="manageProgressText" class="text-muted small mt-1"></div>
                         <div id="manageCompressionText" class="text-muted small"></div>
                     </div>
+                    <div class="mb-2">
+                        <span class="badge text-bg-secondary" id="manageHealthBadge">Checking converter...</span>
+                    </div>
                     <pre id="manageOutput" class="mb-0 flex-grow-1"
                         style="max-height: 540px; overflow: auto;"></pre>
+                </div>
+            </div>
+            <div class="card mb-3">
+                <div class="card-body">
+                    <h5 class="card-title">Recent jobs</h5>
+                    <div id="manageJobHistory" class="small text-muted">No jobs yet.</div>
                 </div>
             </div>
         </div>
@@ -187,7 +207,9 @@
             delete_original: $('#convertDeleteOriginal').is(':checked'),
             command: $('#converterCommandInput').val(),
             verbose: $('#convertVerbose').is(':checked'),
-            threads: getThreadsValue()
+            threads: getThreadsValue(),
+            library_id: getLibraryValue(),
+            timeout_seconds: getTimeoutValue()
         }
         $.ajax({
             url: "/api/manage/convert-job",
@@ -210,7 +232,9 @@
     function loadConvertibleFiles() {
         $('#convertSingleSelect').prop('disabled', true);
         $('#convertSingleSelect').empty().append('<option value="">Loading files...</option>');
-        $.getJSON("/api/manage/convertibles", function (result) {
+        const libraryValue = getLibraryValue();
+        const url = libraryValue ? `/api/manage/convertibles?library_id=${libraryValue}` : "/api/manage/convertibles";
+        $.getJSON(url, function (result) {
             if (!result['success']) {
                 $('#convertSingleSelect').empty().append('<option value="">Failed to load files</option>');
                 return;
@@ -245,7 +269,8 @@
             delete_original: $('#convertDeleteOriginal').is(':checked'),
             command: $('#converterCommandInput').val(),
             verbose: $('#convertVerbose').is(':checked'),
-            threads: getThreadsValue()
+            threads: getThreadsValue(),
+            timeout_seconds: getTimeoutValue()
         }
         $.ajax({
             url: "/api/manage/convert-single-job",
@@ -293,12 +318,23 @@
         return val ? parseInt(val, 10) : null;
     }
 
+    function getTimeoutValue() {
+        const val = $('#convertTimeoutInput').val();
+        return val ? parseInt(val, 10) : null;
+    }
+
+    function getLibraryValue() {
+        const val = $('#convertLibrarySelect').val();
+        return val ? parseInt(val, 10) : null;
+    }
+
     function startJobPolling(jobId, startMessage) {
         activeJobId = jobId;
         lastLogCount = 0;
         showManageAlert(startMessage, 'info');
         showManageOutput([startMessage]);
         updateProgressDisplay(0, 0, 0, '');
+        $('#cancelJobBtn').prop('disabled', false);
         if (jobPollTimer) {
             clearInterval(jobPollTimer);
         }
@@ -331,12 +367,14 @@
             if (job['status'] !== 'running') {
                 clearInterval(jobPollTimer);
                 jobPollTimer = null;
+                $('#cancelJobBtn').prop('disabled', true);
                 if (job['status'] === 'success') {
                     showManageAlert('Conversion complete.', 'success');
                 } else {
                     showManageAlert(`Conversion failed: ${job['errors'].join('; ')}`, 'danger');
                 }
                 loadConvertibleFiles();
+                loadJobHistory();
             }
         });
     }
@@ -355,8 +393,80 @@
         }
     }
 
+    function cancelActiveJob() {
+        if (!activeJobId) {
+            return;
+        }
+        $.ajax({
+            url: `/api/manage/convert-job/${activeJobId}/cancel`,
+            type: 'POST',
+            success: function (result) {
+                if (result['success']) {
+                    showManageAlert('Job cancelled.', 'warning');
+                    $('#cancelJobBtn').prop('disabled', true);
+                }
+            }
+        });
+    }
+
+    function loadJobHistory() {
+        $.getJSON("/api/manage/jobs?limit=10", function (result) {
+            if (!result['success']) {
+                return;
+            }
+            const jobs = result['jobs'] || [];
+            if (!jobs.length) {
+                $('#manageJobHistory').text('No jobs yet.');
+                return;
+            }
+            const lines = jobs.map(job => {
+                const status = job['status'];
+                const summary = job['summary'] || {};
+                const converted = summary['converted'] || 0;
+                const skipped = summary['skipped'] || 0;
+                return `${new Date(job['created_at'] * 1000).toLocaleString()} - ${status} (converted ${converted}, skipped ${skipped})`;
+            });
+            $('#manageJobHistory').text(lines.join('\n'));
+        });
+    }
+
+    function loadHealthStatus() {
+        $.getJSON("/api/manage/health", function (result) {
+            if (!result['success']) {
+                return;
+            }
+            const keysOk = result['keys_present'];
+            const nszOk = !!result['nsz_exe'];
+            let badgeClass = 'text-bg-success';
+            let text = 'Converter ready';
+            if (!keysOk || !nszOk) {
+                badgeClass = 'text-bg-warning';
+                text = 'Converter needs attention';
+            }
+            $('#manageHealthBadge').removeClass('text-bg-success text-bg-warning text-bg-secondary').addClass(badgeClass).text(text);
+        });
+    }
+
+    function loadLibraries() {
+        $.getJSON("/api/manage/libraries", function (result) {
+            if (!result['success']) {
+                return;
+            }
+            const libraries = result['libraries'] || [];
+            const select = $('#convertLibrarySelect');
+            select.empty().append('<option value="">All libraries</option>');
+            libraries.forEach(lib => {
+                select.append(`<option value="${lib.id}">${lib.path}</option>`);
+            });
+        });
+    }
+
     $(document).ready(function () {
+        loadLibraries();
         loadConvertibleFiles();
+        loadJobHistory();
+        loadHealthStatus();
+        $('#convertLibrarySelect').on('change', loadConvertibleFiles);
     });
 </script>
 

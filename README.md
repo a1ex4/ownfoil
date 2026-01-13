@@ -15,7 +15,7 @@ Ownfoil is a Nintendo Switch library manager, that will also turn your library i
 The project is still in development, expect things to break or change without notice.
 
 # Table of Contents
-- [Installation](#nstallation)
+- [Installation](#installation)
 - [Usage](#usage)
 - [Roadmap](#roadmap)
 - [Similar Projects](#similar-projects)
@@ -92,6 +92,9 @@ Ownfoil requires an `admin` user to be created to enable Authentication for your
 In the `Settings` page under the `Library` section, you can add directories containing your content. You can then manually trigger the library scan: Ownfoil will scan the content of the directories and try to identify every supported file (currently `nsp`, `nsz`, `xci`, `xcz`).
 There is watchdog in place for all your added directories: files moved, renamed, added or removed will be reflected directly in your library.
 
+## Library management
+In the `Manage` page, you can organize your library structure, delete older update files, and convert `nsp`/`xci` to `nsz`. Conversion uses the `nsz` CLI (installed via `pip`) and the console keys you upload in `Settings`.
+
 ## Titles configuration
 In the `Settings` page under the `Titles` section is where you specify the language of your Shop (currently the same for all users).
 
@@ -103,18 +106,18 @@ In the `Settings` page under the `Shop` section is where you customize your Shop
 # Roadmap
 Planned feature, in no particular order.
  - Library browser:
-    - [ ] Add "details" view for every content, to display versions etc
+    - [x] Add "details" view for every content, to display versions etc
  - Library management:
-    - [ ] Rename and organize library after content identification
-    - [ ] Delete older updates
-    - [ ] Automatic nsp/xci -> nsz conversion
+    - [x] Rename and organize library after content identification
+    - [x] Delete older updates
+    - [x] Automatic nsp/xci -> nsz conversion
  - Shop customization:
     - [ ] Encrypt shop
  - Support emulator Roms
     - [ ] Scrape box arts
     - [ ] Automatically create NSP forwarders
  - Saves manager:
-    - [ ] Automatically discover Swicth device based on Tinfoil connection
+    - [ ] Automatically discover Switch device based on Tinfoil connection
     - [ ] Only backup and serve saves based on the user/Switch
  - External services:
     - [ ] Integrate torrent indexer Jackett to download updates automatically

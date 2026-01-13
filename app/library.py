@@ -4,6 +4,7 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 from constants import *
 from db import *
 import titles as titles_lib
@@ -635,9 +636,12 @@ def _format_nsz_command(command_template, input_file, output_file, threads=None)
         command = f"{command} -t {threads}"
     return command
 
-def _run_command(command, log_cb=None, stream_output=False):
+def _run_command(command, log_cb=None, stream_output=False, cancel_cb=None, timeout_seconds=None):
+    env = os.environ.copy()
+    env['PYTHONIOENCODING'] = 'utf-8'
+    env['PYTHONUTF8'] = '1'
     if not stream_output:
-        return subprocess.run(command, shell=True, capture_output=True, text=True)
+        return subprocess.run(command, shell=True, capture_output=True, text=True, env=env)
 
     process = subprocess.Popen(
         command,
@@ -645,11 +649,28 @@ def _run_command(command, log_cb=None, stream_output=False):
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
-        bufsize=1
+        bufsize=1,
+        env=env
     )
-    if process.stdout and log_cb:
-        for line in process.stdout:
-            log_cb(line.rstrip())
+    start_time = time.time()
+    if process.stdout:
+        while True:
+            if cancel_cb and cancel_cb():
+                process.terminate()
+                break
+            if timeout_seconds and (time.time() - start_time) > timeout_seconds:
+                if log_cb:
+                    log_cb(f"Timeout after {timeout_seconds}s, terminating process.")
+                process.terminate()
+                break
+            line = process.stdout.readline()
+            if line:
+                if log_cb:
+                    log_cb(line.rstrip())
+            elif process.poll() is not None:
+                break
+            else:
+                time.sleep(0.2)
     returncode = process.wait()
     result = subprocess.CompletedProcess(command, returncode, '', '')
     return result
@@ -715,7 +736,7 @@ def organize_library(dry_run=False, verbose=False, detail_limit=200):
 
     def add_detail(message):
         nonlocal detail_count
-        if verbose and detail_count < detail_limit:
+        if (verbose or dry_run) and detail_count < detail_limit:
             results['details'].append(message)
             detail_count += 1
 
@@ -800,7 +821,7 @@ def delete_older_updates(dry_run=False, verbose=False, detail_limit=200):
 
     def add_detail(message):
         nonlocal detail_count
-        if verbose and detail_count < detail_limit:
+        if (verbose or dry_run) and detail_count < detail_limit:
             results['details'].append(message)
             detail_count += 1
 
@@ -845,7 +866,7 @@ def delete_older_updates(dry_run=False, verbose=False, detail_limit=200):
         results['success'] = False
     return results
 
-def convert_to_nsz(command_template, delete_original=True, dry_run=False, verbose=False, detail_limit=200, log_cb=None, progress_cb=None, stream_output=False, threads=None):
+def convert_to_nsz(command_template, delete_original=True, dry_run=False, verbose=False, detail_limit=200, log_cb=None, progress_cb=None, stream_output=False, threads=None, library_id=None, cancel_cb=None, timeout_seconds=None, min_size_bytes=None):
     results = {
         'success': True,
         'converted': 0,
@@ -857,7 +878,7 @@ def convert_to_nsz(command_template, delete_original=True, dry_run=False, verbos
 
     def add_detail(message):
         nonlocal detail_count
-        if verbose and detail_count < detail_limit:
+        if (verbose or dry_run) and detail_count < detail_limit:
             results['details'].append(message)
             detail_count += 1
 
@@ -874,15 +895,36 @@ def convert_to_nsz(command_template, delete_original=True, dry_run=False, verbos
         if log_cb:
             log_cb(warning)
 
-    files = Files.query.filter(Files.extension.in_(['nsp', 'xci'])).all()
+    query = Files.query.filter(Files.extension.in_(['nsp', 'xci']))
+    if library_id:
+        query = query.filter_by(library_id=library_id)
+    files = query.all()
     total_files = len(files)
     processed = 0
     if progress_cb:
         progress_cb(0, total_files)
+    if log_cb:
+        log_cb(f"Found {total_files} file(s) to convert.")
     for file_entry in files:
+        if cancel_cb and cancel_cb():
+            if log_cb:
+                log_cb('Conversion cancelled.')
+            break
         if not file_entry.filepath or not os.path.exists(file_entry.filepath):
             results['skipped'] += 1
             add_detail('Skip missing file path.')
+            if log_cb:
+                log_cb('Skip missing file path.')
+            processed += 1
+            if progress_cb:
+                progress_cb(processed, total_files)
+            continue
+
+        if min_size_bytes and file_entry.size and file_entry.size < min_size_bytes:
+            results['skipped'] += 1
+            add_detail(f"Skip small file (<{min_size_bytes} bytes): {file_entry.filepath}.")
+            if log_cb:
+                log_cb(f"Skip small file (<{min_size_bytes} bytes): {file_entry.filepath}.")
             processed += 1
             if progress_cb:
                 progress_cb(processed, total_files)
@@ -892,6 +934,8 @@ def convert_to_nsz(command_template, delete_original=True, dry_run=False, verbos
         if os.path.exists(output_file):
             results['skipped'] += 1
             add_detail(f"Skip existing output: {output_file}.")
+            if log_cb:
+                log_cb(f"Skip existing output: {output_file}.")
             processed += 1
             if progress_cb:
                 progress_cb(processed, total_files)
@@ -907,6 +951,8 @@ def convert_to_nsz(command_template, delete_original=True, dry_run=False, verbos
         if dry_run:
             results['converted'] += 1
             add_detail(f"Plan convert: {file_entry.filepath} -> {output_file}.")
+            if log_cb:
+                log_cb(f"Plan convert: {file_entry.filepath} -> {output_file}.")
             processed += 1
             if progress_cb:
                 progress_cb(processed, total_files)
@@ -915,7 +961,13 @@ def convert_to_nsz(command_template, delete_original=True, dry_run=False, verbos
         try:
             if log_cb:
                 log_cb(f"Running: {command}")
-            process = _run_command(command, log_cb=log_cb, stream_output=stream_output)
+            process = _run_command(
+                command,
+                log_cb=log_cb,
+                stream_output=stream_output,
+                cancel_cb=cancel_cb,
+                timeout_seconds=timeout_seconds
+            )
             if process.returncode != 0:
                 results['errors'].append(process.stderr.strip() or 'Conversion failed.')
                 add_detail(f"Error converting {file_entry.filepath}: {process.stderr.strip() or 'Conversion failed.'}.")
@@ -994,8 +1046,11 @@ def convert_to_nsz(command_template, delete_original=True, dry_run=False, verbos
         results['success'] = False
     return results
 
-def list_convertible_files(limit=2000):
-    files = Files.query.filter(Files.extension.in_(['nsp', 'xci'])).limit(limit).all()
+def list_convertible_files(limit=2000, library_id=None):
+    query = Files.query.filter(Files.extension.in_(['nsp', 'xci']))
+    if library_id:
+        query = query.filter_by(library_id=library_id)
+    files = query.limit(limit).all()
     return [
         {
             'id': file.id,
@@ -1007,7 +1062,7 @@ def list_convertible_files(limit=2000):
         for file in files
     ]
 
-def convert_single_to_nsz(file_id, command_template, delete_original=True, dry_run=False, verbose=False, log_cb=None, progress_cb=None, stream_output=False, threads=None):
+def convert_single_to_nsz(file_id, command_template, delete_original=True, dry_run=False, verbose=False, log_cb=None, progress_cb=None, stream_output=False, threads=None, cancel_cb=None, timeout_seconds=None):
     results = {
         'success': True,
         'converted': 0,
@@ -1059,6 +1114,11 @@ def convert_single_to_nsz(file_id, command_template, delete_original=True, dry_r
         threads=threads
     )
 
+    if cancel_cb and cancel_cb():
+        if log_cb:
+            log_cb('Conversion cancelled.')
+        return results
+
     if dry_run:
         results['converted'] = 1
         if verbose:
@@ -1070,7 +1130,13 @@ def convert_single_to_nsz(file_id, command_template, delete_original=True, dry_r
     try:
         if log_cb:
             log_cb(f"Running: {command}")
-        process = _run_command(command, log_cb=log_cb, stream_output=stream_output)
+        process = _run_command(
+            command,
+            log_cb=log_cb,
+            stream_output=stream_output,
+            cancel_cb=cancel_cb,
+            timeout_seconds=timeout_seconds
+        )
         if process.returncode != 0:
             results['success'] = False
             results['errors'].append(process.stderr.strip() or 'Conversion failed.')

@@ -18,6 +18,7 @@ from auth import *
 import titles
 from utils import *
 from library import *
+from library import _get_nsz_exe
 import titledb
 import os
 import threading
@@ -122,6 +123,7 @@ is_titledb_update_running = False
 titledb_update_lock = threading.Lock()
 conversion_jobs = {}
 conversion_jobs_lock = threading.Lock()
+conversion_job_limit = 50
 
 # Configure logging
 formatter = ColoredFormatter(
@@ -218,6 +220,7 @@ def _create_job(kind, total=0):
         'id': job_id,
         'kind': kind,
         'status': 'running',
+        'cancelled': False,
         'created_at': time.time(),
         'updated_at': time.time(),
         'progress': {
@@ -267,7 +270,10 @@ def _job_finish(job_id, results):
         job = conversion_jobs.get(job_id)
         if not job:
             return
-        job['status'] = 'failed' if results.get('errors') else 'success'
+        if job.get('cancelled'):
+            job['status'] = 'cancelled'
+        else:
+            job['status'] = 'failed' if results.get('errors') else 'success'
         job['errors'] = results.get('errors', [])
         job['summary'] = {
             'converted': results.get('converted', 0),
@@ -276,6 +282,15 @@ def _job_finish(job_id, results):
             'moved': results.get('moved', 0)
         }
         job['updated_at'] = time.time()
+        if len(conversion_jobs) > conversion_job_limit:
+            oldest = sorted(conversion_jobs.values(), key=lambda item: item['created_at'])[:len(conversion_jobs) - conversion_job_limit]
+            for item in oldest:
+                conversion_jobs.pop(item['id'], None)
+
+def _job_is_cancelled(job_id):
+    with conversion_jobs_lock:
+        job = conversion_jobs.get(job_id)
+        return bool(job and job.get('cancelled'))
 
 def tinfoil_access(f):
     @wraps(f)
@@ -490,7 +505,8 @@ def manage_convert_nsz():
 @app.get('/api/manage/convertibles')
 @access_required('admin')
 def manage_convertible_files():
-    files = list_convertible_files()
+    library_id = request.args.get('library_id')
+    files = list_convertible_files(library_id=int(library_id)) if library_id else list_convertible_files()
     return jsonify({'success': True, 'files': files})
 
 @app.post('/api/manage/convert-single')
@@ -525,6 +541,8 @@ def manage_convert_job():
     delete_original = bool(data.get('delete_original', True))
     verbose = bool(data.get('verbose', False))
     threads = data.get('threads')
+    library_id = data.get('library_id')
+    timeout_seconds = data.get('timeout_seconds')
     command = data.get('command')
 
     job_id = _create_job('convert')
@@ -539,7 +557,11 @@ def manage_convert_job():
                 log_cb=lambda msg: _job_log(job_id, msg),
                 progress_cb=lambda done, total: _job_progress(job_id, done, total),
                 stream_output=True,
-                threads=threads
+                threads=threads,
+                library_id=library_id,
+                cancel_cb=lambda: _job_is_cancelled(job_id),
+                timeout_seconds=timeout_seconds,
+                min_size_bytes=50 * 1024 * 1024
             )
             if results.get('success') and not dry_run:
                 post_library_change()
@@ -558,6 +580,7 @@ def manage_convert_single_job():
     delete_original = bool(data.get('delete_original', True))
     verbose = bool(data.get('verbose', False))
     threads = data.get('threads')
+    timeout_seconds = data.get('timeout_seconds')
     command = data.get('command')
     if not file_id:
         return jsonify({'success': False, 'errors': ['Missing file id.']})
@@ -575,7 +598,9 @@ def manage_convert_single_job():
                 log_cb=lambda msg: _job_log(job_id, msg),
                 progress_cb=lambda done, total: _job_progress(job_id, done, total),
                 stream_output=True,
-                threads=threads
+                threads=threads,
+                cancel_cb=lambda: _job_is_cancelled(job_id),
+                timeout_seconds=timeout_seconds
             )
             if results.get('success') and not dry_run:
                 post_library_change()
@@ -593,6 +618,55 @@ def manage_convert_job_status(job_id):
         if not job:
             return jsonify({'success': False, 'error': 'Job not found.'}), 404
         return jsonify({'success': True, 'job': job})
+
+@app.post('/api/manage/convert-job/<job_id>/cancel')
+@access_required('admin')
+def manage_convert_job_cancel(job_id):
+    with conversion_jobs_lock:
+        job = conversion_jobs.get(job_id)
+        if not job:
+            return jsonify({'success': False, 'error': 'Job not found.'}), 404
+        job['cancelled'] = True
+        job['status'] = 'cancelled'
+        job['updated_at'] = time.time()
+    return jsonify({'success': True})
+
+@app.get('/api/manage/jobs')
+@access_required('admin')
+def manage_jobs_list():
+    limit = request.args.get('limit', 20)
+    try:
+        limit = int(limit)
+    except ValueError:
+        limit = 20
+    with conversion_jobs_lock:
+        jobs = sorted(conversion_jobs.values(), key=lambda item: item['created_at'], reverse=True)[:limit]
+        return jsonify({'success': True, 'jobs': jobs})
+
+@app.get('/api/manage/health')
+@access_required('admin')
+def manage_health():
+    nsz_path = None
+    try:
+        nsz_path = _get_nsz_exe()
+    except NameError:
+        nsz_path = None
+    keys_ok = os.path.exists(KEYS_FILE)
+    return jsonify({
+        'success': True,
+        'nsz_exe': nsz_path,
+        'keys_file': KEYS_FILE,
+        'keys_present': keys_ok
+    })
+
+@app.get('/api/manage/libraries')
+@access_required('admin')
+def manage_libraries_list():
+    libraries = get_libraries()
+    return jsonify({
+        'success': True,
+        'libraries': [{'id': lib.id, 'path': lib.path} for lib in libraries]
+    })
 
 @app.route('/api/settings/library/paths', methods=['GET', 'POST', 'DELETE'])
 @access_required('admin')
