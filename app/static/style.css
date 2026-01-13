@@ -8,6 +8,23 @@
     padding: 20px;
 }
 
+.icon-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(var(--icon-size, 120px), 1fr));
+    gap: 1rem;
+    margin: 0;
+}
+
+.game-icon-btn {
+    text-align: center;
+}
+
+.game-icon {
+    width: 100%;
+    height: auto;
+    display: block;
+}
+
 .game-info {
     bottom: 0;
     left: 0;

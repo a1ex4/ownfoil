@@ -1,4 +1,8 @@
 import hashlib
+import os
+import re
+import shutil
+import subprocess
 from constants import *
 from db import *
 import titles as titles_lib
@@ -563,3 +567,273 @@ def generate_library():
     logger.info(f'Generating library done.')
 
     return library_data['library']
+
+def _sanitize_component(value, fallback='Unknown'):
+    value = str(value or '').strip()
+    value = re.sub(r'[<>:"/\\\\|?*]', '', value)
+    value = value.rstrip('. ')
+    return value if value else fallback
+
+def _safe_int(value, default=0):
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+def _ensure_unique_path(path):
+    if not os.path.exists(path):
+        return path
+    base, ext = os.path.splitext(path)
+    counter = 1
+    while True:
+        candidate = f"{base} ({counter}){ext}"
+        if not os.path.exists(candidate):
+            return candidate
+        counter += 1
+
+def _choose_primary_app(apps):
+    if not apps:
+        return None
+    priority = {
+        APP_TYPE_BASE: 0,
+        APP_TYPE_UPD: 1,
+        APP_TYPE_DLC: 2
+    }
+    return sorted(
+        apps,
+        key=lambda app: (
+            priority.get(app.app_type, 99),
+            app.app_id or '',
+            _safe_int(app.app_version)
+        )
+    )[0]
+
+def _compute_relative_folder(library_path, full_path):
+    folder = os.path.dirname(full_path)
+    if os.path.normpath(library_path) == os.path.normpath(folder):
+        return ''
+    normalized = folder.replace(library_path, '')
+    return normalized if normalized.startswith(os.sep) else os.sep + normalized
+
+def _build_destination(library_path, file_entry, app, title_name, dlc_name):
+    title_id = app.title.title_id if app.title else None
+    safe_title = _sanitize_component(title_name or title_id or app.app_id)
+    safe_title_id = _sanitize_component(title_id or app.app_id)
+    version = app.app_version or '0'
+    extension = file_entry.extension or os.path.splitext(file_entry.filename or '')[1].lstrip('.')
+
+    if app.app_type == APP_TYPE_BASE:
+        subdir = 'Base'
+        filename = f"{safe_title} [{safe_title_id}] [BASE][v{version}].{extension}"
+    elif app.app_type == APP_TYPE_UPD:
+        subdir = os.path.join('Updates', f"v{version}")
+        filename = f"{safe_title} [{safe_title_id}] [UPDATE][v{version}].{extension}"
+    elif app.app_type == APP_TYPE_DLC:
+        dlc_display = _sanitize_component(dlc_name or app.app_id)
+        subdir = os.path.join('DLC', f"{dlc_display} [{app.app_id}]")
+        filename = f"{safe_title} - {dlc_display} [{app.app_id}] [DLC][v{version}].{extension}"
+    else:
+        subdir = 'Other'
+        filename = file_entry.filename or f"{safe_title} [{safe_title_id}] [UNKNOWN].{extension}"
+
+    folder = os.path.join(library_path, _sanitize_component(f"{safe_title} [{safe_title_id}]"), subdir)
+    filename = _sanitize_component(filename)
+    return folder, filename
+
+def organize_library(dry_run=False):
+    results = {
+        'success': True,
+        'moved': 0,
+        'skipped': 0,
+        'errors': []
+    }
+
+    titles_lib.load_titledb()
+    title_name_cache = {}
+    app_name_cache = {}
+
+    files = Files.query.filter_by(identified=True).all()
+    for file_entry in files:
+        if not file_entry.filepath or not os.path.exists(file_entry.filepath):
+            results['skipped'] += 1
+            continue
+        library_path = get_library_path(file_entry.library_id)
+        if not library_path:
+            results['skipped'] += 1
+            continue
+        primary_app = _choose_primary_app(list(file_entry.apps))
+        if not primary_app:
+            results['skipped'] += 1
+            continue
+
+        title_id = primary_app.title.title_id if primary_app.title else None
+        if title_id not in title_name_cache:
+            info = titles_lib.get_game_info(title_id) if title_id else None
+            title_name_cache[title_id] = info['name'] if info else title_id or primary_app.app_id
+
+        title_name = title_name_cache.get(title_id)
+        dlc_name = None
+        if primary_app.app_type == APP_TYPE_DLC:
+            if primary_app.app_id not in app_name_cache:
+                info = titles_lib.get_game_info(primary_app.app_id)
+                app_name_cache[primary_app.app_id] = info['name'] if info else primary_app.app_id
+            dlc_name = app_name_cache.get(primary_app.app_id)
+
+        dest_dir, dest_filename = _build_destination(
+            library_path,
+            file_entry,
+            primary_app,
+            title_name,
+            dlc_name
+        )
+        dest_path = os.path.join(dest_dir, dest_filename)
+        if os.path.normpath(dest_path) == os.path.normpath(file_entry.filepath):
+            results['skipped'] += 1
+            continue
+        dest_path = _ensure_unique_path(dest_path)
+
+        if not dry_run:
+            try:
+                os.makedirs(dest_dir, exist_ok=True)
+                old_path = file_entry.filepath
+                shutil.move(old_path, dest_path)
+                update_file_path(library_path, old_path, dest_path)
+                results['moved'] += 1
+            except Exception as e:
+                logger.error(f"Failed to move {file_entry.filepath}: {e}")
+                results['errors'].append(str(e))
+        else:
+            results['moved'] += 1
+
+    titles_lib.unload_titledb()
+    if results['errors']:
+        results['success'] = False
+    return results
+
+def delete_older_updates(dry_run=False):
+    results = {
+        'success': True,
+        'deleted': 0,
+        'skipped': 0,
+        'errors': []
+    }
+
+    titles = Titles.query.all()
+    for title in titles:
+        update_apps = Apps.query.filter_by(
+            title_id=title.id,
+            app_type=APP_TYPE_UPD,
+            owned=True
+        ).all()
+        if len(update_apps) <= 1:
+            results['skipped'] += 1
+            continue
+
+        latest_app = max(update_apps, key=lambda app: _safe_int(app.app_version))
+        for app in update_apps:
+            if app.id == latest_app.id:
+                continue
+            filepaths = [file.filepath for file in list(app.files)]
+            if not filepaths:
+                results['skipped'] += 1
+                continue
+            for filepath in filepaths:
+                if dry_run:
+                    results['deleted'] += 1
+                    continue
+                try:
+                    if filepath and os.path.exists(filepath):
+                        os.remove(filepath)
+                    delete_file_by_filepath(filepath)
+                    results['deleted'] += 1
+                except Exception as e:
+                    logger.error(f"Failed to delete update {filepath}: {e}")
+                    results['errors'].append(str(e))
+
+    if results['errors']:
+        results['success'] = False
+    return results
+
+def convert_to_nsz(command_template, delete_original=True, dry_run=False):
+    results = {
+        'success': True,
+        'converted': 0,
+        'skipped': 0,
+        'errors': []
+    }
+
+    if not command_template:
+        command_template = 'nsz -o "{output_dir}" "{input_file}"'
+
+    files = Files.query.filter(Files.extension.in_(['nsp', 'xci'])).all()
+    for file_entry in files:
+        if not file_entry.filepath or not os.path.exists(file_entry.filepath):
+            results['skipped'] += 1
+            continue
+
+        output_file = os.path.splitext(file_entry.filepath)[0] + '.nsz'
+        if os.path.exists(output_file):
+            results['skipped'] += 1
+            continue
+
+        command = command_template.format(
+            input_file=file_entry.filepath,
+            output_file=output_file,
+            output_dir=os.path.dirname(output_file)
+        )
+
+        if dry_run:
+            results['converted'] += 1
+            continue
+
+        try:
+            process = subprocess.run(command, shell=True, capture_output=True, text=True)
+            if process.returncode != 0:
+                results['errors'].append(process.stderr.strip() or 'Conversion failed.')
+                continue
+            if not os.path.exists(output_file):
+                results['errors'].append(f'Output not found: {output_file}')
+                continue
+
+            if delete_original:
+                old_path = file_entry.filepath
+                if os.path.exists(old_path):
+                    os.remove(old_path)
+                library_path = get_library_path(file_entry.library_id)
+                update_file_path(library_path, old_path, output_file)
+                file_entry.extension = 'nsz'
+                file_entry.compressed = True
+                file_entry.size = os.path.getsize(output_file)
+                db.session.commit()
+            else:
+                library_path = get_library_path(file_entry.library_id)
+                folder = _compute_relative_folder(library_path, output_file)
+                new_file = Files(
+                    filepath=output_file,
+                    library_id=file_entry.library_id,
+                    folder=folder,
+                    filename=os.path.basename(output_file),
+                    extension='nsz',
+                    size=os.path.getsize(output_file),
+                    compressed=True,
+                    multicontent=file_entry.multicontent,
+                    nb_content=file_entry.nb_content,
+                    identified=True,
+                    identification_type=file_entry.identification_type,
+                    identification_attempts=file_entry.identification_attempts,
+                    last_attempt=file_entry.last_attempt
+                )
+                db.session.add(new_file)
+                db.session.flush()
+                for app in list(file_entry.apps):
+                    app.files.append(new_file)
+                db.session.commit()
+
+            results['converted'] += 1
+        except Exception as e:
+            logger.error(f"Failed to convert {file_entry.filepath}: {e}")
+            results['errors'].append(str(e))
+
+    if results['errors']:
+        results['success'] = False
+    return results

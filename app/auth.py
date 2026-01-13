@@ -208,6 +208,94 @@ def delete_user():
     } 
     return jsonify(resp)
 
+@auth_blueprint.route('/api/user', methods=['PATCH'])
+@login_required
+@access_required('admin')
+def update_user():
+    success = True
+    errors = []
+    data = request.json or {}
+    user_id = data.get('user_id')
+    username = (data.get('user') or '').strip()
+    password = data.get('password')
+    admin_access = data.get('admin_access')
+    shop_access = data.get('shop_access')
+    backup_access = data.get('backup_access')
+
+    if not user_id:
+        errors.append('Missing user id.')
+    if not username:
+        errors.append('Username is required.')
+    if admin_access is None or shop_access is None or backup_access is None:
+        errors.append('Missing access configuration.')
+
+    user = User.query.filter_by(id=user_id).first() if not errors else None
+    if not user:
+        errors.append('User not found.')
+
+    if user and username != user.user:
+        existing_user = User.query.filter_by(user=username).first()
+        if existing_user:
+            errors.append('Username already exists.')
+
+    if user and user.admin_access and admin_access is False:
+        admin_count = User.query.filter_by(admin_access=True).count()
+        if admin_count <= 1:
+            errors.append('Cannot remove the last admin account.')
+
+    if errors:
+        success = False
+    else:
+        if admin_access:
+            shop_access = True
+            backup_access = True
+        user.user = username
+        user.admin_access = admin_access
+        user.shop_access = shop_access
+        user.backup_access = backup_access
+        if password:
+            user.password = generate_password_hash(password, method='scrypt')
+        db.session.commit()
+        logger.info(f'Successfully updated user {user.id} ({username}).')
+
+    resp = {
+        'success': success,
+        'errors': errors
+    }
+    return jsonify(resp)
+
+@auth_blueprint.route('/api/user/password', methods=['PATCH'])
+@login_required
+@access_required('admin')
+def reset_user_password():
+    success = True
+    errors = []
+    data = request.json or {}
+    user_id = data.get('user_id')
+    password = data.get('password')
+
+    if not user_id:
+        errors.append('Missing user id.')
+    if not password:
+        errors.append('Password is required.')
+
+    user = User.query.filter_by(id=user_id).first() if not errors else None
+    if not user:
+        errors.append('User not found.')
+
+    if errors:
+        success = False
+    else:
+        user.password = generate_password_hash(password, method='scrypt')
+        db.session.commit()
+        logger.info(f'Successfully reset password for user {user.id} ({user.user}).')
+
+    resp = {
+        'success': success,
+        'errors': errors
+    }
+    return jsonify(resp)
+
 @auth_blueprint.route('/api/user/signup', methods=['POST'])
 @access_required('admin')
 def signup_post():

@@ -1,0 +1,146 @@
+{% extends "base.html" %}
+{% block content %}
+{% include 'nav.html' %}
+
+<div class="container-fluid mt-3">
+    <div class="row">
+        <div class="col-lg-9">
+            <h2 class="pb-3">Manage</h2>
+
+            <div id="manageAlert" class="alert alert-info d-none" role="alert"></div>
+
+            <div class="card mb-4">
+                <div class="card-body">
+                    <h5 class="card-title">Library organization</h5>
+                    <p class="card-text">Rename and organize identified content into structured folders.</p>
+                    <div class="form-check mb-2">
+                        <input class="form-check-input" type="checkbox" id="organizeDryRun" checked>
+                        <label class="form-check-label" for="organizeDryRun">Dry run (no file changes)</label>
+                    </div>
+                    <button type="button" id="organizeLibraryBtn" class="btn btn-primary"
+                        onClick='organizeLibrary()'>Organize library</button>
+                </div>
+            </div>
+
+            <div class="card mb-4">
+                <div class="card-body">
+                    <h5 class="card-title">Delete older updates</h5>
+                    <p class="card-text">Keep the latest owned update per title and remove older update files.</p>
+                    <div class="form-check mb-2">
+                        <input class="form-check-input" type="checkbox" id="deleteUpdatesDryRun" checked>
+                        <label class="form-check-label" for="deleteUpdatesDryRun">Dry run (no file changes)</label>
+                    </div>
+                    <button type="button" id="deleteUpdatesBtn" class="btn btn-danger"
+                        onClick='deleteOlderUpdates()'>Delete older updates</button>
+                </div>
+            </div>
+
+            <div class="card mb-4">
+                <div class="card-body">
+                    <h5 class="card-title">Convert NSP/XCI to NSZ</h5>
+                    <p class="card-text">Automatically convert NSP/XCI files to NSZ using a configured tool.</p>
+                    <div class="mb-3">
+                        <label for="converterCommandInput" class="form-label">Converter command</label>
+                        <input type="text" class="form-control" id="converterCommandInput"
+                            value='nsz -o "{output_dir}" "{input_file}"'>
+                        <div class="form-text">
+                            Supports placeholders: <code>{input_file}</code>, <code>{output_file}</code>, <code>{output_dir}</code>.
+                        </div>
+                    </div>
+                    <div class="form-check mb-2">
+                        <input class="form-check-input" type="checkbox" id="convertDeleteOriginal" checked>
+                        <label class="form-check-label" for="convertDeleteOriginal">Delete original after conversion</label>
+                    </div>
+                    <div class="form-check mb-3">
+                        <input class="form-check-input" type="checkbox" id="convertDryRun" checked>
+                        <label class="form-check-label" for="convertDryRun">Dry run (no file changes)</label>
+                    </div>
+                    <button type="button" id="convertNszBtn" class="btn btn-warning"
+                        onClick='convertToNsz()'>Convert to NSZ</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    function showManageAlert(message, type = 'info') {
+        const alertBox = $('#manageAlert');
+        alertBox.removeClass('d-none alert-info alert-success alert-warning alert-danger');
+        alertBox.addClass(`alert-${type}`);
+        alertBox.text(message);
+    }
+
+    function organizeLibrary() {
+        $('#organizeLibraryBtn').prop('disabled', true);
+        data = {
+            dry_run: $('#organizeDryRun').is(':checked')
+        }
+        $.ajax({
+            url: "/api/manage/organize",
+            type: 'POST',
+            data: JSON.stringify(data),
+            contentType: "application/json",
+            success: function (result) {
+                if (result['success']) {
+                    showManageAlert(`Organize complete. Moved ${result['moved']} items. Skipped ${result['skipped']}.`, 'success');
+                } else {
+                    showManageAlert(`Organize failed: ${result['errors'].join('; ')}`, 'danger');
+                }
+            },
+            complete: function () {
+                $('#organizeLibraryBtn').prop('disabled', false);
+            }
+        });
+    }
+
+    function deleteOlderUpdates() {
+        $('#deleteUpdatesBtn').prop('disabled', true);
+        data = {
+            dry_run: $('#deleteUpdatesDryRun').is(':checked')
+        }
+        $.ajax({
+            url: "/api/manage/delete-updates",
+            type: 'POST',
+            data: JSON.stringify(data),
+            contentType: "application/json",
+            success: function (result) {
+                if (result['success']) {
+                    showManageAlert(`Delete updates complete. Deleted ${result['deleted']} files. Skipped ${result['skipped']}.`, 'success');
+                } else {
+                    showManageAlert(`Delete updates failed: ${result['errors'].join('; ')}`, 'danger');
+                }
+            },
+            complete: function () {
+                $('#deleteUpdatesBtn').prop('disabled', false);
+            }
+        });
+    }
+
+    function convertToNsz() {
+        $('#convertNszBtn').prop('disabled', true);
+        data = {
+            dry_run: $('#convertDryRun').is(':checked'),
+            delete_original: $('#convertDeleteOriginal').is(':checked'),
+            command: $('#converterCommandInput').val()
+        }
+        $.ajax({
+            url: "/api/manage/convert",
+            type: 'POST',
+            data: JSON.stringify(data),
+            contentType: "application/json",
+            success: function (result) {
+                if (result['success']) {
+                    showManageAlert(`Conversion complete. Converted ${result['converted']} files. Skipped ${result['skipped']}.`, 'success');
+                } else {
+                    showManageAlert(`Conversion failed: ${result['errors'].join('; ')}`, 'danger');
+                }
+            },
+            complete: function () {
+                $('#convertNszBtn').prop('disabled', false);
+            }
+        });
+    }
+</script>
+
+{% endblock %}

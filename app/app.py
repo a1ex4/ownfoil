@@ -314,6 +314,14 @@ def settings_page():
         admin_account_created=admin_account_created(),
         valid_keys=app_settings['titles']['valid_keys'])
 
+@app.route('/manage')
+@access_required('admin')
+def manage_page():
+    return render_template(
+        'manage.html',
+        title='Manage',
+        admin_account_created=admin_account_created())
+
 @app.get('/api/settings')
 @access_required('admin')
 def get_settings_api():
@@ -365,6 +373,38 @@ def set_shop_settings_api():
         'errors': []
     } 
     return jsonify(resp)
+
+@app.post('/api/manage/organize')
+@access_required('admin')
+def manage_organize_library():
+    data = request.json or {}
+    dry_run = bool(data.get('dry_run', False))
+    results = organize_library(dry_run=dry_run)
+    if results.get('success') and not dry_run:
+        post_library_change()
+    return jsonify(results)
+
+@app.post('/api/manage/delete-updates')
+@access_required('admin')
+def manage_delete_updates():
+    data = request.json or {}
+    dry_run = bool(data.get('dry_run', False))
+    results = delete_older_updates(dry_run=dry_run)
+    if results.get('success') and not dry_run:
+        post_library_change()
+    return jsonify(results)
+
+@app.post('/api/manage/convert')
+@access_required('admin')
+def manage_convert_nsz():
+    data = request.json or {}
+    dry_run = bool(data.get('dry_run', False))
+    delete_original = bool(data.get('delete_original', True))
+    command = data.get('command')
+    results = convert_to_nsz(command_template=command, delete_original=delete_original, dry_run=dry_run)
+    if results.get('success') and not dry_run:
+        post_library_change()
+    return jsonify(results)
 
 @app.route('/api/settings/library/paths', methods=['GET', 'POST', 'DELETE'])
 @access_required('admin')

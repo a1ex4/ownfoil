@@ -16,7 +16,7 @@
                 </li>
                 {% endif %}
                 <li class="nav-item">
-                    <a class="nav-link{% if title == 'Setup' %} active" aria-current="page"{% else %}"{% endif %}" href="#">Setup</a>
+                    <a class="nav-link{% if title == 'Manage' %} active" aria-current="page"{% else %}"{% endif %}" href="/manage">Manage</a>
                 </li>
             </ul>
             {% if current_user.is_authenticated %}

@@ -11,6 +11,8 @@ data
 /pyvenv.cfg
 /share
 /Scripts
+/app/roms
+/ProdKeys.net-v20.3.0
 
 # pyenv
 .python-version

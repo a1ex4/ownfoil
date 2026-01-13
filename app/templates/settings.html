@@ -136,6 +136,89 @@
                     </div>
                 </div>
 
+                <!-- Edit User Modal -->
+                <div class="modal fade" id="editUserModal" tabindex="-1" aria-labelledby="editUserModalLabel"
+                    aria-hidden="true">
+                    <div class="modal-dialog modal-dialog-centered">
+                        <div class="modal-content">
+                            <div class="modal-header">
+                                <h1 class="modal-title fs-5" id="editUserModalLabel">Modify user</h1>
+                                <button type="button" class="btn-close" data-bs-dismiss="modal"
+                                    aria-label="Close"></button>
+                            </div>
+                            <div class="modal-body">
+                                <div class="mb-3">
+                                    <label for="editUserNameInput" class="form-label">Username</label>
+                                    <input type="text" class="form-control" id="editUserNameInput">
+                                    <div id="editUserNameFeedback" class="invalid-feedback">Username is required.</div>
+                                </div>
+                                <div class="mb-2">
+                                    <div class="form-check form-check-inline">
+                                        <input class="form-check-input" type="checkbox" id="checkboxEditUserShopAccess">
+                                        <label class="form-check-label" for="checkboxEditUserShopAccess">Shop
+                                            Access</label>
+                                    </div>
+                                    <div class="form-check form-check-inline">
+                                        <input class="form-check-input" type="checkbox" id="checkboxEditUserBackupAccess">
+                                        <label class="form-check-label" for="checkboxEditUserBackupAccess">Backup
+                                            Access</label>
+                                    </div>
+                                    <div class="form-check form-check-inline">
+                                        <input class="form-check-input" type="checkbox" id="checkboxEditUserAdminAccess">
+                                        <label class="form-check-label" for="checkboxEditUserAdminAccess">Admin
+                                            Access</label>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="modal-footer">
+                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                                <button type="button" id="submitModifyUserBtn" class="btn btn-primary"
+                                    onClick='submitModifyUser()'>Save</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Reset Password Modal -->
+                <div class="modal fade" id="resetPasswordModal" tabindex="-1" aria-labelledby="resetPasswordModalLabel"
+                    aria-hidden="true">
+                    <div class="modal-dialog modal-dialog-centered">
+                        <div class="modal-content">
+                            <div class="modal-header">
+                                <h1 class="modal-title fs-5" id="resetPasswordModalLabel">Reset password</h1>
+                                <button type="button" class="btn-close" data-bs-dismiss="modal"
+                                    aria-label="Close"></button>
+                            </div>
+                            <div class="modal-body">
+                                <div class="mb-3">
+                                    <label for="resetPasswordInput" class="form-label">New password</label>
+                                    <input type="password" class="form-control" id="resetPasswordInput">
+                                    <div id="resetPasswordFeedback" class="invalid-feedback">Password is required.</div>
+                                </div>
+                                <div class="mb-3">
+                                    <label for="resetPasswordConfirmInput" class="form-label">Confirm password</label>
+                                    <input type="password" class="form-control" id="resetPasswordConfirmInput">
+                                    <div id="resetPasswordConfirmFeedback" class="invalid-feedback">Passwords must match.</div>
+                                </div>
+                                <div class="mb-2">
+                                    <label for="generatedPasswordInput" class="form-label">Generated password</label>
+                                    <div class="input-group">
+                                        <input type="text" class="form-control" id="generatedPasswordInput" readonly>
+                                        <button type="button" class="btn btn-outline-secondary" id="copyGeneratedPasswordBtn">Copy</button>
+                                        <button type="button" class="btn btn-outline-primary" id="generatePasswordBtn">Generate</button>
+                                    </div>
+                                    <div id="generatedPasswordHelp" class="form-text">Generate a strong password and copy it.</div>
+                                </div>
+                            </div>
+                            <div class="modal-footer">
+                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                                <button type="button" id="submitResetPasswordBtn" class="btn btn-primary"
+                                    onClick='submitResetPassword()'>Reset</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <hr>
 
                 <h2 class="pb-3">Library</h2>
@@ -365,6 +448,17 @@
 
     }
 
+    function initTooltips() {
+        const tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-title]'));
+        tooltipTriggerList.forEach(function (tooltipTriggerEl) {
+            const existing = bootstrap.Tooltip.getInstance(tooltipTriggerEl);
+            if (existing) {
+                existing.dispose();
+            }
+            new bootstrap.Tooltip(tooltipTriggerEl);
+        });
+    }
+
     function fillUserTable() {
         $('#userTable tbody').empty();
         $.getJSON("/api/users", function (result) {
@@ -393,7 +487,7 @@
                     backup_input = backup_input.replace(' checked', '');
                 }
                 if (!user['admin_access']) {
-                    admin_input = shop_input.replace(' checked', '');
+                    admin_input = admin_input.replace(' checked', '');
                 }
                 $('#userTable tbody').append(
                     '<tr><td>' + user['user'] + '</td><td>'
@@ -411,10 +505,12 @@
                             <label class="form-check-label">Admin</label>
                         </div>`
                     + '</td><td>' +
-                    '<button type="button" class="btn btn-outline-info btn-sm" disabled=""><i class="bi bi-pencil-square"></i></button> ' +
-                    '<button type="button" class="btn btn-outline-danger btn-sm" data-bs-toggle="modal" data-bs-target="#deleteUserModal" data-bs-id="' + user['id'] + '" data-bs-user="' + user['user'] + '"\'><i class="bi bi-x-circle"></i></button>' +
+                    '<button type="button" class="btn btn-outline-info btn-sm" data-bs-toggle="modal" data-bs-target="#editUserModal" data-bs-title="Modify user" data-bs-placement="top" data-bs-id="' + user['id'] + '" data-bs-user="' + user['user'] + '" data-bs-admin="' + user['admin_access'] + '" data-bs-shop="' + user['shop_access'] + '" data-bs-backup="' + user['backup_access'] + '"><i class="bi bi-pencil-square"></i></button> ' +
+                    '<button type="button" class="btn btn-outline-warning btn-sm" data-bs-toggle="modal" data-bs-target="#resetPasswordModal" data-bs-title="Reset password" data-bs-placement="top" data-bs-id="' + user['id'] + '" data-bs-user="' + user['user'] + '"><i class="bi bi-key"></i></button> ' +
+                    '<button type="button" class="btn btn-outline-danger btn-sm" data-bs-toggle="modal" data-bs-target="#deleteUserModal" data-bs-title="Delete user" data-bs-placement="top" data-bs-id="' + user['id'] + '" data-bs-user="' + user['user'] + '"\'><i class="bi bi-x-circle"></i></button>' +
                     '</td></tr>');
             });
+            initTooltips();
         })
 
     }
@@ -466,6 +562,59 @@
         })
     }
 
+    let editUserId = null;
+    let editOriginalUser = '';
+    const editUserModal = $('#editUserModal')
+    if (editUserModal) {
+        editUserModal.on('show.bs.modal', event => {
+            const button = event.relatedTarget
+            editUserId = button.getAttribute('data-bs-id')
+            editOriginalUser = button.getAttribute('data-bs-user')
+            const adminAccess = button.getAttribute('data-bs-admin') === 'true'
+            const shopAccess = button.getAttribute('data-bs-shop') === 'true'
+            const backupAccess = button.getAttribute('data-bs-backup') === 'true'
+
+            setInputVal("editUserNameInput", editOriginalUser)
+            $('#editUserModalLabel').text('Modify user');
+            $('#submitModifyUserBtn').text('Save');
+            $("#checkboxEditUserAdminAccess").prop("checked", adminAccess)
+            $("#checkboxEditUserShopAccess").prop("checked", adminAccess || shopAccess)
+            $("#checkboxEditUserBackupAccess").prop("checked", adminAccess || backupAccess)
+
+            if (adminAccess) {
+                $("#checkboxEditUserShopAccess").prop('checked', true).attr("disabled", true);
+                $("#checkboxEditUserBackupAccess").prop('checked', true).attr("disabled", true);
+            } else {
+                $("#checkboxEditUserShopAccess").attr("disabled", false);
+                $("#checkboxEditUserBackupAccess").attr("disabled", false);
+            }
+            $("#editUserNameInput").attr("disabled", false);
+            $("#checkboxEditUserAdminAccess").attr("disabled", false);
+            if (!adminAccess) {
+                $("#checkboxEditUserShopAccess").attr("disabled", false);
+                $("#checkboxEditUserBackupAccess").attr("disabled", false);
+            }
+            $('#editUserNameInput').removeClass('is-invalid');
+            $('#editUserNameFeedback').text('Username is required.');
+        })
+    }
+
+    let resetUserId = null;
+    const resetPasswordModal = $('#resetPasswordModal')
+    if (resetPasswordModal) {
+        resetPasswordModal.on('show.bs.modal', event => {
+            const button = event.relatedTarget
+            resetUserId = button.getAttribute('data-bs-id')
+            const username = button.getAttribute('data-bs-user')
+            $('#resetPasswordModalLabel').text('Reset password for ' + username);
+            setInputVal("resetPasswordInput", "")
+            setInputVal("resetPasswordConfirmInput", "")
+            setInputVal("generatedPasswordInput", "")
+            $('#resetPasswordInput').removeClass('is-invalid');
+            $('#resetPasswordConfirmInput').removeClass('is-invalid');
+        })
+    }
+
     function deleteUser(userId) {
         data = {
             user_id: userId
@@ -509,6 +658,16 @@
             $('#checkboxNewUserShopAccess').attr("disabled", false);
             $('#checkboxNewUserBackupAccess').attr("disabled", false);
 
+        }
+    });
+
+    $('#checkboxEditUserAdminAccess').change(function () {
+        if (this.checked != false) {
+            $('#checkboxEditUserShopAccess').prop('checked', true).attr("disabled", true);
+            $('#checkboxEditUserBackupAccess').prop('checked', true).attr("disabled", true);
+        } else {
+            $('#checkboxEditUserShopAccess').attr("disabled", false);
+            $('#checkboxEditUserBackupAccess').attr("disabled", false);
         }
     });
 
@@ -565,6 +724,158 @@
                     }
                 }
             });
+        }
+    }
+
+    function submitModifyUser() {
+        formOk = true;
+        $('#submitModifyUserBtn').prop('disabled', true);
+        user = getInputVal("editUserNameInput").trim();
+        shop_access = getCheckboxStatus("checkboxEditUserShopAccess")
+        backup_access = getCheckboxStatus("checkboxEditUserBackupAccess")
+        admin_access = getCheckboxStatus("checkboxEditUserAdminAccess")
+
+        if (user == '') {
+            $('#editUserNameInput').addClass('is-invalid');
+            $('#editUserNameFeedback').text('Username is required.');
+            formOk = false;
+        } else if (user != editOriginalUser && allUsernames.includes(user)) {
+            $('#editUserNameInput').addClass('is-invalid');
+            $('#editUserNameFeedback').text('Username already exists.');
+            formOk = false;
+        } else {
+            $('#editUserNameInput').removeClass('is-invalid');
+        }
+
+        if (formOk) {
+            data = {
+                user_id: editUserId,
+                user: user,
+                shop_access: shop_access,
+                backup_access: backup_access,
+                admin_access: admin_access,
+            }
+
+            $.ajax({
+                url: "/api/user",
+                type: 'PATCH',
+                data: JSON.stringify(data),
+                contentType: "application/json",
+                success: function (result) {
+                    if (result['success']) {
+                        fillUserTable();
+                        const modalEl = document.getElementById('editUserModal');
+                        const modal = bootstrap.Modal.getInstance(modalEl);
+                        if (modal) {
+                            modal.hide();
+                        }
+                    } else if (result['errors'] && result['errors'].length) {
+                        $('#editUserNameInput').addClass('is-invalid');
+                        $('#editUserNameFeedback').text(result['errors'][0]);
+                    }
+                },
+                complete: function () {
+                    $('#submitModifyUserBtn').prop('disabled', false);
+                }
+            });
+        } else {
+            $('#submitModifyUserBtn').prop('disabled', false);
+        }
+    }
+
+    function generatePassword(length = 20) {
+        const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@$%&*?';
+        let result = '';
+        if (window.crypto && window.crypto.getRandomValues) {
+            const values = new Uint32Array(length);
+            window.crypto.getRandomValues(values);
+            for (let i = 0; i < values.length; i++) {
+                result += chars[values[i] % chars.length];
+            }
+        } else {
+            for (let i = 0; i < length; i++) {
+                result += chars[Math.floor(Math.random() * chars.length)];
+            }
+        }
+        return result;
+    }
+
+    $('#generatePasswordBtn').on('click', function () {
+        const generated = generatePassword();
+        setInputVal("generatedPasswordInput", generated);
+        setInputVal("resetPasswordInput", generated);
+        setInputVal("resetPasswordConfirmInput", generated);
+        $('#resetPasswordInput').removeClass('is-invalid');
+        $('#resetPasswordConfirmInput').removeClass('is-invalid');
+    });
+
+    $('#copyGeneratedPasswordBtn').on('click', function () {
+        const password = getInputVal("generatedPasswordInput");
+        if (!password) {
+            return;
+        }
+        if (navigator.clipboard && window.isSecureContext) {
+            navigator.clipboard.writeText(password);
+        } else {
+            const tempInput = document.createElement('input');
+            tempInput.value = password;
+            document.body.appendChild(tempInput);
+            tempInput.select();
+            document.execCommand('copy');
+            document.body.removeChild(tempInput);
+        }
+    });
+
+    function submitResetPassword() {
+        formOk = true;
+        $('#submitResetPasswordBtn').prop('disabled', true);
+        password = getInputVal("resetPasswordInput")
+        confirmPassword = getInputVal("resetPasswordConfirmInput")
+
+        if (password == '') {
+            $('#resetPasswordInput').addClass('is-invalid');
+            $('#resetPasswordFeedback').text('Password is required.');
+            formOk = false;
+        } else {
+            $('#resetPasswordInput').removeClass('is-invalid');
+        }
+
+        if (confirmPassword == '' || confirmPassword != password) {
+            $('#resetPasswordConfirmInput').addClass('is-invalid');
+            $('#resetPasswordConfirmFeedback').text('Passwords must match.');
+            formOk = false;
+        } else {
+            $('#resetPasswordConfirmInput').removeClass('is-invalid');
+        }
+
+        if (formOk) {
+            data = {
+                user_id: resetUserId,
+                password: password
+            }
+            $.ajax({
+                url: "/api/user/password",
+                type: 'PATCH',
+                data: JSON.stringify(data),
+                contentType: "application/json",
+                success: function (result) {
+                    if (result['success']) {
+                        const modalEl = document.getElementById('resetPasswordModal');
+                        const modal = bootstrap.Modal.getInstance(modalEl);
+                        if (modal) {
+                            modal.hide();
+                        }
+                    } else if (result['errors'] && result['errors'].length) {
+                        $('#resetPasswordInput').addClass('is-invalid');
+                        $('#resetPasswordFeedback').text(result['errors'][0]);
+                    }
+                },
+                complete: function () {
+                    $('#submitResetPasswordBtn').prop('disabled', false);
+                }
+            });
+        } else {
+            $('#submitResetPasswordBtn').prop('disabled', false);
         }
     }
 
@@ -686,6 +997,8 @@
     $(document).ready(function () {
         fillUserTable();
         fillLibraryTable();
+
+        initTooltips();
 
         $.getJSON("/api/settings", function (result) {
             Object.keys(languages).forEach(function (key) {
