@@ -20,6 +20,10 @@ from utils import *
 from library import *
 import titledb
 import os
+import threading
+import time
+import uuid
+import re
 
 def init():
     global watcher
@@ -116,6 +120,8 @@ scan_lock = threading.Lock()
 # Global flag for titledb update status
 is_titledb_update_running = False
 titledb_update_lock = threading.Lock()
+conversion_jobs = {}
+conversion_jobs_lock = threading.Lock()
 
 # Configure logging
 formatter = ColoredFormatter(
@@ -205,6 +211,71 @@ def tinfoil_error(error):
     return jsonify({
         'error': error
     })
+
+def _create_job(kind, total=0):
+    job_id = uuid.uuid4().hex
+    job = {
+        'id': job_id,
+        'kind': kind,
+        'status': 'running',
+        'created_at': time.time(),
+        'updated_at': time.time(),
+        'progress': {
+            'done': 0,
+            'total': total,
+            'percent': 0,
+            'message': ''
+        },
+        'logs': [],
+        'errors': [],
+        'summary': None
+    }
+    with conversion_jobs_lock:
+        conversion_jobs[job_id] = job
+    return job_id
+
+def _job_log(job_id, message):
+    if message is None:
+        return
+    with conversion_jobs_lock:
+        job = conversion_jobs.get(job_id)
+        if not job:
+            return
+        percent_match = re.search(r'Compressed\s+([0-9.]+)%', message)
+        if percent_match:
+            try:
+                job['progress']['percent'] = float(percent_match.group(1))
+                job['progress']['message'] = message
+            except ValueError:
+                pass
+        job['logs'].append(message)
+        if len(job['logs']) > 500:
+            job['logs'] = job['logs'][-500:]
+        job['updated_at'] = time.time()
+
+def _job_progress(job_id, done, total):
+    with conversion_jobs_lock:
+        job = conversion_jobs.get(job_id)
+        if not job:
+            return
+        job['progress']['done'] = done
+        job['progress']['total'] = total
+        job['updated_at'] = time.time()
+
+def _job_finish(job_id, results):
+    with conversion_jobs_lock:
+        job = conversion_jobs.get(job_id)
+        if not job:
+            return
+        job['status'] = 'failed' if results.get('errors') else 'success'
+        job['errors'] = results.get('errors', [])
+        job['summary'] = {
+            'converted': results.get('converted', 0),
+            'skipped': results.get('skipped', 0),
+            'deleted': results.get('deleted', 0),
+            'moved': results.get('moved', 0)
+        }
+        job['updated_at'] = time.time()
 
 def tinfoil_access(f):
     @wraps(f)
@@ -379,7 +450,8 @@ def set_shop_settings_api():
 def manage_organize_library():
     data = request.json or {}
     dry_run = bool(data.get('dry_run', False))
-    results = organize_library(dry_run=dry_run)
+    verbose = bool(data.get('verbose', False))
+    results = organize_library(dry_run=dry_run, verbose=verbose)
     if results.get('success') and not dry_run:
         post_library_change()
     return jsonify(results)
@@ -389,7 +461,8 @@ def manage_organize_library():
 def manage_delete_updates():
     data = request.json or {}
     dry_run = bool(data.get('dry_run', False))
-    results = delete_older_updates(dry_run=dry_run)
+    verbose = bool(data.get('verbose', False))
+    results = delete_older_updates(dry_run=dry_run, verbose=verbose)
     if results.get('success') and not dry_run:
         post_library_change()
     return jsonify(results)
@@ -400,11 +473,126 @@ def manage_convert_nsz():
     data = request.json or {}
     dry_run = bool(data.get('dry_run', False))
     delete_original = bool(data.get('delete_original', True))
+    verbose = bool(data.get('verbose', False))
+    threads = data.get('threads')
     command = data.get('command')
-    results = convert_to_nsz(command_template=command, delete_original=delete_original, dry_run=dry_run)
+    results = convert_to_nsz(
+        command_template=command,
+        delete_original=delete_original,
+        dry_run=dry_run,
+        verbose=verbose,
+        threads=threads
+    )
     if results.get('success') and not dry_run:
         post_library_change()
     return jsonify(results)
+
+@app.get('/api/manage/convertibles')
+@access_required('admin')
+def manage_convertible_files():
+    files = list_convertible_files()
+    return jsonify({'success': True, 'files': files})
+
+@app.post('/api/manage/convert-single')
+@access_required('admin')
+def manage_convert_single():
+    data = request.json or {}
+    file_id = data.get('file_id')
+    dry_run = bool(data.get('dry_run', False))
+    delete_original = bool(data.get('delete_original', True))
+    verbose = bool(data.get('verbose', False))
+    threads = data.get('threads')
+    command = data.get('command')
+    if not file_id:
+        return jsonify({'success': False, 'errors': ['Missing file id.'], 'converted': 0, 'skipped': 0, 'details': []})
+    results = convert_single_to_nsz(
+        file_id=int(file_id),
+        command_template=command,
+        delete_original=delete_original,
+        dry_run=dry_run,
+        verbose=verbose,
+        threads=threads
+    )
+    if results.get('success') and not dry_run:
+        post_library_change()
+    return jsonify(results)
+
+@app.post('/api/manage/convert-job')
+@access_required('admin')
+def manage_convert_job():
+    data = request.json or {}
+    dry_run = bool(data.get('dry_run', False))
+    delete_original = bool(data.get('delete_original', True))
+    verbose = bool(data.get('verbose', False))
+    threads = data.get('threads')
+    command = data.get('command')
+
+    job_id = _create_job('convert')
+
+    def _run_job():
+        with app.app_context():
+            results = convert_to_nsz(
+                command_template=command,
+                delete_original=delete_original,
+                dry_run=dry_run,
+                verbose=verbose,
+                log_cb=lambda msg: _job_log(job_id, msg),
+                progress_cb=lambda done, total: _job_progress(job_id, done, total),
+                stream_output=True,
+                threads=threads
+            )
+            if results.get('success') and not dry_run:
+                post_library_change()
+            _job_finish(job_id, results)
+
+    thread = threading.Thread(target=_run_job, daemon=True)
+    thread.start()
+    return jsonify({'success': True, 'job_id': job_id})
+
+@app.post('/api/manage/convert-single-job')
+@access_required('admin')
+def manage_convert_single_job():
+    data = request.json or {}
+    file_id = data.get('file_id')
+    dry_run = bool(data.get('dry_run', False))
+    delete_original = bool(data.get('delete_original', True))
+    verbose = bool(data.get('verbose', False))
+    threads = data.get('threads')
+    command = data.get('command')
+    if not file_id:
+        return jsonify({'success': False, 'errors': ['Missing file id.']})
+
+    job_id = _create_job('convert-single', total=1)
+
+    def _run_job():
+        with app.app_context():
+            results = convert_single_to_nsz(
+                file_id=int(file_id),
+                command_template=command,
+                delete_original=delete_original,
+                dry_run=dry_run,
+                verbose=verbose,
+                log_cb=lambda msg: _job_log(job_id, msg),
+                progress_cb=lambda done, total: _job_progress(job_id, done, total),
+                stream_output=True,
+                threads=threads
+            )
+            if results.get('success') and not dry_run:
+                post_library_change()
+            _job_finish(job_id, results)
+
+    thread = threading.Thread(target=_run_job, daemon=True)
+    thread.start()
+    return jsonify({'success': True, 'job_id': job_id})
+
+@app.get('/api/manage/convert-job/<job_id>')
+@access_required('admin')
+def manage_convert_job_status(job_id):
+    with conversion_jobs_lock:
+        job = conversion_jobs.get(job_id)
+        if not job:
+            return jsonify({'success': False, 'error': 'Job not found.'}), 404
+        return jsonify({'success': True, 'job': job})
 
 @app.route('/api/settings/library/paths', methods=['GET', 'POST', 'DELETE'])
 @access_required('admin')

@@ -3,6 +3,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 from constants import *
 from db import *
 import titles as titles_lib
@@ -99,6 +100,9 @@ def add_files_to_library(library, files):
 
     library_path = get_library_path(library_id)
     for n, filepath in enumerate(files):
+        if file_exists_in_db(filepath):
+            logger.debug(f'File already in database, skipping: {filepath}')
+            continue
         file = filepath.replace(library_path, "")
         logger.info(f'Getting file info ({n+1}/{nb_to_identify}): {file}')
 
@@ -591,6 +595,65 @@ def _ensure_unique_path(path):
             return candidate
         counter += 1
 
+def _ensure_nsz_keys():
+    if not os.path.exists(KEYS_FILE):
+        return False, f"Keys file not found at {KEYS_FILE}."
+    dest_dir = os.path.join(os.path.expanduser('~'), '.switch')
+    dest_files = [
+        os.path.join(dest_dir, 'keys.txt'),
+        os.path.join(dest_dir, 'prod.keys')
+    ]
+    scripts_dir = os.path.join(os.path.dirname(sys.executable), 'Scripts')
+    dest_files.append(os.path.join(scripts_dir, 'keys.txt'))
+    try:
+        os.makedirs(dest_dir, exist_ok=True)
+        os.makedirs(scripts_dir, exist_ok=True)
+        for dest_file in dest_files:
+            if not os.path.exists(dest_file) or os.path.getmtime(KEYS_FILE) > os.path.getmtime(dest_file):
+                shutil.copy2(KEYS_FILE, dest_file)
+        return True, None
+    except Exception as e:
+        return False, f"Failed to copy keys to {dest_dir}: {e}."
+
+def _get_nsz_exe():
+    scripts_dir = os.path.join(os.path.dirname(sys.executable), 'Scripts')
+    nsz_exe = os.path.join(scripts_dir, 'nsz.exe')
+    return nsz_exe if os.path.exists(nsz_exe) else None
+
+def _format_nsz_command(command_template, input_file, output_file, threads=None):
+    nsz_exe = _get_nsz_exe() or 'nsz'
+    if not command_template:
+        command_template = '{nsz_exe} -C -o "{output_dir}" "{input_file}"'
+    command = command_template.format(
+        nsz_exe=nsz_exe,
+        input_file=input_file,
+        output_file=output_file,
+        output_dir=os.path.dirname(output_file),
+        threads=threads or ''
+    )
+    if threads and re.search(r'(^|\\s)(-t|--threads)\\s', command) is None:
+        command = f"{command} -t {threads}"
+    return command
+
+def _run_command(command, log_cb=None, stream_output=False):
+    if not stream_output:
+        return subprocess.run(command, shell=True, capture_output=True, text=True)
+
+    process = subprocess.Popen(
+        command,
+        shell=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1
+    )
+    if process.stdout and log_cb:
+        for line in process.stdout:
+            log_cb(line.rstrip())
+    returncode = process.wait()
+    result = subprocess.CompletedProcess(command, returncode, '', '')
+    return result
+
 def _choose_primary_app(apps):
     if not apps:
         return None
@@ -640,13 +703,21 @@ def _build_destination(library_path, file_entry, app, title_name, dlc_name):
     filename = _sanitize_component(filename)
     return folder, filename
 
-def organize_library(dry_run=False):
+def organize_library(dry_run=False, verbose=False, detail_limit=200):
     results = {
         'success': True,
         'moved': 0,
         'skipped': 0,
-        'errors': []
+        'errors': [],
+        'details': []
     }
+    detail_count = 0
+
+    def add_detail(message):
+        nonlocal detail_count
+        if verbose and detail_count < detail_limit:
+            results['details'].append(message)
+            detail_count += 1
 
     titles_lib.load_titledb()
     title_name_cache = {}
@@ -656,14 +727,17 @@ def organize_library(dry_run=False):
     for file_entry in files:
         if not file_entry.filepath or not os.path.exists(file_entry.filepath):
             results['skipped'] += 1
+            add_detail('Skip missing file path.')
             continue
         library_path = get_library_path(file_entry.library_id)
         if not library_path:
             results['skipped'] += 1
+            add_detail(f"Skip missing library for {file_entry.filepath}.")
             continue
         primary_app = _choose_primary_app(list(file_entry.apps))
         if not primary_app:
             results['skipped'] += 1
+            add_detail(f"Skip no app mapping for {file_entry.filepath}.")
             continue
 
         title_id = primary_app.title.title_id if primary_app.title else None
@@ -689,6 +763,7 @@ def organize_library(dry_run=False):
         dest_path = os.path.join(dest_dir, dest_filename)
         if os.path.normpath(dest_path) == os.path.normpath(file_entry.filepath):
             results['skipped'] += 1
+            add_detail(f"Skip already organized: {file_entry.filepath}.")
             continue
         dest_path = _ensure_unique_path(dest_path)
 
@@ -699,24 +774,35 @@ def organize_library(dry_run=False):
                 shutil.move(old_path, dest_path)
                 update_file_path(library_path, old_path, dest_path)
                 results['moved'] += 1
+                add_detail(f"Moved: {old_path} -> {dest_path}.")
             except Exception as e:
                 logger.error(f"Failed to move {file_entry.filepath}: {e}")
                 results['errors'].append(str(e))
+                add_detail(f"Error moving {file_entry.filepath}: {e}.")
         else:
             results['moved'] += 1
+            add_detail(f"Plan move: {file_entry.filepath} -> {dest_path}.")
 
     titles_lib.unload_titledb()
     if results['errors']:
         results['success'] = False
     return results
 
-def delete_older_updates(dry_run=False):
+def delete_older_updates(dry_run=False, verbose=False, detail_limit=200):
     results = {
         'success': True,
         'deleted': 0,
         'skipped': 0,
-        'errors': []
+        'errors': [],
+        'details': []
     }
+    detail_count = 0
+
+    def add_detail(message):
+        nonlocal detail_count
+        if verbose and detail_count < detail_limit:
+            results['details'].append(message)
+            detail_count += 1
 
     titles = Titles.query.all()
     for title in titles:
@@ -727,6 +813,7 @@ def delete_older_updates(dry_run=False):
         ).all()
         if len(update_apps) <= 1:
             results['skipped'] += 1
+            add_detail(f"Skip updates for {title.title_id}: {len(update_apps)} owned update(s).")
             continue
 
         latest_app = max(update_apps, key=lambda app: _safe_int(app.app_version))
@@ -736,63 +823,112 @@ def delete_older_updates(dry_run=False):
             filepaths = [file.filepath for file in list(app.files)]
             if not filepaths:
                 results['skipped'] += 1
+                add_detail(f"Skip no files for update {app.app_id} v{app.app_version}.")
                 continue
             for filepath in filepaths:
                 if dry_run:
                     results['deleted'] += 1
+                    add_detail(f"Plan delete: {filepath}.")
                     continue
                 try:
                     if filepath and os.path.exists(filepath):
                         os.remove(filepath)
                     delete_file_by_filepath(filepath)
                     results['deleted'] += 1
+                    add_detail(f"Deleted: {filepath}.")
                 except Exception as e:
                     logger.error(f"Failed to delete update {filepath}: {e}")
                     results['errors'].append(str(e))
+                    add_detail(f"Error deleting {filepath}: {e}.")
 
     if results['errors']:
         results['success'] = False
     return results
 
-def convert_to_nsz(command_template, delete_original=True, dry_run=False):
+def convert_to_nsz(command_template, delete_original=True, dry_run=False, verbose=False, detail_limit=200, log_cb=None, progress_cb=None, stream_output=False, threads=None):
     results = {
         'success': True,
         'converted': 0,
         'skipped': 0,
-        'errors': []
+        'errors': [],
+        'details': []
     }
+    detail_count = 0
 
-    if not command_template:
-        command_template = 'nsz -o "{output_dir}" "{input_file}"'
+    def add_detail(message):
+        nonlocal detail_count
+        if verbose and detail_count < detail_limit:
+            results['details'].append(message)
+            detail_count += 1
+
+    keys_ok, keys_error = _ensure_nsz_keys()
+    if not keys_ok:
+        results['success'] = False
+        results['errors'].append(keys_error)
+        add_detail(keys_error)
+        return results
+
+    if '{nsz_exe}' in (command_template or '') and not _get_nsz_exe():
+        warning = 'nsz.exe not found in Python Scripts folder; using PATH lookup.'
+        add_detail(warning)
+        if log_cb:
+            log_cb(warning)
 
     files = Files.query.filter(Files.extension.in_(['nsp', 'xci'])).all()
+    total_files = len(files)
+    processed = 0
+    if progress_cb:
+        progress_cb(0, total_files)
     for file_entry in files:
         if not file_entry.filepath or not os.path.exists(file_entry.filepath):
             results['skipped'] += 1
+            add_detail('Skip missing file path.')
+            processed += 1
+            if progress_cb:
+                progress_cb(processed, total_files)
             continue
 
         output_file = os.path.splitext(file_entry.filepath)[0] + '.nsz'
         if os.path.exists(output_file):
             results['skipped'] += 1
+            add_detail(f"Skip existing output: {output_file}.")
+            processed += 1
+            if progress_cb:
+                progress_cb(processed, total_files)
             continue
 
-        command = command_template.format(
-            input_file=file_entry.filepath,
-            output_file=output_file,
-            output_dir=os.path.dirname(output_file)
+        command = _format_nsz_command(
+            command_template,
+            file_entry.filepath,
+            output_file,
+            threads=threads
         )
 
         if dry_run:
             results['converted'] += 1
+            add_detail(f"Plan convert: {file_entry.filepath} -> {output_file}.")
+            processed += 1
+            if progress_cb:
+                progress_cb(processed, total_files)
             continue
 
         try:
-            process = subprocess.run(command, shell=True, capture_output=True, text=True)
+            if log_cb:
+                log_cb(f"Running: {command}")
+            process = _run_command(command, log_cb=log_cb, stream_output=stream_output)
             if process.returncode != 0:
                 results['errors'].append(process.stderr.strip() or 'Conversion failed.')
+                add_detail(f"Error converting {file_entry.filepath}: {process.stderr.strip() or 'Conversion failed.'}.")
+                processed += 1
+                if progress_cb:
+                    progress_cb(processed, total_files)
                 continue
             if not os.path.exists(output_file):
                 results['errors'].append(f'Output not found: {output_file}')
+                add_detail(f"Error missing output: {output_file}.")
+                processed += 1
+                if progress_cb:
+                    progress_cb(processed, total_files)
                 continue
 
             if delete_original:
@@ -805,9 +941,180 @@ def convert_to_nsz(command_template, delete_original=True, dry_run=False):
                 file_entry.compressed = True
                 file_entry.size = os.path.getsize(output_file)
                 db.session.commit()
+                add_detail(f"Converted and replaced: {old_path} -> {output_file}.")
             else:
                 library_path = get_library_path(file_entry.library_id)
                 folder = _compute_relative_folder(library_path, output_file)
+                existing_file = Files.query.filter_by(filepath=output_file).first()
+                if existing_file:
+                    existing_file.extension = 'nsz'
+                    existing_file.compressed = True
+                    existing_file.size = os.path.getsize(output_file)
+                    for app in list(file_entry.apps):
+                        if existing_file not in app.files:
+                            app.files.append(existing_file)
+                    db.session.commit()
+                    add_detail(f"Converted output already indexed: {output_file}.")
+                else:
+                    new_file = Files(
+                        filepath=output_file,
+                        library_id=file_entry.library_id,
+                        folder=folder,
+                        filename=os.path.basename(output_file),
+                        extension='nsz',
+                        size=os.path.getsize(output_file),
+                        compressed=True,
+                        multicontent=file_entry.multicontent,
+                        nb_content=file_entry.nb_content,
+                        identified=True,
+                        identification_type=file_entry.identification_type,
+                        identification_attempts=file_entry.identification_attempts,
+                        last_attempt=file_entry.last_attempt
+                    )
+                    db.session.add(new_file)
+                    db.session.flush()
+                    for app in list(file_entry.apps):
+                        app.files.append(new_file)
+                    db.session.commit()
+                    add_detail(f"Converted: {file_entry.filepath} -> {output_file}.")
+
+            results['converted'] += 1
+            processed += 1
+            if progress_cb:
+                progress_cb(processed, total_files)
+        except Exception as e:
+            logger.error(f"Failed to convert {file_entry.filepath}: {e}")
+            results['errors'].append(str(e))
+            add_detail(f"Error converting {file_entry.filepath}: {e}.")
+            processed += 1
+            if progress_cb:
+                progress_cb(processed, total_files)
+
+    if results['errors']:
+        results['success'] = False
+    return results
+
+def list_convertible_files(limit=2000):
+    files = Files.query.filter(Files.extension.in_(['nsp', 'xci'])).limit(limit).all()
+    return [
+        {
+            'id': file.id,
+            'filename': file.filename,
+            'filepath': file.filepath,
+            'extension': file.extension,
+            'size': file.size or 0
+        }
+        for file in files
+    ]
+
+def convert_single_to_nsz(file_id, command_template, delete_original=True, dry_run=False, verbose=False, log_cb=None, progress_cb=None, stream_output=False, threads=None):
+    results = {
+        'success': True,
+        'converted': 0,
+        'skipped': 0,
+        'errors': [],
+        'details': []
+    }
+
+    file_entry = Files.query.filter_by(id=file_id).first()
+    if not file_entry:
+        return {
+            'success': False,
+            'converted': 0,
+            'skipped': 0,
+            'errors': ['File not found.'],
+            'details': []
+        }
+
+    if not file_entry.filepath or not os.path.exists(file_entry.filepath):
+        results['success'] = False
+        results['errors'].append('File path missing.')
+        return results
+
+    keys_ok, keys_error = _ensure_nsz_keys()
+    if not keys_ok:
+        results['success'] = False
+        results['errors'].append(keys_error)
+        if verbose:
+            results['details'].append(keys_error)
+        return results
+
+    if '{nsz_exe}' in (command_template or '') and not _get_nsz_exe() and verbose:
+        warning = 'nsz.exe not found in Python Scripts folder; using PATH lookup.'
+        results['details'].append(warning)
+        if log_cb:
+            log_cb(warning)
+    output_file = os.path.splitext(file_entry.filepath)[0] + '.nsz'
+    if os.path.exists(output_file):
+        results['skipped'] = 1
+        if verbose:
+            results['details'].append(f"Skip existing output: {output_file}.")
+        return results
+
+    nsz_exe = _get_nsz_exe() or 'nsz'
+    command = _format_nsz_command(
+        command_template,
+        file_entry.filepath,
+        output_file,
+        threads=threads
+    )
+
+    if dry_run:
+        results['converted'] = 1
+        if verbose:
+            results['details'].append(f"Plan convert: {file_entry.filepath} -> {output_file}.")
+        if progress_cb:
+            progress_cb(1, 1)
+        return results
+
+    try:
+        if log_cb:
+            log_cb(f"Running: {command}")
+        process = _run_command(command, log_cb=log_cb, stream_output=stream_output)
+        if process.returncode != 0:
+            results['success'] = False
+            results['errors'].append(process.stderr.strip() or 'Conversion failed.')
+            if verbose:
+                results['details'].append(f"Error converting {file_entry.filepath}: {process.stderr.strip() or 'Conversion failed.'}.")
+            if progress_cb:
+                progress_cb(1, 1)
+            return results
+        if not os.path.exists(output_file):
+            results['success'] = False
+            results['errors'].append(f'Output not found: {output_file}')
+            if verbose:
+                results['details'].append(f"Error missing output: {output_file}.")
+            if progress_cb:
+                progress_cb(1, 1)
+            return results
+
+        if delete_original:
+            old_path = file_entry.filepath
+            if os.path.exists(old_path):
+                os.remove(old_path)
+            library_path = get_library_path(file_entry.library_id)
+            update_file_path(library_path, old_path, output_file)
+            file_entry.extension = 'nsz'
+            file_entry.compressed = True
+            file_entry.size = os.path.getsize(output_file)
+            db.session.commit()
+            if verbose:
+                results['details'].append(f"Converted and replaced: {old_path} -> {output_file}.")
+        else:
+            library_path = get_library_path(file_entry.library_id)
+            folder = _compute_relative_folder(library_path, output_file)
+            existing_file = Files.query.filter_by(filepath=output_file).first()
+            if existing_file:
+                existing_file.extension = 'nsz'
+                existing_file.compressed = True
+                existing_file.size = os.path.getsize(output_file)
+                for app in list(file_entry.apps):
+                    if existing_file not in app.files:
+                        app.files.append(existing_file)
+                db.session.commit()
+                if verbose:
+                    results['details'].append(f"Converted output already indexed: {output_file}.")
+            else:
                 new_file = Files(
                     filepath=output_file,
                     library_id=file_entry.library_id,
@@ -828,12 +1135,19 @@ def convert_to_nsz(command_template, delete_original=True, dry_run=False):
                 for app in list(file_entry.apps):
                     app.files.append(new_file)
                 db.session.commit()
+            if verbose:
+                results['details'].append(f"Converted: {file_entry.filepath} -> {output_file}.")
 
-            results['converted'] += 1
-        except Exception as e:
-            logger.error(f"Failed to convert {file_entry.filepath}: {e}")
-            results['errors'].append(str(e))
-
-    if results['errors']:
+        results['converted'] = 1
+        if progress_cb:
+            progress_cb(1, 1)
+    except Exception as e:
+        logger.error(f"Failed to convert {file_entry.filepath}: {e}")
         results['success'] = False
+        results['errors'].append(str(e))
+        if verbose:
+            results['details'].append(f"Error converting {file_entry.filepath}: {e}.")
+        if progress_cb:
+            progress_cb(1, 1)
+
     return results
