@@ -12,6 +12,7 @@ from datetime import timedelta
 flask.cli.show_server_banner = lambda *args: None
 from constants import *
 from settings import *
+from downloads import ProwlarrClient, test_torrent_client, run_downloads_job, manual_search_update, queue_download_url, search_update_options
 from db import *
 from shop import *
 from auth import *
@@ -44,9 +45,19 @@ def init():
     library_paths = app_settings['library']['paths']
     init_libraries(app, watcher, library_paths)
 
-     # Initialize job scheduler
+    # Initialize job scheduler
     logger.info('Initializing Scheduler...')
     init_scheduler(app)
+
+    def downloads_job():
+        run_downloads_job(scan_cb=scan_library, post_cb=post_library_change)
+
+    # Automatic update downloader job
+    app.scheduler.add_job(
+        job_id='downloads_update_job',
+        func=downloads_job,
+        interval=timedelta(minutes=5)
+    )
     
     # Define update_titledb_job
     def update_titledb_job():
@@ -240,21 +251,76 @@ def _create_job(kind, total=0):
 def _job_log(job_id, message):
     if message is None:
         return
+    message = _fix_mojibake(str(message)).strip()
+    if not message:
+        return
     with conversion_jobs_lock:
         job = conversion_jobs.get(job_id)
         if not job:
             return
         percent_match = re.search(r'Compressed\s+([0-9.]+)%', message)
+        numeric_match = re.fullmatch(r'\d{1,3}', message)
+        convert_match = re.search(r'^\[CONVERT\]\s+(.+?)\s+->\s+(.+)$', message)
+        verify_match = re.search(r'^\[VERIFY\]\s+(.+)$', message)
+
+        if numeric_match:
+            try:
+                percent_value = int(numeric_match.group(0))
+                if 0 <= percent_value <= 100:
+                    job['progress']['percent'] = float(percent_value)
+                    stage = job['progress'].get('stage') or 'converting'
+                    label = 'Verifying' if stage == 'verifying' else 'Converting'
+                    job['progress']['message'] = f"{label}: {percent_value}%"
+                    job['updated_at'] = time.time()
+                    return
+            except ValueError:
+                pass
         if percent_match:
             try:
                 job['progress']['percent'] = float(percent_match.group(1))
-                job['progress']['message'] = message
+                stage = job['progress'].get('stage') or 'converting'
+                label = 'Verifying' if stage == 'verifying' else 'Converting'
+                job['progress']['message'] = f"{label}: {job['progress']['percent']:.0f}%"
+                job['updated_at'] = time.time()
+                return
             except ValueError:
                 pass
-        job['logs'].append(message)
+
+        if convert_match:
+            input_path = convert_match.group(1)
+            display_name = os.path.basename(input_path)
+            message = f"Converting {display_name}..."
+            job['progress']['stage'] = 'converting'
+            job['progress']['file'] = display_name
+            job['progress']['message'] = message
+        elif verify_match:
+            input_path = verify_match.group(1)
+            display_name = os.path.basename(input_path)
+            message = f"Verifying {display_name}..."
+            job['progress']['stage'] = 'verifying'
+            job['progress']['file'] = display_name
+            job['progress']['message'] = message
+        elif message.startswith("Running:"):
+            message = "Starting converter..."
+            job['progress']['stage'] = 'converting'
+            job['progress']['message'] = message
+
+        if message:
+            job['logs'].append(message)
         if len(job['logs']) > 500:
             job['logs'] = job['logs'][-500:]
         job['updated_at'] = time.time()
+
+def _fix_mojibake(text):
+    if not text:
+        return text
+    if "Ã" not in text and "â" not in text:
+        return text
+    try:
+        fixed = text.encode("latin-1").decode("utf-8")
+        return fixed if fixed else text
+    except (UnicodeEncodeError, UnicodeDecodeError):
+        return text
 
 def _job_progress(job_id, done, total):
     with conversion_jobs_lock:
@@ -460,6 +526,137 @@ def set_shop_settings_api():
     } 
     return jsonify(resp)
 
+@app.post('/api/settings/downloads')
+@access_required('admin')
+def set_download_settings_api():
+    data = request.json or {}
+    set_download_settings(data)
+    reload_conf()
+    resp = {
+        'success': True,
+        'errors': []
+    }
+    return jsonify(resp)
+
+@app.post('/api/settings/downloads/test-prowlarr')
+@access_required('admin')
+def test_downloads_prowlarr_api():
+    data = request.json or {}
+    url = data.get('url', '')
+    api_key = data.get('api_key', '')
+    try:
+        client = ProwlarrClient(url, api_key)
+        status = client.system_status()
+        indexer_ids = data.get('indexer_ids') or []
+        warning = None
+        if indexer_ids:
+            indexers = client.list_indexers()
+            available_ids = {item.get('id') for item in (indexers or [])}
+            missing = [idx for idx in indexer_ids if idx not in available_ids]
+            if missing:
+                warning = f"Missing indexer IDs: {', '.join(str(x) for x in missing)}"
+        return jsonify({
+            'success': True,
+            'message': f"Prowlarr OK ({status.get('version', 'unknown')})",
+            'warning': warning
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)})
+
+@app.post('/api/settings/downloads/test-client')
+@access_required('admin')
+def test_downloads_client_api():
+    data = request.json or {}
+    ok, message = test_torrent_client(
+        client_type=data.get('type', ''),
+        url=data.get('url', ''),
+        username=data.get('username', ''),
+        password=data.get('password', '')
+    )
+    download_path = (data.get('download_path') or '').strip()
+    warning = None
+    if ok and download_path:
+        if not os.path.isdir(download_path):
+            warning = f"Download path not found: {download_path}"
+        elif not os.access(download_path, os.W_OK):
+            warning = f"Download path not writable: {download_path}"
+    return jsonify({'success': ok, 'message': message, 'warning': warning})
+
+@app.post('/api/downloads/manual')
+@access_required('admin')
+def manual_download_update():
+    data = request.json or {}
+    title_id = data.get('title_id')
+    version = data.get('version')
+    if not title_id or version is None:
+        return jsonify({'success': False, 'message': 'Missing title ID or version.'})
+    try:
+        ok, message = manual_search_update(title_id=title_id, version=version)
+        return jsonify({'success': ok, 'message': message})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)})
+
+@app.post('/api/downloads/manual-search')
+@access_required('admin')
+def manual_search_update_options():
+    data = request.json or {}
+    title_id = data.get('title_id')
+    version = data.get('version')
+    if not title_id or version is None:
+        return jsonify({'success': False, 'message': 'Missing title ID or version.', 'results': []})
+    try:
+        ok, message, results = search_update_options(title_id=title_id, version=version)
+        return jsonify({'success': ok, 'message': message, 'results': results})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e), 'results': []})
+
+@app.get('/api/downloads/search')
+@access_required('admin')
+def downloads_search():
+    query = request.args.get('query', '').strip()
+    if not query:
+        return jsonify({'success': False, 'message': 'Missing query.'})
+    settings = load_settings()
+    downloads = settings.get('downloads', {})
+    prowlarr_cfg = downloads.get('prowlarr', {})
+    if not prowlarr_cfg.get('url') or not prowlarr_cfg.get('api_key'):
+        return jsonify({'success': False, 'message': 'Prowlarr is not configured.'})
+    try:
+        prefix = (downloads.get('search_prefix') or '').strip()
+        suffix = (downloads.get('search_suffix') or '').strip()
+        full_query = query
+        if prefix and not full_query.lower().startswith(prefix.lower()):
+            full_query = f"{prefix} {full_query}".strip()
+        if suffix and not full_query.lower().endswith(suffix.lower()):
+            full_query = f"{full_query} {suffix}".strip()
+        client = ProwlarrClient(prowlarr_cfg['url'], prowlarr_cfg['api_key'])
+        results = client.search(full_query, indexer_ids=prowlarr_cfg.get('indexer_ids') or [])
+        trimmed = [
+            {
+                'title': r.get('title'),
+                'size': r.get('size'),
+                'seeders': r.get('seeders'),
+                'leechers': r.get('leechers'),
+                'download_url': r.get('download_url')
+            }
+            for r in (results or [])[:50]
+        ]
+        return jsonify({'success': True, 'results': trimmed})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)})
+
+@app.post('/api/downloads/queue')
+@access_required('admin')
+def downloads_queue():
+    data = request.json or {}
+    download_url = data.get('download_url')
+    expected_name = data.get('title')
+    update_only = bool(data.get('update_only', False))
+    if not download_url:
+        return jsonify({'success': False, 'message': 'Missing download URL.'})
+    ok, message = queue_download_url(download_url, expected_name=expected_name, update_only=update_only)
+    return jsonify({'success': ok, 'message': message})
+
 @app.post('/api/manage/organize')
 @access_required('admin')
 def manage_organize_library():
@@ -651,11 +848,12 @@ def manage_health():
         nsz_path = _get_nsz_exe()
     except NameError:
         nsz_path = None
+    keys_file = KEYS_FILE
     keys_ok = os.path.exists(KEYS_FILE)
     return jsonify({
         'success': True,
         'nsz_exe': nsz_path,
-        'keys_file': KEYS_FILE,
+        'keys_file': keys_file,
         'keys_present': keys_ok
     })
 

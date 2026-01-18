@@ -1,6 +1,9 @@
 import os
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_DIR = os.path.dirname(APP_DIR)
+NSZ_DIR = os.path.join(PROJECT_DIR, 'nsz')
+NSZ_SCRIPT = os.path.join(NSZ_DIR, 'nsz.py')
 DATA_DIR = os.path.join(APP_DIR, 'data')
 CONFIG_DIR = os.path.join(APP_DIR, 'config')
 DB_FILE = os.path.join(CONFIG_DIR, 'ownfoil.db')
@@ -30,6 +33,28 @@ DEFAULT_SETTINGS = {
         "language": "en",
         "region": "US",
         "valid_keys": False,
+    },
+    "downloads": {
+        "enabled": False,
+        "interval_minutes": 60,
+        "min_seeders": 2,
+        "required_terms": ["update"],
+        "blacklist_terms": [],
+        "search_prefix": "Nintendo Switch",
+        "search_suffix": "update",
+        "prowlarr": {
+            "url": "",
+            "api_key": "",
+            "indexer_ids": []
+        },
+        "torrent_client": {
+            "type": "qbittorrent",
+            "url": "",
+            "username": "",
+            "password": "",
+            "category": "ownfoil",
+            "download_path": ""
+        }
     },
     "shop": {
         "motd": "Welcome to your own shop!",

@@ -24,6 +24,57 @@
 <body>
     {% block content %}
     {% endblock %}
+    <script>
+        (function () {
+            const statusEl = document.getElementById('globalJobStatus');
+            if (!statusEl) {
+                return;
+            }
+
+            function formatJobStatus(job) {
+                const progress = job['progress'] || {};
+                const message = progress['message'] || '';
+                const done = progress['done'] || 0;
+                const total = progress['total'] || 0;
+                const percent = progress['percent'] || 0;
+                const file = progress['file'] || '';
+                const parts = [];
+                if (message) {
+                    parts.push(message);
+                } else if (total) {
+                    parts.push(`Conversion: ${done}/${total}`);
+                } else {
+                    parts.push('Conversion running');
+                }
+                if (file) {
+                    parts.push(file);
+                }
+                if (percent) {
+                    parts.push(`${Math.round(percent)}%`);
+                }
+                return parts.join(' \u2022 ');
+            }
+
+            function pollStatus() {
+                $.getJSON("/api/manage/jobs?limit=1", function (result) {
+                    if (!result['success']) {
+                        return;
+                    }
+                    const jobs = result['jobs'] || [];
+                    const job = jobs.length ? jobs[0] : null;
+                    if (job && job['status'] === 'running' && (job['kind'] || '').startsWith('convert')) {
+                        statusEl.textContent = formatJobStatus(job);
+                        statusEl.classList.remove('d-none');
+                    } else {
+                        statusEl.classList.add('d-none');
+                    }
+                });
+            }
+
+            pollStatus();
+            setInterval(pollStatus, 2000);
+        })();
+    </script>
 </body>
 
 </html>

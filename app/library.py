@@ -596,8 +596,12 @@ def _ensure_unique_path(path):
             return candidate
         counter += 1
 
+def _get_nsz_keys_file():
+    return KEYS_FILE if os.path.exists(KEYS_FILE) else None
+
 def _ensure_nsz_keys():
-    if not os.path.exists(KEYS_FILE):
+    key_source = _get_nsz_keys_file()
+    if not key_source:
         return False, f"Keys file not found at {KEYS_FILE}."
     dest_dir = os.path.join(os.path.expanduser('~'), '.switch')
     dest_files = [
@@ -610,23 +614,33 @@ def _ensure_nsz_keys():
         os.makedirs(dest_dir, exist_ok=True)
         os.makedirs(scripts_dir, exist_ok=True)
         for dest_file in dest_files:
-            if not os.path.exists(dest_file) or os.path.getmtime(KEYS_FILE) > os.path.getmtime(dest_file):
-                shutil.copy2(KEYS_FILE, dest_file)
+            if not os.path.exists(dest_file) or os.path.getmtime(key_source) > os.path.getmtime(dest_file):
+                shutil.copy2(key_source, dest_file)
         return True, None
     except Exception as e:
         return False, f"Failed to copy keys to {dest_dir}: {e}."
 
+def _quote_arg(value):
+    value = str(value)
+    if value.startswith('"') and value.endswith('"'):
+        return value
+    return f"\"{value}\""
+
 def _get_nsz_exe():
+    if os.path.exists(NSZ_SCRIPT):
+        return f"{_quote_arg(sys.executable)} {_quote_arg(NSZ_SCRIPT)}"
     scripts_dir = os.path.join(os.path.dirname(sys.executable), 'Scripts')
     nsz_exe = os.path.join(scripts_dir, 'nsz.exe')
-    return nsz_exe if os.path.exists(nsz_exe) else None
+    return _quote_arg(nsz_exe) if os.path.exists(nsz_exe) else None
 
 def _format_nsz_command(command_template, input_file, output_file, threads=None):
     nsz_exe = _get_nsz_exe() or 'nsz'
+    nsz_keys = _get_nsz_keys_file() or KEYS_FILE
     if not command_template:
-        command_template = '{nsz_exe} -C -o "{output_dir}" "{input_file}"'
+        command_template = '{nsz_exe} --keys-file "{nsz_keys}" -C -o "{output_dir}" "{input_file}" --verify --low-verbose'
     command = command_template.format(
         nsz_exe=nsz_exe,
+        nsz_keys=nsz_keys,
         input_file=input_file,
         output_file=output_file,
         output_dir=os.path.dirname(output_file),
@@ -890,7 +904,7 @@ def convert_to_nsz(command_template, delete_original=True, dry_run=False, verbos
         return results
 
     if '{nsz_exe}' in (command_template or '') and not _get_nsz_exe():
-        warning = 'nsz.exe not found in Python Scripts folder; using PATH lookup.'
+        warning = 'NSZ tool not found in ./nsz; using PATH lookup.'
         add_detail(warning)
         if log_cb:
             log_cb(warning)
@@ -1046,12 +1060,12 @@ def convert_to_nsz(command_template, delete_original=True, dry_run=False, verbos
         results['success'] = False
     return results
 
-def list_convertible_files(limit=2000, library_id=None):
+def list_convertible_files(limit=2000, library_id=None, min_size_bytes=50 * 1024 * 1024):
     query = Files.query.filter(Files.extension.in_(['nsp', 'xci']))
     if library_id:
         query = query.filter_by(library_id=library_id)
     files = query.limit(limit).all()
-    return [
+    filtered = [
         {
             'id': file.id,
             'filename': file.filename,
@@ -1060,7 +1074,9 @@ def list_convertible_files(limit=2000, library_id=None):
             'size': file.size or 0
         }
         for file in files
+        if not min_size_bytes or not file.size or file.size >= min_size_bytes
     ]
+    return filtered
 
 def convert_single_to_nsz(file_id, command_template, delete_original=True, dry_run=False, verbose=False, log_cb=None, progress_cb=None, stream_output=False, threads=None, cancel_cb=None, timeout_seconds=None):
     results = {
@@ -1095,7 +1111,7 @@ def convert_single_to_nsz(file_id, command_template, delete_original=True, dry_r
         return results
 
     if '{nsz_exe}' in (command_template or '') and not _get_nsz_exe() and verbose:
-        warning = 'nsz.exe not found in Python Scripts folder; using PATH lookup.'
+        warning = 'NSZ tool not found in ./nsz; using PATH lookup.'
         results['details'].append(warning)
         if log_cb:
             log_cb(warning)

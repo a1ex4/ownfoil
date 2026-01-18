@@ -28,6 +28,14 @@ def load_settings():
         with open(CONFIG_FILE, 'r') as yaml_file:
             settings = yaml.safe_load(yaml_file)
 
+        if 'downloads' not in settings:
+            settings['downloads'] = DEFAULT_SETTINGS.get('downloads', {})
+        else:
+            defaults = DEFAULT_SETTINGS.get('downloads', {})
+            merged = defaults.copy()
+            merged.update(settings.get('downloads', {}))
+            settings['downloads'] = merged
+
         valid_keys = load_keys()
         settings['titles']['valid_keys'] = valid_keys
 
@@ -113,5 +121,12 @@ def set_shop_settings(data):
     if '://' in shop_host:
         data['host'] = shop_host.split('://')[-1]
     settings['shop'].update(data)
+    with open(CONFIG_FILE, 'w') as yaml_file:
+        yaml.dump(settings, yaml_file)
+
+def set_download_settings(data):
+    settings = load_settings()
+    settings.setdefault('downloads', {})
+    settings['downloads'].update(data)
     with open(CONFIG_FILE, 'w') as yaml_file:
         yaml.dump(settings, yaml_file)

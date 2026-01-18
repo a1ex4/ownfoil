@@ -369,6 +369,110 @@
                         onClick='submitShopSettings()'>Submit</button>
                 </div>
 
+                <hr>
+                <h2 class="pb-3">Downloads</h2>
+                <p>Configure Prowlarr and your torrent client to automatically fetch missing updates.</p>
+
+                <div class="mb-3 form-check">
+                    <input type="checkbox" class="form-check-input" id="downloadsEnabledCheck">
+                    <label class="form-check-label" for="downloadsEnabledCheck">Enable automatic downloads</label>
+                </div>
+
+                <div class="row g-3 mb-3">
+                    <div class="col-md-4">
+                        <label for="downloadsIntervalInput" class="form-label">Search interval (minutes)</label>
+                        <input type="number" min="5" class="form-control" id="downloadsIntervalInput">
+                    </div>
+                    <div class="col-md-4">
+                        <label for="downloadsMinSeedersInput" class="form-label">Minimum seeders</label>
+                        <input type="number" min="0" class="form-control" id="downloadsMinSeedersInput">
+                    </div>
+                    <div class="col-md-4">
+                        <label for="downloadsCategoryInput" class="form-label">Torrent category/tag</label>
+                        <input type="text" class="form-control" id="downloadsCategoryInput" placeholder="ownfoil">
+                    </div>
+                </div>
+
+                <div class="row g-3 mb-3">
+                    <div class="col-md-6">
+                        <label for="downloadsRequiredTermsInput" class="form-label">Required terms (comma separated)</label>
+                        <input type="text" class="form-control" id="downloadsRequiredTermsInput" placeholder="update,nsp">
+                    </div>
+                    <div class="col-md-6">
+                        <label for="downloadsBlacklistTermsInput" class="form-label">Blacklist terms (comma separated)</label>
+                        <input type="text" class="form-control" id="downloadsBlacklistTermsInput" placeholder="demo,trial">
+                    </div>
+                </div>
+                <div class="row g-3 mb-3">
+                    <div class="col-md-6">
+                        <label for="downloadsSearchPrefixInput" class="form-label">Search prefix</label>
+                        <input type="text" class="form-control" id="downloadsSearchPrefixInput" placeholder="Nintendo Switch">
+                    </div>
+                    <div class="col-md-6">
+                        <label for="downloadsSearchSuffixInput" class="form-label">Search suffix</label>
+                        <input type="text" class="form-control" id="downloadsSearchSuffixInput" placeholder="update">
+                    </div>
+                </div>
+
+                <h4 class="mt-4">Prowlarr</h4>
+                <div class="row g-3 mb-3">
+                    <div class="col-md-6">
+                        <label for="prowlarrUrlInput" class="form-label">Prowlarr URL</label>
+                        <input type="text" class="form-control" id="prowlarrUrlInput" placeholder="http://localhost:9696">
+                    </div>
+                    <div class="col-md-6">
+                        <label for="prowlarrApiKeyInput" class="form-label">API Key</label>
+                        <input type="password" class="form-control" id="prowlarrApiKeyInput">
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <label for="prowlarrIndexerIdsInput" class="form-label">Indexer IDs (comma separated)</label>
+                    <input type="text" class="form-control" id="prowlarrIndexerIdsInput" placeholder="1,2,3">
+                </div>
+                <div class="mb-3 d-flex align-items-center gap-3">
+                    <button type="button" id="testProwlarrBtn" class="btn btn-outline-secondary"
+                        onClick='testProwlarrSettings()'>Test Prowlarr</button>
+                    <span id="prowlarrTestResult" class="text-muted small"></span>
+                </div>
+
+                <h4 class="mt-4">Torrent Client</h4>
+                <div class="row g-3 mb-3">
+                    <div class="col-md-4">
+                        <label for="torrentClientTypeSelect" class="form-label">Client</label>
+                        <select class="form-select" id="torrentClientTypeSelect">
+                            <option value="qbittorrent">qBittorrent</option>
+                            <option value="transmission">Transmission</option>
+                        </select>
+                    </div>
+                    <div class="col-md-8">
+                        <label for="torrentClientUrlInput" class="form-label">Client URL</label>
+                        <input type="text" class="form-control" id="torrentClientUrlInput" placeholder="http://localhost:8080">
+                    </div>
+                </div>
+                <div class="row g-3 mb-3">
+                    <div class="col-md-6">
+                        <label for="torrentClientUserInput" class="form-label">Username</label>
+                        <input type="text" class="form-control" id="torrentClientUserInput">
+                    </div>
+                    <div class="col-md-6">
+                        <label for="torrentClientPasswordInput" class="form-label">Password</label>
+                        <input type="password" class="form-control" id="torrentClientPasswordInput">
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <label for="torrentClientPathInput" class="form-label">Download path (optional)</label>
+                    <input type="text" class="form-control" id="torrentClientPathInput" placeholder="D:\\Downloads\\Switch">
+                </div>
+                <div class="mb-3 d-flex align-items-center gap-3">
+                    <button type="button" id="testTorrentClientBtn" class="btn btn-outline-secondary"
+                        onClick='testTorrentClientSettings()'>Test torrent client</button>
+                    <span id="torrentClientTestResult" class="text-muted small"></span>
+                </div>
+                <div class="mb-3">
+                    <button type="button" id="submitDownloadSettingsBtn" class="btn btn-primary"
+                        onClick='submitDownloadSettings()'>Submit</button>
+                </div>
+
             </div>
         </div>
     </div>
@@ -994,6 +1098,125 @@
         });
     }
 
+    function splitTerms(value) {
+        if (!value) {
+            return [];
+        }
+        return value.split(',').map(item => item.trim()).filter(Boolean);
+    }
+
+    function parseIndexerIds(value) {
+        if (!value) {
+            return [];
+        }
+        return value.split(',').map(item => parseInt(item.trim(), 10)).filter(id => !isNaN(id));
+    }
+
+    function submitDownloadSettings() {
+        $('#submitDownloadSettingsBtn').prop('disabled', true);
+        data = {
+            enabled: getCheckboxStatus("downloadsEnabledCheck"),
+            interval_minutes: parseInt(getInputVal("downloadsIntervalInput"), 10) || 60,
+            min_seeders: parseInt(getInputVal("downloadsMinSeedersInput"), 10) || 0,
+            required_terms: splitTerms(getInputVal("downloadsRequiredTermsInput")),
+            blacklist_terms: splitTerms(getInputVal("downloadsBlacklistTermsInput")),
+            search_prefix: getInputVal("downloadsSearchPrefixInput"),
+            search_suffix: getInputVal("downloadsSearchSuffixInput"),
+            prowlarr: {
+                url: getInputVal("prowlarrUrlInput"),
+                api_key: getInputVal("prowlarrApiKeyInput"),
+                indexer_ids: parseIndexerIds(getInputVal("prowlarrIndexerIdsInput"))
+            },
+            torrent_client: {
+                type: getInputVal("torrentClientTypeSelect"),
+                url: getInputVal("torrentClientUrlInput"),
+                username: getInputVal("torrentClientUserInput"),
+                password: getInputVal("torrentClientPasswordInput"),
+                category: getInputVal("downloadsCategoryInput"),
+                download_path: getInputVal("torrentClientPathInput")
+            }
+        };
+
+        $.ajax({
+            url: "/api/settings/downloads",
+            type: 'POST',
+            data: JSON.stringify(data),
+            contentType: "application/json",
+            success: function (result) {
+                if (!result['success']) {
+                    console.log('Not Success!');
+                }
+            },
+            complete: function () {
+                $('#submitDownloadSettingsBtn').prop('disabled', false);
+            }
+        });
+    }
+
+    function testProwlarrSettings() {
+        $('#testProwlarrBtn').prop('disabled', true);
+        $('#prowlarrTestResult').text('Testing...').removeClass('text-danger text-success').addClass('text-muted');
+        data = {
+            url: getInputVal("prowlarrUrlInput"),
+            api_key: getInputVal("prowlarrApiKeyInput"),
+            indexer_ids: parseIndexerIds(getInputVal("prowlarrIndexerIdsInput"))
+        };
+        $.ajax({
+            url: "/api/settings/downloads/test-prowlarr",
+            type: 'POST',
+            data: JSON.stringify(data),
+            contentType: "application/json",
+            success: function (result) {
+                const ok = result['success'];
+                const warning = result['warning'];
+                let text = result['message'] || (ok ? 'Prowlarr OK' : 'Prowlarr test failed');
+                if (warning) {
+                    text = `${text} (${warning})`;
+                }
+                $('#prowlarrTestResult')
+                    .text(text)
+                    .removeClass('text-muted text-danger text-success')
+                    .addClass(ok ? 'text-success' : 'text-danger');
+            },
+            complete: function () {
+                $('#testProwlarrBtn').prop('disabled', false);
+            }
+        });
+    }
+
+    function testTorrentClientSettings() {
+        $('#testTorrentClientBtn').prop('disabled', true);
+        $('#torrentClientTestResult').text('Testing...').removeClass('text-danger text-success').addClass('text-muted');
+        data = {
+            type: getInputVal("torrentClientTypeSelect"),
+            url: getInputVal("torrentClientUrlInput"),
+            username: getInputVal("torrentClientUserInput"),
+            password: getInputVal("torrentClientPasswordInput"),
+            download_path: getInputVal("torrentClientPathInput")
+        };
+        $.ajax({
+            url: "/api/settings/downloads/test-client",
+            type: 'POST',
+            data: JSON.stringify(data),
+            contentType: "application/json",
+            success: function (result) {
+                const ok = result['success'];
+                const warning = result['warning'];
+                let text = result['message'] || (ok ? 'Torrent client OK' : 'Torrent client test failed');
+                if (warning) {
+                    text = `${text} (${warning})`;
+                }
+                $('#torrentClientTestResult')
+                    .text(text)
+                    .removeClass('text-muted text-danger text-success')
+                    .addClass(ok ? 'text-success' : 'text-danger');
+            },
+            complete: function () {
+                $('#testTorrentClientBtn').prop('disabled', false);
+            }
+        });
+    }
+
     $(document).ready(function () {
         fillUserTable();
         fillLibraryTable();
@@ -1036,6 +1259,29 @@
             } else if (!shopSettings['hauth']) {
                 $("#missingShopHauthAlert").css('display', '');
             }
+
+            // Downloads settings
+            downloadsSettings = result['downloads'] || {};
+            setInputVal("downloadsIntervalInput", downloadsSettings['interval_minutes'] || 60);
+            setInputVal("downloadsMinSeedersInput", downloadsSettings['min_seeders'] || 0);
+            setInputVal("downloadsRequiredTermsInput", (downloadsSettings['required_terms'] || []).join(', '));
+            setInputVal("downloadsBlacklistTermsInput", (downloadsSettings['blacklist_terms'] || []).join(', '));
+            setInputVal("downloadsSearchPrefixInput", downloadsSettings['search_prefix'] || '');
+            setInputVal("downloadsSearchSuffixInput", downloadsSettings['search_suffix'] || '');
+            $("#downloadsEnabledCheck").prop("checked", !!downloadsSettings['enabled']);
+            setInputVal("downloadsCategoryInput", downloadsSettings['torrent_client']?.['category'] || 'ownfoil');
+
+            prowlarrSettings = downloadsSettings['prowlarr'] || {};
+            setInputVal("prowlarrUrlInput", prowlarrSettings['url'] || '');
+            setInputVal("prowlarrApiKeyInput", prowlarrSettings['api_key'] || '');
+            setInputVal("prowlarrIndexerIdsInput", (prowlarrSettings['indexer_ids'] || []).join(', '));
+
+            torrentSettings = downloadsSettings['torrent_client'] || {};
+            setInputVal("torrentClientTypeSelect", torrentSettings['type'] || 'qbittorrent');
+            setInputVal("torrentClientUrlInput", torrentSettings['url'] || '');
+            setInputVal("torrentClientUserInput", torrentSettings['username'] || '');
+            setInputVal("torrentClientPasswordInput", torrentSettings['password'] || '');
+            setInputVal("torrentClientPathInput", torrentSettings['download_path'] || '');
         });
 
     });

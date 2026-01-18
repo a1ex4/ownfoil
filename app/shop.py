@@ -4,7 +4,7 @@ from Crypto.Cipher import PKCS1_OAEP
 from Crypto.Hash import SHA256
 from Crypto.Cipher import AES
 import zstandard as zstd
-import random
+import secrets
 import json
 
 # https://github.com/blawar/tinfoil/blob/master/docs/files/public.key 1160174fa2d7589831f74d149bc403711f3991e4
@@ -31,7 +31,7 @@ def gen_shop_files(db):
 def encrypt_shop(shop):
     input = json.dumps(shop).encode('utf-8')
     # random 128-bit AES key (16 bytes), used later for symmetric encryption (AES)
-    aesKey = random.randint(0,0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF).to_bytes(0x10, 'big')
+    aesKey = secrets.token_bytes(16)
     # zstandard compression
     flag = 0xFD
     cctx = zstd.ZstdCompressor(level=22)

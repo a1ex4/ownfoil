@@ -1,8 +1,4 @@
 # Ownfoil
-[![Latest Release](https://img.shields.io/docker/v/a1ex4/ownfoil?sort=semver)](https://github.com/a1ex4/ownfoil/releases/latest)
-[![Docker Pulls](https://img.shields.io/docker/pulls/a1ex4/ownfoil)](https://hub.docker.com/r/a1ex4/ownfoil)
-[![Docker Image Size (latest semver)](https://img.shields.io/docker/image-size/a1ex4/ownfoil?sort=date&arch=amd64)](https://hub.docker.com/r/a1ex4/ownfoil/tags)  
-![Static Badge](https://img.shields.io/badge/platforms-amd64%20%7C%20%20arm64%2Fv8%20%7C%20arm%2Fv7%20%7C%20arm%2Fv6-8A2BE2)
 
 Ownfoil is a Nintendo Switch library manager, that will also turn your library into a fully customizable and self-hosted Tinfoil Shop. The goal of this project is to manage your library, identify any missing content (DLCs or updates) and provide a user friendly way to browse your content. Some of the features include:
 
@@ -18,7 +14,6 @@ The project is still in development, expect things to break or change without no
 - [Installation](#installation)
 - [Usage](#usage)
 - [Roadmap](#roadmap)
-- [Similar Projects](#similar-projects)
 
 # Installation
 ## Using Docker
@@ -93,7 +88,41 @@ In the `Settings` page under the `Library` section, you can add directories cont
 There is watchdog in place for all your added directories: files moved, renamed, added or removed will be reflected directly in your library.
 
 ## Library management
-In the `Manage` page, you can organize your library structure, delete older update files, and convert `nsp`/`xci` to `nsz`. Conversion uses the `nsz` CLI (installed via `pip`) and the console keys you upload in `Settings`.
+In the `Manage` page, you can organize your library structure, delete older update files, and convert `nsp`/`xci` to `nsz`.
+
+Conversion details:
+- Uses the bundled `nsz` tool from the `./nsz` directory (with progress output).
+- Uses the same `keys.txt` uploaded in the `Settings` page.
+- Shows live status, per-file progress, and the current filename.
+- Filters out files smaller than 50 MB from the manual conversion dropdown.
+- The `Verbose` checkbox shows detailed task output; otherwise the task output stays clean.
+
+## Automatic update downloads (Prowlarr + Torrent Client)
+Ownfoil can automatically search for missing updates using Prowlarr, send matches to a torrent client (qBittorrent or Transmission), and ingest completed downloads back into the library. The UI is modeled after apps like Sonarr/Radarr with explicit connection tests.
+
+### Setup
+1. Open the `Settings` page and scroll to the **Downloads** section.
+2. Enable **Automatic downloads** and configure:
+   - **Search interval (minutes)**: how often Ownfoil will look for missing updates.
+   - **Minimum seeders**: skip low‑availability results.
+   - **Required terms / Blacklist terms**: fine‑tune search matches (comma separated).
+   - **Torrent category/tag**: used to tag downloads in the client (default `ownfoil`).
+3. Configure **Prowlarr**:
+   - **Prowlarr URL** (e.g. `http://localhost:9696`)
+   - **API Key**
+   - **Indexer IDs** (optional, comma separated). If set, Ownfoil will limit searches to these indexers.
+   - Use **Test Prowlarr** to validate connectivity and indexer IDs (missing IDs show as warnings).
+4. Configure **Torrent Client**:
+   - **Client**: qBittorrent or Transmission.
+   - **Client URL** and credentials.
+   - **Download path** (optional): if set, Ownfoil will warn if it doesn't exist or isn't writable.
+   - Use **Test torrent client** to validate connectivity.
+
+### Notes
+- Prowlarr is used for searching and ranking results; the torrent client handles the actual downloads.
+- Warnings do not block tests; they highlight misconfigurations (e.g. missing indexer IDs or invalid download paths).
+- The downloader runs on a schedule and respects the configured interval, skipping runs if the interval has not elapsed.
+- Completed downloads are detected by category/tag and trigger a library scan + refresh.
 
 ## Titles configuration
 In the `Settings` page under the `Titles` section is where you specify the language of your Shop (currently the same for all users).
@@ -102,6 +131,8 @@ This is where you can also upload your `console keys` file to enable content ide
 
 ## Shop customization
 In the `Settings` page under the `Shop` section is where you customize your Shop, like the message displayed when successfully accessing the shop from Tinfoil or if the shop is private or public.
+The `Encrypt shop` option only affects the Tinfoil payload; the web interface and admin UI remain accessible as normal.
+Encryption uses the Tinfoil public key and AES, and requires the `pycryptodome` dependency.
 
 # Roadmap
 Planned feature, in no particular order.
@@ -112,7 +143,7 @@ Planned feature, in no particular order.
     - [x] Delete older updates
     - [x] Automatic nsp/xci -> nsz conversion
  - Shop customization:
-    - [ ] Encrypt shop
+    - [x] Encrypt shop
  - Support emulator Roms
     - [ ] Scrape box arts
     - [ ] Automatically create NSP forwarders
@@ -120,16 +151,5 @@ Planned feature, in no particular order.
     - [ ] Automatically discover Switch device based on Tinfoil connection
     - [ ] Only backup and serve saves based on the user/Switch
  - External services:
-    - [ ] Integrate torrent indexer Jackett to download updates automatically
-
-# Similar Projects
-If you want to create your personal NSP Shop then check out these other similar projects:
-- [eXhumer/pyTinGen](https://github.com/eXhumer/pyTinGen)
-- [JackInTheShop/FT-SCEP](https://github.com/JackInTheShop/FT-SCEP)
-- [gianemi2/tinson-node](https://github.com/gianemi2/tinson-node)
-- [BigBrainAFK/tinfoil_gdrive_generator](https://github.com/BigBrainAFK/tinfoil_gdrive_generator)
-- [ibnux/php-tinfoil-server](https://github.com/ibnux/php-tinfoil-server)
-- [ramdock/nut-server](https://github.com/ramdock/nut-server)
-- [Myster-Tee/TinfoilWebServer](https://github.com/Myster-Tee/TinfoilWebServer)
-- [DevYukine/rustfoil](https://github.com/DevYukine/rustfoil)
-- [Orygin/gofoil](https://github.com/Orygin/gofoil)
+    - [x] Prowlarr integration for automatic update downloads (via torrent client)
+    - [x] Automated update downloader pipeline (search -> download -> ingest)

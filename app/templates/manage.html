@@ -54,14 +54,6 @@
                 <div class="card-body">
                     <h5 class="card-title">Convert NSP/XCI to NSZ</h5>
                     <p class="card-text mb-3">Automatically convert NSP/XCI files to NSZ using a configured tool.</p>
-                    <div class="mb-2">
-                        <label for="converterCommandInput" class="form-label">Converter command</label>
-                        <input type="text" class="form-control" id="converterCommandInput"
-                            value='nsz -C -o "{output_dir}" "{input_file}"'>
-                        <div class="form-text">
-                            Supports placeholders: <code>{input_file}</code>, <code>{output_file}</code>, <code>{output_dir}</code>.
-                        </div>
-                    </div>
                     <div class="mb-3">
                         <label for="convertSingleSelect" class="form-label">Manual single-file conversion</label>
                         <div class="input-group">
@@ -121,6 +113,7 @@
                             <div id="manageProgressBar" class="progress-bar" role="progressbar" style="width: 0%;"></div>
                         </div>
                         <div id="manageProgressText" class="text-muted small mt-1"></div>
+                        <div id="manageFileText" class="text-muted small"></div>
                         <div id="manageCompressionText" class="text-muted small"></div>
                     </div>
                     <div class="mb-2">
@@ -205,7 +198,6 @@
         data = {
             dry_run: $('#convertDryRun').is(':checked'),
             delete_original: $('#convertDeleteOriginal').is(':checked'),
-            command: $('#converterCommandInput').val(),
             verbose: $('#convertVerbose').is(':checked'),
             threads: getThreadsValue(),
             library_id: getLibraryValue(),
@@ -218,6 +210,7 @@
             contentType: "application/json",
             success: function (result) {
                 if (result['success']) {
+                    showVerboseOutput = $('#convertVerbose').is(':checked');
                     startJobPolling(result['job_id'], 'Bulk conversion started...');
                 } else {
                     showManageAlert(`Conversion failed: ${result['errors'].join('; ')}`, 'danger');
@@ -267,7 +260,6 @@
             file_id: fileId,
             dry_run: $('#convertDryRun').is(':checked'),
             delete_original: $('#convertDeleteOriginal').is(':checked'),
-            command: $('#converterCommandInput').val(),
             verbose: $('#convertVerbose').is(':checked'),
             threads: getThreadsValue(),
             timeout_seconds: getTimeoutValue()
@@ -279,6 +271,7 @@
             contentType: "application/json",
             success: function (result) {
                 if (result['success']) {
+                    showVerboseOutput = $('#convertVerbose').is(':checked');
                     startJobPolling(result['job_id'], `Single conversion started for ${selectedLabel}`);
                 } else {
                     showManageAlert(`Single conversion failed: ${result['errors'].join('; ')}`, 'danger');
@@ -312,7 +305,7 @@
     let activeJobId = null;
     let jobPollTimer = null;
     let lastLogCount = 0;
-
+    let showVerboseOutput = false;
     function getThreadsValue() {
         const val = $('#convertThreadsInput').val();
         return val ? parseInt(val, 10) : null;
@@ -328,17 +321,50 @@
         return val ? parseInt(val, 10) : null;
     }
 
-    function startJobPolling(jobId, startMessage) {
+    function startJobPolling(jobId, startMessage, resetOutput = true) {
         activeJobId = jobId;
-        lastLogCount = 0;
         showManageAlert(startMessage, 'info');
-        showManageOutput([startMessage]);
+        lastLogCount = 0;
+        if (showVerboseOutput && resetOutput) {
+            showManageOutput([startMessage]);
+        } else if (resetOutput) {
+            $('#manageOutput').text('');
+        }
         updateProgressDisplay(0, 0, 0, '');
         $('#cancelJobBtn').prop('disabled', false);
         if (jobPollTimer) {
             clearInterval(jobPollTimer);
         }
         jobPollTimer = setInterval(fetchJobStatus, 1000);
+    }
+
+    function resumeActiveJob(job) {
+        if (!job || job['status'] !== 'running') {
+            return;
+        }
+        showVerboseOutput = $('#convertVerbose').is(':checked');
+        activeJobId = job['id'];
+        lastLogCount = 0;
+        const progress = job['progress'] || {};
+        updateProgressDisplay(
+            progress['done'] || 0,
+            progress['total'] || 0,
+            progress['percent'] || 0,
+            progress['message'] || '',
+            progress['file'] || ''
+        );
+        if (showVerboseOutput) {
+            const logs = job['logs'] || [];
+            if (logs.length) {
+                showManageOutput(logs);
+                lastLogCount = logs.length;
+            }
+        }
+        if (jobPollTimer) {
+            clearInterval(jobPollTimer);
+        }
+        jobPollTimer = setInterval(fetchJobStatus, 1000);
+        $('#cancelJobBtn').prop('disabled', false);
     }
 
     function fetchJobStatus() {
@@ -357,12 +383,18 @@
             const done = progress['done'] || 0;
             const total = progress['total'] || 0;
             const percent = progress['percent'] || 0;
+            const file = progress['file'] || '';
             const message = progress['message'] || '';
-            updateProgressDisplay(done, total, percent, message);
-            const logs = job['logs'] || [];
-            if (logs.length > lastLogCount) {
-                showManageOutput(logs);
-                lastLogCount = logs.length;
+            updateProgressDisplay(done, total, percent, message, file);
+            if (message && job['status'] === 'running') {
+                showManageAlert(message, 'info');
+            }
+            if (showVerboseOutput) {
+                const logs = job['logs'] || [];
+                if (logs.length > lastLogCount) {
+                    showManageOutput(logs);
+                    lastLogCount = logs.length;
+                }
             }
             if (job['status'] !== 'running') {
                 clearInterval(jobPollTimer);
@@ -379,17 +411,22 @@
         });
     }
 
-    function updateProgressDisplay(done, total, percent, message) {
+    function updateProgressDisplay(done, total, percent, message, file) {
         const progressPercent = total ? Math.round((done / total) * 100) : 0;
         $('#manageProgressBar').css('width', `${progressPercent}%`);
         $('#manageProgressText').text(`Progress: ${done}/${total} (${progressPercent}%)`);
+        if (file) {
+            $('#manageFileText').text(`File: ${file}`);
+        } else {
+            $('#manageFileText').text('');
+        }
         if (percent) {
-            $('#manageCompressionText').text(`Compression ratio: ${percent.toFixed(1)}%`);
+            $('#manageCompressionText').text(`Converter progress: ${percent.toFixed(0)}%`);
         } else {
             $('#manageCompressionText').text('');
         }
         if (message) {
-            showManageOutput([message].concat($('#manageOutput').text().split('\n').filter(Boolean)));
+            // Status is surfaced via the alert; avoid dumping raw converter output.
         }
     }
 
@@ -467,6 +504,34 @@
         loadJobHistory();
         loadHealthStatus();
         $('#convertLibrarySelect').on('change', loadConvertibleFiles);
+        $('#convertVerbose').on('change', function () {
+            showVerboseOutput = $(this).is(':checked');
+            if (showVerboseOutput && activeJobId) {
+                $.getJSON(`/api/manage/convert-job/${activeJobId}`, function (result) {
+                    if (!result['success']) {
+                        return;
+                    }
+                    const job = result['job'];
+                    const logs = job['logs'] || [];
+                    if (logs.length) {
+                        showManageOutput(logs);
+                        lastLogCount = logs.length;
+                    }
+                });
+            } else if (!showVerboseOutput) {
+                $('#manageOutput').text('');
+            }
+        });
+        $.getJSON("/api/manage/jobs?limit=1", function (result) {
+            if (!result['success']) {
+                return;
+            }
+            const jobs = result['jobs'] || [];
+            const job = jobs.length ? jobs[0] : null;
+            if (job && job['status'] === 'running' && (job['kind'] || '').startsWith('convert')) {
+                resumeActiveJob(job);
+            }
+        });
     });
 </script>
 

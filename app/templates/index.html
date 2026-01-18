@@ -84,6 +84,14 @@
         <div class="col-auto">
             <input type="text" id="textFilter" class="form-control" placeholder="Search titles...">
         </div>
+        {% if current_user.is_admin or admin_account_created == false %}
+        <div class="col-auto">
+            <div class="input-group">
+                <input type="text" id="torrentSearchInput" class="form-control" placeholder="Search torrents...">
+                <button class="btn btn-warning" type="button" id="torrentSearchBtn">Search</button>
+            </div>
+        </div>
+        {% endif %}
         <div class="col-auto">
             <div class="btn-group" role="group">
                 <button id="view-toggle-btn-card" type="button" class="btn btn-primary view-toggle-btn active" data-view="card"><i
@@ -146,10 +154,41 @@
                 </div>
                 <div class="mb-3" id="detailsMeta"></div>
                 <div id="detailsVersions"></div>
+                <div id="detailsDownloadStatus" class="small text-muted mt-2"></div>
             </div>
         </div>
     </div>
 </div>
+
+{% if current_user.is_admin or admin_account_created == false %}
+<div class="modal fade" id="torrentSearchModal" tabindex="-1" aria-labelledby="torrentSearchModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h1 class="modal-title fs-5" id="torrentSearchModalLabel">Torrent search results</h1>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div id="torrentSearchStatus" class="text-muted mb-2"></div>
+                <div class="table-responsive">
+                    <table class="table table-sm table-striped align-middle">
+                        <thead>
+                            <tr>
+                                <th scope="col">Title</th>
+                                <th scope="col">Size</th>
+                                <th scope="col">Seeders</th>
+                                <th scope="col">Leechers</th>
+                                <th scope="col">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody id="torrentSearchResults"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
 
 <script>
     let games;
@@ -159,6 +198,7 @@
     let totalGames = 0;
     let cardSize = 3; // Default card size
     let currentView = 'card'; // Default view is 'card'
+    const canManageDownloads = {{ 'true' if current_user.is_admin or admin_account_created == false else 'false' }};
 
     function fetchGames() {
         return new Promise((resolve, reject) => {
@@ -171,6 +211,20 @@
                 reject();
             });
         });
+    }
+
+    function formatBytes(bytes) {
+        if (!bytes) {
+            return '-';
+        }
+        const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+        let size = bytes;
+        let unitIndex = 0;
+        while (size >= 1024 && unitIndex < units.length - 1) {
+            size /= 1024;
+            unitIndex += 1;
+        }
+        return `${size.toFixed(size >= 10 ? 0 : 1)} ${units[unitIndex]}`;
     }
 
     function renderGames() {
@@ -580,6 +634,74 @@
             filterBySearchText(attributeText);
         });
 
+        if (canManageDownloads) {
+            $('#torrentSearchBtn').on('click', function () {
+                const query = $('#torrentSearchInput').val().trim();
+                if (!query) {
+                    return;
+                }
+                $('#torrentSearchStatus').text('Searching Prowlarr...');
+                $('#torrentSearchResults').empty();
+                const modal = new bootstrap.Modal(document.getElementById('torrentSearchModal'));
+                modal.show();
+                $.getJSON(`/api/downloads/search?query=${encodeURIComponent(query)}`, function (result) {
+                    if (!result['success']) {
+                        $('#torrentSearchStatus').text(result['message'] || 'Search failed.');
+                        return;
+                    }
+                    const results = result['results'] || [];
+                    if (!results.length) {
+                        $('#torrentSearchStatus').text('No results found.');
+                        return;
+                    }
+                    $('#torrentSearchStatus').text(`Found ${results.length} results.`);
+                    results.forEach(item => {
+                        const row = $(`
+                            <tr>
+                                <td>${item.title || '-'}</td>
+                                <td>${formatBytes(item.size)}</td>
+                                <td>${item.seeders ?? '-'}</td>
+                                <td>${item.leechers ?? '-'}</td>
+                                <td>
+                                    <button class="btn btn-sm btn-warning queue-torrent-btn"
+                                        data-download-url="${item.download_url}"
+                                        data-title="${item.title || ''}">
+                                        Queue
+                                    </button>
+                                </td>
+                            </tr>
+                        `);
+                        $('#torrentSearchResults').append(row);
+                    });
+                });
+            });
+
+        $(document).on('click', '.queue-torrent-btn', function () {
+            const button = $(this);
+            const downloadUrl = button.data('download-url');
+            const title = button.data('title');
+            const updateOnly = button.data('update-only') === true || button.data('update-only') === 'true';
+            if (!downloadUrl) {
+                return;
+            }
+            button.prop('disabled', true);
+            $('#torrentSearchStatus').text('Queuing download...');
+            $.ajax({
+                url: "/api/downloads/queue",
+                type: 'POST',
+                data: JSON.stringify({ download_url: downloadUrl, title: title, update_only: updateOnly }),
+                contentType: "application/json",
+                success: function (result) {
+                    const ok = result['success'];
+                        $('#torrentSearchStatus').text(result['message'] || (ok ? 'Queued download.' : 'Queue failed.'));
+                    },
+                    complete: function () {
+                        button.prop('disabled', false);
+                    }
+                });
+            });
+        }
+
         // Close popovers
         $(document).on('click', function (e) {
             $('.popover').removeClass('show');
@@ -606,6 +728,7 @@
             $('#detailsSubtitle').text('');
             $('#detailsMeta').empty();
             $('#detailsVersions').empty();
+            $('#detailsDownloadStatus').text('');
             return;
         }
 
@@ -631,6 +754,7 @@
         const versions = Array.isArray(game.version) ? game.version : [];
         if (!versions.length) {
             $('#detailsVersions').html('<div class="text-muted">No version data available.</div>');
+            $('#detailsDownloadStatus').text('');
             return;
         }
 
@@ -641,6 +765,19 @@
                 <td>${version.release_date || 'Unknown'}</td>
             </tr>
         `).join('');
+
+        const missingVersions = versions.filter(version => !version.owned);
+        const latestMissing = missingVersions.length ? missingVersions[missingVersions.length - 1] : null;
+        const actionRow = (canManageDownloads && latestMissing)
+            ? `
+                <div class="mt-3">
+                    <button type="button" class="btn btn-warning btn-sm manual-download-btn"
+                        data-title-id="${game.title_id}" data-version="${latestMissing.version}">
+                        <i class="bi bi-cloud-arrow-down"></i> Search & download v${latestMissing.version}
+                    </button>
+                </div>
+            `
+            : '';
 
         $('#detailsVersions').html(`
             <table class="table table-sm table-striped">
@@ -655,7 +792,9 @@
                     ${rows}
                 </tbody>
             </table>
+            ${actionRow}
         `);
+        $('#detailsDownloadStatus').text('');
     }
 
     const detailsModal = document.getElementById('detailsModal');
@@ -668,6 +807,62 @@
             renderDetails(game);
         });
     }
+
+    $(document).on('click', '.manual-download-btn', function () {
+        const button = $(this);
+        const titleId = button.data('title-id');
+        const version = button.data('version');
+        if (!titleId || version === undefined) {
+            return;
+        }
+        button.prop('disabled', true);
+        $('#detailsDownloadStatus').text('Searching Prowlarr...').removeClass('text-danger text-success').addClass('text-muted');
+        $('#torrentSearchStatus').text('Searching Prowlarr...');
+        $('#torrentSearchResults').empty();
+        const modal = new bootstrap.Modal(document.getElementById('torrentSearchModal'));
+        modal.show();
+        $.ajax({
+            url: "/api/downloads/manual-search",
+            type: 'POST',
+            data: JSON.stringify({ title_id: titleId, version: version }),
+            contentType: "application/json",
+            success: function (result) {
+                if (!result['success']) {
+                    $('#torrentSearchStatus').text(result['message'] || 'Search failed.');
+                    return;
+                }
+                const results = result['results'] || [];
+                if (!results.length) {
+                    $('#torrentSearchStatus').text('No results found.');
+                    return;
+                }
+                $('#torrentSearchStatus').text(`Found ${results.length} results.`);
+                results.forEach(item => {
+                    const row = $(`
+                        <tr>
+                            <td>${item.title || '-'}</td>
+                            <td>${formatBytes(item.size)}</td>
+                            <td>${item.seeders ?? '-'}</td>
+                            <td>${item.leechers ?? '-'}</td>
+                            <td>
+                                <button class="btn btn-sm btn-warning queue-torrent-btn"
+                                    data-download-url="${item.download_url}"
+                                    data-title="${item.title || ''}"
+                                    data-update-only="true">
+                                    Queue update
+                                </button>
+                            </td>
+                        </tr>
+                    `);
+                    $('#torrentSearchResults').append(row);
+                });
+                $('#detailsDownloadStatus').text('');
+            },
+            complete: function () {
+                button.prop('disabled', false);
+            }
+        });
+    });
 
     // Function to filter cards based on input text
     function filterBySearchText(attributeText) {
