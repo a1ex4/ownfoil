@@ -148,17 +148,17 @@ def load_titledb():
     if not _titles_db_loaded:
         logger.info("Loading TitleDBs into memory...")
         app_settings = load_settings()
-        with open(os.path.join(TITLEDB_DIR, 'cnmts.json')) as f:
+        with open(os.path.join(TITLEDB_DIR, 'cnmts.json'), encoding="utf-8") as f:
             _cnmts_db = json.load(f)
 
-        with open(os.path.join(TITLEDB_DIR, titledb.get_region_titles_file(app_settings))) as f:
+        with open(os.path.join(TITLEDB_DIR, titledb.get_region_titles_file(app_settings)), encoding="utf-8") as f:
             _titles_db = json.load(f)
 
-        with open(os.path.join(TITLEDB_DIR, 'versions.json')) as f:
+        with open(os.path.join(TITLEDB_DIR, 'versions.json'), encoding="utf-8") as f:
             _versions_db = json.load(f)
 
         _versions_txt_db = {}
-        with open(os.path.join(TITLEDB_DIR, 'versions.txt')) as f:
+        with open(os.path.join(TITLEDB_DIR, 'versions.txt'), encoding="utf-8") as f:
             for line in f:
                 line_strip = line.rstrip("\n")
                 app_id, rightsId, version = line_strip.split('|')
