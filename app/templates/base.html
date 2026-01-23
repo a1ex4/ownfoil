@@ -30,6 +30,9 @@
             if (!statusEl) {
                 return;
             }
+            if (localStorage.getItem('ownfoilJobPolling') !== 'true') {
+                return;
+            }
 
             function formatJobStatus(job) {
                 const progress = job['progress'] || {};
@@ -67,6 +70,7 @@
                         statusEl.classList.remove('d-none');
                     } else {
                         statusEl.classList.add('d-none');
+                        localStorage.removeItem('ownfoilJobPolling');
                     }
                 });
             }

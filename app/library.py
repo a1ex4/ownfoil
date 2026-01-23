@@ -4,6 +4,7 @@ import re
 import shutil
 import subprocess
 import sys
+import threading
 import time
 from constants import *
 from db import *
@@ -11,6 +12,9 @@ import titles as titles_lib
 import datetime
 from pathlib import Path
 from utils import *
+
+_organize_lock = threading.Lock()
+_pending_organize_paths = set()
 
 def add_library_complete(app, watcher, path):
     """Add a library to settings, database, and watchdog"""
@@ -823,6 +827,124 @@ def organize_library(dry_run=False, verbose=False, detail_limit=200):
         results['success'] = False
     return results
 
+def organize_files(filepaths, dry_run=False, verbose=False, detail_limit=200):
+    results = {
+        'success': True,
+        'moved': 0,
+        'skipped': 0,
+        'errors': [],
+        'details': []
+    }
+    detail_count = 0
+
+    def add_detail(message):
+        nonlocal detail_count
+        if (verbose or dry_run) and detail_count < detail_limit:
+            results['details'].append(message)
+            detail_count += 1
+
+    if not filepaths:
+        return results
+
+    titles_lib.load_titledb()
+    title_name_cache = {}
+    app_name_cache = {}
+
+    unique_paths = list(dict.fromkeys(filepaths))
+    files = Files.query.filter(Files.filepath.in_(unique_paths)).all()
+    file_lookup = {file.filepath: file for file in files}
+
+    for filepath in unique_paths:
+        file_entry = file_lookup.get(filepath)
+        if not file_entry:
+            results['skipped'] += 1
+            add_detail(f"Skip missing file record: {filepath}.")
+            continue
+        if not file_entry.filepath or not os.path.exists(file_entry.filepath):
+            results['skipped'] += 1
+            add_detail('Skip missing file path.')
+            continue
+        if not file_entry.identified:
+            results['skipped'] += 1
+            add_detail(f"Skip not identified: {file_entry.filepath}.")
+            continue
+        library_path = get_library_path(file_entry.library_id)
+        if not library_path:
+            results['skipped'] += 1
+            add_detail(f"Skip missing library for {file_entry.filepath}.")
+            continue
+        primary_app = _choose_primary_app(list(file_entry.apps))
+        if not primary_app:
+            results['skipped'] += 1
+            add_detail(f"Skip no app mapping for {file_entry.filepath}.")
+            continue
+
+        title_id = primary_app.title.title_id if primary_app.title else None
+        if title_id not in title_name_cache:
+            info = titles_lib.get_game_info(title_id) if title_id else None
+            title_name_cache[title_id] = info['name'] if info else title_id or primary_app.app_id
+
+        title_name = title_name_cache.get(title_id)
+        dlc_name = None
+        if primary_app.app_type == APP_TYPE_DLC:
+            if primary_app.app_id not in app_name_cache:
+                info = titles_lib.get_game_info(primary_app.app_id)
+                app_name_cache[primary_app.app_id] = info['name'] if info else primary_app.app_id
+            dlc_name = app_name_cache.get(primary_app.app_id)
+
+        dest_dir, dest_filename = _build_destination(
+            library_path,
+            file_entry,
+            primary_app,
+            title_name,
+            dlc_name
+        )
+        dest_path = os.path.join(dest_dir, dest_filename)
+        if os.path.normpath(dest_path) == os.path.normpath(file_entry.filepath):
+            results['skipped'] += 1
+            add_detail(f"Skip already organized: {file_entry.filepath}.")
+            continue
+        dest_path = _ensure_unique_path(dest_path)
+
+        if not dry_run:
+            try:
+                os.makedirs(dest_dir, exist_ok=True)
+                old_path = file_entry.filepath
+                shutil.move(old_path, dest_path)
+                update_file_path(library_path, old_path, dest_path)
+                results['moved'] += 1
+                add_detail(f"Moved: {old_path} -> {dest_path}.")
+            except Exception as e:
+                logger.error(f"Failed to move {file_entry.filepath}: {e}")
+                results['errors'].append(str(e))
+                add_detail(f"Error moving {file_entry.filepath}: {e}.")
+        else:
+            results['moved'] += 1
+            add_detail(f"Plan move: {file_entry.filepath} -> {dest_path}.")
+
+    titles_lib.unload_titledb()
+    if results['errors']:
+        results['success'] = False
+    return results
+
+def enqueue_organize_paths(filepaths):
+    if not filepaths:
+        return
+    with _organize_lock:
+        for path in filepaths:
+            if path:
+                _pending_organize_paths.add(path)
+
+def organize_pending_downloads():
+    with _organize_lock:
+        if not _pending_organize_paths:
+            return
+        pending = list(_pending_organize_paths)
+        _pending_organize_paths.clear()
+    results = organize_files(pending, dry_run=False, verbose=False)
+    if not results.get('success'):
+        logger.warning("Failed to auto-organize completed downloads: %s", results.get('errors'))
+
 def delete_older_updates(dry_run=False, verbose=False, detail_limit=200):
     results = {
         'success': True,
@@ -1060,7 +1182,7 @@ def convert_to_nsz(command_template, delete_original=True, dry_run=False, verbos
         results['success'] = False
     return results
 
-def list_convertible_files(limit=2000, library_id=None, min_size_bytes=50 * 1024 * 1024):
+def list_convertible_files(limit=2000, library_id=None, min_size_bytes=200 * 1024 * 1024):
     query = Files.query.filter(Files.extension.in_(['nsp', 'xci']))
     if library_id:
         query = query.filter_by(library_id=library_id)

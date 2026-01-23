@@ -30,6 +30,26 @@
                     </div>
                 </div>
             </div>
+            <div class="card mb-3">
+                <div class="card-body">
+                    <h5 class="card-title">Library scan</h5>
+                    <p class="card-text mb-3">Scan configured libraries for new files.</p>
+                    <div class="d-flex flex-wrap gap-3 align-items-center">
+                        <button type="button" id="scanLibraryBtn" class="btn btn-outline-primary ms-auto"
+                            onClick='scanLibrary()'>Scan library</button>
+                    </div>
+                </div>
+            </div>
+            <div class="card mb-3">
+                <div class="card-body">
+                    <h5 class="card-title">Completed downloads</h5>
+                    <p class="card-text mb-3">Move and organize completed torrents without enabling downloads.</p>
+                    <div class="d-flex flex-wrap gap-3 align-items-center">
+                        <button type="button" id="checkDownloadsBtn" class="btn btn-outline-primary ms-auto"
+                            onClick='checkCompletedDownloads()'>Check completed downloads</button>
+                    </div>
+                </div>
+            </div>
 
             <div class="card mb-3">
                 <div class="card-body">
@@ -163,6 +183,44 @@
             },
             complete: function () {
                 $('#organizeLibraryBtn').prop('disabled', false);
+            }
+        });
+    }
+
+    function scanLibrary() {
+        $('#scanLibraryBtn').prop('disabled', true);
+        $.ajax({
+            url: "/api/library/scan",
+            type: 'POST',
+            data: JSON.stringify({ path: null }),
+            contentType: "application/json",
+            success: function (result) {
+                if (result['success']) {
+                    showManageAlert('Library scan started.', 'success');
+                } else {
+                    showManageAlert('Library scan failed.', 'danger');
+                }
+            },
+            complete: function () {
+                $('#scanLibraryBtn').prop('disabled', false);
+            }
+        });
+    }
+
+    function checkCompletedDownloads() {
+        $('#checkDownloadsBtn').prop('disabled', true);
+        $.ajax({
+            url: "/api/manage/check-downloads",
+            type: 'POST',
+            success: function (result) {
+                if (result['success']) {
+                    showManageAlert(result['message'] || 'Checked completed downloads.', 'success');
+                } else {
+                    showManageAlert(result['message'] || 'Check failed.', 'danger');
+                }
+            },
+            complete: function () {
+                $('#checkDownloadsBtn').prop('disabled', false);
             }
         });
     }
@@ -325,6 +383,7 @@
         activeJobId = jobId;
         showManageAlert(startMessage, 'info');
         lastLogCount = 0;
+        localStorage.setItem('ownfoilJobPolling', 'true');
         if (showVerboseOutput && resetOutput) {
             showManageOutput([startMessage]);
         } else if (resetOutput) {
@@ -345,6 +404,7 @@
         showVerboseOutput = $('#convertVerbose').is(':checked');
         activeJobId = job['id'];
         lastLogCount = 0;
+        localStorage.setItem('ownfoilJobPolling', 'true');
         const progress = job['progress'] || {};
         updateProgressDisplay(
             progress['done'] || 0,
@@ -400,6 +460,7 @@
                 clearInterval(jobPollTimer);
                 jobPollTimer = null;
                 $('#cancelJobBtn').prop('disabled', true);
+                localStorage.removeItem('ownfoilJobPolling');
                 if (job['status'] === 'success') {
                     showManageAlert('Conversion complete.', 'success');
                 } else {
@@ -441,6 +502,7 @@
                 if (result['success']) {
                     showManageAlert('Job cancelled.', 'warning');
                     $('#cancelJobBtn').prop('disabled', true);
+                    localStorage.removeItem('ownfoilJobPolling');
                 }
             }
         });
@@ -465,6 +527,21 @@
             });
             $('#manageJobHistory').text(lines.join('\n'));
         });
+    }
+
+    let jobHistoryTimer = null;
+    function startJobHistoryPolling() {
+        if (jobHistoryTimer) {
+            return;
+        }
+        jobHistoryTimer = setInterval(loadJobHistory, 5000);
+    }
+
+    function stopJobHistoryPolling() {
+        if (jobHistoryTimer) {
+            clearInterval(jobHistoryTimer);
+            jobHistoryTimer = null;
+        }
     }
 
     function loadHealthStatus() {
@@ -503,6 +580,7 @@
         loadConvertibleFiles();
         loadJobHistory();
         loadHealthStatus();
+        startJobHistoryPolling();
         $('#convertLibrarySelect').on('change', loadConvertibleFiles);
         $('#convertVerbose').on('change', function () {
             showVerboseOutput = $(this).is(':checked');
@@ -530,6 +608,14 @@
             const job = jobs.length ? jobs[0] : null;
             if (job && job['status'] === 'running' && (job['kind'] || '').startsWith('convert')) {
                 resumeActiveJob(job);
+            }
+        });
+        document.addEventListener('visibilitychange', function () {
+            if (document.hidden) {
+                stopJobHistoryPolling();
+            } else {
+                loadJobHistory();
+                startJobHistoryPolling();
             }
         });
     });

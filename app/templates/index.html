@@ -368,6 +368,20 @@
         updatePaginationControls(baseGames.length)
     }
 
+    function fetchLibrarySize() {
+        $.getJSON("/api/library/size", function (result) {
+            if (!result || result['success'] !== true) {
+                return;
+            }
+            const total = result['total_bytes'] || 0;
+            if (total) {
+                $('#librarySizeLabel').text(`Library size: ${formatBytes(total)}`).removeClass('d-none');
+            } else {
+                $('#librarySizeLabel').text('Library size: 0 B').removeClass('d-none');
+            }
+        });
+    }
+
     function renderListView() {
         const gameGrid = $('#gameGrid');
         gameGrid.removeClass('row g-4 icon-grid').addClass('list-view');
@@ -571,9 +585,14 @@
         }
 
         // Fetch initial set of games and render
-        fetchGames().then(() => {
-            loadFiltersFromStorage();
-        });
+        fetchGames()
+            .then(() => {
+                loadFiltersFromStorage();
+            })
+            .catch(() => {})
+            .then(() => {
+                fetchLibrarySize();
+            });
 
         // Event listeners for items per page dropdown
         $('.items-per-page').click(function () {
@@ -681,6 +700,7 @@
             const downloadUrl = button.data('download-url');
             const title = button.data('title');
             const updateOnly = button.data('update-only') === true || button.data('update-only') === 'true';
+            const expectedVersion = button.data('expected-version');
             if (!downloadUrl) {
                 return;
             }
@@ -689,7 +709,12 @@
             $.ajax({
                 url: "/api/downloads/queue",
                 type: 'POST',
-                data: JSON.stringify({ download_url: downloadUrl, title: title, update_only: updateOnly }),
+                data: JSON.stringify({
+                    download_url: downloadUrl,
+                    title: title,
+                    update_only: updateOnly,
+                    expected_version: expectedVersion
+                }),
                 contentType: "application/json",
                 success: function (result) {
                     const ok = result['success'];
@@ -848,7 +873,8 @@
                                 <button class="btn btn-sm btn-warning queue-torrent-btn"
                                     data-download-url="${item.download_url}"
                                     data-title="${item.title || ''}"
-                                    data-update-only="true">
+                                    data-update-only="true"
+                                    data-expected-version="${version}">
                                     Queue update
                                 </button>
                             </td>

@@ -1,5 +1,6 @@
 from flask import Flask, render_template, request, redirect, url_for, jsonify, send_from_directory, Response
 from flask_login import LoginManager
+from sqlalchemy import func
 from scheduler import init_scheduler
 from functools import wraps
 from file_watcher import Watcher
@@ -12,7 +13,7 @@ from datetime import timedelta
 flask.cli.show_server_banner = lambda *args: None
 from constants import *
 from settings import *
-from downloads import ProwlarrClient, test_torrent_client, run_downloads_job, manual_search_update, queue_download_url, search_update_options
+from downloads import ProwlarrClient, test_torrent_client, run_downloads_job, manual_search_update, queue_download_url, search_update_options, check_completed_downloads
 from db import *
 from shop import *
 from auth import *
@@ -652,9 +653,15 @@ def downloads_queue():
     download_url = data.get('download_url')
     expected_name = data.get('title')
     update_only = bool(data.get('update_only', False))
+    expected_version = data.get('expected_version')
     if not download_url:
         return jsonify({'success': False, 'message': 'Missing download URL.'})
-    ok, message = queue_download_url(download_url, expected_name=expected_name, update_only=update_only)
+    ok, message = queue_download_url(
+        download_url,
+        expected_name=expected_name,
+        update_only=update_only,
+        expected_version=expected_version
+    )
     return jsonify({'success': ok, 'message': message})
 
 @app.post('/api/manage/organize')
@@ -678,6 +685,12 @@ def manage_delete_updates():
     if results.get('success') and not dry_run:
         post_library_change()
     return jsonify(results)
+
+@app.post('/api/manage/check-downloads')
+@access_required('admin')
+def manage_check_downloads():
+    ok, message = check_completed_downloads(scan_cb=scan_library, post_cb=post_library_change)
+    return jsonify({'success': ok, 'message': message})
 
 @app.post('/api/manage/convert')
 @access_required('admin')
@@ -758,7 +771,7 @@ def manage_convert_job():
                 library_id=library_id,
                 cancel_cb=lambda: _job_is_cancelled(job_id),
                 timeout_seconds=timeout_seconds,
-                min_size_bytes=50 * 1024 * 1024
+                min_size_bytes=200 * 1024 * 1024
             )
             if results.get('success') and not dry_run:
                 post_library_change()
@@ -938,6 +951,12 @@ def get_all_titles_api():
         'games': titles_library
     })
 
+@app.get('/api/library/size')
+@access_required('shop')
+def get_library_size_api():
+    total = db.session.query(func.sum(Files.size)).scalar() or 0
+    return jsonify({'success': True, 'total_bytes': int(total)})
+
 @app.route('/api/get_game/<int:id>')
 @tinfoil_access
 def serve_game(id):
@@ -956,6 +975,7 @@ def post_library_change():
         update_titles() # Ensure titles are updated after identification
         # remove missing files
         remove_missing_files_from_db()
+        organize_pending_downloads()
         # The process_library_identification already handles updating titles and generating library
         # So, we just need to ensure titles_library is updated from the generated library
         generate_library()

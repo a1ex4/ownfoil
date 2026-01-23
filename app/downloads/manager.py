@@ -6,11 +6,11 @@ import time
 
 from constants import APP_TYPE_UPD
 from db import get_all_titles, get_all_title_apps, get_libraries_path
-from library import _ensure_unique_path
+from library import _ensure_unique_path, enqueue_organize_paths
 import titles as titles_lib
 from settings import load_settings
 from downloads.prowlarr import ProwlarrClient, pick_best_result
-from downloads.torrent_client import add_torrent, list_completed
+from downloads.torrent_client import add_torrent, list_completed, remove_torrent
 
 logger = logging.getLogger("downloads.manager")
 
@@ -46,6 +46,16 @@ def run_downloads_job(scan_cb=None, post_cb=None):
     finally:
         with _state_lock:
             _state["running"] = False
+
+
+def check_completed_downloads(scan_cb=None, post_cb=None):
+    settings = load_settings()
+    downloads = settings.get("downloads", {})
+    torrent_cfg = downloads.get("torrent_client", {})
+    if not torrent_cfg.get("url") or not torrent_cfg.get("type"):
+        return False, "Torrent client is not configured."
+    _check_completed(torrent_cfg, scan_cb=scan_cb, post_cb=post_cb)
+    return True, "Checked completed downloads."
 
 
 def _process_downloads(downloads, scan_cb=None, post_cb=None):
@@ -162,12 +172,13 @@ def search_update_options(title_id, version, limit=20):
     return True, None, trimmed
 
 
-def queue_download_url(download_url, expected_name=None, update_only=False):
+def queue_download_url(download_url, expected_name=None, update_only=False, expected_version=None):
     settings = load_settings()
     downloads = settings.get("downloads", {})
     torrent_cfg = downloads.get("torrent_client", {})
     if not torrent_cfg.get("url") or not torrent_cfg.get("type"):
         return False, "Torrent client is not configured."
+    expected_update_number = None
     ok, message, torrent_hash = add_torrent(
         client_type=torrent_cfg.get("type"),
         url=torrent_cfg.get("url"),
@@ -178,7 +189,9 @@ def queue_download_url(download_url, expected_name=None, update_only=False):
         download_path=torrent_cfg.get("download_path"),
         expected_name=expected_name,
         update_only=update_only,
-        exclude_russian=True
+        exclude_russian=True,
+        expected_update_number=expected_update_number,
+        expected_version=expected_version
     )
     if ok:
         key = f"manual:{int(time.time())}"
@@ -229,7 +242,8 @@ def _search_and_queue(client, update, downloads, indexer_ids, required_terms, bl
         download_path=torrent_cfg.get("download_path"),
         expected_name=update.get("search_terms") or result.get("title"),
         update_only=True,
-        exclude_russian=True
+        exclude_russian=True,
+        expected_version=update.get("version")
     )
     if ok:
         _track_pending(key, update, torrent_hash, expected_name=result.get("title"))
@@ -274,17 +288,22 @@ def _get_missing_updates():
                 int(app.get("app_version") or 0) for app in owned_updates
                 if app.get("app_version") is not None
             }
-            for version_info in versions:
-                version = int(version_info.get("version") or 0)
-                if version <= 0:
-                    continue
-                if version in owned_versions:
-                    continue
-                missing.append({
-                    "title_id": title_id,
-                    "title_name": title_name,
-                    "version": version,
-                })
+            available_versions = [
+                int(version_info.get("version") or 0)
+                for version_info in versions
+                if int(version_info.get("version") or 0) > 0
+            ]
+            if not available_versions:
+                continue
+            highest_available = max(available_versions)
+            highest_owned = max(owned_versions) if owned_versions else 0
+            if highest_owned >= highest_available:
+                continue
+            missing.append({
+                "title_id": title_id,
+                "title_name": title_name,
+                "version": highest_available,
+            })
         return missing
     finally:
         titles_lib.identification_in_progress_count -= 1
@@ -318,6 +337,8 @@ def _check_completed(torrent_cfg, scan_cb=None, post_cb=None):
         logger.info("No completed torrents detected for category/tag.")
         return
     newly_completed = False
+    moved_paths = []
+    matched_hashes = set()
     with _state_lock:
         for key, info in list(_state["pending"].items()):
             torrent_hash = info.get("hash")
@@ -329,9 +350,42 @@ def _check_completed(torrent_cfg, scan_cb=None, post_cb=None):
                 if expected:
                     match = next((item for item in completed_items if expected in (item.get("name") or "").lower()), None)
             if match:
+                if match.get("hash"):
+                    matched_hashes.add(match.get("hash"))
                 _state["pending"].pop(key, None)
                 _state["completed"].add(key)
-                _move_completed(match)
+                moved_path = _move_completed(match)
+                if moved_path:
+                    moved_paths.append(moved_path)
+                    torrent_hash = match.get("hash")
+                    if torrent_hash:
+                        ok, message = remove_torrent(
+                            client_type=torrent_cfg.get("type"),
+                            url=torrent_cfg.get("url"),
+                            username=torrent_cfg.get("username"),
+                            password=torrent_cfg.get("password"),
+                            torrent_hash=torrent_hash,
+                        )
+                        if not ok:
+                            logger.warning("Failed to remove torrent %s: %s", torrent_hash, message)
+                newly_completed = True
+        for item in completed_items:
+            torrent_hash = item.get("hash")
+            if torrent_hash and torrent_hash in matched_hashes:
+                continue
+            moved_path = _move_completed(item)
+            if moved_path:
+                moved_paths.append(moved_path)
+                if torrent_hash:
+                    ok, message = remove_torrent(
+                        client_type=torrent_cfg.get("type"),
+                        url=torrent_cfg.get("url"),
+                        username=torrent_cfg.get("username"),
+                        password=torrent_cfg.get("password"),
+                        torrent_hash=torrent_hash,
+                    )
+                    if not ok:
+                        logger.warning("Failed to remove torrent %s: %s", torrent_hash, message)
                 newly_completed = True
 
     if newly_completed and scan_cb:
@@ -339,6 +393,8 @@ def _check_completed(torrent_cfg, scan_cb=None, post_cb=None):
         scan_cb()
         if post_cb:
             post_cb()
+        if moved_paths:
+            enqueue_organize_paths(moved_paths)
 
 
 def _move_completed(item):
@@ -354,10 +410,12 @@ def _move_completed(item):
 
     dest_path = os.path.join(dest_root, os.path.basename(src_path))
     if os.path.abspath(os.path.dirname(src_path)) == os.path.abspath(dest_root):
-        return
+        return src_path
     dest_path = _ensure_unique_path(dest_path)
     try:
         shutil.move(src_path, dest_path)
         logger.info("Moved download to library: %s", dest_path)
+        return dest_path
     except Exception as e:
         logger.warning("Failed to move download %s: %s", src_path, e)
+        return None

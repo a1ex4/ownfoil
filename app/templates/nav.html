@@ -21,6 +21,7 @@
                 </li>
                 {% endif %}
             </ul>
+            <div class="mx-auto text-muted small d-none" id="librarySizeLabel">Library size: ...</div>
             <div class="ms-auto d-flex align-items-center gap-3">
                 {% if current_user.is_admin or admin_account_created == false %}
                 <a id="globalJobStatus" class="navbar-text small text-warning d-none text-decoration-none" href="/manage"></a>

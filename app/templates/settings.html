@@ -396,21 +396,21 @@
                 <div class="row g-3 mb-3">
                     <div class="col-md-6">
                         <label for="downloadsRequiredTermsInput" class="form-label">Required terms (comma separated)</label>
-                        <input type="text" class="form-control" id="downloadsRequiredTermsInput" placeholder="update,nsp">
+                        <input type="text" class="form-control" id="downloadsRequiredTermsInput">
                     </div>
                     <div class="col-md-6">
                         <label for="downloadsBlacklistTermsInput" class="form-label">Blacklist terms (comma separated)</label>
-                        <input type="text" class="form-control" id="downloadsBlacklistTermsInput" placeholder="demo,trial">
+                        <input type="text" class="form-control" id="downloadsBlacklistTermsInput">
                     </div>
                 </div>
                 <div class="row g-3 mb-3">
                     <div class="col-md-6">
                         <label for="downloadsSearchPrefixInput" class="form-label">Search prefix</label>
-                        <input type="text" class="form-control" id="downloadsSearchPrefixInput" placeholder="Nintendo Switch">
+                        <input type="text" class="form-control" id="downloadsSearchPrefixInput">
                     </div>
                     <div class="col-md-6">
                         <label for="downloadsSearchSuffixInput" class="form-label">Search suffix</label>
-                        <input type="text" class="form-control" id="downloadsSearchSuffixInput" placeholder="update">
+                        <input type="text" class="form-control" id="downloadsSearchSuffixInput">
                     </div>
                 </div>
 
@@ -1116,8 +1116,8 @@
         $('#submitDownloadSettingsBtn').prop('disabled', true);
         data = {
             enabled: getCheckboxStatus("downloadsEnabledCheck"),
-            interval_minutes: parseInt(getInputVal("downloadsIntervalInput"), 10) || 60,
-            min_seeders: parseInt(getInputVal("downloadsMinSeedersInput"), 10) || 0,
+            interval_minutes: parseInt(getInputVal("downloadsIntervalInput"), 10),
+            min_seeders: parseInt(getInputVal("downloadsMinSeedersInput"), 10),
             required_terms: splitTerms(getInputVal("downloadsRequiredTermsInput")),
             blacklist_terms: splitTerms(getInputVal("downloadsBlacklistTermsInput")),
             search_prefix: getInputVal("downloadsSearchPrefixInput"),
@@ -1262,8 +1262,8 @@
 
             // Downloads settings
             downloadsSettings = result['downloads'] || {};
-            setInputVal("downloadsIntervalInput", downloadsSettings['interval_minutes'] || 60);
-            setInputVal("downloadsMinSeedersInput", downloadsSettings['min_seeders'] || 0);
+            setInputVal("downloadsIntervalInput", downloadsSettings['interval_minutes']);
+            setInputVal("downloadsMinSeedersInput", downloadsSettings['min_seeders']);
             setInputVal("downloadsRequiredTermsInput", (downloadsSettings['required_terms'] || []).join(', '));
             setInputVal("downloadsBlacklistTermsInput", (downloadsSettings['blacklist_terms'] || []).join(', '));
             setInputVal("downloadsSearchPrefixInput", downloadsSettings['search_prefix'] || '');

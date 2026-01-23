@@ -21,12 +21,12 @@ def test_torrent_client(client_type, url, username=None, password=None, timeout_
     return False, "Unsupported client type."
 
 
-def add_torrent(client_type, url, username=None, password=None, download_url=None, category=None, download_path=None, timeout_seconds=15, expected_name=None, update_only=False, exclude_russian=False):
+def add_torrent(client_type, url, username=None, password=None, download_url=None, category=None, download_path=None, timeout_seconds=15, expected_name=None, update_only=False, exclude_russian=False, expected_update_number=None, expected_version=None):
     if not download_url:
         return False, "Download URL is required.", None
     client_type = (client_type or "").lower()
     if client_type == "qbittorrent":
-        return _add_qbittorrent(url, username, password, download_url, category, download_path, timeout_seconds, expected_name, update_only, exclude_russian)
+        return _add_qbittorrent(url, username, password, download_url, category, download_path, timeout_seconds, expected_name, update_only, exclude_russian, expected_update_number, expected_version)
     if client_type == "transmission":
         return _add_transmission(url, username, password, download_url, category, download_path, timeout_seconds)
     return False, "Unsupported client type.", None
@@ -39,6 +39,17 @@ def list_completed(client_type, url, username=None, password=None, category=None
     if client_type == "transmission":
         return _list_completed_transmission(url, username, password, category, timeout_seconds)
     return []
+
+
+def remove_torrent(client_type, url, torrent_hash, username=None, password=None, timeout_seconds=15):
+    if not torrent_hash:
+        return False, "Torrent hash is required."
+    client_type = (client_type or "").lower()
+    if client_type == "qbittorrent":
+        return _remove_qbittorrent(url, username, password, torrent_hash, timeout_seconds)
+    if client_type == "transmission":
+        return _remove_transmission(url, username, password, torrent_hash, timeout_seconds)
+    return False, "Unsupported client type."
 
 
 def _test_qbittorrent(url, username=None, password=None, timeout_seconds=10):
@@ -86,7 +97,7 @@ def _test_transmission(url, username=None, password=None, timeout_seconds=10):
     return True, "Transmission OK."
 
 
-def _add_qbittorrent(url, username, password, download_url, category, download_path, timeout_seconds, expected_name, update_only, exclude_russian):
+def _add_qbittorrent(url, username, password, download_url, category, download_path, timeout_seconds, expected_name, update_only, exclude_russian, expected_update_number, expected_version):
     base = url.rstrip("/")
     session = requests.Session()
     session.headers.update({"User-Agent": "Ownfoil/Downloads"})
@@ -140,7 +151,20 @@ def _add_qbittorrent(url, username, password, download_url, category, download_p
             torrent_hash = normalized
     if update_only and torrent_hash:
         logger.info("Selecting highest version for torrent %s", torrent_hash)
-        _select_qbittorrent_highest_version(session, base, torrent_hash, timeout_seconds, exclude_russian)
+        selected = _select_qbittorrent_highest_version(
+            session,
+            base,
+            torrent_hash,
+            timeout_seconds,
+            exclude_russian,
+            expected_update_number=expected_update_number,
+            expected_version=expected_version
+        )
+        if not selected:
+            if temp_tag:
+                _remove_qbittorrent_tag(session, base, torrent_hash, temp_tag, timeout_seconds)
+            _remove_qbittorrent_with_session(session, base, torrent_hash, timeout_seconds)
+            return False, "No matching update version found in torrent.", None
         _resume_qbittorrent(session, base, torrent_hash, timeout_seconds)
         if temp_tag:
             _remove_qbittorrent_tag(session, base, torrent_hash, temp_tag, timeout_seconds)
@@ -268,6 +292,61 @@ def _list_completed_transmission(url, username, password, category, timeout_seco
                 "name": name
             })
     return completed
+
+
+def _remove_qbittorrent(url, username, password, torrent_hash, timeout_seconds):
+    base = url.rstrip("/")
+    session = requests.Session()
+    session.headers.update({"User-Agent": "Ownfoil/Downloads"})
+    if username or password:
+        login_resp = session.post(
+            f"{base}/api/v2/auth/login",
+            data={"username": username or "", "password": password or ""},
+            timeout=timeout_seconds,
+        )
+        if login_resp.status_code != 200 or login_resp.text.strip() not in ("Ok.", ""):
+            return False, "qBittorrent login failed."
+    resp = session.post(
+        f"{base}/api/v2/torrents/delete",
+        data={"hashes": torrent_hash, "deleteFiles": "false"},
+        timeout=timeout_seconds,
+    )
+    if resp.status_code != 200:
+        return False, f"qBittorrent returned {resp.status_code}."
+    return True, "qBittorrent removed torrent."
+
+
+def _remove_qbittorrent_with_session(session, base, torrent_hash, timeout_seconds):
+    if not torrent_hash:
+        return False
+    resp = session.post(
+        f"{base}/api/v2/torrents/delete",
+        data={"hashes": torrent_hash, "deleteFiles": "false"},
+        timeout=timeout_seconds,
+    )
+    return resp.status_code == 200
+
+
+def _remove_transmission(url, username, password, torrent_hash, timeout_seconds):
+    base = url.rstrip("/")
+    session = requests.Session()
+    session.headers.update({"User-Agent": "Ownfoil/Downloads"})
+    if username or password:
+        session.auth = (username or "", password or "")
+
+    payload = {
+        "method": "torrent-remove",
+        "arguments": {"ids": [torrent_hash], "delete-local-data": False},
+    }
+    resp = session.post(f"{base}/transmission/rpc", json=payload, timeout=timeout_seconds)
+    if resp.status_code == 409:
+        session_id = resp.headers.get("X-Transmission-Session-Id")
+        if session_id:
+            session.headers.update({"X-Transmission-Session-Id": session_id})
+            resp = session.post(f"{base}/transmission/rpc", json=payload, timeout=timeout_seconds)
+    if resp.status_code != 200:
+        return False, f"Transmission returned {resp.status_code}."
+    return True, "Transmission removed torrent."
 
 
 def _extract_magnet_hash(magnet_url):
@@ -509,7 +588,7 @@ def _find_recent_qbittorrent_hash(session, base, expected_name, category, timeou
     return None
 
 
-def _select_qbittorrent_highest_version(session, base, torrent_hash, timeout_seconds, exclude_russian):
+def _select_qbittorrent_highest_version(session, base, torrent_hash, timeout_seconds, exclude_russian, expected_update_number=None, expected_version=None):
     resp = session.get(
         f"{base}/api/v2/torrents/files",
         params={"hash": torrent_hash},
@@ -541,11 +620,36 @@ def _select_qbittorrent_highest_version(session, base, torrent_hash, timeout_sec
                 continue
     if not version_map:
         logger.warning("No version tags found in torrent %s file list.", torrent_hash)
-        return
-    keep_ids = [str(file_id) for version, file_id in version_map if version > 0]
+        return False
+    expected_version_value = None
+    if expected_version is not None:
+        try:
+            expected_version_value = int(expected_version)
+        except (TypeError, ValueError):
+            expected_version_value = None
+    if expected_version_value and expected_version_value > 0:
+        keep_ids = [str(file_id) for version, file_id in version_map if version == expected_version_value]
+        if not keep_ids:
+            logger.warning(
+                "No update files found for expected version v%s in torrent %s.",
+                expected_version_value,
+                torrent_hash
+            )
+            return False
+    elif expected_update_number is not None and expected_update_number > 0:
+        keep_ids = [str(file_id) for version, file_id in version_map if version == expected_update_number]
+        if not keep_ids:
+            logger.warning(
+                "No update files found for expected update number v%s in torrent %s.",
+                expected_update_number,
+                torrent_hash
+            )
+            return False
+    else:
+        keep_ids = [str(file_id) for version, file_id in version_map if version > 0]
     if not keep_ids:
         logger.warning("No update files found (v>0) in torrent %s.", torrent_hash)
-        return
+        return False
     keep_set = set(keep_ids)
     if all_ids:
         disable_resp = _set_qbittorrent_file_priority(session, base, torrent_hash, all_ids, 0, timeout_seconds)
@@ -583,6 +687,7 @@ def _select_qbittorrent_highest_version(session, base, torrent_hash, timeout_sec
         _set_qbittorrent_file_priority(session, base, torrent_hash, retry_disable, 0, timeout_seconds, per_file=True)
     if retry_enable:
         _set_qbittorrent_file_priority(session, base, torrent_hash, retry_enable, 1, timeout_seconds, per_file=True)
+    return True
 
 
 def _set_qbittorrent_file_priority(session, base, torrent_hash, ids, priority, timeout_seconds, per_file=False):
