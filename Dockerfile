@@ -10,6 +10,7 @@ RUN apk update && apk add --no-cache bash sudo \
 RUN mkdir /app
 
 COPY ./app /app
+COPY ./nsz /nsz
 COPY ./docker/run.sh /app/run.sh
 
 COPY requirements.txt /tmp/

@@ -1,0 +1,5 @@
+app/roms
+app/__pycache__
+app/data
+app/downloads/__pycache__
+app/Start.bat
