@@ -320,6 +320,9 @@ def add_missing_apps_to_db():
 
 def process_library_identification(app):
     logger.info(f"Starting library identification process for all libraries...")
+    if not titles_lib.Keys.keys_loaded:
+        logger.warning("Skipping library identification: keys are not loaded yet.")
+        return
     try:
         with app.app_context():
             libraries = get_libraries()

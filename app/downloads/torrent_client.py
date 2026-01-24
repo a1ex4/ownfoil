@@ -1,4 +1,5 @@
 import hashlib
+import os
 import logging
 import re
 import secrets
@@ -242,7 +243,7 @@ def _list_completed_qbittorrent(url, username, password, category, timeout_secon
             save_path = item.get("save_path")
             name = item.get("name")
             if not content_path and save_path and name:
-                content_path = f"{save_path.rstrip('/\\\\')}\\{name}"
+                content_path = os.path.join(save_path.rstrip("/\\"), name)
             if torrent_hash:
                 completed.append({
                     "hash": torrent_hash,
@@ -284,7 +285,7 @@ def _list_completed_transmission(url, username, password, category, timeout_seco
         name = torrent.get("name")
         content_path = None
         if download_dir and name:
-            content_path = f"{download_dir.rstrip('/\\\\')}\\{name}"
+            content_path = os.path.join(download_dir.rstrip("/\\"), name)
         if torrent_hash:
             completed.append({
                 "hash": torrent_hash,

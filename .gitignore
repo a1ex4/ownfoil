@@ -12,7 +12,7 @@ data
 /share
 /Scripts
 /app/roms
-/ProdKeys.net-v20.3.0
+/ProdKeys
 
 # pyenv
 .python-version
