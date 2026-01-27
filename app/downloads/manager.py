@@ -23,10 +23,35 @@ _state = {
 }
 
 
+def get_downloads_state():
+    with _state_lock:
+        pending_items = []
+        for key, info in _state["pending"].items():
+            pending_items.append({
+                "key": key,
+                "title_id": info.get("title_id"),
+                "version": info.get("version"),
+                "expected_name": info.get("expected_name"),
+                "hash": info.get("hash")
+            })
+        return {
+            "running": _state["running"],
+            "last_run": _state["last_run"],
+            "pending": pending_items,
+            "completed": sorted(_state["completed"])
+        }
+
+
 def run_downloads_job(scan_cb=None, post_cb=None):
     settings = load_settings()
     downloads = settings.get("downloads", {})
     if not downloads.get("enabled"):
+        torrent_cfg = downloads.get("torrent_client", {})
+        if torrent_cfg.get("url") and torrent_cfg.get("type"):
+            with _state_lock:
+                has_pending = bool(_state["pending"])
+            if has_pending:
+                _check_completed(torrent_cfg, scan_cb=scan_cb, post_cb=post_cb)
         return
 
     interval_minutes = int(downloads.get("interval_minutes") or 60)

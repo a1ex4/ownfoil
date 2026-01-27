@@ -50,6 +50,14 @@
                     </div>
                 </div>
             </div>
+            <div class="card mb-3">
+                <div class="card-body">
+                    <h5 class="card-title">Download queue</h5>
+                    <p class="card-text mb-3">Pending downloads queued for auto-move.</p>
+                    <div class="small text-muted" id="downloadsQueueStatus">Loading...</div>
+                    <pre id="downloadsQueueList" class="mb-0" style="max-height: 200px; overflow: auto;"></pre>
+                </div>
+            </div>
 
             <div class="card mb-3">
                 <div class="card-body">
@@ -222,6 +230,30 @@
             complete: function () {
                 $('#checkDownloadsBtn').prop('disabled', false);
             }
+        });
+    }
+
+    function loadDownloadsQueue() {
+        $.getJSON("/api/manage/downloads-queue", function (result) {
+            if (!result['success']) {
+                $('#downloadsQueueStatus').text('Failed to load queue.');
+                return;
+            }
+            const state = result['state'] || {};
+            const pending = state['pending'] || [];
+            const running = state['running'] ? 'running' : 'idle';
+            const lastRun = state['last_run'] ? new Date(state['last_run'] * 1000).toLocaleString() : 'never';
+            $('#downloadsQueueStatus').text(`Status: ${running}. Last check: ${lastRun}. Pending: ${pending.length}.`);
+            if (!pending.length) {
+                $('#downloadsQueueList').text('No queued downloads.');
+                return;
+            }
+            const lines = pending.map(item => {
+                const name = item['expected_name'] || item['title_id'] || 'Unknown';
+                const version = item['version'] != null ? `v${item['version']}` : '';
+                return `${name} ${version}`.trim();
+            });
+            $('#downloadsQueueList').text(lines.join('\n'));
         });
     }
 
@@ -580,7 +612,9 @@
         loadConvertibleFiles();
         loadJobHistory();
         loadHealthStatus();
+        loadDownloadsQueue();
         startJobHistoryPolling();
+        setInterval(loadDownloadsQueue, 5000);
         $('#convertLibrarySelect').on('change', loadConvertibleFiles);
         $('#convertVerbose').on('change', function () {
             showVerboseOutput = $(this).is(':checked');

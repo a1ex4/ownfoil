@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <rect width="128" height="128" rx="16" fill="#2b3036"/>
+  <rect x="24" y="24" width="80" height="80" rx="12" fill="#3a414a"/>
+  <path d="M40 84l16-20 12 14 16-20 16 26H40z" fill="#616a75"/>
+  <circle cx="52" cy="52" r="8" fill="#616a75"/>
+  <text x="64" y="112" text-anchor="middle" font-family="Arial, sans-serif" font-size="12" fill="#8b949e">No icon</text>
+</svg>

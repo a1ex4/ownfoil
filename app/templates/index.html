@@ -266,7 +266,18 @@
 
             const card = $('<div class="card text-bg-dark game-card"></div>');
 
-            const img = $('<img class="card-img"></img>').attr('src', game.bannerUrl);
+            const cacheBannerSrc = game.title_id ? `/api/shop/banner/${game.title_id}` : '';
+            const bannerFallback = game.bannerUrl || '//placehold.it/400x200';
+            const img = $('<img class="card-img"></img>').attr('src', cacheBannerSrc || bannerFallback);
+            img.on('error', function () {
+                if (cacheBannerSrc && this.src !== cacheBannerSrc) {
+                    this.src = cacheBannerSrc;
+                    return;
+                }
+                if (this.src !== bannerFallback) {
+                    this.src = bannerFallback;
+                }
+            });
             card.append(img);
 
             const cardOverlay = $('<div class="card-img-overlay game-info"></div>');

@@ -325,6 +325,15 @@
                     <button type="button" id="submitTitlesSettingsBtn" class="btn btn-primary"
                         onClick='submitTitlesSettings()'>Submit</button>
                 </div>
+                <div class="mb-3 d-flex align-items-center gap-3">
+                    <button type="button" id="refreshMediaCacheBtn" class="btn btn-outline-secondary"
+                        onClick='refreshMediaCache()'>Refresh icons and banners</button>
+                    <button type="button" id="prefetchIconsBtn" class="btn btn-outline-secondary"
+                        onClick='prefetchAllIcons()'>Prefetch all icons</button>
+                    <button type="button" id="prefetchBannersBtn" class="btn btn-outline-secondary"
+                        onClick='prefetchAllBanners()'>Prefetch all banners</button>
+                    <span id="refreshMediaCacheStatus" class="text-muted small"></span>
+                </div>
                 </form>
                 <hr>
 
@@ -340,6 +349,12 @@
                         connections (or upgrades them to use SSL) and correctly sets the <code>X-Forwarded-Proto</code>
                         header.
                     </div>
+                </div>
+                <div class="mb-3">
+                    <label for="shopHauthInput" class="form-label">Shop Hauth:</label>
+                    <input class="form-control" id="shopHauthInput" aria-describedby="shopHauthHelp"
+                        placeholder="Hauth value">
+                    <div id="shopHauthHelp" class="form-text">Override the host signature (Hauth) used for Tinfoil verification.</div>
                 </div>
                 <div class="mb-3 form-check">
                     <input type="checkbox" class="form-check-input" id="publicShopCheck"
@@ -1066,10 +1081,116 @@
         });
     }
 
+    function refreshMediaCache() {
+        const statusEl = $('#refreshMediaCacheStatus');
+        statusEl.text('Refreshing cache...');
+        $('#refreshMediaCacheBtn').prop('disabled', true);
+        $('#prefetchIconsBtn').prop('disabled', true);
+        $('#prefetchBannersBtn').prop('disabled', true);
+        $.ajax({
+            url: "/api/settings/media-cache/refresh",
+            type: 'POST',
+            data: JSON.stringify({ icons: true, banners: true }),
+            contentType: "application/json",
+            success: function (result) {
+                if (result && result['success']) {
+                    const icons = result['removed_icons'] ?? 0;
+                    const banners = result['removed_banners'] ?? 0;
+                    statusEl.text(`Cleared ${icons} icons and ${banners} banners.`);
+                } else {
+                    statusEl.text('Refresh failed.');
+                }
+            },
+            error: function () {
+                statusEl.text('Refresh failed.');
+            },
+            complete: function () {
+                $('#refreshMediaCacheBtn').prop('disabled', false);
+                $('#prefetchIconsBtn').prop('disabled', false);
+                $('#prefetchBannersBtn').prop('disabled', false);
+            }
+        });
+    }
+
+    function prefetchAllIcons() {
+        const statusEl = $('#refreshMediaCacheStatus');
+        statusEl.text('Prefetching icons...');
+        $('#prefetchIconsBtn').prop('disabled', true);
+        $('#refreshMediaCacheBtn').prop('disabled', true);
+        $('#prefetchBannersBtn').prop('disabled', true);
+        $.ajax({
+            url: "/api/settings/media-cache/prefetch-icons",
+            type: 'POST',
+            contentType: "application/json",
+            success: function (result) {
+                if (result && result['success']) {
+                    const fetched = result['fetched'] ?? 0;
+                    const skipped = result['skipped'] ?? 0;
+                    const missing = result['missing'] ?? 0;
+                    const failed = result['failed'] ?? 0;
+                    const failures = result['failures'] || [];
+                    statusEl.text(`Prefetched ${fetched} icons. Skipped ${skipped}, missing ${missing}, failed ${failed}.`);
+                    if (failures.length) {
+                        console.warn('Icon prefetch failures:', failures);
+                        statusEl.text(`${statusEl.text()} See console for sample errors.`);
+                    }
+                } else {
+                    statusEl.text('Prefetch failed.');
+                }
+            },
+            error: function () {
+                statusEl.text('Prefetch failed.');
+            },
+            complete: function () {
+                $('#prefetchIconsBtn').prop('disabled', false);
+                $('#refreshMediaCacheBtn').prop('disabled', false);
+                $('#prefetchBannersBtn').prop('disabled', false);
+            }
+        });
+    }
+
+    function prefetchAllBanners() {
+        const statusEl = $('#refreshMediaCacheStatus');
+        statusEl.text('Prefetching banners...');
+        $('#prefetchBannersBtn').prop('disabled', true);
+        $('#refreshMediaCacheBtn').prop('disabled', true);
+        $('#prefetchIconsBtn').prop('disabled', true);
+        $.ajax({
+            url: "/api/settings/media-cache/prefetch-banners",
+            type: 'POST',
+            contentType: "application/json",
+            success: function (result) {
+                if (result && result['success']) {
+                    const fetched = result['fetched'] ?? 0;
+                    const skipped = result['skipped'] ?? 0;
+                    const missing = result['missing'] ?? 0;
+                    const failed = result['failed'] ?? 0;
+                    const failures = result['failures'] || [];
+                    statusEl.text(`Prefetched ${fetched} banners. Skipped ${skipped}, missing ${missing}, failed ${failed}.`);
+                    if (failures.length) {
+                        console.warn('Banner prefetch failures:', failures);
+                        statusEl.text(`${statusEl.text()} See console for sample errors.`);
+                    }
+                } else {
+                    statusEl.text('Prefetch failed.');
+                }
+            },
+            error: function () {
+                statusEl.text('Prefetch failed.');
+            },
+            complete: function () {
+                $('#prefetchBannersBtn').prop('disabled', false);
+                $('#refreshMediaCacheBtn').prop('disabled', false);
+                $('#prefetchIconsBtn').prop('disabled', false);
+            }
+        });
+    }
+
     function submitShopSettings() {
         $('#submitShopSettingsBtn').prop('disabled', true);
         data = {
             host: $('#shopHostInput').val(),
+            hauth: $('#shopHauthInput').val(),
             public: getCheckboxStatus("publicShopCheck"),
             encrypt: getCheckboxStatus("encryptShopCheck"),
             motd: $('#motdTextArea').val(),
@@ -1251,6 +1372,7 @@
             // Shop settings
             shopSettings = result['shop'];
             setInputVal("shopHostInput", shopSettings['host']);
+            setInputVal("shopHauthInput", shopSettings['hauth_value'] || '');
             setInputVal("motdTextArea", shopSettings['motd']);
             $("#publicShopCheck").prop("checked", shopSettings['public']);
             $("#encryptShopCheck").prop("checked", shopSettings['encrypt']);

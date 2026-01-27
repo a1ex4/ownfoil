@@ -610,22 +610,7 @@ def _ensure_nsz_keys():
     key_source = _get_nsz_keys_file()
     if not key_source:
         return False, f"Keys file not found at {KEYS_FILE}."
-    dest_dir = os.path.join(os.path.expanduser('~'), '.switch')
-    dest_files = [
-        os.path.join(dest_dir, 'keys.txt'),
-        os.path.join(dest_dir, 'prod.keys')
-    ]
-    scripts_dir = os.path.join(os.path.dirname(sys.executable), 'Scripts')
-    dest_files.append(os.path.join(scripts_dir, 'keys.txt'))
-    try:
-        os.makedirs(dest_dir, exist_ok=True)
-        os.makedirs(scripts_dir, exist_ok=True)
-        for dest_file in dest_files:
-            if not os.path.exists(dest_file) or os.path.getmtime(key_source) > os.path.getmtime(dest_file):
-                shutil.copy2(key_source, dest_file)
-        return True, None
-    except Exception as e:
-        return False, f"Failed to copy keys to {dest_dir}: {e}."
+    return True, None
 
 def _quote_arg(value):
     value = str(value)

@@ -14,7 +14,7 @@ from datetime import timedelta
 flask.cli.show_server_banner = lambda *args: None
 from constants import *
 from settings import *
-from downloads import ProwlarrClient, test_torrent_client, run_downloads_job, manual_search_update, queue_download_url, search_update_options, check_completed_downloads
+from downloads import ProwlarrClient, test_torrent_client, run_downloads_job, manual_search_update, queue_download_url, search_update_options, check_completed_downloads, get_downloads_state
 from db import *
 from shop import *
 from auth import *
@@ -413,7 +413,10 @@ def tinfoil_access(f):
         if not app_settings['shop']['public']:
             # Shop is private
             if auth_success is None:
-                auth_success, auth_error, _ = basic_auth(request)
+                if current_user.is_authenticated and current_user.has_access('shop'):
+                    auth_success = True
+                else:
+                    auth_success, auth_error, _ = basic_auth(request)
             if not auth_success:
                 return tinfoil_error(auth_error)
         # Auth success
@@ -489,10 +492,9 @@ def manage_page():
 def get_settings_api():
     reload_conf()
     settings = copy.deepcopy(app_settings)
-    if settings['shop'].get('hauth'):
-        settings['shop']['hauth'] = True
-    else:
-        settings['shop']['hauth'] = False
+    hauth_value = settings['shop'].get('hauth')
+    settings['shop']['hauth_value'] = hauth_value or ''
+    settings['shop']['hauth'] = bool(hauth_value)
     return jsonify(settings)
 
 @app.post('/api/settings/titles')
@@ -547,6 +549,184 @@ def set_download_settings_api():
         'errors': []
     }
     return jsonify(resp)
+
+
+@app.post('/api/settings/media-cache/refresh')
+@access_required('admin')
+def refresh_media_cache_api():
+    data = request.json or {}
+    refresh_icons = data.get('icons', True)
+    refresh_banners = data.get('banners', True)
+
+    def _clear_cache_dir(dirname):
+        cache_dir = os.path.join(CACHE_DIR, dirname)
+        if not os.path.isdir(cache_dir):
+            return 0
+        removed = 0
+        for filename in os.listdir(cache_dir):
+            path = os.path.join(cache_dir, filename)
+            if os.path.isfile(path):
+                try:
+                    os.remove(path)
+                    removed += 1
+                except Exception:
+                    continue
+        return removed
+
+    removed_icons = _clear_cache_dir('icons') if refresh_icons else 0
+    removed_banners = _clear_cache_dir('banners') if refresh_banners else 0
+
+    return jsonify({
+        'success': True,
+        'removed_icons': removed_icons,
+        'removed_banners': removed_banners
+    })
+
+
+@app.post('/api/settings/media-cache/prefetch-icons')
+@access_required('admin')
+def prefetch_media_icons_api():
+    titles_library = generate_library()
+    cache_dir = os.path.join(CACHE_DIR, 'icons')
+    os.makedirs(cache_dir, exist_ok=True)
+
+    fetched = 0
+    skipped = 0
+    missing = 0
+    failed = 0
+    failures = []
+    headers = {'User-Agent': 'Ownfoil/1.0'}
+
+    titles.load_titledb()
+    try:
+        for entry in titles_library:
+            title_id = (entry.get('title_id') or entry.get('id') or '').upper()
+            if not title_id:
+                missing += 1
+                continue
+            info = titles.get_game_info(title_id)
+            icon_url = (info or {}).get('iconUrl') or ''
+            if not icon_url:
+                missing += 1
+                continue
+            if icon_url.startswith('//'):
+                icon_url = 'https:' + icon_url
+            clean_url = icon_url.split('?', 1)[0]
+            _, ext = os.path.splitext(clean_url)
+            if not ext:
+                ext = '.jpg'
+            cache_name = f"{title_id}{ext}"
+            cache_path = os.path.join(cache_dir, cache_name)
+            if os.path.exists(cache_path):
+                skipped += 1
+                continue
+            try:
+                response = requests.get(icon_url, timeout=10, headers=headers)
+                if response.status_code == 200:
+                    with open(cache_path, 'wb') as handle:
+                        handle.write(response.content)
+                    fetched += 1
+                else:
+                    failed += 1
+                    if len(failures) < 5:
+                        failures.append({
+                            'title_id': title_id,
+                            'status': response.status_code,
+                            'url': icon_url
+                        })
+            except Exception as e:
+                failed += 1
+                if len(failures) < 5:
+                    failures.append({
+                        'title_id': title_id,
+                        'status': 'error',
+                        'url': icon_url,
+                        'message': str(e)
+                    })
+    finally:
+        titles.unload_titledb()
+
+    return jsonify({
+        'success': True,
+        'fetched': fetched,
+        'skipped': skipped,
+        'missing': missing,
+        'failed': failed,
+        'failures': failures
+    })
+
+
+@app.post('/api/settings/media-cache/prefetch-banners')
+@access_required('admin')
+def prefetch_media_banners_api():
+    titles_library = generate_library()
+    cache_dir = os.path.join(CACHE_DIR, 'banners')
+    os.makedirs(cache_dir, exist_ok=True)
+
+    fetched = 0
+    skipped = 0
+    missing = 0
+    failed = 0
+    failures = []
+    headers = {'User-Agent': 'Ownfoil/1.0'}
+
+    titles.load_titledb()
+    try:
+        for entry in titles_library:
+            title_id = (entry.get('title_id') or entry.get('id') or '').upper()
+            if not title_id:
+                missing += 1
+                continue
+            info = titles.get_game_info(title_id)
+            banner_url = (info or {}).get('bannerUrl') or ''
+            if not banner_url:
+                missing += 1
+                continue
+            if banner_url.startswith('//'):
+                banner_url = 'https:' + banner_url
+            clean_url = banner_url.split('?', 1)[0]
+            _, ext = os.path.splitext(clean_url)
+            if not ext:
+                ext = '.jpg'
+            cache_name = f"{title_id}{ext}"
+            cache_path = os.path.join(cache_dir, cache_name)
+            if os.path.exists(cache_path):
+                skipped += 1
+                continue
+            try:
+                response = requests.get(banner_url, timeout=10, headers=headers)
+                if response.status_code == 200:
+                    with open(cache_path, 'wb') as handle:
+                        handle.write(response.content)
+                    fetched += 1
+                else:
+                    failed += 1
+                    if len(failures) < 5:
+                        failures.append({
+                            'title_id': title_id,
+                            'status': response.status_code,
+                            'url': banner_url
+                        })
+            except Exception as e:
+                failed += 1
+                if len(failures) < 5:
+                    failures.append({
+                        'title_id': title_id,
+                        'status': 'error',
+                        'url': banner_url,
+                        'message': str(e)
+                    })
+    finally:
+        titles.unload_titledb()
+
+    return jsonify({
+        'success': True,
+        'fetched': fetched,
+        'skipped': skipped,
+        'missing': missing,
+        'failed': failed,
+        'failures': failures
+    })
 
 @app.post('/api/settings/downloads/test-prowlarr')
 @access_required('admin')
@@ -700,6 +880,13 @@ def manage_delete_updates():
 def manage_check_downloads():
     ok, message = check_completed_downloads(scan_cb=scan_library, post_cb=post_library_change)
     return jsonify({'success': ok, 'message': message})
+
+
+@app.get('/api/manage/downloads-queue')
+@access_required('admin')
+def manage_downloads_queue():
+    state = get_downloads_state()
+    return jsonify({'success': True, 'state': state})
 
 @app.post('/api/manage/convert')
 @access_required('admin')
@@ -1097,17 +1284,29 @@ def shop_icon_api(title_id):
     if not title_id:
         return Response(status=404)
 
+    cache_dir = os.path.join(CACHE_DIR, 'icons')
+    os.makedirs(cache_dir, exist_ok=True)
+    missing_path = os.path.join(cache_dir, f"{title_id}.missing")
+    if os.path.exists(missing_path):
+        response = send_from_directory(app.static_folder, 'placeholder-icon.svg')
+        response.headers['Cache-Control'] = 'public, max-age=86400'
+        return response
+
     titles.load_titledb()
     info = titles.get_game_info(title_id)
     titles.unload_titledb()
     icon_url = info.get('iconUrl') if info else ''
     if not icon_url:
-        return Response(status=404)
+        try:
+            with open(missing_path, 'w', encoding='utf-8'):
+                pass
+        except Exception:
+            pass
+        response = send_from_directory(app.static_folder, 'placeholder-icon.svg')
+        response.headers['Cache-Control'] = 'public, max-age=86400'
+        return response
     if icon_url.startswith('//'):
         icon_url = 'https:' + icon_url
-
-    cache_dir = os.path.join(CACHE_DIR, 'icons')
-    os.makedirs(cache_dir, exist_ok=True)
     clean_url = icon_url.split('?', 1)[0]
     _, ext = os.path.splitext(clean_url)
     if not ext:
@@ -1120,12 +1319,90 @@ def shop_icon_api(title_id):
             if response.status_code == 200:
                 with open(cache_path, 'wb') as handle:
                     handle.write(response.content)
+            else:
+                with open(missing_path, 'w', encoding='utf-8'):
+                    pass
         except Exception:
-            return Response(status=404)
+            try:
+                with open(missing_path, 'w', encoding='utf-8'):
+                    pass
+            except Exception:
+                pass
+            response = send_from_directory(app.static_folder, 'placeholder-icon.svg')
+            response.headers['Cache-Control'] = 'public, max-age=86400'
+            return response
 
     if not os.path.exists(cache_path):
+        response = send_from_directory(app.static_folder, 'placeholder-icon.svg')
+        response.headers['Cache-Control'] = 'public, max-age=86400'
+        return response
+    response = send_from_directory(cache_dir, cache_name)
+    response.headers['Cache-Control'] = 'public, max-age=604800, immutable'
+    return response
+
+
+@app.get('/api/shop/banner/<title_id>')
+@tinfoil_access
+def shop_banner_api(title_id):
+    title_id = (title_id or '').upper()
+    if not title_id:
         return Response(status=404)
-    return send_from_directory(cache_dir, cache_name)
+
+    cache_dir = os.path.join(CACHE_DIR, 'banners')
+    os.makedirs(cache_dir, exist_ok=True)
+    missing_path = os.path.join(cache_dir, f"{title_id}.missing")
+    if os.path.exists(missing_path):
+        response = send_from_directory(app.static_folder, 'placeholder-banner.svg')
+        response.headers['Cache-Control'] = 'public, max-age=86400'
+        return response
+
+    titles.load_titledb()
+    info = titles.get_game_info(title_id)
+    titles.unload_titledb()
+    banner_url = info.get('bannerUrl') if info else ''
+    if not banner_url:
+        try:
+            with open(missing_path, 'w', encoding='utf-8'):
+                pass
+        except Exception:
+            pass
+        response = send_from_directory(app.static_folder, 'placeholder-banner.svg')
+        response.headers['Cache-Control'] = 'public, max-age=86400'
+        return response
+    if banner_url.startswith('//'):
+        banner_url = 'https:' + banner_url
+    clean_url = banner_url.split('?', 1)[0]
+    _, ext = os.path.splitext(clean_url)
+    if not ext:
+        ext = '.jpg'
+    cache_name = f"{title_id}{ext}"
+    cache_path = os.path.join(cache_dir, cache_name)
+    if not os.path.exists(cache_path):
+        try:
+            response = requests.get(banner_url, timeout=10)
+            if response.status_code == 200:
+                with open(cache_path, 'wb') as handle:
+                    handle.write(response.content)
+            else:
+                with open(missing_path, 'w', encoding='utf-8'):
+                    pass
+        except Exception:
+            try:
+                with open(missing_path, 'w', encoding='utf-8'):
+                    pass
+            except Exception:
+                pass
+            response = send_from_directory(app.static_folder, 'placeholder-banner.svg')
+            response.headers['Cache-Control'] = 'public, max-age=86400'
+            return response
+
+    if not os.path.exists(cache_path):
+        response = send_from_directory(app.static_folder, 'placeholder-banner.svg')
+        response.headers['Cache-Control'] = 'public, max-age=86400'
+        return response
+    response = send_from_directory(cache_dir, cache_name)
+    response.headers['Cache-Control'] = 'public, max-age=604800, immutable'
+    return response
 
 
 @debounce(10)
