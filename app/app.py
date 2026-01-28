@@ -30,6 +30,7 @@ import threading
 import time
 import uuid
 import re
+import json
 
 def init():
     global watcher
@@ -145,6 +146,169 @@ library_rebuild_status = {
     'updated_at': 0
 }
 library_rebuild_lock = threading.Lock()
+shop_sections_cache = {
+    'limit': None,
+    'timestamp': 0,
+    'payload': None
+}
+shop_sections_cache_lock = threading.Lock()
+shop_sections_refresh_lock = threading.Lock()
+shop_sections_refresh_running = False
+
+def _load_shop_sections_cache_from_disk():
+    cache_path = SHOP_SECTIONS_CACHE_FILE
+    if not os.path.exists(cache_path):
+        return None
+    try:
+        with open(cache_path, 'r', encoding='utf-8') as handle:
+            data = json.load(handle)
+    except Exception:
+        return None
+    if not isinstance(data, dict):
+        return None
+    if 'payload' not in data or 'timestamp' not in data or 'limit' not in data:
+        return None
+    return data
+
+def _save_shop_sections_cache_to_disk(payload, limit, timestamp):
+    cache_path = SHOP_SECTIONS_CACHE_FILE
+    os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+    data = {
+        'payload': payload,
+        'limit': limit,
+        'timestamp': timestamp
+    }
+    try:
+        with open(cache_path, 'w', encoding='utf-8') as handle:
+            json.dump(data, handle)
+    except Exception:
+        pass
+
+def _build_shop_sections_payload(limit):
+    titles.load_titledb()
+
+    apps = Apps.query.options(
+        joinedload(Apps.files),
+        joinedload(Apps.title)
+    ).filter_by(owned=True).all()
+
+    def _safe_int(value, default=0):
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return default
+
+    def _select_file(app):
+        if not app.files:
+            return None
+        return max(app.files, key=lambda f: f.size or 0)
+
+    def _build_item(app):
+        file_obj = _select_file(app)
+        if not file_obj:
+            return None
+        title_id = app.title.title_id if app.title else None
+        base_info = titles.get_game_info(title_id) if title_id else None
+        app_info = None
+        if app.app_type == APP_TYPE_DLC:
+            app_info = titles.get_game_info(app.app_id)
+        name = (app_info or base_info or {}).get('name') or app.app_id
+        title_name = (base_info or {}).get('name') or name
+        icon_url = f'/api/shop/icon/{title_id}' if title_id else ''
+        return {
+            'name': name,
+            'title_name': title_name,
+            'title_id': title_id,
+            'app_id': app.app_id,
+            'app_version': app.app_version,
+            'app_type': app.app_type,
+            'category': (base_info or {}).get('category', ''),
+            'icon_url': icon_url,
+            'url': f'/api/get_game/{file_obj.id}#{file_obj.filename}',
+            'size': file_obj.size or 0,
+            'file_id': file_obj.id,
+            'filename': file_obj.filename,
+            'download_count': file_obj.download_count or 0
+        }
+
+    base_apps = [app for app in apps if app.app_type == APP_TYPE_BASE]
+    update_apps = [app for app in apps if app.app_type == APP_TYPE_UPD]
+    dlc_apps = [app for app in apps if app.app_type == APP_TYPE_DLC]
+
+    base_items = [item for item in (_build_item(app) for app in base_apps) if item]
+    base_items.sort(key=lambda item: item['file_id'], reverse=True)
+    new_items = base_items[:limit]
+
+    recommended_items = sorted(base_items, key=lambda item: item['download_count'], reverse=True)[:limit]
+    if not any(item['download_count'] for item in recommended_items):
+        recommended_items = new_items[:limit]
+
+    latest_available_update_by_title = {}
+    for app in update_apps:
+        title_id = app.title.title_id if app.title else None
+        if not title_id:
+            continue
+        version = _safe_int(app.app_version)
+        current_available = latest_available_update_by_title.get(title_id)
+        if not current_available or version > current_available['version']:
+            latest_available_update_by_title[title_id] = {'version': version, 'app': app}
+
+    update_items_full = []
+    for title_id, available in latest_available_update_by_title.items():
+        item = _build_item(available['app'])
+        if item:
+            update_items_full.append(item)
+    update_items_full.sort(key=lambda item: _safe_int(item['app_version']), reverse=True)
+    update_items = update_items_full
+
+    dlc_by_id = {}
+    for app in dlc_apps:
+        version = _safe_int(app.app_version)
+        current = dlc_by_id.get(app.app_id)
+        if not current or version > current['version']:
+            dlc_by_id[app.app_id] = {'version': version, 'app': app}
+    dlc_items_full = [item for item in (_build_item(entry['app']) for entry in dlc_by_id.values()) if item]
+    dlc_items_full.sort(key=lambda item: _safe_int(item['app_version']), reverse=True)
+    dlc_items = dlc_items_full[:limit]
+
+    all_items = sorted(base_items + update_items_full + dlc_items_full, key=lambda item: item['name'].lower())
+
+    titles.unload_titledb()
+
+    return {
+        'sections': [
+            {'id': 'new', 'title': 'New', 'items': new_items},
+            {'id': 'recommended', 'title': 'Recommended', 'items': recommended_items},
+            {'id': 'updates', 'title': 'Updates', 'items': update_items},
+            {'id': 'dlc', 'title': 'DLC', 'items': dlc_items},
+            {'id': 'all', 'title': 'All', 'items': all_items}
+        ]
+    }
+
+def _refresh_shop_sections_cache(limit):
+    global shop_sections_refresh_running
+    with shop_sections_refresh_lock:
+        if shop_sections_refresh_running:
+            return
+        shop_sections_refresh_running = True
+
+    def _run():
+        global shop_sections_refresh_running
+        try:
+            with app.app_context():
+                now = time.time()
+                payload = _build_shop_sections_payload(limit)
+                with shop_sections_cache_lock:
+                    shop_sections_cache['payload'] = payload
+                    shop_sections_cache['limit'] = limit
+                    shop_sections_cache['timestamp'] = now
+                _save_shop_sections_cache_to_disk(payload, limit, now)
+        finally:
+            with shop_sections_refresh_lock:
+                shop_sections_refresh_running = False
+
+    thread = threading.Thread(target=_run, daemon=True)
+    thread.start()
 
 # Configure logging
 formatter = ColoredFormatter(
@@ -1270,105 +1434,33 @@ def shop_sections_api():
     except ValueError:
         limit = 50
 
-    titles.load_titledb()
+    now = time.time()
+    with shop_sections_cache_lock:
+        cache_hit = (
+            shop_sections_cache['payload'] is not None
+            and shop_sections_cache['limit'] == limit
+        )
+        if cache_hit:
+            return jsonify(shop_sections_cache['payload'])
 
-    apps = Apps.query.options(
-        joinedload(Apps.files),
-        joinedload(Apps.title)
-    ).filter_by(owned=True).all()
+    disk_cache = _load_shop_sections_cache_from_disk()
+    if disk_cache and disk_cache.get('limit') == limit:
+        payload = disk_cache.get('payload')
+        if payload:
+            with shop_sections_cache_lock:
+                shop_sections_cache['payload'] = payload
+                shop_sections_cache['limit'] = limit
+                shop_sections_cache['timestamp'] = disk_cache.get('timestamp', 0)
+            return jsonify(payload)
 
-    def _safe_int(value, default=0):
-        try:
-            return int(value)
-        except (TypeError, ValueError):
-            return default
+    payload = _build_shop_sections_payload(limit)
 
-    def _select_file(app):
-        if not app.files:
-            return None
-        return max(app.files, key=lambda f: f.size or 0)
-
-    def _build_item(app):
-        file_obj = _select_file(app)
-        if not file_obj:
-            return None
-        title_id = app.title.title_id if app.title else None
-        base_info = titles.get_game_info(title_id) if title_id else None
-        app_info = None
-        if app.app_type == APP_TYPE_DLC:
-            app_info = titles.get_game_info(app.app_id)
-        name = (app_info or base_info or {}).get('name') or app.app_id
-        title_name = (base_info or {}).get('name') or name
-        icon_url = f'/api/shop/icon/{title_id}' if title_id else ''
-        return {
-            'name': name,
-            'title_name': title_name,
-            'title_id': title_id,
-            'app_id': app.app_id,
-            'app_version': app.app_version,
-            'app_type': app.app_type,
-            'category': (base_info or {}).get('category', ''),
-            'icon_url': icon_url,
-            'url': f'/api/get_game/{file_obj.id}#{file_obj.filename}',
-            'size': file_obj.size or 0,
-            'file_id': file_obj.id,
-            'filename': file_obj.filename,
-            'download_count': file_obj.download_count or 0
-        }
-
-    base_apps = [app for app in apps if app.app_type == APP_TYPE_BASE]
-    update_apps = [app for app in apps if app.app_type == APP_TYPE_UPD]
-    dlc_apps = [app for app in apps if app.app_type == APP_TYPE_DLC]
-
-    base_items = [item for item in (_build_item(app) for app in base_apps) if item]
-    base_items.sort(key=lambda item: item['file_id'], reverse=True)
-    new_items = base_items[:limit]
-
-    recommended_items = sorted(base_items, key=lambda item: item['download_count'], reverse=True)[:limit]
-    if not any(item['download_count'] for item in recommended_items):
-        recommended_items = new_items[:limit]
-
-    latest_available_update_by_title = {}
-    for app in update_apps:
-        title_id = app.title.title_id if app.title else None
-        if not title_id:
-            continue
-        version = _safe_int(app.app_version)
-        current_available = latest_available_update_by_title.get(title_id)
-        if not current_available or version > current_available['version']:
-            latest_available_update_by_title[title_id] = {'version': version, 'app': app}
-
-    update_items_full = []
-    for title_id, available in latest_available_update_by_title.items():
-        item = _build_item(available['app'])
-        if item:
-            update_items_full.append(item)
-    update_items_full.sort(key=lambda item: _safe_int(item['app_version']), reverse=True)
-    update_items = update_items_full
-
-    dlc_by_id = {}
-    for app in dlc_apps:
-        version = _safe_int(app.app_version)
-        current = dlc_by_id.get(app.app_id)
-        if not current or version > current['version']:
-            dlc_by_id[app.app_id] = {'version': version, 'app': app}
-    dlc_items_full = [item for item in (_build_item(entry['app']) for entry in dlc_by_id.values()) if item]
-    dlc_items_full.sort(key=lambda item: _safe_int(item['app_version']), reverse=True)
-    dlc_items = dlc_items_full[:limit]
-
-    all_items = sorted(base_items + update_items_full + dlc_items_full, key=lambda item: item['name'].lower())
-
-    titles.unload_titledb()
-
-    return jsonify({
-        'sections': [
-            {'id': 'new', 'title': 'New', 'items': new_items},
-            {'id': 'recommended', 'title': 'Recommended', 'items': recommended_items},
-            {'id': 'updates', 'title': 'Updates', 'items': update_items},
-            {'id': 'dlc', 'title': 'DLC', 'items': dlc_items},
-            {'id': 'all', 'title': 'All', 'items': all_items}
-        ]
-    })
+    with shop_sections_cache_lock:
+        shop_sections_cache['payload'] = payload
+        shop_sections_cache['limit'] = limit
+        shop_sections_cache['timestamp'] = now
+    _save_shop_sections_cache_to_disk(payload, limit, now)
+    return jsonify(payload)
 
 
 @app.get('/api/shop/icon/<title_id>')
@@ -1532,6 +1624,17 @@ def post_library_change():
             generate_library()
             titles.identification_in_progress_count -= 1
             titles.unload_titledb()
+            with shop_sections_cache_lock:
+                shop_sections_cache['payload'] = None
+                shop_sections_cache['timestamp'] = 0
+                shop_sections_cache['limit'] = None
+            now = time.time()
+            payload = _build_shop_sections_payload(50)
+            with shop_sections_cache_lock:
+                shop_sections_cache['payload'] = payload
+                shop_sections_cache['limit'] = 50
+                shop_sections_cache['timestamp'] = now
+            _save_shop_sections_cache_to_disk(payload, 50, now)
         finally:
             with library_rebuild_lock:
                 library_rebuild_status['in_progress'] = False
