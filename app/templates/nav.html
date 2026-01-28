@@ -26,7 +26,13 @@
                 </li>
                 {% endif %}
             </ul>
-            <div class="mx-auto text-muted small d-none" id="librarySizeLabel">Library size: ...</div>
+            <div class="mx-auto d-flex align-items-center gap-3">
+                <div class="text-muted small d-none" id="librarySizeLabel">Library size: ...</div>
+                <div class="small text-muted d-flex align-items-center gap-2" id="libraryRebuildLabel">
+                    <span class="spinner-border spinner-border-sm text-warning d-none" id="libraryRebuildSpinner" role="status" aria-hidden="true"></span>
+                    <span id="libraryRebuildText">Library: Ready</span>
+                </div>
+            </div>
             {% if identification_disabled %}
             <div class="alert alert-warning py-1 px-2 mb-0 small" role="alert">
                 Keys are not loaded. Library identification is paused until a valid keys.txt is uploaded.

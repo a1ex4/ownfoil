@@ -139,6 +139,12 @@ titledb_update_lock = threading.Lock()
 conversion_jobs = {}
 conversion_jobs_lock = threading.Lock()
 conversion_job_limit = 50
+library_rebuild_status = {
+    'in_progress': False,
+    'started_at': 0,
+    'updated_at': 0
+}
+library_rebuild_lock = threading.Lock()
 
 # Configure logging
 formatter = ColoredFormatter(
@@ -181,6 +187,10 @@ def on_library_change(events):
 
         for event in modified_events:
             if event.type == 'moved':
+                moved_outside_library = not event.dest_path or not event.dest_path.startswith(event.directory)
+                if moved_outside_library:
+                    delete_file_by_filepath(event.src_path)
+                    continue
                 if file_exists_in_db(event.src_path):
                     # update the path
                     update_file_path(event.directory, event.src_path, event.dest_path)
@@ -369,9 +379,14 @@ def tinfoil_access(f):
         hauth_success = None
         auth_success = None
         request.verified_host = None
+        is_tinfoil_client = all(header in request.headers for header in TINFOIL_HEADERS)
         # Host verification to prevent hotlinking
         #Tinfoil doesn't send Hauth for file grabs, only directories, so ignore get_game endpoints.
-        host_verification = "/api/get_game" not in request.path and (request.is_secure or request.headers.get("X-Forwarded-Proto") == "https")
+        host_verification = (
+            is_tinfoil_client
+            and "/api/get_game" not in request.path
+            and (request.is_secure or request.headers.get("X-Forwarded-Proto") == "https")
+        )
         if host_verification:
             request_host = request.host
             request_hauth = request.headers.get('Hauth')
@@ -1217,6 +1232,21 @@ def get_library_size_api():
     total = db.session.query(func.sum(Files.size)).scalar() or 0
     return jsonify({'success': True, 'total_bytes': int(total)})
 
+@app.get('/api/library/status')
+@access_required('shop')
+def get_library_status_api():
+    with library_rebuild_lock:
+        status = dict(library_rebuild_status)
+    with scan_lock:
+        scan_active = bool(scan_in_progress)
+    with titledb_update_lock:
+        titledb_active = bool(is_titledb_update_running)
+    status.update({
+        'scan_in_progress': scan_active,
+        'titledb_updating': titledb_active
+    })
+    return jsonify({'success': True, 'status': status})
+
 @app.route('/api/get_game/<int:id>')
 @tinfoil_access
 def serve_game(id):
@@ -1355,6 +1385,12 @@ def shop_icon_api(title_id):
     titles.unload_titledb()
     icon_url = info.get('iconUrl') if info else ''
     if not icon_url:
+        cached = [name for name in os.listdir(cache_dir) if name.startswith(f"{title_id}.")]
+        if cached:
+            cached_name = sorted(cached)[0]
+            response = send_from_directory(cache_dir, cached_name)
+            response.headers['Cache-Control'] = 'public, max-age=604800, immutable'
+            return response
         response = send_from_directory(app.static_folder, 'placeholder-icon.svg')
         response.headers['Cache-Control'] = 'public, max-age=3600'
         return response
@@ -1367,17 +1403,36 @@ def shop_icon_api(title_id):
     cache_name = f"{title_id}{ext}"
     cache_path = os.path.join(cache_dir, cache_name)
     if not os.path.exists(cache_path):
+        cached = [name for name in os.listdir(cache_dir) if name.startswith(f"{title_id}.")]
+        if cached:
+            cached_name = sorted(cached)[0]
+            response = send_from_directory(cache_dir, cached_name)
+            response.headers['Cache-Control'] = 'public, max-age=604800, immutable'
+            return response
+    if not os.path.exists(cache_path):
         try:
             response = requests.get(icon_url, timeout=10)
             if response.status_code == 200:
                 with open(cache_path, 'wb') as handle:
                     handle.write(response.content)
         except Exception:
+            cached = [name for name in os.listdir(cache_dir) if name.startswith(f"{title_id}.")]
+            if cached:
+                cached_name = sorted(cached)[0]
+                response = send_from_directory(cache_dir, cached_name)
+                response.headers['Cache-Control'] = 'public, max-age=604800, immutable'
+                return response
             response = send_from_directory(app.static_folder, 'placeholder-icon.svg')
             response.headers['Cache-Control'] = 'public, max-age=3600'
             return response
 
     if not os.path.exists(cache_path):
+        cached = [name for name in os.listdir(cache_dir) if name.startswith(f"{title_id}.")]
+        if cached:
+            cached_name = sorted(cached)[0]
+            response = send_from_directory(cache_dir, cached_name)
+            response.headers['Cache-Control'] = 'public, max-age=604800, immutable'
+            return response
         response = send_from_directory(app.static_folder, 'placeholder-icon.svg')
         response.headers['Cache-Control'] = 'public, max-age=3600'
         return response
@@ -1400,6 +1455,12 @@ def shop_banner_api(title_id):
     titles.unload_titledb()
     banner_url = info.get('bannerUrl') if info else ''
     if not banner_url:
+        cached = [name for name in os.listdir(cache_dir) if name.startswith(f"{title_id}.")]
+        if cached:
+            cached_name = sorted(cached)[0]
+            response = send_from_directory(cache_dir, cached_name)
+            response.headers['Cache-Control'] = 'public, max-age=604800, immutable'
+            return response
         response = send_from_directory(app.static_folder, 'placeholder-banner.svg')
         response.headers['Cache-Control'] = 'public, max-age=3600'
         return response
@@ -1412,17 +1473,36 @@ def shop_banner_api(title_id):
     cache_name = f"{title_id}{ext}"
     cache_path = os.path.join(cache_dir, cache_name)
     if not os.path.exists(cache_path):
+        cached = [name for name in os.listdir(cache_dir) if name.startswith(f"{title_id}.")]
+        if cached:
+            cached_name = sorted(cached)[0]
+            response = send_from_directory(cache_dir, cached_name)
+            response.headers['Cache-Control'] = 'public, max-age=604800, immutable'
+            return response
+    if not os.path.exists(cache_path):
         try:
             response = requests.get(banner_url, timeout=10)
             if response.status_code == 200:
                 with open(cache_path, 'wb') as handle:
                     handle.write(response.content)
         except Exception:
+            cached = [name for name in os.listdir(cache_dir) if name.startswith(f"{title_id}.")]
+            if cached:
+                cached_name = sorted(cached)[0]
+                response = send_from_directory(cache_dir, cached_name)
+                response.headers['Cache-Control'] = 'public, max-age=604800, immutable'
+                return response
             response = send_from_directory(app.static_folder, 'placeholder-banner.svg')
             response.headers['Cache-Control'] = 'public, max-age=3600'
             return response
 
     if not os.path.exists(cache_path):
+        cached = [name for name in os.listdir(cache_dir) if name.startswith(f"{title_id}.")]
+        if cached:
+            cached_name = sorted(cached)[0]
+            response = send_from_directory(cache_dir, cached_name)
+            response.headers['Cache-Control'] = 'public, max-age=604800, immutable'
+            return response
         response = send_from_directory(app.static_folder, 'placeholder-banner.svg')
         response.headers['Cache-Control'] = 'public, max-age=3600'
         return response
@@ -1433,19 +1513,29 @@ def shop_banner_api(title_id):
 
 @debounce(10)
 def post_library_change():
+    with library_rebuild_lock:
+        if not library_rebuild_status['in_progress']:
+            library_rebuild_status['started_at'] = time.time()
+        library_rebuild_status['in_progress'] = True
+        library_rebuild_status['updated_at'] = time.time()
     with app.app_context():
-        titles.load_titledb()
-        process_library_identification(app)
-        add_missing_apps_to_db()
-        update_titles() # Ensure titles are updated after identification
-        # remove missing files
-        remove_missing_files_from_db()
-        organize_pending_downloads()
-        # The process_library_identification already handles updating titles and generating library
-        # So, we just need to ensure titles_library is updated from the generated library
-        generate_library()
-        titles.identification_in_progress_count -= 1
-        titles.unload_titledb()
+        try:
+            titles.load_titledb()
+            process_library_identification(app)
+            add_missing_apps_to_db()
+            update_titles() # Ensure titles are updated after identification
+            # remove missing files
+            remove_missing_files_from_db()
+            organize_pending_downloads()
+            # The process_library_identification already handles updating titles and generating library
+            # So, we just need to ensure titles_library is updated from the generated library
+            generate_library()
+            titles.identification_in_progress_count -= 1
+            titles.unload_titledb()
+        finally:
+            with library_rebuild_lock:
+                library_rebuild_status['in_progress'] = False
+                library_rebuild_status['updated_at'] = time.time()
 
 @app.post('/api/library/scan')
 @access_required('admin')

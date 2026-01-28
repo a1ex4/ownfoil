@@ -145,7 +145,10 @@ def scan_library_path(library_path):
 
     filepaths_in_library = get_library_file_paths(library_id)
     new_files = [f for f in files if f not in filepaths_in_library]
+    missing_files = [f for f in filepaths_in_library if f not in files]
     add_files_to_library(library_id, new_files)
+    for filepath in missing_files:
+        delete_file_by_filepath(filepath)
     set_library_scan_time(library_id)
 
 def get_files_to_identify(library_id):
@@ -603,6 +606,26 @@ def _ensure_unique_path(path):
             return candidate
         counter += 1
 
+def _get_file_signature(filepath):
+    if not titles_lib.Keys.keys_loaded:
+        return None
+    try:
+        identification, success, contents, error = titles_lib.identify_file(filepath)
+    except Exception as e:
+        logger.debug(f"Failed to identify file for signature {filepath}: {e}")
+        return None
+    if not success or not contents:
+        return None
+    signature = set()
+    for content in contents:
+        signature.add((
+            content.get('title_id'),
+            content.get('app_id'),
+            content.get('type'),
+            content.get('version')
+        ))
+    return signature or None
+
 def _get_nsz_keys_file():
     return KEYS_FILE if os.path.exists(KEYS_FILE) else None
 
@@ -792,6 +815,38 @@ def organize_library(dry_run=False, verbose=False, detail_limit=200):
             results['skipped'] += 1
             add_detail(f"Skip already organized: {file_entry.filepath}.")
             continue
+        if os.path.exists(dest_path):
+            old_path = file_entry.filepath
+            signature_match = False
+            old_signature = _get_file_signature(old_path)
+            dest_signature = _get_file_signature(dest_path)
+            if old_signature and dest_signature:
+                signature_match = bool(old_signature.intersection(dest_signature))
+            try:
+                old_size = os.path.getsize(old_path) if os.path.exists(old_path) else None
+                dest_size = os.path.getsize(dest_path)
+            except OSError:
+                old_size = None
+                dest_size = None
+
+            if signature_match:
+                existing_entry = Files.query.filter_by(filepath=dest_path).first()
+                if existing_entry:
+                    for app in list(file_entry.apps):
+                        if existing_entry not in app.files:
+                            app.files.append(existing_entry)
+                        if file_entry in app.files:
+                            app.files.remove(file_entry)
+                        app.owned = len(app.files) > 0
+                    db.session.delete(file_entry)
+                    db.session.commit()
+                else:
+                    update_file_path(library_path, old_path, dest_path)
+                if os.path.exists(old_path) and os.path.normpath(old_path) != os.path.normpath(dest_path):
+                    os.remove(old_path)
+                results['skipped'] += 1
+                add_detail(f"Skip duplicate; kept existing: {dest_path}.")
+                continue
         dest_path = _ensure_unique_path(dest_path)
 
         if not dry_run:
@@ -892,6 +947,38 @@ def organize_files(filepaths, dry_run=False, verbose=False, detail_limit=200):
             results['skipped'] += 1
             add_detail(f"Skip already organized: {file_entry.filepath}.")
             continue
+        if os.path.exists(dest_path):
+            old_path = file_entry.filepath
+            signature_match = False
+            old_signature = _get_file_signature(old_path)
+            dest_signature = _get_file_signature(dest_path)
+            if old_signature and dest_signature:
+                signature_match = bool(old_signature.intersection(dest_signature))
+            try:
+                old_size = os.path.getsize(old_path) if os.path.exists(old_path) else None
+                dest_size = os.path.getsize(dest_path)
+            except OSError:
+                old_size = None
+                dest_size = None
+
+            if signature_match:
+                existing_entry = Files.query.filter_by(filepath=dest_path).first()
+                if existing_entry:
+                    for app in list(file_entry.apps):
+                        if existing_entry not in app.files:
+                            app.files.append(existing_entry)
+                        if file_entry in app.files:
+                            app.files.remove(file_entry)
+                        app.owned = len(app.files) > 0
+                    db.session.delete(file_entry)
+                    db.session.commit()
+                else:
+                    update_file_path(library_path, old_path, dest_path)
+                if os.path.exists(old_path) and os.path.normpath(old_path) != os.path.normpath(dest_path):
+                    os.remove(old_path)
+                results['skipped'] += 1
+                add_detail(f"Skip duplicate; kept existing: {dest_path}.")
+                continue
         dest_path = _ensure_unique_path(dest_path)
 
         if not dry_run:

@@ -270,11 +270,8 @@
             const bannerFallback = '/static/placeholder-banner.svg';
             const img = $('<img class="card-img"></img>').attr('src', cacheBannerSrc || bannerFallback);
             img.on('error', function () {
-                if (cacheBannerSrc && this.src !== cacheBannerSrc) {
-                    this.src = cacheBannerSrc;
-                    return;
-                }
-                if (this.src !== bannerFallback) {
+                if (!this.dataset.triedFallback) {
+                    this.dataset.triedFallback = '1';
                     this.src = bannerFallback;
                 }
             });
@@ -372,11 +369,8 @@
             const iconFallback = '/static/placeholder-icon.svg';
             const icon = $('<img class="game-icon">').attr('src', cacheIconSrc || iconFallback);
             icon.on('error', function () {
-                if (cacheIconSrc && this.src !== cacheIconSrc) {
-                    this.src = cacheIconSrc;
-                    return;
-                }
-                if (this.src !== iconFallback) {
+                if (!this.dataset.triedFallback) {
+                    this.dataset.triedFallback = '1';
                     this.src = iconFallback;
                 }
             });
@@ -400,6 +394,20 @@
                 $('#librarySizeLabel').text(`Library size: ${formatBytes(total)}`).removeClass('d-none');
             } else {
                 $('#librarySizeLabel').text('Library size: 0 B').removeClass('d-none');
+            }
+        });
+    }
+
+    function fetchLibraryStatus() {
+        $.getJSON("/api/library/status", function (result) {
+            if (!result || result['success'] !== true) {
+                return;
+            }
+            const status = result['status'] || {};
+            if (status['in_progress']) {
+                $('#libraryRebuildLabel').removeClass('d-none');
+            } else {
+                $('#libraryRebuildLabel').addClass('d-none');
             }
         });
     }
@@ -614,6 +622,7 @@
             .catch(() => {})
             .then(() => {
                 fetchLibrarySize();
+                fetchLibraryStatus();
             });
 
         // Event listeners for items per page dropdown
@@ -761,6 +770,8 @@
         });
     
     });
+
+    setInterval(fetchLibraryStatus, 4000);
 
     function findGameByKey(appId, appType) {
         if (!games || !appId || !appType) {

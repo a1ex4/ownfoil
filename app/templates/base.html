@@ -80,6 +80,46 @@
             setInterval(pollStatus, 2000);
         })();
     </script>
+    <script>
+        (function () {
+            const rebuildEl = document.getElementById('libraryRebuildLabel');
+            const rebuildTextEl = document.getElementById('libraryRebuildText');
+            const rebuildSpinnerEl = document.getElementById('libraryRebuildSpinner');
+            if (!rebuildEl || !rebuildTextEl || !rebuildSpinnerEl) {
+                return;
+            }
+
+            function pollLibraryStatus() {
+                $.getJSON("/api/library/status", function (result) {
+                    if (!result || result['success'] !== true) {
+                        return;
+                    }
+                    const status = result['status'] || {};
+                    const titledbUpdating = !!status['titledb_updating'];
+                    const scanActive = !!status['scan_in_progress'];
+                    const rebuildActive = !!status['in_progress'];
+
+                    rebuildEl.classList.remove('d-none');
+                    if (titledbUpdating) {
+                        rebuildTextEl.textContent = 'Library: Updating TitleDB';
+                        rebuildSpinnerEl.classList.remove('d-none');
+                    } else if (scanActive) {
+                        rebuildTextEl.textContent = 'Library: Scanning';
+                        rebuildSpinnerEl.classList.remove('d-none');
+                    } else if (rebuildActive) {
+                        rebuildTextEl.textContent = 'Library: Rebuilding';
+                        rebuildSpinnerEl.classList.remove('d-none');
+                    } else {
+                        rebuildTextEl.textContent = 'Library: Ready';
+                        rebuildSpinnerEl.classList.add('d-none');
+                    }
+                });
+            }
+
+            pollLibraryStatus();
+            setInterval(pollLibraryStatus, 4000);
+        })();
+    </script>
 </body>
 
 </html>
