@@ -1,0 +1,115 @@
+{% extends "base.html" %}
+{% block content %}
+{% include 'nav.html' %}
+
+<div class="container-fluid mt-3">
+    <div class="row g-3">
+        <div class="col-lg-8 col-xl-6">
+            <div class="card">
+                <div class="card-body">
+                    <h5 class="card-title">Upload to library</h5>
+                    <p class="card-text text-muted">Upload NSP/NSZ/XCI/XCZ files directly into the library.</p>
+                    <div class="mb-3">
+                        <label for="uploadLibrarySelect" class="form-label">Library</label>
+                        <select class="form-select" id="uploadLibrarySelect"></select>
+                    </div>
+                    <div class="mb-3">
+                        <label for="uploadFilesInput" class="form-label">Files</label>
+                        <input class="form-control" type="file" id="uploadFilesInput" multiple
+                            accept=".nsp,.nsz,.xci,.xcz">
+                        <div class="form-text">Allowed: NSP, NSZ, XCI, XCZ.</div>
+                    </div>
+                    <div class="d-flex gap-2">
+                        <button type="button" id="uploadSubmitBtn" class="btn btn-primary" onClick="uploadFiles()">Upload</button>
+                        <button type="button" id="uploadResetBtn" class="btn btn-outline-secondary" onClick="resetUploadForm()">Reset</button>
+                    </div>
+                    <div id="uploadStatus" class="text-muted small mt-3"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    function loadUploadLibraries() {
+        $.getJSON("/api/manage/libraries", function (result) {
+            const select = $('#uploadLibrarySelect');
+            if (!result || !result['success']) {
+                select.empty().append('<option value="">No libraries found</option>');
+                return;
+            }
+            const libraries = result['libraries'] || [];
+            if (!libraries.length) {
+                select.empty().append('<option value="">No libraries found</option>');
+                return;
+            }
+            select.empty();
+            libraries.forEach(lib => {
+                select.append(`<option value="${lib.id}">${lib.path}</option>`);
+            });
+        });
+    }
+
+    function resetUploadForm() {
+        $('#uploadFilesInput').val('');
+        $('#uploadStatus').text('');
+    }
+
+    function uploadFiles() {
+        const files = $('#uploadFilesInput').prop('files') || [];
+        if (!files.length) {
+            $('#uploadStatus').text('Select at least one file.');
+            return;
+        }
+        const libraryId = $('#uploadLibrarySelect').val();
+        const formData = new FormData();
+        formData.append('library_id', libraryId);
+        for (const file of files) {
+            formData.append('files', file);
+        }
+
+        $('#uploadSubmitBtn').prop('disabled', true);
+        $('#uploadStatus').text('Uploading... 0%');
+
+        $.ajax({
+            url: "/api/upload/library",
+            type: 'POST',
+            data: formData,
+            cache: false,
+            contentType: false,
+            processData: false,
+            xhr: function () {
+                const xhr = new window.XMLHttpRequest();
+                xhr.upload.addEventListener('progress', function (evt) {
+                    if (evt.lengthComputable) {
+                        const percent = Math.round((evt.loaded / evt.total) * 100);
+                        $('#uploadStatus').text(`Uploading... ${percent}%`);
+                    }
+                }, false);
+                return xhr;
+            },
+            success: function (result) {
+                if (result && result['success']) {
+                    const uploaded = result['uploaded'] || 0;
+                    const skipped = result['skipped'] || 0;
+                    $('#uploadStatus').text(`Uploaded ${uploaded} files. Skipped ${skipped}.`);
+                    $('#uploadFilesInput').val('');
+                } else {
+                    $('#uploadStatus').text(result['message'] || 'Upload failed.');
+                }
+            },
+            error: function () {
+                $('#uploadStatus').text('Upload failed.');
+            },
+            complete: function () {
+                $('#uploadSubmitBtn').prop('disabled', false);
+            }
+        });
+    }
+
+    $(document).ready(function () {
+        loadUploadLibraries();
+    });
+</script>
+
+{% endblock %}

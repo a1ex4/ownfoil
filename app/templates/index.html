@@ -267,7 +267,7 @@
             const card = $('<div class="card text-bg-dark game-card"></div>');
 
             const cacheBannerSrc = game.title_id ? `/api/shop/banner/${game.title_id}` : '';
-            const bannerFallback = game.bannerUrl || '//placehold.it/400x200';
+            const bannerFallback = '/static/placeholder-banner.svg';
             const img = $('<img class="card-img"></img>').attr('src', cacheBannerSrc || bannerFallback);
             img.on('error', function () {
                 if (cacheBannerSrc && this.src !== cacheBannerSrc) {
@@ -368,7 +368,18 @@
                 .attr('data-bs-target', '#detailsModal')
                 .attr('data-bs-app-id', game.app_id)
                 .attr('data-bs-app-type', game.app_type);
-            const icon = $('<img class="game-icon">').attr('src', game.iconUrl);
+            const cacheIconSrc = game.title_id ? `/api/shop/icon/${game.title_id}` : '';
+            const iconFallback = '/static/placeholder-icon.svg';
+            const icon = $('<img class="game-icon">').attr('src', cacheIconSrc || iconFallback);
+            icon.on('error', function () {
+                if (cacheIconSrc && this.src !== cacheIconSrc) {
+                    this.src = cacheIconSrc;
+                    return;
+                }
+                if (this.src !== iconFallback) {
+                    this.src = iconFallback;
+                }
+            });
             iconBtn.append(icon);
             gameGrid.append(iconBtn);
         });

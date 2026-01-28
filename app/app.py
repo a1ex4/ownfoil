@@ -1,5 +1,6 @@
 from flask import Flask, render_template, request, redirect, url_for, jsonify, send_from_directory, Response
 from flask_login import LoginManager
+from werkzeug.utils import secure_filename
 from sqlalchemy import func
 from sqlalchemy.orm import joinedload
 from scheduler import init_scheduler
@@ -21,7 +22,7 @@ from auth import *
 import titles
 from utils import *
 from library import *
-from library import _get_nsz_exe
+from library import _get_nsz_exe, _ensure_unique_path
 import titledb
 import requests
 import os
@@ -485,6 +486,14 @@ def manage_page():
     return render_template(
         'manage.html',
         title='Manage',
+        admin_account_created=admin_account_created())
+
+@app.route('/upload')
+@access_required('admin')
+def upload_page():
+    return render_template(
+        'upload.html',
+        title='Upload',
         admin_account_created=admin_account_created())
 
 @app.get('/api/settings')
@@ -1137,6 +1146,61 @@ def upload_file():
     return jsonify(resp)
 
 
+@app.post('/api/upload/library')
+@access_required('admin')
+def upload_library_files():
+    files = request.files.getlist('files')
+    if not files:
+        return jsonify({'success': False, 'message': 'No files uploaded.', 'uploaded': 0, 'skipped': 0, 'errors': []})
+
+    library_id = request.form.get('library_id')
+    library_path = None
+    if library_id:
+        library_path = get_library_path(library_id)
+    if not library_path:
+        library_paths = get_libraries_path()
+        library_path = library_paths[0] if library_paths else None
+
+    if not library_path:
+        return jsonify({'success': False, 'message': 'No library path configured.', 'uploaded': 0, 'skipped': 0, 'errors': []})
+
+    os.makedirs(library_path, exist_ok=True)
+    allowed_exts = {'nsp', 'nsz', 'xci', 'xcz'}
+    uploaded = 0
+    skipped = 0
+    errors = []
+    saved_paths = []
+
+    for file in files:
+        filename = secure_filename(file.filename or '')
+        if not filename:
+            skipped += 1
+            continue
+        ext = filename.rsplit('.', 1)[-1].lower() if '.' in filename else ''
+        if ext not in allowed_exts:
+            skipped += 1
+            continue
+        dest_path = _ensure_unique_path(os.path.join(library_path, filename))
+        try:
+            file.save(dest_path)
+            uploaded += 1
+            saved_paths.append(dest_path)
+        except Exception as e:
+            errors.append(str(e))
+
+    if uploaded:
+        scan_library_path(library_path)
+        enqueue_organize_paths(saved_paths)
+        post_library_change()
+
+    return jsonify({
+        'success': uploaded > 0,
+        'uploaded': uploaded,
+        'skipped': skipped,
+        'errors': errors
+    })
+
+
 @app.route('/api/titles', methods=['GET'])
 @access_required('shop')
 def get_all_titles_api():
@@ -1286,24 +1350,13 @@ def shop_icon_api(title_id):
 
     cache_dir = os.path.join(CACHE_DIR, 'icons')
     os.makedirs(cache_dir, exist_ok=True)
-    missing_path = os.path.join(cache_dir, f"{title_id}.missing")
-    if os.path.exists(missing_path):
-        response = send_from_directory(app.static_folder, 'placeholder-icon.svg')
-        response.headers['Cache-Control'] = 'public, max-age=86400'
-        return response
-
     titles.load_titledb()
     info = titles.get_game_info(title_id)
     titles.unload_titledb()
     icon_url = info.get('iconUrl') if info else ''
     if not icon_url:
-        try:
-            with open(missing_path, 'w', encoding='utf-8'):
-                pass
-        except Exception:
-            pass
         response = send_from_directory(app.static_folder, 'placeholder-icon.svg')
-        response.headers['Cache-Control'] = 'public, max-age=86400'
+        response.headers['Cache-Control'] = 'public, max-age=3600'
         return response
     if icon_url.startswith('//'):
         icon_url = 'https:' + icon_url
@@ -1319,22 +1372,14 @@ def shop_icon_api(title_id):
             if response.status_code == 200:
                 with open(cache_path, 'wb') as handle:
                     handle.write(response.content)
-            else:
-                with open(missing_path, 'w', encoding='utf-8'):
-                    pass
         except Exception:
-            try:
-                with open(missing_path, 'w', encoding='utf-8'):
-                    pass
-            except Exception:
-                pass
             response = send_from_directory(app.static_folder, 'placeholder-icon.svg')
-            response.headers['Cache-Control'] = 'public, max-age=86400'
+            response.headers['Cache-Control'] = 'public, max-age=3600'
             return response
 
     if not os.path.exists(cache_path):
         response = send_from_directory(app.static_folder, 'placeholder-icon.svg')
-        response.headers['Cache-Control'] = 'public, max-age=86400'
+        response.headers['Cache-Control'] = 'public, max-age=3600'
         return response
     response = send_from_directory(cache_dir, cache_name)
     response.headers['Cache-Control'] = 'public, max-age=604800, immutable'
@@ -1350,24 +1395,13 @@ def shop_banner_api(title_id):
 
     cache_dir = os.path.join(CACHE_DIR, 'banners')
     os.makedirs(cache_dir, exist_ok=True)
-    missing_path = os.path.join(cache_dir, f"{title_id}.missing")
-    if os.path.exists(missing_path):
-        response = send_from_directory(app.static_folder, 'placeholder-banner.svg')
-        response.headers['Cache-Control'] = 'public, max-age=86400'
-        return response
-
     titles.load_titledb()
     info = titles.get_game_info(title_id)
     titles.unload_titledb()
     banner_url = info.get('bannerUrl') if info else ''
     if not banner_url:
-        try:
-            with open(missing_path, 'w', encoding='utf-8'):
-                pass
-        except Exception:
-            pass
         response = send_from_directory(app.static_folder, 'placeholder-banner.svg')
-        response.headers['Cache-Control'] = 'public, max-age=86400'
+        response.headers['Cache-Control'] = 'public, max-age=3600'
         return response
     if banner_url.startswith('//'):
         banner_url = 'https:' + banner_url
@@ -1383,22 +1417,14 @@ def shop_banner_api(title_id):
             if response.status_code == 200:
                 with open(cache_path, 'wb') as handle:
                     handle.write(response.content)
-            else:
-                with open(missing_path, 'w', encoding='utf-8'):
-                    pass
         except Exception:
-            try:
-                with open(missing_path, 'w', encoding='utf-8'):
-                    pass
-            except Exception:
-                pass
             response = send_from_directory(app.static_folder, 'placeholder-banner.svg')
-            response.headers['Cache-Control'] = 'public, max-age=86400'
+            response.headers['Cache-Control'] = 'public, max-age=3600'
             return response
 
     if not os.path.exists(cache_path):
         response = send_from_directory(app.static_folder, 'placeholder-banner.svg')
-        response.headers['Cache-Control'] = 'public, max-age=86400'
+        response.headers['Cache-Control'] = 'public, max-age=3600'
         return response
     response = send_from_directory(cache_dir, cache_name)
     response.headers['Cache-Control'] = 'public, max-age=604800, immutable'

@@ -20,6 +20,11 @@
                     <a class="nav-link{% if title == 'Manage' %} active" aria-current="page"{% else %}"{% endif %}" href="/manage">Manage</a>
                 </li>
                 {% endif %}
+                {% if current_user.is_admin or admin_account_created == false %}
+                <li class="nav-item">
+                    <a class="nav-link{% if title == 'Upload' %} active" aria-current="page"{% else %}"{% endif %}" href="/upload">Upload</a>
+                </li>
+                {% endif %}
             </ul>
             <div class="mx-auto text-muted small d-none" id="librarySizeLabel">Library size: ...</div>
             {% if identification_disabled %}
