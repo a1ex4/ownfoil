@@ -1,0 +1,47 @@
+[
+	{
+		"type": "scrolloptions",
+		"title": "Compression Level",
+		"desc": "Trade-off between compression speed and compression ratio. Default: 18, Max: 22",
+		"section": "Settings",
+		"key": "level",
+		"options": [ "[Lv. 01] Debugging", "[Lv. 08] Faster", "[Lv. 12] Fast", "[Lv. 14] Normal", "[Lv. 18] Great (default)", "[Lv. 22] Ultra (recommended)" ]
+	},
+	{
+		"type": "bool",
+		"title": "[NSZ] Use Block Compression",
+		"desc": "NSZ: Use block compression instead of solid compression. Block compression allows highly multithreaded compression/decompression with random read access allowing compressed games to be played without decompression in the future however this comes with a low compression ratio cost. Block compression is the default option for XCZ.",
+		"section": "Settings",
+		"key": "block"
+	},
+	{
+		"type": "bool",
+		"title": "[XCZ] Use Solid Compression",
+		"desc": "XCZ: Use solid instead of block compression. XCZ produced that way will never be mountable. Solid compression is the default option for NSZ.",
+		"section": "Settings",
+		"key": "solid"
+	},
+	{
+		"type": "scrolloptions",
+		"title": "Block Size",
+		"desc": "Block Size for random read access",
+		"section": "Settings",
+		"key": "bs",
+		"options": [ "64 KB", "128 KB", "256 KB", "512 KB", "1 MB  (default)", "2 MB", "4 MB", "8 MB", "16 MB" ]
+	},
+	{
+		"type": "scrolloptions",
+		"title": "Verify",
+		"desc": "Verifies files after compression raising an unhandled exception on hash mismatch and verify existing NSP and NSZ files when given as parameter. Quick skips the expensive and mostly useless PFS0 hash verification and only verifies NCA hashes. Full requires --keep when used for compression.",
+		"section": "Settings",
+		"key": "verify_options",
+		"options": [ "None", "Quick (NCA hashes)", "Full (NCA & PFS0 hashes)" ]
+	},
+	{
+		"type": "bool",
+		"title": "Keep Everything",
+		"desc": "Keep all useless files and partitions during compression to allow bit-identical recreation",
+		"section": "Settings",
+		"key": "keep"
+	}
+]

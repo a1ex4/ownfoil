@@ -102,3 +102,91 @@ p.game-description {
     max-height: 200px; /* Set your desired max height */
     overflow-y: auto; /* Enable vertical scrolling */
 }
+
+.upload-panel {
+    background: rgba(33, 37, 41, 0.6);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 12px;
+    padding: 24px;
+}
+
+.upload-dropzone {
+    position: relative;
+    border: 1px dashed rgba(255, 255, 255, 0.2);
+    border-radius: 12px;
+    padding: 28px 20px;
+    text-align: center;
+    cursor: pointer;
+    background: rgba(255, 255, 255, 0.02);
+    transition: border-color 0.2s ease, background 0.2s ease;
+}
+
+.upload-dropzone:hover {
+    border-color: rgba(13, 110, 253, 0.6);
+    background: rgba(13, 110, 253, 0.08);
+}
+
+.upload-dropzone.is-dragover {
+    border-color: rgba(13, 110, 253, 0.9);
+    background: rgba(13, 110, 253, 0.16);
+    box-shadow: 0 0 0 2px rgba(13, 110, 253, 0.25);
+}
+
+.upload-dropzone input[type="file"] {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    cursor: pointer;
+}
+
+.upload-dropzone-body {
+    display: grid;
+    gap: 6px;
+    place-items: center;
+    color: rgba(255, 255, 255, 0.9);
+}
+
+.upload-dropzone-body i {
+    font-size: 2rem;
+    color: rgba(13, 110, 253, 0.85);
+}
+
+.upload-dropzone-title {
+    font-weight: 600;
+}
+
+.upload-dropzone-subtitle {
+    font-size: 0.9rem;
+    color: rgba(255, 255, 255, 0.7);
+}
+
+.upload-file-list {
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 10px;
+    padding: 10px 12px;
+    background: rgba(255, 255, 255, 0.03);
+    max-height: 180px;
+    overflow-y: auto;
+}
+
+.upload-file-meta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    font-size: 0.9rem;
+    color: rgba(255, 255, 255, 0.75);
+}
+
+.upload-file-item {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 6px 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    font-size: 0.9rem;
+}
+
+.upload-file-item:last-child {
+    border-bottom: none;
+}

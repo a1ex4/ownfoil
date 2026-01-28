@@ -1,5 +1,6 @@
 from flask import Flask, render_template, request, redirect, url_for, jsonify, send_from_directory, Response
 from flask_login import LoginManager
+from werkzeug.utils import secure_filename
 from sqlalchemy import func
 from sqlalchemy.orm import joinedload
 from scheduler import init_scheduler
@@ -21,7 +22,7 @@ from auth import *
 import titles
 from utils import *
 from library import *
-from library import _get_nsz_exe
+from library import _get_nsz_exe, _ensure_unique_path
 import titledb
 import requests
 import os
@@ -29,6 +30,7 @@ import threading
 import time
 import uuid
 import re
+import json
 
 def init():
     global watcher
@@ -138,6 +140,175 @@ titledb_update_lock = threading.Lock()
 conversion_jobs = {}
 conversion_jobs_lock = threading.Lock()
 conversion_job_limit = 50
+library_rebuild_status = {
+    'in_progress': False,
+    'started_at': 0,
+    'updated_at': 0
+}
+library_rebuild_lock = threading.Lock()
+shop_sections_cache = {
+    'limit': None,
+    'timestamp': 0,
+    'payload': None
+}
+shop_sections_cache_lock = threading.Lock()
+shop_sections_refresh_lock = threading.Lock()
+shop_sections_refresh_running = False
+
+def _load_shop_sections_cache_from_disk():
+    cache_path = SHOP_SECTIONS_CACHE_FILE
+    if not os.path.exists(cache_path):
+        return None
+    try:
+        with open(cache_path, 'r', encoding='utf-8') as handle:
+            data = json.load(handle)
+    except Exception:
+        return None
+    if not isinstance(data, dict):
+        return None
+    if 'payload' not in data or 'timestamp' not in data or 'limit' not in data:
+        return None
+    return data
+
+def _save_shop_sections_cache_to_disk(payload, limit, timestamp):
+    cache_path = SHOP_SECTIONS_CACHE_FILE
+    os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+    data = {
+        'payload': payload,
+        'limit': limit,
+        'timestamp': timestamp
+    }
+    try:
+        with open(cache_path, 'w', encoding='utf-8') as handle:
+            json.dump(data, handle)
+    except Exception:
+        pass
+
+def _build_shop_sections_payload(limit):
+    titles.load_titledb()
+
+    apps = Apps.query.options(
+        joinedload(Apps.files),
+        joinedload(Apps.title)
+    ).filter_by(owned=True).all()
+
+    def _safe_int(value, default=0):
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return default
+
+    def _select_file(app):
+        if not app.files:
+            return None
+        return max(app.files, key=lambda f: f.size or 0)
+
+    def _build_item(app):
+        file_obj = _select_file(app)
+        if not file_obj:
+            return None
+        title_id = app.title.title_id if app.title else None
+        base_info = titles.get_game_info(title_id) if title_id else None
+        app_info = None
+        if app.app_type == APP_TYPE_DLC:
+            app_info = titles.get_game_info(app.app_id)
+        name = (app_info or base_info or {}).get('name') or app.app_id
+        title_name = (base_info or {}).get('name') or name
+        icon_url = f'/api/shop/icon/{title_id}' if title_id else ''
+        return {
+            'name': name,
+            'title_name': title_name,
+            'title_id': title_id,
+            'app_id': app.app_id,
+            'app_version': app.app_version,
+            'app_type': app.app_type,
+            'category': (base_info or {}).get('category', ''),
+            'icon_url': icon_url,
+            'url': f'/api/get_game/{file_obj.id}#{file_obj.filename}',
+            'size': file_obj.size or 0,
+            'file_id': file_obj.id,
+            'filename': file_obj.filename,
+            'download_count': file_obj.download_count or 0
+        }
+
+    base_apps = [app for app in apps if app.app_type == APP_TYPE_BASE]
+    update_apps = [app for app in apps if app.app_type == APP_TYPE_UPD]
+    dlc_apps = [app for app in apps if app.app_type == APP_TYPE_DLC]
+
+    base_items = [item for item in (_build_item(app) for app in base_apps) if item]
+    base_items.sort(key=lambda item: item['file_id'], reverse=True)
+    new_items = base_items[:limit]
+
+    recommended_items = sorted(base_items, key=lambda item: item['download_count'], reverse=True)[:limit]
+    if not any(item['download_count'] for item in recommended_items):
+        recommended_items = new_items[:limit]
+
+    latest_available_update_by_title = {}
+    for app in update_apps:
+        title_id = app.title.title_id if app.title else None
+        if not title_id:
+            continue
+        version = _safe_int(app.app_version)
+        current_available = latest_available_update_by_title.get(title_id)
+        if not current_available or version > current_available['version']:
+            latest_available_update_by_title[title_id] = {'version': version, 'app': app}
+
+    update_items_full = []
+    for title_id, available in latest_available_update_by_title.items():
+        item = _build_item(available['app'])
+        if item:
+            update_items_full.append(item)
+    update_items_full.sort(key=lambda item: _safe_int(item['app_version']), reverse=True)
+    update_items = update_items_full
+
+    dlc_by_id = {}
+    for app in dlc_apps:
+        version = _safe_int(app.app_version)
+        current = dlc_by_id.get(app.app_id)
+        if not current or version > current['version']:
+            dlc_by_id[app.app_id] = {'version': version, 'app': app}
+    dlc_items_full = [item for item in (_build_item(entry['app']) for entry in dlc_by_id.values()) if item]
+    dlc_items_full.sort(key=lambda item: _safe_int(item['app_version']), reverse=True)
+    dlc_items = dlc_items_full[:limit]
+
+    all_items = sorted(base_items + update_items_full + dlc_items_full, key=lambda item: item['name'].lower())
+
+    titles.unload_titledb()
+
+    return {
+        'sections': [
+            {'id': 'new', 'title': 'New', 'items': new_items},
+            {'id': 'recommended', 'title': 'Recommended', 'items': recommended_items},
+            {'id': 'updates', 'title': 'Updates', 'items': update_items},
+            {'id': 'dlc', 'title': 'DLC', 'items': dlc_items},
+            {'id': 'all', 'title': 'All', 'items': all_items}
+        ]
+    }
+
+def _refresh_shop_sections_cache(limit):
+    global shop_sections_refresh_running
+    with shop_sections_refresh_lock:
+        if shop_sections_refresh_running:
+            return
+        shop_sections_refresh_running = True
+
+    def _run():
+        global shop_sections_refresh_running
+        try:
+            with app.app_context():
+                now = time.time()
+                payload = _build_shop_sections_payload(limit)
+                with shop_sections_cache_lock:
+                    shop_sections_cache['payload'] = payload
+                    shop_sections_cache['limit'] = limit
+                    shop_sections_cache['timestamp'] = now
+                _save_shop_sections_cache_to_disk(payload, limit, now)
+        finally:
+            with shop_sections_refresh_lock:
+                shop_sections_refresh_running = False
+
+    thread = threading.Thread(target=_run, daemon=True)
+    thread.start()
 
 # Configure logging
 formatter = ColoredFormatter(
@@ -180,6 +351,10 @@ def on_library_change(events):
 
         for event in modified_events:
             if event.type == 'moved':
+                moved_outside_library = not event.dest_path or not event.dest_path.startswith(event.directory)
+                if moved_outside_library:
+                    delete_file_by_filepath(event.src_path)
+                    continue
                 if file_exists_in_db(event.src_path):
                     # update the path
                     update_file_path(event.directory, event.src_path, event.dest_path)
@@ -368,9 +543,14 @@ def tinfoil_access(f):
         hauth_success = None
         auth_success = None
         request.verified_host = None
+        is_tinfoil_client = all(header in request.headers for header in TINFOIL_HEADERS)
         # Host verification to prevent hotlinking
         #Tinfoil doesn't send Hauth for file grabs, only directories, so ignore get_game endpoints.
-        host_verification = "/api/get_game" not in request.path and (request.is_secure or request.headers.get("X-Forwarded-Proto") == "https")
+        host_verification = (
+            is_tinfoil_client
+            and "/api/get_game" not in request.path
+            and (request.is_secure or request.headers.get("X-Forwarded-Proto") == "https")
+        )
         if host_verification:
             request_host = request.host
             request_hauth = request.headers.get('Hauth')
@@ -485,6 +665,14 @@ def manage_page():
     return render_template(
         'manage.html',
         title='Manage',
+        admin_account_created=admin_account_created())
+
+@app.route('/upload')
+@access_required('admin')
+def upload_page():
+    return render_template(
+        'upload.html',
+        title='Upload',
         admin_account_created=admin_account_created())
 
 @app.get('/api/settings')
@@ -1137,6 +1325,61 @@ def upload_file():
     return jsonify(resp)
 
 
+@app.post('/api/upload/library')
+@access_required('admin')
+def upload_library_files():
+    files = request.files.getlist('files')
+    if not files:
+        return jsonify({'success': False, 'message': 'No files uploaded.', 'uploaded': 0, 'skipped': 0, 'errors': []})
+
+    library_id = request.form.get('library_id')
+    library_path = None
+    if library_id:
+        library_path = get_library_path(library_id)
+    if not library_path:
+        library_paths = get_libraries_path()
+        library_path = library_paths[0] if library_paths else None
+
+    if not library_path:
+        return jsonify({'success': False, 'message': 'No library path configured.', 'uploaded': 0, 'skipped': 0, 'errors': []})
+
+    os.makedirs(library_path, exist_ok=True)
+    allowed_exts = {'nsp', 'nsz', 'xci', 'xcz'}
+    uploaded = 0
+    skipped = 0
+    errors = []
+    saved_paths = []
+
+    for file in files:
+        filename = secure_filename(file.filename or '')
+        if not filename:
+            skipped += 1
+            continue
+        ext = filename.rsplit('.', 1)[-1].lower() if '.' in filename else ''
+        if ext not in allowed_exts:
+            skipped += 1
+            continue
+        dest_path = _ensure_unique_path(os.path.join(library_path, filename))
+        try:
+            file.save(dest_path)
+            uploaded += 1
+            saved_paths.append(dest_path)
+        except Exception as e:
+            errors.append(str(e))
+
+    if uploaded:
+        scan_library_path(library_path)
+        enqueue_organize_paths(saved_paths)
+        post_library_change()
+
+    return jsonify({
+        'success': uploaded > 0,
+        'uploaded': uploaded,
+        'skipped': skipped,
+        'errors': errors
+    })
+
+
 @app.route('/api/titles', methods=['GET'])
 @access_required('shop')
 def get_all_titles_api():
@@ -1152,6 +1395,21 @@ def get_all_titles_api():
 def get_library_size_api():
     total = db.session.query(func.sum(Files.size)).scalar() or 0
     return jsonify({'success': True, 'total_bytes': int(total)})
+
+@app.get('/api/library/status')
+@access_required('shop')
+def get_library_status_api():
+    with library_rebuild_lock:
+        status = dict(library_rebuild_status)
+    with scan_lock:
+        scan_active = bool(scan_in_progress)
+    with titledb_update_lock:
+        titledb_active = bool(is_titledb_update_running)
+    status.update({
+        'scan_in_progress': scan_active,
+        'titledb_updating': titledb_active
+    })
+    return jsonify({'success': True, 'status': status})
 
 @app.route('/api/get_game/<int:id>')
 @tinfoil_access
@@ -1176,105 +1434,33 @@ def shop_sections_api():
     except ValueError:
         limit = 50
 
-    titles.load_titledb()
+    now = time.time()
+    with shop_sections_cache_lock:
+        cache_hit = (
+            shop_sections_cache['payload'] is not None
+            and shop_sections_cache['limit'] == limit
+        )
+        if cache_hit:
+            return jsonify(shop_sections_cache['payload'])
 
-    apps = Apps.query.options(
-        joinedload(Apps.files),
-        joinedload(Apps.title)
-    ).filter_by(owned=True).all()
+    disk_cache = _load_shop_sections_cache_from_disk()
+    if disk_cache and disk_cache.get('limit') == limit:
+        payload = disk_cache.get('payload')
+        if payload:
+            with shop_sections_cache_lock:
+                shop_sections_cache['payload'] = payload
+                shop_sections_cache['limit'] = limit
+                shop_sections_cache['timestamp'] = disk_cache.get('timestamp', 0)
+            return jsonify(payload)
 
-    def _safe_int(value, default=0):
-        try:
-            return int(value)
-        except (TypeError, ValueError):
-            return default
+    payload = _build_shop_sections_payload(limit)
 
-    def _select_file(app):
-        if not app.files:
-            return None
-        return max(app.files, key=lambda f: f.size or 0)
-
-    def _build_item(app):
-        file_obj = _select_file(app)
-        if not file_obj:
-            return None
-        title_id = app.title.title_id if app.title else None
-        base_info = titles.get_game_info(title_id) if title_id else None
-        app_info = None
-        if app.app_type == APP_TYPE_DLC:
-            app_info = titles.get_game_info(app.app_id)
-        name = (app_info or base_info or {}).get('name') or app.app_id
-        title_name = (base_info or {}).get('name') or name
-        icon_url = f'/api/shop/icon/{title_id}' if title_id else ''
-        return {
-            'name': name,
-            'title_name': title_name,
-            'title_id': title_id,
-            'app_id': app.app_id,
-            'app_version': app.app_version,
-            'app_type': app.app_type,
-            'category': (base_info or {}).get('category', ''),
-            'icon_url': icon_url,
-            'url': f'/api/get_game/{file_obj.id}#{file_obj.filename}',
-            'size': file_obj.size or 0,
-            'file_id': file_obj.id,
-            'filename': file_obj.filename,
-            'download_count': file_obj.download_count or 0
-        }
-
-    base_apps = [app for app in apps if app.app_type == APP_TYPE_BASE]
-    update_apps = [app for app in apps if app.app_type == APP_TYPE_UPD]
-    dlc_apps = [app for app in apps if app.app_type == APP_TYPE_DLC]
-
-    base_items = [item for item in (_build_item(app) for app in base_apps) if item]
-    base_items.sort(key=lambda item: item['file_id'], reverse=True)
-    new_items = base_items[:limit]
-
-    recommended_items = sorted(base_items, key=lambda item: item['download_count'], reverse=True)[:limit]
-    if not any(item['download_count'] for item in recommended_items):
-        recommended_items = new_items[:limit]
-
-    latest_available_update_by_title = {}
-    for app in update_apps:
-        title_id = app.title.title_id if app.title else None
-        if not title_id:
-            continue
-        version = _safe_int(app.app_version)
-        current_available = latest_available_update_by_title.get(title_id)
-        if not current_available or version > current_available['version']:
-            latest_available_update_by_title[title_id] = {'version': version, 'app': app}
-
-    update_items_full = []
-    for title_id, available in latest_available_update_by_title.items():
-        item = _build_item(available['app'])
-        if item:
-            update_items_full.append(item)
-    update_items_full.sort(key=lambda item: _safe_int(item['app_version']), reverse=True)
-    update_items = update_items_full
-
-    dlc_by_id = {}
-    for app in dlc_apps:
-        version = _safe_int(app.app_version)
-        current = dlc_by_id.get(app.app_id)
-        if not current or version > current['version']:
-            dlc_by_id[app.app_id] = {'version': version, 'app': app}
-    dlc_items_full = [item for item in (_build_item(entry['app']) for entry in dlc_by_id.values()) if item]
-    dlc_items_full.sort(key=lambda item: _safe_int(item['app_version']), reverse=True)
-    dlc_items = dlc_items_full[:limit]
-
-    all_items = sorted(base_items + update_items_full + dlc_items_full, key=lambda item: item['name'].lower())
-
-    titles.unload_titledb()
-
-    return jsonify({
-        'sections': [
-            {'id': 'new', 'title': 'New', 'items': new_items},
-            {'id': 'recommended', 'title': 'Recommended', 'items': recommended_items},
-            {'id': 'updates', 'title': 'Updates', 'items': update_items},
-            {'id': 'dlc', 'title': 'DLC', 'items': dlc_items},
-            {'id': 'all', 'title': 'All', 'items': all_items}
-        ]
-    })
+    with shop_sections_cache_lock:
+        shop_sections_cache['payload'] = payload
+        shop_sections_cache['limit'] = limit
+        shop_sections_cache['timestamp'] = now
+    _save_shop_sections_cache_to_disk(payload, limit, now)
+    return jsonify(payload)
 
 
 @app.get('/api/shop/icon/<title_id>')
@@ -1286,24 +1472,19 @@ def shop_icon_api(title_id):
 
     cache_dir = os.path.join(CACHE_DIR, 'icons')
     os.makedirs(cache_dir, exist_ok=True)
-    missing_path = os.path.join(cache_dir, f"{title_id}.missing")
-    if os.path.exists(missing_path):
-        response = send_from_directory(app.static_folder, 'placeholder-icon.svg')
-        response.headers['Cache-Control'] = 'public, max-age=86400'
-        return response
-
     titles.load_titledb()
     info = titles.get_game_info(title_id)
     titles.unload_titledb()
     icon_url = info.get('iconUrl') if info else ''
     if not icon_url:
-        try:
-            with open(missing_path, 'w', encoding='utf-8'):
-                pass
-        except Exception:
-            pass
+        cached = [name for name in os.listdir(cache_dir) if name.startswith(f"{title_id}.")]
+        if cached:
+            cached_name = sorted(cached)[0]
+            response = send_from_directory(cache_dir, cached_name)
+            response.headers['Cache-Control'] = 'public, max-age=604800, immutable'
+            return response
         response = send_from_directory(app.static_folder, 'placeholder-icon.svg')
-        response.headers['Cache-Control'] = 'public, max-age=86400'
+        response.headers['Cache-Control'] = 'public, max-age=3600'
         return response
     if icon_url.startswith('//'):
         icon_url = 'https:' + icon_url
@@ -1314,27 +1495,38 @@ def shop_icon_api(title_id):
     cache_name = f"{title_id}{ext}"
     cache_path = os.path.join(cache_dir, cache_name)
     if not os.path.exists(cache_path):
+        cached = [name for name in os.listdir(cache_dir) if name.startswith(f"{title_id}.")]
+        if cached:
+            cached_name = sorted(cached)[0]
+            response = send_from_directory(cache_dir, cached_name)
+            response.headers['Cache-Control'] = 'public, max-age=604800, immutable'
+            return response
+    if not os.path.exists(cache_path):
         try:
             response = requests.get(icon_url, timeout=10)
             if response.status_code == 200:
                 with open(cache_path, 'wb') as handle:
                     handle.write(response.content)
-            else:
-                with open(missing_path, 'w', encoding='utf-8'):
-                    pass
         except Exception:
-            try:
-                with open(missing_path, 'w', encoding='utf-8'):
-                    pass
-            except Exception:
-                pass
+            cached = [name for name in os.listdir(cache_dir) if name.startswith(f"{title_id}.")]
+            if cached:
+                cached_name = sorted(cached)[0]
+                response = send_from_directory(cache_dir, cached_name)
+                response.headers['Cache-Control'] = 'public, max-age=604800, immutable'
+                return response
             response = send_from_directory(app.static_folder, 'placeholder-icon.svg')
-            response.headers['Cache-Control'] = 'public, max-age=86400'
+            response.headers['Cache-Control'] = 'public, max-age=3600'
             return response
 
     if not os.path.exists(cache_path):
+        cached = [name for name in os.listdir(cache_dir) if name.startswith(f"{title_id}.")]
+        if cached:
+            cached_name = sorted(cached)[0]
+            response = send_from_directory(cache_dir, cached_name)
+            response.headers['Cache-Control'] = 'public, max-age=604800, immutable'
+            return response
         response = send_from_directory(app.static_folder, 'placeholder-icon.svg')
-        response.headers['Cache-Control'] = 'public, max-age=86400'
+        response.headers['Cache-Control'] = 'public, max-age=3600'
         return response
     response = send_from_directory(cache_dir, cache_name)
     response.headers['Cache-Control'] = 'public, max-age=604800, immutable'
@@ -1350,24 +1542,19 @@ def shop_banner_api(title_id):
 
     cache_dir = os.path.join(CACHE_DIR, 'banners')
     os.makedirs(cache_dir, exist_ok=True)
-    missing_path = os.path.join(cache_dir, f"{title_id}.missing")
-    if os.path.exists(missing_path):
-        response = send_from_directory(app.static_folder, 'placeholder-banner.svg')
-        response.headers['Cache-Control'] = 'public, max-age=86400'
-        return response
-
     titles.load_titledb()
     info = titles.get_game_info(title_id)
     titles.unload_titledb()
     banner_url = info.get('bannerUrl') if info else ''
     if not banner_url:
-        try:
-            with open(missing_path, 'w', encoding='utf-8'):
-                pass
-        except Exception:
-            pass
+        cached = [name for name in os.listdir(cache_dir) if name.startswith(f"{title_id}.")]
+        if cached:
+            cached_name = sorted(cached)[0]
+            response = send_from_directory(cache_dir, cached_name)
+            response.headers['Cache-Control'] = 'public, max-age=604800, immutable'
+            return response
         response = send_from_directory(app.static_folder, 'placeholder-banner.svg')
-        response.headers['Cache-Control'] = 'public, max-age=86400'
+        response.headers['Cache-Control'] = 'public, max-age=3600'
         return response
     if banner_url.startswith('//'):
         banner_url = 'https:' + banner_url
@@ -1378,27 +1565,38 @@ def shop_banner_api(title_id):
     cache_name = f"{title_id}{ext}"
     cache_path = os.path.join(cache_dir, cache_name)
     if not os.path.exists(cache_path):
+        cached = [name for name in os.listdir(cache_dir) if name.startswith(f"{title_id}.")]
+        if cached:
+            cached_name = sorted(cached)[0]
+            response = send_from_directory(cache_dir, cached_name)
+            response.headers['Cache-Control'] = 'public, max-age=604800, immutable'
+            return response
+    if not os.path.exists(cache_path):
         try:
             response = requests.get(banner_url, timeout=10)
             if response.status_code == 200:
                 with open(cache_path, 'wb') as handle:
                     handle.write(response.content)
-            else:
-                with open(missing_path, 'w', encoding='utf-8'):
-                    pass
         except Exception:
-            try:
-                with open(missing_path, 'w', encoding='utf-8'):
-                    pass
-            except Exception:
-                pass
+            cached = [name for name in os.listdir(cache_dir) if name.startswith(f"{title_id}.")]
+            if cached:
+                cached_name = sorted(cached)[0]
+                response = send_from_directory(cache_dir, cached_name)
+                response.headers['Cache-Control'] = 'public, max-age=604800, immutable'
+                return response
             response = send_from_directory(app.static_folder, 'placeholder-banner.svg')
-            response.headers['Cache-Control'] = 'public, max-age=86400'
+            response.headers['Cache-Control'] = 'public, max-age=3600'
             return response
 
     if not os.path.exists(cache_path):
+        cached = [name for name in os.listdir(cache_dir) if name.startswith(f"{title_id}.")]
+        if cached:
+            cached_name = sorted(cached)[0]
+            response = send_from_directory(cache_dir, cached_name)
+            response.headers['Cache-Control'] = 'public, max-age=604800, immutable'
+            return response
         response = send_from_directory(app.static_folder, 'placeholder-banner.svg')
-        response.headers['Cache-Control'] = 'public, max-age=86400'
+        response.headers['Cache-Control'] = 'public, max-age=3600'
         return response
     response = send_from_directory(cache_dir, cache_name)
     response.headers['Cache-Control'] = 'public, max-age=604800, immutable'
@@ -1407,19 +1605,40 @@ def shop_banner_api(title_id):
 
 @debounce(10)
 def post_library_change():
+    with library_rebuild_lock:
+        if not library_rebuild_status['in_progress']:
+            library_rebuild_status['started_at'] = time.time()
+        library_rebuild_status['in_progress'] = True
+        library_rebuild_status['updated_at'] = time.time()
     with app.app_context():
-        titles.load_titledb()
-        process_library_identification(app)
-        add_missing_apps_to_db()
-        update_titles() # Ensure titles are updated after identification
-        # remove missing files
-        remove_missing_files_from_db()
-        organize_pending_downloads()
-        # The process_library_identification already handles updating titles and generating library
-        # So, we just need to ensure titles_library is updated from the generated library
-        generate_library()
-        titles.identification_in_progress_count -= 1
-        titles.unload_titledb()
+        try:
+            titles.load_titledb()
+            process_library_identification(app)
+            add_missing_apps_to_db()
+            update_titles() # Ensure titles are updated after identification
+            # remove missing files
+            remove_missing_files_from_db()
+            organize_pending_downloads()
+            # The process_library_identification already handles updating titles and generating library
+            # So, we just need to ensure titles_library is updated from the generated library
+            generate_library()
+            titles.identification_in_progress_count -= 1
+            titles.unload_titledb()
+            with shop_sections_cache_lock:
+                shop_sections_cache['payload'] = None
+                shop_sections_cache['timestamp'] = 0
+                shop_sections_cache['limit'] = None
+            now = time.time()
+            payload = _build_shop_sections_payload(50)
+            with shop_sections_cache_lock:
+                shop_sections_cache['payload'] = payload
+                shop_sections_cache['limit'] = 50
+                shop_sections_cache['timestamp'] = now
+            _save_shop_sections_cache_to_disk(payload, 50, now)
+        finally:
+            with library_rebuild_lock:
+                library_rebuild_status['in_progress'] = False
+                library_rebuild_status['updated_at'] = time.time()
 
 @app.post('/api/library/scan')
 @access_required('admin')
