@@ -30,6 +30,111 @@ import threading
 import time
 import uuid
 import re
+
+try:
+    from PIL import Image, ImageOps
+except Exception:
+    Image = None
+    ImageOps = None
+
+# In-process media cache index.
+# Avoids repeated os.listdir() and TitleDB lookups for icons/banners that are already cached.
+_media_cache_lock = threading.Lock()
+_media_cache_index = {
+    'icon': {},   # title_id -> filename
+    'banner': {}, # title_id -> filename
+}
+
+_media_resize_lock = threading.Lock()
+
+_ICON_SIZE = (300, 300)
+_BANNER_SIZE = (920, 520)
+
+def _media_variant_dirname(media_kind):
+    if media_kind == 'icon':
+        return f"icons_{_ICON_SIZE[0]}x{_ICON_SIZE[1]}"
+    return f"banners_{_BANNER_SIZE[0]}x{_BANNER_SIZE[1]}"
+
+def _is_jpeg_name(filename):
+    return str(filename).lower().endswith(('.jpg', '.jpeg'))
+
+def _resize_image_to_path(src_path, dest_path, size, quality=85):
+    if not Image or not ImageOps:
+        return False
+
+    try:
+        with Image.open(src_path) as im:
+            # Normalize orientation if EXIF is present.
+            im = ImageOps.exif_transpose(im)
+            fitted = ImageOps.fit(im, size, method=Image.Resampling.LANCZOS)
+
+            os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+
+            if _is_jpeg_name(dest_path):
+                if fitted.mode not in ('RGB',):
+                    fitted = fitted.convert('RGB')
+                fitted.save(dest_path, format='JPEG', quality=quality, optimize=True, progressive=True)
+            else:
+                # PNG etc.
+                fitted.save(dest_path, optimize=True)
+        return True
+    except Exception:
+        return False
+
+def _get_variant_path(cache_dir, cached_name, media_kind):
+    if not cached_name:
+        return None
+    size = _ICON_SIZE if media_kind == 'icon' else _BANNER_SIZE
+    variant_dir = os.path.join(CACHE_DIR, _media_variant_dirname(media_kind))
+    variant_path = os.path.join(variant_dir, cached_name)
+    return size, variant_dir, variant_path
+
+def _get_cached_media_filename(cache_dir, title_id, media_kind='icon'):
+    """Return cached filename for title_id if present on disk."""
+    title_id = (title_id or '').upper()
+    if not title_id:
+        return None
+
+    with _media_cache_lock:
+        cached_name = _media_cache_index.get(media_kind, {}).get(title_id)
+    if cached_name:
+        path = os.path.join(cache_dir, cached_name)
+        if os.path.exists(path):
+            return cached_name
+        with _media_cache_lock:
+            _media_cache_index.get(media_kind, {}).pop(title_id, None)
+
+    try:
+        for name in os.listdir(cache_dir):
+            if name.startswith(f"{title_id}."):
+                with _media_cache_lock:
+                    _media_cache_index.setdefault(media_kind, {})[title_id] = name
+                return name
+    except Exception:
+        return None
+    return None
+
+def _remember_cached_media_filename(title_id, filename, media_kind='icon'):
+    title_id = (title_id or '').upper()
+    if not title_id or not filename:
+        return
+    with _media_cache_lock:
+        _media_cache_index.setdefault(media_kind, {})[title_id] = filename
+
+def _ensure_cached_media_file(cache_dir, title_id, remote_url):
+    """Compute local cache name/path from remote_url."""
+    if not remote_url:
+        return None, None
+    url = remote_url
+    if url.startswith('//'):
+        url = 'https:' + url
+    clean_url = url.split('?', 1)[0]
+    _, ext = os.path.splitext(clean_url)
+    if not ext:
+        ext = '.jpg'
+    cache_name = f"{title_id.upper()}{ext}"
+    cache_path = os.path.join(cache_dir, cache_name)
+    return cache_name, cache_path
 import json
 
 def init():
@@ -813,6 +918,11 @@ def prefetch_media_icons_api():
                 if response.status_code == 200:
                     with open(cache_path, 'wb') as handle:
                         handle.write(response.content)
+                    # Generate a smaller variant for faster web UI loads.
+                    size, variant_dir, variant_path = _get_variant_path(cache_dir, cache_name, media_kind='icon')
+                    if variant_path:
+                        with _media_resize_lock:
+                            _resize_image_to_path(cache_path, variant_path, size=size)
                     fetched += 1
                 else:
                     failed += 1
@@ -886,6 +996,11 @@ def prefetch_media_banners_api():
                 if response.status_code == 200:
                     with open(cache_path, 'wb') as handle:
                         handle.write(response.content)
+                    # Generate a smaller variant for faster web UI loads.
+                    size, variant_dir, variant_path = _get_variant_path(cache_dir, cache_name, media_kind='banner')
+                    if variant_path:
+                        with _media_resize_lock:
+                            _resize_image_to_path(cache_path, variant_path, size=size)
                     fetched += 1
                 else:
                     failed += 1
@@ -1472,64 +1587,70 @@ def shop_icon_api(title_id):
 
     cache_dir = os.path.join(CACHE_DIR, 'icons')
     os.makedirs(cache_dir, exist_ok=True)
+
+    # Fast path: serve cached file without TitleDB lookup.
+    cached_name = _get_cached_media_filename(cache_dir, title_id, media_kind='icon')
+    if cached_name:
+        src_path = os.path.join(cache_dir, cached_name)
+        size, variant_dir, variant_path = _get_variant_path(cache_dir, cached_name, media_kind='icon')
+        if variant_path and os.path.exists(variant_path) and os.path.getmtime(variant_path) >= os.path.getmtime(src_path):
+            response = send_from_directory(variant_dir, cached_name)
+            response.headers['Cache-Control'] = 'public, max-age=604800, immutable'
+            return response
+        if variant_path and os.path.exists(src_path):
+            with _media_resize_lock:
+                if os.path.exists(src_path) and (not os.path.exists(variant_path) or os.path.getmtime(variant_path) < os.path.getmtime(src_path)):
+                    _resize_image_to_path(src_path, variant_path, size=size)
+            if os.path.exists(variant_path):
+                response = send_from_directory(variant_dir, cached_name)
+                response.headers['Cache-Control'] = 'public, max-age=604800, immutable'
+                return response
+        response = send_from_directory(cache_dir, cached_name)
+        response.headers['Cache-Control'] = 'public, max-age=604800, immutable'
+        return response
+
     titles.load_titledb()
     info = titles.get_game_info(title_id)
     titles.unload_titledb()
     icon_url = info.get('iconUrl') if info else ''
     if not icon_url:
-        cached = [name for name in os.listdir(cache_dir) if name.startswith(f"{title_id}.")]
-        if cached:
-            cached_name = sorted(cached)[0]
-            response = send_from_directory(cache_dir, cached_name)
-            response.headers['Cache-Control'] = 'public, max-age=604800, immutable'
-            return response
         response = send_from_directory(app.static_folder, 'placeholder-icon.svg')
         response.headers['Cache-Control'] = 'public, max-age=3600'
         return response
-    if icon_url.startswith('//'):
-        icon_url = 'https:' + icon_url
-    clean_url = icon_url.split('?', 1)[0]
-    _, ext = os.path.splitext(clean_url)
-    if not ext:
-        ext = '.jpg'
-    cache_name = f"{title_id}{ext}"
-    cache_path = os.path.join(cache_dir, cache_name)
-    if not os.path.exists(cache_path):
-        cached = [name for name in os.listdir(cache_dir) if name.startswith(f"{title_id}.")]
-        if cached:
-            cached_name = sorted(cached)[0]
-            response = send_from_directory(cache_dir, cached_name)
-            response.headers['Cache-Control'] = 'public, max-age=604800, immutable'
-            return response
-    if not os.path.exists(cache_path):
-        try:
-            response = requests.get(icon_url, timeout=10)
-            if response.status_code == 200:
-                with open(cache_path, 'wb') as handle:
-                    handle.write(response.content)
-        except Exception:
-            cached = [name for name in os.listdir(cache_dir) if name.startswith(f"{title_id}.")]
-            if cached:
-                cached_name = sorted(cached)[0]
-                response = send_from_directory(cache_dir, cached_name)
-                response.headers['Cache-Control'] = 'public, max-age=604800, immutable'
-                return response
-            response = send_from_directory(app.static_folder, 'placeholder-icon.svg')
-            response.headers['Cache-Control'] = 'public, max-age=3600'
-            return response
+
+    cache_name, cache_path = _ensure_cached_media_file(cache_dir, title_id, icon_url)
+    if not cache_path:
+        response = send_from_directory(app.static_folder, 'placeholder-icon.svg')
+        response.headers['Cache-Control'] = 'public, max-age=3600'
+        return response
 
     if not os.path.exists(cache_path):
-        cached = [name for name in os.listdir(cache_dir) if name.startswith(f"{title_id}.")]
-        if cached:
-            cached_name = sorted(cached)[0]
-            response = send_from_directory(cache_dir, cached_name)
-            response.headers['Cache-Control'] = 'public, max-age=604800, immutable'
-            return response
-        response = send_from_directory(app.static_folder, 'placeholder-icon.svg')
-        response.headers['Cache-Control'] = 'public, max-age=3600'
+        try:
+            resp = requests.get(icon_url, timeout=10)
+            if resp.status_code == 200:
+                with open(cache_path, 'wb') as handle:
+                    handle.write(resp.content)
+        except Exception:
+            cache_path = None
+
+    if cache_path and os.path.exists(cache_path):
+        _remember_cached_media_filename(title_id, cache_name, media_kind='icon')
+        size, variant_dir, variant_path = _get_variant_path(cache_dir, cache_name, media_kind='icon')
+        if variant_path:
+            with _media_resize_lock:
+                if not os.path.exists(variant_path) or os.path.getmtime(variant_path) < os.path.getmtime(cache_path):
+                    _resize_image_to_path(cache_path, variant_path, size=size)
+            if os.path.exists(variant_path):
+                response = send_from_directory(variant_dir, cache_name)
+                response.headers['Cache-Control'] = 'public, max-age=604800, immutable'
+                return response
+
+        response = send_from_directory(cache_dir, cache_name)
+        response.headers['Cache-Control'] = 'public, max-age=604800, immutable'
         return response
-    response = send_from_directory(cache_dir, cache_name)
-    response.headers['Cache-Control'] = 'public, max-age=604800, immutable'
+
+    response = send_from_directory(app.static_folder, 'placeholder-icon.svg')
+    response.headers['Cache-Control'] = 'public, max-age=3600'
     return response
 
 
@@ -1542,64 +1663,70 @@ def shop_banner_api(title_id):
 
     cache_dir = os.path.join(CACHE_DIR, 'banners')
     os.makedirs(cache_dir, exist_ok=True)
+
+    # Fast path: serve cached file without TitleDB lookup.
+    cached_name = _get_cached_media_filename(cache_dir, title_id, media_kind='banner')
+    if cached_name:
+        src_path = os.path.join(cache_dir, cached_name)
+        size, variant_dir, variant_path = _get_variant_path(cache_dir, cached_name, media_kind='banner')
+        if variant_path and os.path.exists(variant_path) and os.path.getmtime(variant_path) >= os.path.getmtime(src_path):
+            response = send_from_directory(variant_dir, cached_name)
+            response.headers['Cache-Control'] = 'public, max-age=604800, immutable'
+            return response
+        if variant_path and os.path.exists(src_path):
+            with _media_resize_lock:
+                if os.path.exists(src_path) and (not os.path.exists(variant_path) or os.path.getmtime(variant_path) < os.path.getmtime(src_path)):
+                    _resize_image_to_path(src_path, variant_path, size=size)
+            if os.path.exists(variant_path):
+                response = send_from_directory(variant_dir, cached_name)
+                response.headers['Cache-Control'] = 'public, max-age=604800, immutable'
+                return response
+        response = send_from_directory(cache_dir, cached_name)
+        response.headers['Cache-Control'] = 'public, max-age=604800, immutable'
+        return response
+
     titles.load_titledb()
     info = titles.get_game_info(title_id)
     titles.unload_titledb()
     banner_url = info.get('bannerUrl') if info else ''
     if not banner_url:
-        cached = [name for name in os.listdir(cache_dir) if name.startswith(f"{title_id}.")]
-        if cached:
-            cached_name = sorted(cached)[0]
-            response = send_from_directory(cache_dir, cached_name)
-            response.headers['Cache-Control'] = 'public, max-age=604800, immutable'
-            return response
         response = send_from_directory(app.static_folder, 'placeholder-banner.svg')
         response.headers['Cache-Control'] = 'public, max-age=3600'
         return response
-    if banner_url.startswith('//'):
-        banner_url = 'https:' + banner_url
-    clean_url = banner_url.split('?', 1)[0]
-    _, ext = os.path.splitext(clean_url)
-    if not ext:
-        ext = '.jpg'
-    cache_name = f"{title_id}{ext}"
-    cache_path = os.path.join(cache_dir, cache_name)
-    if not os.path.exists(cache_path):
-        cached = [name for name in os.listdir(cache_dir) if name.startswith(f"{title_id}.")]
-        if cached:
-            cached_name = sorted(cached)[0]
-            response = send_from_directory(cache_dir, cached_name)
-            response.headers['Cache-Control'] = 'public, max-age=604800, immutable'
-            return response
-    if not os.path.exists(cache_path):
-        try:
-            response = requests.get(banner_url, timeout=10)
-            if response.status_code == 200:
-                with open(cache_path, 'wb') as handle:
-                    handle.write(response.content)
-        except Exception:
-            cached = [name for name in os.listdir(cache_dir) if name.startswith(f"{title_id}.")]
-            if cached:
-                cached_name = sorted(cached)[0]
-                response = send_from_directory(cache_dir, cached_name)
-                response.headers['Cache-Control'] = 'public, max-age=604800, immutable'
-                return response
-            response = send_from_directory(app.static_folder, 'placeholder-banner.svg')
-            response.headers['Cache-Control'] = 'public, max-age=3600'
-            return response
+
+    cache_name, cache_path = _ensure_cached_media_file(cache_dir, title_id, banner_url)
+    if not cache_path:
+        response = send_from_directory(app.static_folder, 'placeholder-banner.svg')
+        response.headers['Cache-Control'] = 'public, max-age=3600'
+        return response
 
     if not os.path.exists(cache_path):
-        cached = [name for name in os.listdir(cache_dir) if name.startswith(f"{title_id}.")]
-        if cached:
-            cached_name = sorted(cached)[0]
-            response = send_from_directory(cache_dir, cached_name)
-            response.headers['Cache-Control'] = 'public, max-age=604800, immutable'
-            return response
-        response = send_from_directory(app.static_folder, 'placeholder-banner.svg')
-        response.headers['Cache-Control'] = 'public, max-age=3600'
+        try:
+            resp = requests.get(banner_url, timeout=10)
+            if resp.status_code == 200:
+                with open(cache_path, 'wb') as handle:
+                    handle.write(resp.content)
+        except Exception:
+            cache_path = None
+
+    if cache_path and os.path.exists(cache_path):
+        _remember_cached_media_filename(title_id, cache_name, media_kind='banner')
+        size, variant_dir, variant_path = _get_variant_path(cache_dir, cache_name, media_kind='banner')
+        if variant_path:
+            with _media_resize_lock:
+                if not os.path.exists(variant_path) or os.path.getmtime(variant_path) < os.path.getmtime(cache_path):
+                    _resize_image_to_path(cache_path, variant_path, size=size)
+            if os.path.exists(variant_path):
+                response = send_from_directory(variant_dir, cache_name)
+                response.headers['Cache-Control'] = 'public, max-age=604800, immutable'
+                return response
+
+        response = send_from_directory(cache_dir, cache_name)
+        response.headers['Cache-Control'] = 'public, max-age=604800, immutable'
         return response
-    response = send_from_directory(cache_dir, cache_name)
-    response.headers['Cache-Control'] = 'public, max-age=604800, immutable'
+
+    response = send_from_directory(app.static_folder, 'placeholder-banner.svg')
+    response.headers['Cache-Control'] = 'public, max-age=3600'
     return response
 
 
@@ -1628,6 +1755,11 @@ def post_library_change():
                 shop_sections_cache['payload'] = None
                 shop_sections_cache['timestamp'] = 0
                 shop_sections_cache['limit'] = None
+
+            # Media cache index can be repopulated on demand.
+            with _media_cache_lock:
+                _media_cache_index['icon'].clear()
+                _media_cache_index['banner'].clear()
             now = time.time()
             payload = _build_shop_sections_payload(50)
             with shop_sections_cache_lock:
