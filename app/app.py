@@ -1138,6 +1138,15 @@ def activity_page():
         admin_account_created=admin_account_created())
 
 
+@app.route('/users')
+@access_required('admin')
+def users_page():
+    return render_template(
+        'users.html',
+        title='Users',
+        admin_account_created=admin_account_created())
+
+
 @app.get('/api/admin/activity')
 @access_required('admin')
 def admin_activity_api():
