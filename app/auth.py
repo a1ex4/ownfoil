@@ -81,6 +81,11 @@ def basic_auth(request):
         success = False
         error = f'Incorrect password for user "{username}".'
 
+    elif getattr(user, 'frozen', False):
+        success = False
+        message = (getattr(user, 'frozen_message', None) or '').strip()
+        error = message if message else 'Account is frozen.'
+
     elif not user.has_shop_access():
         success = False
         error = f'User "{username}" does not have access to the shop.'
@@ -104,6 +109,9 @@ def create_or_update_user(username, password, admin_access=False, shop_access=Fa
         user.admin_access = admin_access
         user.shop_access = shop_access
         user.backup_access = backup_access
+        if getattr(user, 'frozen', False) and admin_access:
+            user.frozen = False
+            user.frozen_message = None
         user.password = generate_password_hash(password, method='scrypt')
     else:
         logger.info(f'Creating new user {username}')
@@ -184,9 +192,48 @@ def profile():
 def get_users():
     all_users = [
         dict(db_user._mapping)
-        for db_user in db.session.query(User.id, User.user, User.admin_access, User.shop_access, User.backup_access).all()
+        for db_user in db.session.query(
+            User.id,
+            User.user,
+            User.admin_access,
+            User.shop_access,
+            User.backup_access,
+            User.frozen,
+            User.frozen_message,
+        ).all()
     ]
     return jsonify(all_users)
+
+
+@auth_blueprint.route('/api/user/freeze', methods=['PATCH'])
+@login_required
+@access_required('admin')
+def freeze_user():
+    success = True
+    errors = []
+    data = request.json or {}
+    user_id = data.get('user_id')
+    frozen = data.get('frozen')
+    message = (data.get('message') or '').strip()
+
+    if not user_id:
+        errors.append('Missing user id.')
+    if frozen is None:
+        errors.append('Missing frozen state.')
+
+    user = User.query.filter_by(id=user_id).first() if not errors else None
+    if not user:
+        errors.append('User not found.')
+
+    if errors:
+        success = False
+    else:
+        user.frozen = bool(frozen)
+        user.frozen_message = message if user.frozen else None
+        db.session.commit()
+        logger.info(f"Updated frozen state for user {user.id} ({user.user}): {user.frozen}")
+
+    return jsonify({'success': success, 'errors': errors})
 
 @auth_blueprint.route('/api/user', methods=['DELETE'])
 @login_required
@@ -253,6 +300,9 @@ def update_user():
         user.admin_access = admin_access
         user.shop_access = shop_access
         user.backup_access = backup_access
+        if getattr(user, 'frozen', False) and admin_access:
+            user.frozen = False
+            user.frozen_message = None
         if password:
             user.password = generate_password_hash(password, method='scrypt')
         db.session.commit()

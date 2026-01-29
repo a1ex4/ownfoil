@@ -116,13 +116,15 @@ class User(UserMixin, db.Model):
     admin_access = db.Column(db.Boolean)
     shop_access = db.Column(db.Boolean)
     backup_access = db.Column(db.Boolean)
+    frozen = db.Column(db.Boolean, default=False)
+    frozen_message = db.Column(db.String)
 
     @property
     def is_admin(self):
         return self.admin_access
 
     def has_shop_access(self):
-        return self.shop_access
+        return bool(self.shop_access) and not bool(self.frozen)
 
     def has_backup_access(self):
         return self.backup_access

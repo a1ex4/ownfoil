@@ -505,6 +505,34 @@ def create_app():
 app = create_app()
 
 
+@app.before_request
+def _block_frozen_web_ui():
+    """Frozen accounts should only see the MOTD page in the web UI."""
+    try:
+        # Let Tinfoil/Cyberfoil flows be handled by tinfoil_access.
+        if all(header in request.headers for header in TINFOIL_HEADERS):
+            return None
+
+        if not current_user.is_authenticated:
+            return None
+
+        if not bool(getattr(current_user, 'frozen', False)):
+            return None
+
+        path = request.path or '/'
+        if path.startswith('/static/'):
+            return None
+        if path in ('/login', '/logout'):
+            return None
+
+        message = (getattr(current_user, 'frozen_message', None) or '').strip() or 'Account is frozen.'
+        if path.startswith('/api/'):
+            return jsonify({'success': False, 'error': message}), 403
+        return render_template('frozen.html', title='Library', message=message)
+    except Exception:
+        return None
+
+
 _active_transfers_lock = threading.Lock()
 _active_transfers = {}
 
@@ -1041,10 +1069,113 @@ def tinfoil_access(f):
                 else:
                     auth_success, auth_error, _ = basic_auth(request)
             if not auth_success:
+                # If the account is frozen, return safe empty responses so clients can display the MOTD.
+                try:
+                    if is_tinfoil_client and request.path in ('/', '/api/shop/sections', '/api/frozen/notice'):
+                        username = _get_request_user()
+                        frozen_user = User.query.filter_by(user=username).first() if username else None
+                        if frozen_user is not None and bool(getattr(frozen_user, 'frozen', False)):
+                            message = (getattr(frozen_user, 'frozen_message', None) or '').strip() or 'Account is frozen.'
+                            if request.path == '/api/shop/sections':
+                                placeholder_item = {
+                                    'name': 'Account frozen',
+                                    'title_name': 'Account frozen',
+                                    'title_id': '0000000000000000',
+                                    'app_id': '0000000000000000',
+                                    'app_version': '0',
+                                    'app_type': APP_TYPE_BASE,
+                                    'category': '',
+                                    'icon_url': '',
+                                    'url': '/api/frozen/notice#frozen.txt',
+                                    'size': 1,
+                                    'file_id': 0,
+                                    'filename': 'frozen.txt',
+                                    'download_count': 0,
+                                }
+                                empty_sections = {
+                                    'sections': [
+                                        {'id': 'new', 'title': 'New', 'items': [placeholder_item]},
+                                        {'id': 'recommended', 'title': 'Recommended', 'items': [placeholder_item]},
+                                        {'id': 'updates', 'title': 'Updates', 'items': [placeholder_item]},
+                                        {'id': 'dlc', 'title': 'DLC', 'items': [placeholder_item]},
+                                        {'id': 'all', 'title': 'All', 'items': [placeholder_item]},
+                                    ]
+                                }
+                                return jsonify(empty_sections)
+
+                            placeholder = {"url": "/api/frozen/notice#frozen.txt", "size": 1}
+                            shop = {"success": message, "files": [placeholder]}
+                            if request.verified_host is not None:
+                                shop["referrer"] = f"https://{request.verified_host}"
+                            if app_settings['shop']['encrypt']:
+                                return Response(encrypt_shop(shop), mimetype='application/octet-stream')
+                            return jsonify(shop)
+                except Exception:
+                    pass
                 return tinfoil_error(auth_error)
+
+        # Auth success: block frozen accounts from accessing the library.
+        try:
+            frozen_user = None
+            if current_user.is_authenticated:
+                frozen_user = current_user
+            else:
+                username = _get_request_user()
+                frozen_user = User.query.filter_by(user=username).first() if username else None
+            if frozen_user is not None and bool(getattr(frozen_user, 'frozen', False)):
+                message = (getattr(frozen_user, 'frozen_message', None) or '').strip() or 'Account is frozen.'
+
+                # Allow safe empty responses for the shop root + sections.
+                if is_tinfoil_client and request.path in ('/', '/api/shop/sections', '/api/frozen/notice'):
+                    if request.path == '/api/shop/sections':
+                        placeholder_item = {
+                            'name': 'Account frozen',
+                            'title_name': 'Account frozen',
+                            'title_id': '0000000000000000',
+                            'app_id': '0000000000000000',
+                            'app_version': '0',
+                            'app_type': APP_TYPE_BASE,
+                            'category': '',
+                            'icon_url': '',
+                            'url': '/api/frozen/notice#frozen.txt',
+                            'size': 1,
+                            'file_id': 0,
+                            'filename': 'frozen.txt',
+                            'download_count': 0,
+                        }
+                        empty_sections = {
+                            'sections': [
+                                {'id': 'new', 'title': 'New', 'items': [placeholder_item]},
+                                {'id': 'recommended', 'title': 'Recommended', 'items': [placeholder_item]},
+                                {'id': 'updates', 'title': 'Updates', 'items': [placeholder_item]},
+                                {'id': 'dlc', 'title': 'DLC', 'items': [placeholder_item]},
+                                {'id': 'all', 'title': 'All', 'items': [placeholder_item]},
+                            ]
+                        }
+                        return jsonify(empty_sections)
+
+                    placeholder = {"url": "/api/frozen/notice#frozen.txt", "size": 1}
+                    shop = {"success": message, "files": [placeholder]}
+                    if request.verified_host is not None:
+                        shop["referrer"] = f"https://{request.verified_host}"
+                    if app_settings['shop']['encrypt']:
+                        return Response(encrypt_shop(shop), mimetype='application/octet-stream')
+                    return jsonify(shop)
+
+                return tinfoil_error(message)
+        except Exception:
+            pass
+
         # Auth success
         return f(*args, **kwargs)
     return _tinfoil_access
+
+
+@app.get('/api/frozen/notice')
+def frozen_notice_api():
+    # Minimal endpoint used to provide a harmless placeholder file
+    # for frozen accounts so clients don't reject an empty shop.
+    return Response(b' ', mimetype='application/octet-stream')
 
 def access_shop():
     return render_template(
@@ -1093,7 +1224,23 @@ def index():
     # if True:
         logger.info(f"Tinfoil connection from {request.remote_addr}")
         return access_tinfoil_shop()
-    
+
+    # Frozen accounts: web UI should only show the MOTD message.
+    try:
+        frozen_user = None
+        if current_user.is_authenticated:
+            frozen_user = current_user
+        else:
+            auth = request.authorization
+            username = auth.username if auth and auth.username else None
+            frozen_user = User.query.filter_by(user=username).first() if username else None
+
+        if frozen_user is not None and bool(getattr(frozen_user, 'frozen', False)):
+            message = (getattr(frozen_user, 'frozen_message', None) or '').strip() or 'Account is frozen.'
+            return render_template('frozen.html', title='Library', message=message)
+    except Exception:
+        pass
+     
     if not app_settings['shop']['public']:
         return access_shop_auth()
     return access_shop()

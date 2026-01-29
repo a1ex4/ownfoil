@@ -197,6 +197,34 @@
                     </div>
                 </div>
 
+                <!-- Freeze User Modal -->
+                <div class="modal fade" id="freezeUserModal" tabindex="-1" aria-labelledby="freezeUserModalLabel" aria-hidden="true">
+                    <div class="modal-dialog modal-dialog-centered">
+                        <div class="modal-content">
+                            <div class="modal-header">
+                                <h1 class="modal-title fs-5" id="freezeUserModalLabel">Freeze account</h1>
+                                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                            </div>
+                            <div class="modal-body">
+                                <p class="text-muted mb-2">Frozen accounts remain visible, but cannot access the library. When they connect, they only receive the MOTD message below.</p>
+                                <div class="mb-3">
+                                    <label for="freezeMessageInput" class="form-label">MOTD message</label>
+                                    <textarea class="form-control" id="freezeMessageInput" rows="3" placeholder="Your account is frozen. Contact the admin."></textarea>
+                                    <div class="form-text">Shown to this user when they try to access the shop.</div>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="freezeEnabledCheck" checked>
+                                    <label class="form-check-label" for="freezeEnabledCheck">Freeze this account</label>
+                                </div>
+                            </div>
+                            <div class="modal-footer">
+                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                                <button type="button" id="submitFreezeBtn" class="btn btn-warning" onClick='submitFreezeUser()'>Save</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
             </div>
         </div>
     </div>
@@ -347,6 +375,9 @@
             const isBackup = !!user['backup_access'];
 
             let badges = '';
+            if (user['frozen']) {
+                badges += '<span class="badge text-bg-warning me-1">Frozen</span>';
+            }
             if (isAdmin) {
                 badges += '<span class="badge text-bg-danger me-1">Admin</span>';
             }
@@ -370,6 +401,9 @@
                 + ' data-bs-id="' + user['id'] + '" data-bs-user="' + _escapeHtml(user['user']) + '"'
                 + ' data-bs-admin="' + user['admin_access'] + '" data-bs-shop="' + user['shop_access'] + '" data-bs-backup="' + user['backup_access'] + '">' 
                 + '<i class="bi bi-pencil-square"></i></button> '
+                + '<button type="button" class="btn ' + (user['frozen'] ? 'btn-warning' : 'btn-outline-warning') + ' btn-sm" data-bs-toggle="modal" data-bs-target="#freezeUserModal" data-bs-title="Freeze account" data-bs-placement="top"'
+                + ' data-bs-id="' + user['id'] + '" data-bs-user="' + _escapeHtml(user['user']) + '" data-bs-frozen="' + (user['frozen'] ? 'true' : 'false') + '" data-bs-message="' + _escapeHtml(user['frozen_message'] || '') + '">' 
+                + '<i class="bi bi-snow"></i></button> '
                 + '<button type="button" class="btn btn-outline-warning btn-sm" data-bs-toggle="modal" data-bs-target="#resetPasswordModal" data-bs-title="Reset password" data-bs-placement="top"'
                 + ' data-bs-id="' + user['id'] + '" data-bs-user="' + _escapeHtml(user['user']) + '"><i class="bi bi-key"></i></button> '
                 + '<button type="button" class="btn btn-outline-danger btn-sm" data-bs-toggle="modal" data-bs-target="#deleteUserModal" data-bs-title="Delete user" data-bs-placement="top"'
@@ -389,6 +423,72 @@
             allUsernames = allUsers.map(u => u['user']);
             currentPage = 1;
             renderUsers();
+        });
+    }
+
+    let freezeUserId = null;
+    let freezeWasFrozen = false;
+    const freezeUserModal = $('#freezeUserModal')
+
+    function _updateFreezeModalState() {
+        const enabled = getCheckboxStatus('freezeEnabledCheck');
+        const $message = $('#freezeMessageInput');
+        const $btn = $('#submitFreezeBtn');
+        if (enabled) {
+            $message.prop('disabled', false);
+            $btn.text(freezeWasFrozen ? 'Save' : 'Freeze');
+        } else {
+            $message.prop('disabled', true);
+            $btn.text('Unfreeze');
+        }
+    }
+
+    if (freezeUserModal) {
+        freezeUserModal.on('show.bs.modal', event => {
+            const button = event.relatedTarget
+            freezeUserId = button.getAttribute('data-bs-id')
+            const username = button.getAttribute('data-bs-user')
+            const frozen = button.getAttribute('data-bs-frozen') === 'true'
+            const message = button.getAttribute('data-bs-message') || ''
+            freezeWasFrozen = frozen;
+            $('#freezeUserModalLabel').text((frozen ? 'Edit freeze for ' : 'Freeze ') + username);
+            $('#freezeEnabledCheck').prop('checked', frozen);
+            setInputVal('freezeMessageInput', message);
+            _updateFreezeModalState();
+        })
+    }
+
+    $('#freezeEnabledCheck').on('change', function () {
+        _updateFreezeModalState();
+    });
+
+    function submitFreezeUser() {
+        $('#submitFreezeBtn').prop('disabled', true);
+        const enabled = getCheckboxStatus('freezeEnabledCheck');
+        const message = (getInputVal('freezeMessageInput') || '').trim();
+        const data = {
+            user_id: freezeUserId,
+            frozen: enabled,
+            message: message
+        };
+        $.ajax({
+            url: '/api/user/freeze',
+            type: 'PATCH',
+            data: JSON.stringify(data),
+            contentType: 'application/json',
+            success: function (result) {
+                if (result['success']) {
+                    fillUserTable();
+                    const modalEl = document.getElementById('freezeUserModal');
+                    const modal = bootstrap.Modal.getInstance(modalEl);
+                    if (modal) {
+                        modal.hide();
+                    }
+                }
+            },
+            complete: function () {
+                $('#submitFreezeBtn').prop('disabled', false);
+            }
         });
     }
 

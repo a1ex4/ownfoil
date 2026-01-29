@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="container" style="max-width: 760px;">
+    <div class="py-5">
+        <h1 class="mb-3">Server Notice</h1>
+        <div class="card">
+            <div class="card-body">
+                <div class="text-muted small mb-2">Account status</div>
+                <div class="fw-semibold mb-3">Frozen</div>
+                <div class="text-muted small mb-2">Notice</div>
+                <div style="white-space: pre-wrap;">{{ message }}</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
