@@ -501,10 +501,24 @@
         const paginationControls = $('#paginationControls');
         paginationControls.empty(); // Clear existing pagination
 
-        const totalPages = Math.ceil(nbDisplayedGames / itemsPerPage);
+        const safeItemsPerPage = Math.max(parseInt(itemsPerPage || 0), 1);
+        const totalPages = Math.max(1, Math.ceil((nbDisplayedGames || 0) / safeItemsPerPage));
+
+        // If switching views results in fewer pages, clamp to last valid page.
+        // This prevents a blank grid when currentPage is out of range.
+        if (currentPage > totalPages) {
+            currentPage = totalPages;
+            renderGames();
+            return;
+        }
+        if (currentPage < 1) {
+            currentPage = 1;
+            renderGames();
+            return;
+        }
 
         // Previous button
-        const prevButton = $('<li class="page-item"></li>').addClass(`page-item ${currentPage === 1 ? 'disabled' : ''}`).html(`
+        const prevButton = $('<li class="page-item"></li>').addClass(`page-item ${currentPage <= 1 ? 'disabled' : ''}`).html(`
                 <a class="page-link" href="#" aria-label="Previous">
                     <span aria-hidden="true">&laquo;</span>
                 </a>`);
@@ -529,7 +543,7 @@
         }
 
         // Next button
-        const nextButton = $('<li class="page-item"></li>').addClass(`page-item ${currentPage === totalPages ? 'disabled' : ''}`).html(`
+        const nextButton = $('<li class="page-item"></li>').addClass(`page-item ${currentPage >= totalPages ? 'disabled' : ''}`).html(`
                 <a class="page-link" href="#" aria-label="Next">
                     <span aria-hidden="true">&raquo;</span>
                 </a>`);
@@ -667,7 +681,7 @@
             } else if (view === 'list') {
                 currentView = 'list';
             }
-            renderGames(games);
+            renderGames();
         });
         
         // Handle filter checkbox
