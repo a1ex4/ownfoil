@@ -138,6 +138,90 @@ class User(UserMixin, db.Model):
         elif access == 'backup':
             return self.has_backup_access()
 
+
+class AccessEvents(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    at = db.Column(db.DateTime, nullable=False, default=datetime.datetime.utcnow)
+    kind = db.Column(db.String, nullable=False)
+    user = db.Column(db.String)
+    remote_addr = db.Column(db.String)
+    user_agent = db.Column(db.String)
+    title_id = db.Column(db.String)
+    file_id = db.Column(db.Integer)
+    filename = db.Column(db.String)
+    bytes_sent = db.Column(db.Integer)
+    ok = db.Column(db.Boolean)
+    status_code = db.Column(db.Integer)
+    duration_ms = db.Column(db.Integer)
+
+
+def add_access_event(
+    kind,
+    user=None,
+    remote_addr=None,
+    user_agent=None,
+    title_id=None,
+    file_id=None,
+    filename=None,
+    bytes_sent=None,
+    ok=None,
+    status_code=None,
+    duration_ms=None,
+):
+    try:
+        evt = AccessEvents(
+            kind=kind,
+            user=user,
+            remote_addr=remote_addr,
+            user_agent=user_agent,
+            title_id=title_id,
+            file_id=file_id,
+            filename=filename,
+            bytes_sent=bytes_sent,
+            ok=ok,
+            status_code=int(status_code) if status_code is not None else None,
+            duration_ms=duration_ms,
+        )
+        db.session.add(evt)
+        db.session.commit()
+        return True
+    except Exception:
+        db.session.rollback()
+        return False
+
+
+def get_access_events(limit=100):
+    try:
+        limit = int(limit)
+    except Exception:
+        limit = 100
+    limit = max(1, min(limit, 1000))
+
+    events = (
+        AccessEvents.query
+        .order_by(AccessEvents.at.desc())
+        .limit(limit)
+        .all()
+    )
+    out = []
+    for e in events:
+        out.append({
+            'id': e.id,
+            'at': int(e.at.timestamp()) if e.at else None,
+            'kind': e.kind,
+            'user': e.user,
+            'remote_addr': e.remote_addr,
+            'user_agent': e.user_agent,
+            'title_id': e.title_id,
+            'file_id': e.file_id,
+            'filename': e.filename,
+            'bytes_sent': e.bytes_sent,
+            'ok': e.ok,
+            'status_code': e.status_code,
+            'duration_ms': e.duration_ms,
+        })
+    return out
+
 def init_db(app):
     with app.app_context():
         # Ensure foreign keys are enforced when the SQLite connection is opened

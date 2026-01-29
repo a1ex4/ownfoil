@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, redirect, url_for, jsonify, send_from_directory, Response
+from flask import Flask, render_template, request, redirect, url_for, jsonify, send_from_directory, Response, has_app_context, has_request_context
 from flask_login import LoginManager
 from werkzeug.utils import secure_filename
 from sqlalchemy import func
@@ -30,6 +30,8 @@ import threading
 import time
 import uuid
 import re
+
+from db import add_access_event, get_access_events
 
 try:
     from PIL import Image, ImageOps
@@ -503,6 +505,342 @@ def create_app():
 app = create_app()
 
 
+_active_transfers_lock = threading.Lock()
+_active_transfers = {}
+
+_connected_clients_lock = threading.Lock()
+_connected_clients = {}
+
+_recent_access_lock = threading.Lock()
+_recent_access = {}
+
+_transfer_sessions_lock = threading.Lock()
+_transfer_sessions = {}
+
+_transfer_finalize_timers_lock = threading.Lock()
+_transfer_finalize_timers = {}
+
+_TRANSFER_FINALIZE_GRACE_S = 30
+
+
+def _get_request_user():
+    try:
+        if current_user.is_authenticated:
+            return current_user.user
+    except Exception:
+        return None
+    auth = request.authorization
+    if auth and auth.username:
+        return auth.username
+    return None
+
+
+def _client_key():
+    user = _get_request_user() or '-'
+    remote = request.headers.get('X-Forwarded-For') or request.remote_addr or '-'
+    ua = request.headers.get('User-Agent') or '-'
+    return f"{user}|{remote}|{ua}"[:512]
+
+
+def _touch_client():
+    now = time.time()
+    meta = {
+        'last_seen_at': now,
+        'user': _get_request_user(),
+        'remote_addr': request.headers.get('X-Forwarded-For') or request.remote_addr,
+        'user_agent': request.headers.get('User-Agent'),
+    }
+    key = _client_key()
+    with _connected_clients_lock:
+        existing = _connected_clients.get(key) or {}
+        existing.update(meta)
+        _connected_clients[key] = existing
+
+
+def _is_cyberfoil_request():
+    ua = request.headers.get('User-Agent') or ''
+    return 'Cyberfoil' in ua
+
+
+def _log_access(
+    kind,
+    title_id=None,
+    file_id=None,
+    filename=None,
+    ok=True,
+    status_code=200,
+    duration_ms=None,
+    bytes_sent=None,
+    user=None,
+    remote_addr=None,
+    user_agent=None,
+):
+    if has_request_context():
+        if user is None:
+            user = _get_request_user()
+        if remote_addr is None:
+            remote_addr = request.headers.get('X-Forwarded-For') or request.remote_addr
+        if user_agent is None:
+            user_agent = request.headers.get('User-Agent')
+
+    def _do_write():
+        add_access_event(
+            kind=kind,
+            user=user,
+            remote_addr=remote_addr,
+            user_agent=user_agent,
+            title_id=title_id,
+            file_id=file_id,
+            filename=filename,
+            bytes_sent=bytes_sent,
+            ok=ok,
+            status_code=status_code,
+            duration_ms=duration_ms,
+        )
+
+    try:
+        if has_app_context():
+            _do_write()
+        else:
+            # Streaming responses may call this outside request/app context.
+            with app.app_context():
+                _do_write()
+    except Exception:
+        try:
+            logger.exception('Failed to log access event')
+        except Exception:
+            pass
+
+
+def _log_access_dedup(kind, dedupe_key, window_s=15, **kwargs):
+    now = time.time()
+    key = f"{kind}|{dedupe_key}"[:512]
+
+    with _recent_access_lock:
+        last = _recent_access.get(key) or 0
+        if now - last < float(window_s):
+            return False
+        _recent_access[key] = now
+        if len(_recent_access) > 5000:
+            ordered = sorted(_recent_access.items(), key=lambda kv: kv[1], reverse=True)
+            _recent_access.clear()
+            for k, ts in ordered[:2000]:
+                _recent_access[k] = ts
+
+    _log_access(kind=kind, **kwargs)
+    return True
+
+
+def _dedupe_history(items, window_s=3):
+    out = []
+    last_seen = {}
+    for item in (items or []):
+        at = item.get('at') or 0
+        key = (
+            item.get('kind'),
+            item.get('user'),
+            item.get('remote_addr'),
+            item.get('title_id'),
+            item.get('file_id'),
+            item.get('filename'),
+        )
+        prev = last_seen.get(key)
+        if prev is not None and abs(prev - at) <= window_s:
+            continue
+        last_seen[key] = at
+        out.append(item)
+    return out
+
+
+def _transfer_session_key(user, remote_addr, user_agent, file_id):
+    user = user or '-'
+    remote = remote_addr or '-'
+    ua = user_agent or '-'
+    return f"{user}|{remote}|{ua}|{file_id}"[:512]
+
+
+def _transfer_session_start(user, remote_addr, user_agent, title_id, file_id, filename, resp_status_code=None):
+    now = time.time()
+    key = _transfer_session_key(user, remote_addr, user_agent, file_id)
+    created = False
+
+    # If we had a pending finalize timer for this session, cancel it (resume / next range request).
+    with _transfer_finalize_timers_lock:
+        t = _transfer_finalize_timers.pop(key, None)
+        if t:
+            try:
+                t.cancel()
+            except Exception:
+                pass
+
+    with _transfer_sessions_lock:
+        sess = _transfer_sessions.get(key)
+        if not sess:
+            sess = {
+                'started_at': now,
+                'last_seen_at': now,
+                'open_streams': 0,
+                'bytes_sent': 0,
+                'bytes_sent_total': 0,
+                'bytes_total': 0,
+                'ok': True,
+                'status_code': None,
+                'user': user,
+                'remote_addr': remote_addr,
+                'user_agent': user_agent,
+                'title_id': title_id,
+                'file_id': file_id,
+                'filename': filename,
+            }
+            _transfer_sessions[key] = sess
+            created = True
+
+        sess['last_seen_at'] = now
+        sess['open_streams'] = int(sess.get('open_streams') or 0) + 1
+        if title_id and not sess.get('title_id'):
+            sess['title_id'] = title_id
+        if filename and not sess.get('filename'):
+            sess['filename'] = filename
+
+        # Bound memory.
+        if len(_transfer_sessions) > 2000:
+            ordered = sorted(_transfer_sessions.items(), key=lambda kv: (kv[1] or {}).get('last_seen_at', 0), reverse=True)
+            _transfer_sessions.clear()
+            for k, v in ordered[:1000]:
+                _transfer_sessions[k] = v
+
+    if created:
+        _log_access(
+            kind='transfer_start',
+            title_id=title_id,
+            file_id=file_id,
+            filename=filename,
+            bytes_sent=0,
+            ok=True,
+            status_code=int(resp_status_code) if resp_status_code is not None else 200,
+            duration_ms=0,
+            user=user,
+            remote_addr=remote_addr,
+            user_agent=user_agent,
+        )
+
+    return key
+
+
+def _transfer_session_progress(key, bytes_sent):
+    now = time.time()
+    with _transfer_sessions_lock:
+        sess = _transfer_sessions.get(key)
+        if not sess:
+            return
+        sess['last_seen_at'] = now
+        if bytes_sent is not None:
+            try:
+                sess['bytes_sent'] = max(int(sess.get('bytes_sent') or 0), int(bytes_sent))
+            except Exception:
+                pass
+
+
+def _transfer_session_finalize(key):
+    # Timer callback; only finalize if no streams reopened during grace.
+    sess = None
+    with _transfer_sessions_lock:
+        sess = _transfer_sessions.get(key)
+        if not sess or int(sess.get('open_streams') or 0) != 0:
+            return
+        sess = _transfer_sessions.pop(key, sess)
+
+    if not sess:
+        return
+
+    started_at = float(sess.get('started_at') or time.time())
+    duration_ms = int((time.time() - started_at) * 1000)
+    code = sess.get('status_code')
+    try:
+        code = int(code) if code is not None else None
+    except Exception:
+        code = None
+
+    bytes_total = sess.get('bytes_sent_total')
+    if bytes_total is None:
+        bytes_total = sess.get('bytes_sent')
+    try:
+        bytes_total = int(bytes_total) if bytes_total is not None else None
+    except Exception:
+        bytes_total = None
+
+    ok = bool(sess.get('ok'))
+    _log_access(
+        kind='transfer',
+        title_id=sess.get('title_id'),
+        file_id=sess.get('file_id'),
+        filename=sess.get('filename'),
+        bytes_sent=bytes_total,
+        ok=ok if code is None else (ok and code < 400),
+        status_code=code if code is not None else 0,
+        duration_ms=duration_ms,
+        user=sess.get('user'),
+        remote_addr=sess.get('remote_addr'),
+        user_agent=sess.get('user_agent'),
+    )
+
+
+def _transfer_session_finish(key, ok, status_code, bytes_sent):
+    now = time.time()
+    with _transfer_sessions_lock:
+        sess = _transfer_sessions.get(key)
+        if not sess:
+            return
+        sess['last_seen_at'] = now
+
+        try:
+            if bytes_sent is not None:
+                bs = int(bytes_sent)
+                # Sum response body sizes across sequential range requests.
+                sess['bytes_sent_total'] = int(sess.get('bytes_sent_total') or 0) + bs
+                # Keep per-response max for debugging / safety.
+                sess['bytes_sent'] = max(int(sess.get('bytes_sent') or 0), bs)
+        except Exception:
+            pass
+
+        try:
+            sess['ok'] = bool(sess.get('ok')) and bool(ok)
+        except Exception:
+            pass
+
+        if status_code is not None:
+            try:
+                sess['status_code'] = int(status_code)
+            except Exception:
+                pass
+
+        sess['open_streams'] = max(0, int(sess.get('open_streams') or 0) - 1)
+        if sess['open_streams'] != 0:
+            return
+
+    # Schedule finalize after grace to merge sequential range requests.
+    timer = threading.Timer(_TRANSFER_FINALIZE_GRACE_S, _transfer_session_finalize, args=(key,))
+    timer.daemon = True
+    with _transfer_finalize_timers_lock:
+        prev = _transfer_finalize_timers.pop(key, None)
+        if prev:
+            try:
+                prev.cancel()
+            except Exception:
+                pass
+        _transfer_finalize_timers[key] = timer
+    timer.start()
+
+
+@app.before_request
+def _activity_before_request():
+    # Track recent clients in-memory for the admin activity page.
+    try:
+        _touch_client()
+    except Exception:
+        pass
+
+
 def tinfoil_error(error):
     return jsonify({
         'error': error
@@ -726,6 +1064,7 @@ def index():
 
     @tinfoil_access
     def access_tinfoil_shop():
+        start_ts = time.time()
         shop = {
             "success": app_settings['shop']['motd']
         }
@@ -735,6 +1074,15 @@ def index():
             shop["referrer"] = f"https://{request.verified_host}"
             
         shop["files"] = gen_shop_files(db)
+
+        if _is_cyberfoil_request():
+            _log_access(
+                kind='shop',
+                filename=request.full_path if request.query_string else request.path,
+                ok=True,
+                status_code=200,
+                duration_ms=int((time.time() - start_ts) * 1000),
+            )
 
         if app_settings['shop']['encrypt']:
             return Response(encrypt_shop(shop), mimetype='application/octet-stream')
@@ -779,6 +1127,92 @@ def upload_page():
         'upload.html',
         title='Upload',
         admin_account_created=admin_account_created())
+
+
+@app.route('/activity')
+@access_required('admin')
+def activity_page():
+    return render_template(
+        'activity.html',
+        title='Activity',
+        admin_account_created=admin_account_created())
+
+
+@app.get('/api/admin/activity')
+@access_required('admin')
+def admin_activity_api():
+    limit = request.args.get('limit', 100)
+    try:
+        limit = int(limit)
+    except Exception:
+        limit = 100
+    limit = max(1, min(limit, 1000))
+
+    # Snapshot active transfers.
+    with _active_transfers_lock:
+        live = list(_active_transfers.values())
+
+    # Snapshot connected clients (last 2 minutes).
+    cutoff = time.time() - 120
+    with _connected_clients_lock:
+        clients = [v for v in _connected_clients.values() if (v or {}).get('last_seen_at', 0) >= cutoff]
+
+        # Bound memory: drop oldest if we grow too much.
+        if len(_connected_clients) > 2000:
+            ordered = sorted(_connected_clients.items(), key=lambda kv: (kv[1] or {}).get('last_seen_at', 0), reverse=True)
+            _connected_clients.clear()
+            for k, v in ordered[:1000]:
+                _connected_clients[k] = v
+
+    clients = sorted(clients, key=lambda item: item.get('last_seen_at', 0), reverse=True)[:250]
+
+    # Recent access events.
+    history_error = None
+    try:
+        history = get_access_events(limit=limit)
+    except Exception as e:
+        history = []
+        history_error = str(e)
+
+    include_starts = request.args.get('include_starts', '1') != '0'
+    if not include_starts:
+        history = [h for h in history if h.get('kind') != 'transfer_start']
+    history = _dedupe_history(history)
+
+    # Hydrate title_name where possible.
+    title_ids = set()
+    for item in live:
+        if item.get('title_id'):
+            title_ids.add(item['title_id'])
+    for item in history:
+        if item.get('title_id'):
+            title_ids.add(item['title_id'])
+
+    title_names = {}
+    for tid in title_ids:
+        try:
+            info = titles.get_game_info(tid)
+            if info and info.get('name'):
+                title_names[tid] = info.get('name')
+        except Exception:
+            pass
+
+    for item in live:
+        tid = item.get('title_id')
+        if tid and tid in title_names:
+            item['title_name'] = title_names[tid]
+    for item in history:
+        tid = item.get('title_id')
+        if tid and tid in title_names:
+            item['title_name'] = title_names[tid]
+
+    return jsonify({
+        'success': True,
+        'live_transfers': live,
+        'connected_clients': clients,
+        'access_history': history,
+        'access_history_error': history_error,
+    })
 
 @app.get('/api/settings')
 @access_required('admin')
@@ -1498,7 +1932,17 @@ def upload_library_files():
 @app.route('/api/titles', methods=['GET'])
 @access_required('shop')
 def get_all_titles_api():
+    start_ts = time.time()
     titles_library = generate_library()
+
+    if _is_cyberfoil_request():
+        _log_access(
+            kind='shop_titles',
+            filename=request.full_path if request.query_string else request.path,
+            ok=True,
+            status_code=200,
+            duration_ms=int((time.time() - start_ts) * 1000),
+        )
 
     return jsonify({
         'total': len(titles_library),
@@ -1529,7 +1973,11 @@ def get_library_status_api():
 @app.route('/api/get_game/<int:id>')
 @tinfoil_access
 def serve_game(id):
-    # TODO add download count increment
+    start_ts = time.time()
+    remote_addr = request.headers.get('X-Forwarded-For') or request.remote_addr
+    user_agent = request.headers.get('User-Agent')
+    username = _get_request_user()
+
     try:
         Files.query.filter_by(id=id).update({Files.download_count: Files.download_count + 1})
         db.session.commit()
@@ -1537,12 +1985,113 @@ def serve_game(id):
         db.session.rollback()
     filepath = db.session.query(Files.filepath).filter_by(id=id).first()[0]
     filedir, filename = os.path.split(filepath)
-    return send_from_directory(filedir, filename)
+
+    title_id = None
+    try:
+        file_obj = Files.query.filter_by(id=id).first()
+        if file_obj and getattr(file_obj, 'apps', None):
+            app_obj = file_obj.apps[0] if file_obj.apps else None
+            if app_obj and getattr(app_obj, 'title', None):
+                title_id = app_obj.title.title_id
+    except Exception:
+        title_id = None
+
+    transfer_id = uuid.uuid4().hex
+    meta = {
+        'id': transfer_id,
+        'started_at': start_ts,
+        'user': username,
+        'remote_addr': remote_addr,
+        'user_agent': user_agent,
+        'file_id': id,
+        'filename': filename,
+        'title_id': title_id,
+        'bytes_sent': 0,
+    }
+
+    with _active_transfers_lock:
+        _active_transfers[transfer_id] = meta
+
+    resp = send_from_directory(filedir, filename, conditional=True)
+
+    session_key = _transfer_session_start(
+        user=username,
+        remote_addr=remote_addr,
+        user_agent=user_agent,
+        title_id=title_id,
+        file_id=id,
+        filename=filename,
+        resp_status_code=getattr(resp, 'status_code', 200),
+    )
+
+    # Wrap response iterable to track bytes sent while preserving Range support.
+    original_iterable = resp.response
+    status_code = getattr(resp, 'status_code', None)
+
+    state = {
+        'sent': 0,
+        'ok': True,
+        'finished': False,
+    }
+
+    _finish_lock = threading.Lock()
+
+    def _finish_once():
+        with _finish_lock:
+            if state.get('finished'):
+                return
+            state['finished'] = True
+
+        code = getattr(resp, 'status_code', None) or status_code
+        try:
+            _transfer_session_finish(
+                session_key,
+                ok=bool(state.get('ok')),
+                status_code=int(code) if code is not None else None,
+                bytes_sent=int(state.get('sent') or 0),
+            )
+        except Exception:
+            try:
+                logger.exception('Failed to finalize transfer session')
+            except Exception:
+                pass
+
+    def _on_close():
+        _finish_once()
+
+    resp.call_on_close(_on_close)
+
+    def _generate_wrapped():
+        try:
+            for chunk in original_iterable:
+                try:
+                    state['sent'] = int(state.get('sent') or 0) + len(chunk)
+                    if state['sent'] % (1024 * 1024) < len(chunk):
+                        _transfer_session_progress(session_key, state['sent'])
+                        with _active_transfers_lock:
+                            if transfer_id in _active_transfers:
+                                _active_transfers[transfer_id]['bytes_sent'] = state['sent']
+                except Exception:
+                    pass
+                yield chunk
+        except Exception:
+            state['ok'] = False
+            raise
+        finally:
+            # Ensure we close the session even if call_on_close doesn't fire.
+            _finish_once()
+            with _active_transfers_lock:
+                _active_transfers.pop(transfer_id, None)
+
+    resp.response = _generate_wrapped()
+    resp.direct_passthrough = False
+    return resp
 
 
 @app.get('/api/shop/sections')
 @tinfoil_access
 def shop_sections_api():
+    start_ts = time.time()
     limit = request.args.get('limit', 50)
     try:
         limit = int(limit)
@@ -1550,37 +2099,50 @@ def shop_sections_api():
         limit = 50
 
     now = time.time()
+    payload = None
     with shop_sections_cache_lock:
         cache_hit = (
             shop_sections_cache['payload'] is not None
             and shop_sections_cache['limit'] == limit
         )
         if cache_hit:
-            return jsonify(shop_sections_cache['payload'])
+            payload = shop_sections_cache['payload']
 
-    disk_cache = _load_shop_sections_cache_from_disk()
-    if disk_cache and disk_cache.get('limit') == limit:
-        payload = disk_cache.get('payload')
-        if payload:
-            with shop_sections_cache_lock:
-                shop_sections_cache['payload'] = payload
-                shop_sections_cache['limit'] = limit
-                shop_sections_cache['timestamp'] = disk_cache.get('timestamp', 0)
-            return jsonify(payload)
+    if payload is None:
+        disk_cache = _load_shop_sections_cache_from_disk()
+        if disk_cache and disk_cache.get('limit') == limit:
+            disk_payload = disk_cache.get('payload')
+            if disk_payload:
+                payload = disk_payload
+                with shop_sections_cache_lock:
+                    shop_sections_cache['payload'] = payload
+                    shop_sections_cache['limit'] = limit
+                    shop_sections_cache['timestamp'] = disk_cache.get('timestamp', 0)
 
-    payload = _build_shop_sections_payload(limit)
+    if payload is None:
+        payload = _build_shop_sections_payload(limit)
+        with shop_sections_cache_lock:
+            shop_sections_cache['payload'] = payload
+            shop_sections_cache['limit'] = limit
+            shop_sections_cache['timestamp'] = now
+        _save_shop_sections_cache_to_disk(payload, limit, now)
 
-    with shop_sections_cache_lock:
-        shop_sections_cache['payload'] = payload
-        shop_sections_cache['limit'] = limit
-        shop_sections_cache['timestamp'] = now
-    _save_shop_sections_cache_to_disk(payload, limit, now)
+    if _is_cyberfoil_request():
+        _log_access(
+            kind='shop_sections',
+            filename=request.full_path if request.query_string else request.path,
+            ok=True,
+            status_code=200,
+            duration_ms=int((time.time() - start_ts) * 1000),
+        )
+
     return jsonify(payload)
 
 
 @app.get('/api/shop/icon/<title_id>')
 @tinfoil_access
 def shop_icon_api(title_id):
+    start_ts = time.time()
     title_id = (title_id or '').upper()
     if not title_id:
         return Response(status=404)
@@ -1596,6 +2158,15 @@ def shop_icon_api(title_id):
         if variant_path and os.path.exists(variant_path) and os.path.getmtime(variant_path) >= os.path.getmtime(src_path):
             response = send_from_directory(variant_dir, cached_name)
             response.headers['Cache-Control'] = 'public, max-age=604800, immutable'
+            if _is_cyberfoil_request():
+                _log_access(
+                    kind='shop_media',
+                    title_id=title_id,
+                    filename=f"icon:{cached_name}",
+                    ok=True,
+                    status_code=getattr(response, 'status_code', 200),
+                    duration_ms=int((time.time() - start_ts) * 1000),
+                )
             return response
         if variant_path and os.path.exists(src_path):
             with _media_resize_lock:
@@ -1604,9 +2175,27 @@ def shop_icon_api(title_id):
             if os.path.exists(variant_path):
                 response = send_from_directory(variant_dir, cached_name)
                 response.headers['Cache-Control'] = 'public, max-age=604800, immutable'
+                if _is_cyberfoil_request():
+                    _log_access(
+                        kind='shop_media',
+                        title_id=title_id,
+                        filename=f"icon:{cached_name}",
+                        ok=True,
+                        status_code=getattr(response, 'status_code', 200),
+                        duration_ms=int((time.time() - start_ts) * 1000),
+                    )
                 return response
         response = send_from_directory(cache_dir, cached_name)
         response.headers['Cache-Control'] = 'public, max-age=604800, immutable'
+        if _is_cyberfoil_request():
+            _log_access(
+                kind='shop_media',
+                title_id=title_id,
+                filename=f"icon:{cached_name}",
+                ok=True,
+                status_code=getattr(response, 'status_code', 200),
+                duration_ms=int((time.time() - start_ts) * 1000),
+            )
         return response
 
     titles.load_titledb()
@@ -1616,12 +2205,30 @@ def shop_icon_api(title_id):
     if not icon_url:
         response = send_from_directory(app.static_folder, 'placeholder-icon.svg')
         response.headers['Cache-Control'] = 'public, max-age=3600'
+        if _is_cyberfoil_request():
+            _log_access(
+                kind='shop_media',
+                title_id=title_id,
+                filename='icon:placeholder',
+                ok=True,
+                status_code=getattr(response, 'status_code', 200),
+                duration_ms=int((time.time() - start_ts) * 1000),
+            )
         return response
 
     cache_name, cache_path = _ensure_cached_media_file(cache_dir, title_id, icon_url)
     if not cache_path:
         response = send_from_directory(app.static_folder, 'placeholder-icon.svg')
         response.headers['Cache-Control'] = 'public, max-age=3600'
+        if _is_cyberfoil_request():
+            _log_access(
+                kind='shop_media',
+                title_id=title_id,
+                filename='icon:placeholder',
+                ok=True,
+                status_code=getattr(response, 'status_code', 200),
+                duration_ms=int((time.time() - start_ts) * 1000),
+            )
         return response
 
     if not os.path.exists(cache_path):
@@ -1643,20 +2250,48 @@ def shop_icon_api(title_id):
             if os.path.exists(variant_path):
                 response = send_from_directory(variant_dir, cache_name)
                 response.headers['Cache-Control'] = 'public, max-age=604800, immutable'
+                if _is_cyberfoil_request():
+                    _log_access(
+                        kind='shop_media',
+                        title_id=title_id,
+                        filename=f"icon:{cache_name}",
+                        ok=True,
+                        status_code=getattr(response, 'status_code', 200),
+                        duration_ms=int((time.time() - start_ts) * 1000),
+                    )
                 return response
 
         response = send_from_directory(cache_dir, cache_name)
         response.headers['Cache-Control'] = 'public, max-age=604800, immutable'
+        if _is_cyberfoil_request():
+            _log_access(
+                kind='shop_media',
+                title_id=title_id,
+                filename=f"icon:{cache_name}",
+                ok=True,
+                status_code=getattr(response, 'status_code', 200),
+                duration_ms=int((time.time() - start_ts) * 1000),
+            )
         return response
 
     response = send_from_directory(app.static_folder, 'placeholder-icon.svg')
     response.headers['Cache-Control'] = 'public, max-age=3600'
+    if _is_cyberfoil_request():
+        _log_access(
+            kind='shop_media',
+            title_id=title_id,
+            filename='icon:placeholder',
+            ok=True,
+            status_code=getattr(response, 'status_code', 200),
+            duration_ms=int((time.time() - start_ts) * 1000),
+        )
     return response
 
 
 @app.get('/api/shop/banner/<title_id>')
 @tinfoil_access
 def shop_banner_api(title_id):
+    start_ts = time.time()
     title_id = (title_id or '').upper()
     if not title_id:
         return Response(status=404)
@@ -1672,6 +2307,15 @@ def shop_banner_api(title_id):
         if variant_path and os.path.exists(variant_path) and os.path.getmtime(variant_path) >= os.path.getmtime(src_path):
             response = send_from_directory(variant_dir, cached_name)
             response.headers['Cache-Control'] = 'public, max-age=604800, immutable'
+            if _is_cyberfoil_request():
+                _log_access(
+                    kind='shop_media',
+                    title_id=title_id,
+                    filename=f"banner:{cached_name}",
+                    ok=True,
+                    status_code=getattr(response, 'status_code', 200),
+                    duration_ms=int((time.time() - start_ts) * 1000),
+                )
             return response
         if variant_path and os.path.exists(src_path):
             with _media_resize_lock:
@@ -1680,9 +2324,27 @@ def shop_banner_api(title_id):
             if os.path.exists(variant_path):
                 response = send_from_directory(variant_dir, cached_name)
                 response.headers['Cache-Control'] = 'public, max-age=604800, immutable'
+                if _is_cyberfoil_request():
+                    _log_access(
+                        kind='shop_media',
+                        title_id=title_id,
+                        filename=f"banner:{cached_name}",
+                        ok=True,
+                        status_code=getattr(response, 'status_code', 200),
+                        duration_ms=int((time.time() - start_ts) * 1000),
+                    )
                 return response
         response = send_from_directory(cache_dir, cached_name)
         response.headers['Cache-Control'] = 'public, max-age=604800, immutable'
+        if _is_cyberfoil_request():
+            _log_access(
+                kind='shop_media',
+                title_id=title_id,
+                filename=f"banner:{cached_name}",
+                ok=True,
+                status_code=getattr(response, 'status_code', 200),
+                duration_ms=int((time.time() - start_ts) * 1000),
+            )
         return response
 
     titles.load_titledb()
@@ -1692,12 +2354,30 @@ def shop_banner_api(title_id):
     if not banner_url:
         response = send_from_directory(app.static_folder, 'placeholder-banner.svg')
         response.headers['Cache-Control'] = 'public, max-age=3600'
+        if _is_cyberfoil_request():
+            _log_access(
+                kind='shop_media',
+                title_id=title_id,
+                filename='banner:placeholder',
+                ok=True,
+                status_code=getattr(response, 'status_code', 200),
+                duration_ms=int((time.time() - start_ts) * 1000),
+            )
         return response
 
     cache_name, cache_path = _ensure_cached_media_file(cache_dir, title_id, banner_url)
     if not cache_path:
         response = send_from_directory(app.static_folder, 'placeholder-banner.svg')
         response.headers['Cache-Control'] = 'public, max-age=3600'
+        if _is_cyberfoil_request():
+            _log_access(
+                kind='shop_media',
+                title_id=title_id,
+                filename='banner:placeholder',
+                ok=True,
+                status_code=getattr(response, 'status_code', 200),
+                duration_ms=int((time.time() - start_ts) * 1000),
+            )
         return response
 
     if not os.path.exists(cache_path):
@@ -1719,14 +2399,41 @@ def shop_banner_api(title_id):
             if os.path.exists(variant_path):
                 response = send_from_directory(variant_dir, cache_name)
                 response.headers['Cache-Control'] = 'public, max-age=604800, immutable'
+                if _is_cyberfoil_request():
+                    _log_access(
+                        kind='shop_media',
+                        title_id=title_id,
+                        filename=f"banner:{cache_name}",
+                        ok=True,
+                        status_code=getattr(response, 'status_code', 200),
+                        duration_ms=int((time.time() - start_ts) * 1000),
+                    )
                 return response
 
         response = send_from_directory(cache_dir, cache_name)
         response.headers['Cache-Control'] = 'public, max-age=604800, immutable'
+        if _is_cyberfoil_request():
+            _log_access(
+                kind='shop_media',
+                title_id=title_id,
+                filename=f"banner:{cache_name}",
+                ok=True,
+                status_code=getattr(response, 'status_code', 200),
+                duration_ms=int((time.time() - start_ts) * 1000),
+            )
         return response
 
     response = send_from_directory(app.static_folder, 'placeholder-banner.svg')
     response.headers['Cache-Control'] = 'public, max-age=3600'
+    if _is_cyberfoil_request():
+        _log_access(
+            kind='shop_media',
+            title_id=title_id,
+            filename='banner:placeholder',
+            ok=True,
+            status_code=getattr(response, 'status_code', 200),
+            duration_ms=int((time.time() - start_ts) * 1000),
+        )
     return response
 
 
@@ -1820,7 +2527,8 @@ if __name__ == '__main__':
     init_users(app)
     init()
     logger.info('Initialization steps done, starting server...')
-    app.run(debug=False, use_reloader=False, host="0.0.0.0", port=8465)
+    # Enable threading so admin activity polling keeps working during transfers.
+    app.run(debug=False, use_reloader=False, host="0.0.0.0", port=8465, threaded=True)
     # Shutdown server
     logger.info('Shutting down server...')
     watcher.stop()
