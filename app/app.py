@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, redirect, url_for, jsonify, send_from_directory, Response, has_app_context, has_request_context
+from flask import Flask, render_template, request, redirect, url_for, jsonify, send_from_directory, Response, has_app_context, has_request_context, g
 from flask_login import LoginManager
 from werkzeug.utils import secure_filename
 from sqlalchemy import func
@@ -19,6 +19,7 @@ from downloads import ProwlarrClient, test_torrent_client, run_downloads_job, ma
 from db import *
 from shop import *
 from auth import *
+from auth import _effective_client_ip
 import titles
 from utils import *
 from library import *
@@ -564,9 +565,37 @@ def _get_request_user():
     return None
 
 
+def _effective_remote_addr():
+    # Use trusted proxy config to resolve the true client IP.
+    # Cache in `g` so multiple log calls per request are consistent and cheap.
+    try:
+        if has_request_context() and hasattr(g, '_ownfoil_effective_remote_addr'):
+            return g._ownfoil_effective_remote_addr
+    except Exception:
+        pass
+
+    try:
+        settings = load_settings()
+    except Exception:
+        settings = {}
+
+    try:
+        remote = _effective_client_ip(settings)
+    except Exception:
+        remote = (request.remote_addr or '').strip()
+
+    remote = (remote or (request.remote_addr or '-') or '-').strip()
+    try:
+        if has_request_context():
+            g._ownfoil_effective_remote_addr = remote
+    except Exception:
+        pass
+    return remote
+
+
 def _client_key():
     user = _get_request_user() or '-'
-    remote = request.headers.get('X-Forwarded-For') or request.remote_addr or '-'
+    remote = _effective_remote_addr() or '-'
     ua = request.headers.get('User-Agent') or '-'
     return f"{user}|{remote}|{ua}"[:512]
 
@@ -579,10 +608,11 @@ def _touch_client():
         return
 
     now = time.time()
+    remote = _effective_remote_addr()
     meta = {
         'last_seen_at': now,
         'user': _get_request_user(),
-        'remote_addr': request.headers.get('X-Forwarded-For') or request.remote_addr,
+        'remote_addr': remote,
         'user_agent': request.headers.get('User-Agent'),
     }
     key = _client_key()
@@ -630,7 +660,7 @@ def _log_access(
         if user is None:
             user = _get_request_user()
         if remote_addr is None:
-            remote_addr = request.headers.get('X-Forwarded-For') or request.remote_addr
+            remote_addr = _effective_remote_addr()
         if user_agent is None:
             user_agent = request.headers.get('User-Agent')
 
@@ -2373,7 +2403,7 @@ def get_library_status_api():
 @tinfoil_access
 def serve_game(id):
     start_ts = time.time()
-    remote_addr = request.headers.get('X-Forwarded-For') or request.remote_addr
+    remote_addr = _effective_remote_addr()
     user_agent = request.headers.get('User-Agent')
     username = _get_request_user()
 

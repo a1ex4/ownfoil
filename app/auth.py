@@ -7,9 +7,65 @@ from flask_login import LoginManager
 from settings import load_settings, set_security_settings
 
 import logging
+import threading
+import time
 
 # Retrieve main logger
 logger = logging.getLogger('main')
+
+_recent_auth_log_lock = threading.Lock()
+_recent_auth_log = {}
+
+
+def _auth_dedupe_allow(dedupe_key: str, window_s: int = 15) -> bool:
+    now = time.time()
+    key = str(dedupe_key or '')[:512]
+    with _recent_auth_log_lock:
+        last = _recent_auth_log.get(key) or 0
+        if now - last < float(window_s):
+            return False
+        _recent_auth_log[key] = now
+        if len(_recent_auth_log) > 5000:
+            ordered = sorted(_recent_auth_log.items(), key=lambda kv: kv[1], reverse=True)
+            _recent_auth_log.clear()
+            for k, ts in ordered[:2000]:
+                _recent_auth_log[k] = ts
+    return True
+
+
+def _log_login_event(kind: str, username: str = None, ok: bool = None, status_code: int = None, window_s: int = 10):
+    try:
+        settings = {}
+        try:
+            settings = load_settings()
+        except Exception:
+            settings = {}
+        remote = _effective_client_ip(settings)
+        ua = request.headers.get('User-Agent')
+
+        # Dedupe noisy auth failures (scanners, repeated retries).
+        dedupe_key = f"{kind}|{(username or '').strip()}|{remote}|{ua}"[:512]
+        if window_s and not _auth_dedupe_allow(dedupe_key, window_s=window_s):
+            return
+
+        add_access_event(
+            kind=kind,
+            user=(username or '').strip() or None,
+            remote_addr=remote,
+            user_agent=ua,
+            ok=bool(ok) if ok is not None else None,
+            status_code=(
+                int(status_code)
+                if status_code is not None
+                else (200 if ok else 401)
+            ),
+        )
+    except Exception:
+        # Avoid breaking auth flow on logging failures.
+        try:
+            logger.exception('Failed to log login event')
+        except Exception:
+            pass
 
 def admin_account_created():
     # Setup mode is active until at least one admin user exists.
@@ -227,6 +283,7 @@ def basic_auth(request):
     if auth is None:
         success = False
         error = 'Shop requires authentication.'
+        _log_login_event('shop_auth_missing', username=None, ok=False, status_code=401, window_s=30)
         return success, error, is_admin
 
     username = auth.username
@@ -235,22 +292,28 @@ def basic_auth(request):
     if user is None:
         success = False
         error = f'Unknown user "{username}".'
+        _log_login_event('shop_auth_failed_unknown_user', username=username, ok=False, status_code=401, window_s=30)
     
     elif not check_password_hash(user.password, password):
         success = False
         error = f'Incorrect password for user "{username}".'
+        _log_login_event('shop_auth_failed_bad_password', username=username, ok=False, status_code=401, window_s=30)
 
     elif getattr(user, 'frozen', False):
         success = False
         message = (getattr(user, 'frozen_message', None) or '').strip()
         error = message if message else 'Account is frozen.'
+        _log_login_event('shop_auth_denied_frozen', username=username, ok=False, status_code=403, window_s=60)
 
     elif not user.has_shop_access():
         success = False
         error = f'User "{username}" does not have access to the shop.'
+        _log_login_event('shop_auth_denied_no_access', username=username, ok=False, status_code=403, window_s=60)
 
     else:
         is_admin = user.has_admin_access()
+        # Basic auth may be sent on every request; dedupe to avoid log spam.
+        _log_login_event('shop_auth_success', username=username, ok=True, status_code=200, window_s=60)
     return success, error, is_admin
 
 auth_blueprint = Blueprint('auth', __name__)
@@ -330,13 +393,26 @@ def login():
 
     # check if the user actually exists
     # take the user-supplied password, hash it, and compare it to the hashed password in the database
-    if not user or not check_password_hash(user.password, password):
+    if not user:
         logger.warning(f'Incorrect login for user {username}')
+        _log_login_event('login_failed_unknown_user', username=username, ok=False, status_code=401, window_s=15)
         return redirect(url_for('auth.login')) # if the user doesn't exist or password is wrong, reload the page
+
+    # take the user-supplied password, hash it, and compare it to the hashed password in the database
+    if not check_password_hash(user.password, password):
+        logger.warning(f'Incorrect login for user {username}')
+        _log_login_event('login_failed_bad_password', username=username, ok=False, status_code=401, window_s=15)
+        return redirect(url_for('auth.login'))
+
+    if getattr(user, 'frozen', False):
+        logger.warning(f'Blocked login for frozen user {username}')
+        _log_login_event('login_denied_frozen', username=username, ok=False, status_code=403, window_s=30)
+        return redirect(url_for('auth.login'))
 
     # if the above check passes, then we know the user has the right credentials
     logger.info(f'Sucessfull login for user {username}')
     login_user(user, remember=remember)
+    _log_login_event('login_success', username=username, ok=True, status_code=200, window_s=0)
 
     return redirect(next_url if len(next_url) else '/')
 
@@ -571,5 +647,15 @@ def signup_post():
 @auth_blueprint.route('/logout')
 @login_required
 def logout():
+    try:
+        username = None
+        try:
+            if current_user.is_authenticated:
+                username = current_user.user
+        except Exception:
+            username = None
+        _log_login_event('logout', username=username, ok=True, status_code=200, window_s=0)
+    except Exception:
+        pass
     logout_user()
     return redirect('/')
