@@ -152,6 +152,18 @@ class TitleRequests(db.Model):
     user = db.relationship('User', backref=db.backref('title_requests', lazy=True, cascade="all, delete-orphan"))
 
 
+class TitleRequestViews(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id', ondelete='CASCADE'), nullable=False)
+    request_id = db.Column(db.Integer, db.ForeignKey('title_requests.id', ondelete='CASCADE'), nullable=False)
+    viewed_at = db.Column(db.DateTime, nullable=False, default=datetime.datetime.utcnow)
+
+    __table_args__ = (db.UniqueConstraint('user_id', 'request_id', name='uq_title_request_views_user_request'),)
+
+    user = db.relationship('User', backref=db.backref('title_request_views', lazy=True, cascade="all, delete-orphan"))
+    request = db.relationship('TitleRequests', backref=db.backref('views', lazy=True, cascade="all, delete-orphan"))
+
+
 class AccessEvents(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     at = db.Column(db.DateTime, nullable=False, default=datetime.datetime.utcnow)

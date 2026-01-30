@@ -11,7 +11,7 @@ import logging
 import sys
 import copy
 import flask.cli
-from datetime import timedelta
+from datetime import timedelta, datetime
 flask.cli.show_server_banner = lambda *args: None
 from constants import *
 from settings import *
@@ -1379,6 +1379,31 @@ def list_requests_api():
 
     items = list_requests(user_id=current_user.id, include_all=include_all, limit=500)
 
+    # Auto-close open requests whose titles are now in the library.
+    # This keeps the requests list actionable without requiring manual admin cleanup.
+    try:
+        open_ids = [r.id for r in (items or []) if getattr(r, 'status', None) == 'open' and getattr(r, 'title_id', None)]
+        if open_ids:
+            reqs = TitleRequests.query.filter(TitleRequests.id.in_(open_ids)).all()
+            changed = 0
+            for r in (reqs or []):
+                try:
+                    title_id = (r.title_id or '').strip().upper()
+                    if not title_id:
+                        continue
+                    if Titles.query.filter_by(title_id=title_id).first() is not None:
+                        r.status = 'closed'
+                        changed += 1
+                except Exception:
+                    continue
+            if changed:
+                db.session.commit()
+    except Exception:
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
+
     out = []
     for r in items:
         out.append({
@@ -1393,6 +1418,100 @@ def list_requests_api():
             } if include_all else None,
         })
     return jsonify({'success': True, 'requests': out})
+
+
+@app.get('/api/requests/unseen-count')
+@access_required('admin')
+def admin_unseen_requests_count_api():
+    try:
+        count = (
+            db.session.query(TitleRequests)
+            .outerjoin(
+                TitleRequestViews,
+                (TitleRequestViews.request_id == TitleRequests.id)
+                & (TitleRequestViews.user_id == current_user.id),
+            )
+            .filter(TitleRequests.status == 'open')
+            .filter(TitleRequestViews.id.is_(None))
+            .count()
+        )
+        return jsonify({'success': True, 'count': int(count)})
+    except Exception:
+        return jsonify({'success': False, 'count': 0})
+
+
+@app.post('/api/requests/mark-seen')
+@access_required('admin')
+def admin_mark_requests_seen_api():
+    data = request.json or {}
+    ids = data.get('request_ids')
+
+    # Default: mark all open requests as seen.
+    if not ids:
+        try:
+            ids = [r[0] for r in db.session.query(TitleRequests.id).filter(TitleRequests.status == 'open').all()]
+        except Exception:
+            ids = []
+
+    try:
+        ids = [int(x) for x in (ids or [])]
+    except Exception:
+        return jsonify({'success': False, 'message': 'Invalid request_ids.'}), 400
+
+    ids = list(dict.fromkeys([x for x in ids if x > 0]))
+    if not ids:
+        return jsonify({'success': True, 'message': 'Nothing to mark.', 'marked': 0})
+
+    now = None
+    try:
+        now = datetime.utcnow()
+    except Exception:
+        now = None
+
+    try:
+        marked = 0
+        for req_id in ids:
+            exists = TitleRequestViews.query.filter_by(user_id=current_user.id, request_id=req_id).first()
+            if exists is not None:
+                continue
+            view = TitleRequestViews(user_id=current_user.id, request_id=req_id)
+            if now is not None:
+                view.viewed_at = now
+            db.session.add(view)
+            marked += 1
+        db.session.commit()
+        return jsonify({'success': True, 'message': 'Marked seen.', 'marked': int(marked)})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.post('/api/requests/delete')
+@access_required('admin')
+def admin_delete_request_api():
+    data = request.json or {}
+    try:
+        req_id = int(data.get('request_id'))
+    except Exception:
+        return jsonify({'success': False, 'message': 'Invalid request_id.'}), 400
+
+    try:
+        req = TitleRequests.query.filter_by(id=req_id).first()
+        if req is None:
+            return jsonify({'success': False, 'message': 'Request not found.'}), 404
+
+        # Clean up per-admin view markers for this request.
+        try:
+            TitleRequestViews.query.filter_by(request_id=req_id).delete(synchronize_session=False)
+        except Exception:
+            pass
+
+        db.session.delete(req)
+        db.session.commit()
+        return jsonify({'success': True})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 500
 
 
 @app.get('/api/requests/search')

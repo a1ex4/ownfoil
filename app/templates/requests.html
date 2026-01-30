@@ -231,9 +231,14 @@
         <td>${escapeHtml(userText)}</td>
         <td><span class="badge text-bg-secondary">${escapeHtml(r.status || 'open')}</span></td>
         <td class="text-end">
-          <button class="btn btn-warning btn-sm search-request-btn" data-title-id="${escapeHtml(r.title_id || '')}" data-title-name="${escapeHtml(r.title_name || '')}">
-            <i class="bi bi-search"></i> Search torrents
-          </button>
+          <div class="btn-group btn-group-sm" role="group">
+            <button class="btn btn-warning search-request-btn" data-title-id="${escapeHtml(r.title_id || '')}" data-title-name="${escapeHtml(r.title_name || '')}">
+              <i class="bi bi-search"></i> Search torrents
+            </button>
+            <button class="btn btn-outline-danger delete-request-btn" data-request-id="${escapeHtml(String(r.id || ''))}" title="Delete request">
+              <i class="bi bi-trash"></i>
+            </button>
+          </div>
         </td>
       `;
       tbody.appendChild(tr);
@@ -251,6 +256,13 @@
     adminRequests = data.requests || [];
     renderAdminRequestsTable();
     status.textContent = `Showing ${adminRequests.length} request(s).`;
+
+    // Mark currently-open requests as seen for this admin.
+    try {
+      await apiPost('/api/requests/mark-seen', {});
+    } catch (e) {
+      // ignore
+    }
   }
 
   async function searchTorrentsForRequest(titleId, titleName) {
@@ -299,6 +311,28 @@
     const titleName = btn.getAttribute('data-title-name');
     if (!titleId) return;
     await searchTorrentsForRequest(titleId, titleName);
+  });
+
+  document.addEventListener('click', async (e) => {
+    if (!isAdmin) return;
+    const btn = e.target.closest('.delete-request-btn');
+    if (!btn) return;
+    const requestId = btn.getAttribute('data-request-id');
+    if (!requestId) return;
+
+    if (!confirm('Delete this request?')) return;
+
+    btn.setAttribute('disabled', 'true');
+    try {
+      const data = await apiPost('/api/requests/delete', { request_id: requestId });
+      if (!data || data.success !== true) {
+        alert((data && data.message) ? data.message : 'Delete failed.');
+        return;
+      }
+      await refreshAdminRequests();
+    } finally {
+      btn.removeAttribute('disabled');
+    }
   });
 
   document.addEventListener('click', async (e) => {

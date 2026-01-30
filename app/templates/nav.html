@@ -13,7 +13,11 @@
                 {% if current_user.is_authenticated %}
                 <li class="nav-item">
                     <a class="nav-link{% if title == 'Requests' %} active" aria-current="page"{% else %}"{% endif %}" href="/requests">
-                        {% if current_user.is_admin or admin_account_created == false %}Requests{% else %}Request{% endif %}
+                        {% if current_user.is_admin or admin_account_created == false %}
+                        Requests <span class="badge rounded-pill text-bg-warning ms-2 d-none" id="requestsNavBadge"></span>
+                        {% else %}
+                        Request
+                        {% endif %}
                     </a>
                 </li>
                 {% endif %}
