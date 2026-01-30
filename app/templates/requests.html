@@ -1,6 +1,7 @@
 {% extends 'base.html' %}
 
 {% block content %}
+{% include 'nav.html' %}
 <div class="container mt-4">
   <div class="d-flex align-items-center justify-content-between gap-3 flex-wrap">
     <div>
@@ -181,7 +182,9 @@
         renderUserSearchResults([]);
         return;
       }
-      renderUserSearchResults(data.results || []);
+      const results = Array.isArray(data.results) ? data.results : [];
+      // Hide titles already present in the library.
+      renderUserSearchResults(results.filter(r => r && r.in_library !== true));
     }, 250);
   }
 
