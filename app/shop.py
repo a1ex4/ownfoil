@@ -28,7 +28,7 @@ def gen_shop_files(db):
         })
     return shop_files
 
-def encrypt_shop(shop):
+def encrypt_shop(shop, public_key_pem=None):
     input = json.dumps(shop).encode('utf-8')
     # random 128-bit AES key (16 bytes), used later for symmetric encryption (AES)
     aesKey = secrets.token_bytes(16)
@@ -39,7 +39,7 @@ def encrypt_shop(shop):
     sz = len(buf)
 
     # Encrypt the AES key with RSA, PKCS1_OAEP padding scheme
-    pubKey = RSA.importKey(TINFOIL_PUBLIC_KEY)
+    pubKey = RSA.importKey(public_key_pem or TINFOIL_PUBLIC_KEY)
     cipher = PKCS1_OAEP.new(pubKey, hashAlgo = SHA256, label=b'')
     # Now the AES key can only be decrypted with Tinfoil private key
     sessionKey = cipher.encrypt(aesKey)

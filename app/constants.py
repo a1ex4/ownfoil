@@ -61,6 +61,7 @@ DEFAULT_SETTINGS = {
         "motd": "Welcome to your own shop!",
         "public": False,
         "encrypt": True,
+        "public_key": "",
         "clientCertPub": "-----BEGIN PUBLIC KEY-----",
         "clientCertKey": "-----BEGIN PRIVATE KEY-----",
         "host": "",

@@ -1109,7 +1109,7 @@ def tinfoil_access(f):
                             if request.verified_host is not None:
                                 shop["referrer"] = f"https://{request.verified_host}"
                             if app_settings['shop']['encrypt']:
-                                return Response(encrypt_shop(shop), mimetype='application/octet-stream')
+                                return Response(encrypt_shop(shop, app_settings['shop'].get('public_key')), mimetype='application/octet-stream')
                             return jsonify(shop)
                 except Exception:
                     pass
@@ -1160,7 +1160,7 @@ def tinfoil_access(f):
                     if request.verified_host is not None:
                         shop["referrer"] = f"https://{request.verified_host}"
                     if app_settings['shop']['encrypt']:
-                        return Response(encrypt_shop(shop), mimetype='application/octet-stream')
+                        return Response(encrypt_shop(shop, app_settings['shop'].get('public_key')), mimetype='application/octet-stream')
                     return jsonify(shop)
 
                 return tinfoil_error(message)
@@ -1217,7 +1217,7 @@ def index():
             )
 
         if app_settings['shop']['encrypt']:
-            return Response(encrypt_shop(shop), mimetype='application/octet-stream')
+            return Response(encrypt_shop(shop, app_settings['shop'].get('public_key')), mimetype='application/octet-stream')
 
         return jsonify(shop)
     
@@ -1476,6 +1476,9 @@ def get_settings_api():
     hauth_value = settings['shop'].get('hauth')
     settings['shop']['hauth_value'] = hauth_value or ''
     settings['shop']['hauth'] = bool(hauth_value)
+
+    # Surface the effective public key in the UI even if it isn't in settings.yaml yet.
+    settings['shop']['public_key'] = settings['shop'].get('public_key') or TINFOIL_PUBLIC_KEY
     return jsonify(settings)
 
 @app.post('/api/settings/titles')

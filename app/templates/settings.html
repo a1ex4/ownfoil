@@ -209,6 +209,14 @@
                 </div>
 
                 <div class="mb-3">
+                    <label for="shopPublicKeyInput" class="form-label">Public Key:</label>
+                    <textarea class="form-control font-monospace" id="shopPublicKeyInput" rows="7"
+                        aria-describedby="shopPublicKeyHelp" placeholder="-----BEGIN PUBLIC KEY-----"></textarea>
+                    <div id="shopPublicKeyHelp" class="form-text">Public key used to encrypt the shop payload for Tinfoil clients.
+                        Changing this will break encrypted shop access unless clients have the matching private key.</div>
+                </div>
+
+                <div class="mb-3">
                     <label for="motdTextArea" class="form-label">Message of the day:</label>
                     <textarea class="form-control" id="motdTextArea" rows="3"></textarea>
                     <div id="motdTextAreaHelp" class="form-text">Message presented when opening Tinfoil after
@@ -649,6 +657,7 @@
             hauth: $('#shopHauthInput').val(),
             public: getCheckboxStatus("publicShopCheck"),
             encrypt: getCheckboxStatus("encryptShopCheck"),
+            public_key: getInputVal("shopPublicKeyInput"),
             motd: $('#motdTextArea').val(),
         }
 
@@ -831,6 +840,7 @@
             setInputVal("motdTextArea", shopSettings['motd']);
             $("#publicShopCheck").prop("checked", shopSettings['public']);
             $("#encryptShopCheck").prop("checked", shopSettings['encrypt']);
+            setInputVal("shopPublicKeyInput", shopSettings['public_key'] || '');
             if (!shopSettings['host']) {
                 $("#missingShopHostAlert").css('display', '');
             } else if (!shopSettings['hauth']) {
