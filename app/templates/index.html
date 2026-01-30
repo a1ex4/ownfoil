@@ -718,7 +718,9 @@
             tbody.append(row);
         });
 
-        gameGrid.append(table);
+        const wrapper = $('<div class="table-responsive"></div>');
+        wrapper.append(table);
+        gameGrid.append(wrapper);
         updatePaginationControls(filteredGames.length);
     }
 
