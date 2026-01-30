@@ -141,6 +141,17 @@ class User(UserMixin, db.Model):
             return self.has_backup_access()
 
 
+class TitleRequests(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.datetime.utcnow)
+    status = db.Column(db.String, nullable=False, default='open')
+    title_id = db.Column(db.String, nullable=False)
+    title_name = db.Column(db.String)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id', ondelete='CASCADE'), nullable=False)
+
+    user = db.relationship('User', backref=db.backref('title_requests', lazy=True, cascade="all, delete-orphan"))
+
+
 class AccessEvents(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     at = db.Column(db.DateTime, nullable=False, default=datetime.datetime.utcnow)

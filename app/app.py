@@ -24,6 +24,7 @@ from utils import *
 from library import *
 from library import _get_nsz_exe, _ensure_unique_path
 import titledb
+from title_requests import create_title_request, list_requests
 import requests
 import os
 import threading
@@ -1294,6 +1295,103 @@ def users_page():
         admin_account_created=admin_account_created())
 
 
+@app.route('/requests')
+@access_required('shop')
+def requests_page():
+    return render_template(
+        'requests.html',
+        title='Requests',
+        admin_account_created=admin_account_created())
+
+
+@app.post('/api/requests')
+@access_required('shop')
+def create_title_request_api():
+    data = request.json or {}
+    title_id = (data.get('title_id') or '').strip().upper()
+    title_name = (data.get('title_name') or '').strip() or None
+
+    ok, message, req = create_title_request(current_user.id, title_id, title_name=title_name)
+    if ok:
+        return jsonify({'success': True, 'message': message, 'request_id': req.id if req else None})
+    return jsonify({'success': False, 'message': message})
+
+
+@app.get('/api/requests')
+@access_required('shop')
+def list_requests_api():
+    include_all = request.args.get('all', '0') == '1'
+    if include_all:
+        if not current_user.is_admin:
+            return jsonify({'success': False, 'message': 'Forbidden'}), 403
+
+    items = list_requests(user_id=current_user.id, include_all=include_all, limit=500)
+
+    out = []
+    for r in items:
+        out.append({
+            'id': r.id,
+            'created_at': int(r.created_at.timestamp()) if r.created_at else None,
+            'status': r.status,
+            'title_id': r.title_id,
+            'title_name': r.title_name,
+            'user': {
+                'id': r.user.id if r.user else None,
+                'user': r.user.user if r.user else None,
+            } if include_all else None,
+        })
+    return jsonify({'success': True, 'requests': out})
+
+
+@app.get('/api/requests/search')
+@access_required('admin')
+def request_prowlarr_search_api():
+    title_id = (request.args.get('title_id') or '').strip().upper()
+    title_name = (request.args.get('title_name') or '').strip()
+    if not title_id and not title_name:
+        return jsonify({'success': False, 'message': 'Missing title_id or title_name.', 'results': []})
+
+    settings = load_settings()
+    downloads = settings.get('downloads', {})
+    prowlarr_cfg = downloads.get('prowlarr', {})
+    if not prowlarr_cfg.get('url') or not prowlarr_cfg.get('api_key'):
+        return jsonify({'success': False, 'message': 'Prowlarr is not configured.', 'results': []})
+
+    # Prefer TitleDB name if we can resolve it.
+    resolved_name = title_name
+    if title_id:
+        titles.load_titledb()
+        try:
+            info = titles.get_game_info(title_id) or {}
+            resolved_name = (info.get('name') or '').strip() or resolved_name
+        finally:
+            titles.identification_in_progress_count -= 1
+            titles.unload_titledb()
+
+    base_query = resolved_name or title_id
+    prefix = (downloads.get('search_prefix') or '').strip()
+    full_query = base_query
+    if prefix and not full_query.lower().startswith(prefix.lower()):
+        full_query = f"{prefix} {full_query}".strip()
+
+    try:
+        client = ProwlarrClient(prowlarr_cfg['url'], prowlarr_cfg['api_key'])
+        results = client.search(full_query, indexer_ids=prowlarr_cfg.get('indexer_ids') or [])
+        trimmed = [
+            {
+                'title': r.get('title'),
+                'size': r.get('size'),
+                'seeders': r.get('seeders'),
+                'leechers': r.get('leechers'),
+                'download_url': r.get('download_url'),
+            }
+            for r in (results or [])[:50]
+        ]
+        return jsonify({'success': True, 'results': trimmed})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e), 'results': []})
+
+
 @app.get('/api/admin/activity')
 @access_required('admin')
 def admin_activity_api():
@@ -2000,6 +2098,32 @@ def library_paths_api():
             'errors': errors
         }
     return jsonify(resp)
+
+
+@app.get('/api/titledb/search')
+@access_required('shop')
+def titledb_search_api():
+    query = request.args.get('q', '').strip()
+    limit = request.args.get('limit', 20)
+    try:
+        limit = int(limit)
+    except Exception:
+        limit = 20
+
+    if not query:
+        return jsonify({'success': True, 'results': []})
+
+    titles.load_titledb()
+    try:
+        results = titles.search_titles(query, limit=limit)
+        # mark items already in library
+        existing = set((t.title_id or '').upper() for t in Titles.query.with_entities(Titles.title_id).all())
+        for r in results:
+            r['in_library'] = (r.get('id') or '').upper() in existing
+        return jsonify({'success': True, 'results': results})
+    finally:
+        titles.identification_in_progress_count -= 1
+        titles.unload_titledb()
 
 @app.post('/api/upload')
 @access_required('admin')

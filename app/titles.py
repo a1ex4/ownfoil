@@ -311,6 +311,54 @@ def get_game_info(title_id):
             'category': '',
         }
 
+
+def search_titles(query, limit=20):
+    """Search the loaded TitleDB by name or title id.
+
+    Returns a list of lightweight title dicts suitable for UI autocomplete.
+    """
+    global _titles_db
+    if _titles_db is None:
+        logger.error("titles_db is not loaded. Call load_titledb first.")
+        return []
+
+    q = (query or '').strip().lower()
+    if not q:
+        return []
+
+    try:
+        limit = int(limit)
+    except Exception:
+        limit = 20
+    limit = max(1, min(limit, 100))
+
+    out = []
+    seen_ids = set()
+    for _, item in (_titles_db or {}).items():
+        try:
+            tid = (item.get('id') or '').upper()
+            name = (item.get('name') or '').strip()
+        except Exception:
+            continue
+        if not tid or tid in seen_ids:
+            continue
+
+        hay = f"{tid} {name}".lower()
+        if q not in hay:
+            continue
+
+        out.append({
+            'id': tid,
+            'name': name or 'Unrecognized',
+            'category': item.get('category') or '',
+            'iconUrl': item.get('iconUrl') or '',
+            'bannerUrl': item.get('bannerUrl') or '',
+        })
+        seen_ids.add(tid)
+        if len(out) >= limit:
+            break
+    return out
+
 def get_update_number(version):
     return int(version)//65536
 
