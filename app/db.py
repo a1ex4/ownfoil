@@ -316,6 +316,7 @@ def get_all_apps():
     apps_list = [
         {
             "id": app.id,
+            "title_db_id": app.title.id,
             "title_id": app.title.title_id,  # Access the actual title_id from Titles
             "app_id": app.app_id,
             "app_version": app.app_version,

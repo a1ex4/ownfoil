@@ -439,11 +439,12 @@ def compute_apps_hash():
         hash_md5.update(str(app['owned'] or False).encode())
         hash_md5.update((app['title_id'] or '').encode())
         hash_md5.update(str(app.get('size') or 0).encode())
+        hash_md5.update(str(app.get('title_db_id') or 0).encode())
     return hash_md5.hexdigest()
 
 
 # Bump this when the cached library schema changes.
-LIBRARY_CACHE_VERSION = 3
+LIBRARY_CACHE_VERSION = 4
 
 def is_library_unchanged():
     cache_path = Path(LIBRARY_CACHE_FILE)
@@ -508,6 +509,7 @@ def generate_library():
             continue
         if title['app_type'] == APP_TYPE_UPD:
             continue
+
             
         # Get title info from titledb
         info_from_titledb = titles_lib.get_game_info(title['app_id'])
@@ -515,6 +517,11 @@ def generate_library():
             logger.warning(f'Info not found for game: {title}')
             continue
         title.update(info_from_titledb)
+
+        # Normalize genre/category fields for UI filtering/sorting.
+        title['genre'] = title.get('category') or ''
+        if title.get('category') is None:
+            title['category'] = ''
         
         if title['app_type'] == APP_TYPE_BASE:
             # Get title status from Titles table (already calculated by update_titles)
