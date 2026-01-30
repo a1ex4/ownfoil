@@ -572,6 +572,12 @@ def _client_key():
 
 
 def _touch_client():
+    path = request.path or '/'
+    if path.startswith('/static/'):
+        return
+    if path in ('/favicon.ico',):
+        return
+
     now = time.time()
     meta = {
         'last_seen_at': now,
@@ -584,6 +590,22 @@ def _touch_client():
         existing = _connected_clients.get(key) or {}
         existing.update(meta)
         _connected_clients[key] = existing
+
+    # Persist a low-noise log of connected clients for auditing.
+    # Use dedupe so polling/static bursts don't spam the database.
+    try:
+        _log_access_dedup(
+            kind='client_seen',
+            dedupe_key=key,
+            window_s=300,
+            user=meta.get('user'),
+            remote_addr=meta.get('remote_addr'),
+            user_agent=meta.get('user_agent'),
+            ok=True,
+            status_code=200,
+        )
+    except Exception:
+        pass
 
 
 def _is_cyberfoil_request():
@@ -1431,6 +1453,10 @@ def admin_activity_api():
     include_starts = request.args.get('include_starts', '1') != '0'
     if not include_starts:
         history = [h for h in history if h.get('kind') != 'transfer_start']
+
+    include_clients = request.args.get('include_clients', '0') != '0'
+    if not include_clients:
+        history = [h for h in history if h.get('kind') != 'client_seen']
     history = _dedupe_history(history)
 
     # Hydrate title_name where possible.
@@ -1467,6 +1493,95 @@ def admin_activity_api():
         'access_history': history,
         'access_history_error': history_error,
     })
+
+
+@app.get('/api/admin/clients-history')
+@access_required('admin')
+def admin_clients_history_api():
+    limit = request.args.get('limit', 250)
+    try:
+        limit = int(limit)
+    except Exception:
+        limit = 250
+    limit = max(1, min(limit, 2000))
+    try:
+        history = get_access_events(limit=limit, kinds=['client_seen'])
+        return jsonify({'success': True, 'history': history})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e), 'history': []}), 500
+
+
+@app.get('/api/admin/clients-history.csv')
+@access_required('admin')
+def admin_clients_history_csv_api():
+    limit = request.args.get('limit', 2000)
+    try:
+        limit = int(limit)
+    except Exception:
+        limit = 2000
+    limit = max(1, min(limit, 10000))
+
+    try:
+        items = get_access_events(limit=limit, kinds=['client_seen'])
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+    import csv
+    import io
+    from datetime import datetime
+
+    buf = io.StringIO()
+    writer = csv.writer(buf, lineterminator='\n')
+    writer.writerow(['at', 'user', 'remote_addr', 'user_agent'])
+    for item in (items or []):
+        at = item.get('at')
+        at_iso = ''
+        try:
+            if at:
+                at_iso = datetime.utcfromtimestamp(int(at)).isoformat() + 'Z'
+        except Exception:
+            at_iso = ''
+        writer.writerow([
+            at_iso,
+            item.get('user') or '',
+            item.get('remote_addr') or '',
+            item.get('user_agent') or '',
+        ])
+
+    csv_text = buf.getvalue()
+    resp = Response(csv_text, mimetype='text/csv')
+    resp.headers['Content-Disposition'] = 'attachment; filename="clients_history.csv"'
+    return resp
+
+
+@app.post('/api/admin/clients-history/clear')
+@access_required('admin')
+def admin_clients_history_clear_api():
+    try:
+        ok = delete_access_events(kinds=['client_seen'])
+        if not ok:
+            return jsonify({'success': False, 'error': 'Failed to clear client history.'}), 500
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.post('/api/admin/access-history/clear')
+@access_required('admin')
+def admin_access_history_clear_api():
+    data = request.json or {}
+    include_clients = bool(data.get('include_clients', False))
+    try:
+        if include_clients:
+            ok = delete_access_events()
+        else:
+            ok = delete_access_events_excluding(kinds=['client_seen'])
+
+        if not ok:
+            return jsonify({'success': False, 'error': 'Failed to clear access history.'}), 500
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.get('/api/settings')
 @access_required('admin')

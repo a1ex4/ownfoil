@@ -94,6 +94,12 @@
                             <div class="text-muted small">Recent transfers and shop activity</div>
                         </div>
                         <div class="d-flex align-items-center gap-2">
+                            <button type="button" class="btn btn-outline-danger btn-sm" id="clearAccessHistoryBtn">
+                                <i class="bi bi-trash"></i> Clear log
+                            </button>
+                            <button type="button" class="btn btn-outline-secondary btn-sm" id="exportAccessHistoryBtn">
+                                <i class="bi bi-download"></i> Export CSV
+                            </button>
                             <input
                                 id="accessSearch"
                                 class="form-control form-control-sm"
@@ -125,6 +131,49 @@
                             </thead>
                             <tbody id="accessHistoryBody">
                                 <tr><td colspan="8" class="text-muted">Loading...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-12">
+            <div class="card">
+                <div class="card-body">
+                    <div class="d-flex align-items-center justify-content-between">
+                        <div>
+                            <h5 class="card-title mb-0">Client history</h5>
+                            <div class="text-muted small">Persisted log of connected clients</div>
+                        </div>
+                        <div class="d-flex align-items-center gap-2">
+                            <button type="button" class="btn btn-outline-danger btn-sm" id="clearClientsHistoryBtn">
+                                <i class="bi bi-trash"></i> Clear log
+                            </button>
+                            <button type="button" class="btn btn-outline-secondary btn-sm" id="exportClientsHistoryBtn">
+                                <i class="bi bi-download"></i> Export CSV
+                            </button>
+                            <label class="text-muted small" for="clientsHistoryLimit">Rows</label>
+                            <select id="clientsHistoryLimit" class="form-select form-select-sm" style="width: 90px;">
+                                <option value="100">100</option>
+                                <option value="250" selected>250</option>
+                                <option value="500">500</option>
+                                <option value="2000">2000</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="table-responsive mt-3 activity-scroll">
+                        <table class="table table-sm table-striped align-middle mb-0">
+                            <thead>
+                                <tr>
+                                    <th scope="col">When</th>
+                                    <th scope="col">User</th>
+                                    <th scope="col">Remote</th>
+                                    <th scope="col">User-Agent</th>
+                                </tr>
+                            </thead>
+                            <tbody id="clientsHistoryBody">
+                                <tr><td colspan="4" class="text-muted">Loading...</td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -209,9 +258,21 @@
     }
 
     let accessHistoryAll = [];
+    let accessHistoryRendered = [];
     let accessHistorySortKey = 'at';
     let accessHistorySortDir = 'desc';
     let accessHistoryQuery = '';
+
+    function formatIsoTime(tsSeconds) {
+        if (!tsSeconds) {
+            return '';
+        }
+        try {
+            return new Date(tsSeconds * 1000).toISOString();
+        } catch (e) {
+            return '';
+        }
+    }
 
     function getSortValue(item, key) {
         if (!item) {
@@ -264,7 +325,48 @@
             return dir * String(av).localeCompare(String(bv));
         });
 
+        accessHistoryRendered = list;
         renderAccessHistory(list);
+    }
+
+    function exportAccessHistoryCsv() {
+        const list = Array.isArray(accessHistoryRendered) ? accessHistoryRendered : [];
+        const rows = [];
+        rows.push(['at', 'kind', 'user', 'remote_addr', 'title_id', 'title_name', 'filename', 'bytes_sent', 'ok', 'status_code', 'duration_ms']);
+        list.forEach(item => {
+            rows.push([
+                formatIsoTime(item.at),
+                item.kind ?? '',
+                item.user ?? '',
+                item.remote_addr ?? '',
+                item.title_id ?? '',
+                item.title_name ?? '',
+                item.filename ?? '',
+                item.bytes_sent ?? '',
+                item.ok ?? '',
+                item.status_code ?? '',
+                item.duration_ms ?? '',
+            ]);
+        });
+
+        function csvEscape(value) {
+            const s = String(value ?? '');
+            if (/[\r\n\",]/.test(s)) {
+                return '"' + s.replaceAll('"', '""') + '"';
+            }
+            return s;
+        }
+
+        const csv = rows.map(r => r.map(csvEscape).join(',')).join('\n') + '\n';
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'access_history.csv';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
     }
 
     function renderConnectedClients(items) {
@@ -323,6 +425,41 @@
         });
     }
 
+    function renderClientsHistory(items) {
+        const body = $('#clientsHistoryBody');
+        const list = Array.isArray(items) ? items : [];
+        if (!list.length) {
+            body.html('<tr><td colspan="4" class="text-muted">No client history yet.</td></tr>');
+            return;
+        }
+
+        body.empty();
+        list.forEach(item => {
+            const row = $(
+                `<tr>
+                    <td>${escapeHtml(formatTime(item.at))}</td>
+                    <td>${escapeHtml(item.user || '-')}</td>
+                    <td>${escapeHtml(item.remote_addr || '-')}</td>
+                    <td class="text-truncate" style="max-width: 520px;">${escapeHtml(item.user_agent || '-')}</td>
+                </tr>`
+            );
+            body.append(row);
+        });
+    }
+
+    function loadClientsHistory() {
+        const limit = parseInt($('#clientsHistoryLimit').val() || '250');
+        $.getJSON(`/api/admin/clients-history?limit=${encodeURIComponent(limit)}`, function (result) {
+            if (!result || result.success !== true) {
+                renderClientsHistory([]);
+                return;
+            }
+            renderClientsHistory(result.history);
+        }).fail(function () {
+            renderClientsHistory([]);
+        });
+    }
+
     function loadActivity() {
         hideError();
         const limit = parseInt($('#activityLimit').val() || '100');
@@ -344,12 +481,59 @@
     }
 
     $(document).ready(function () {
-        $('#refreshNowBtn').on('click', loadActivity);
+        $('#refreshNowBtn').on('click', function () {
+            loadActivity();
+            loadClientsHistory();
+        });
         $('#activityLimit').on('change', loadActivity);
+        $('#clientsHistoryLimit').on('change', loadClientsHistory);
+
+        $('#clearClientsHistoryBtn').on('click', function () {
+            if (!confirm('Clear the persisted client history log?')) {
+                return;
+            }
+            $('#clearClientsHistoryBtn').prop('disabled', true);
+            $.ajax({
+                url: '/api/admin/clients-history/clear',
+                type: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify({}),
+                complete: function () {
+                    $('#clearClientsHistoryBtn').prop('disabled', false);
+                    loadClientsHistory();
+                }
+            });
+        });
+
+        $('#exportClientsHistoryBtn').on('click', function () {
+            const limit = parseInt($('#clientsHistoryLimit').val() || '250');
+            window.location.href = `/api/admin/clients-history.csv?limit=${encodeURIComponent(limit)}`;
+        });
 
         $('#accessSearch').on('input', function () {
             accessHistoryQuery = String($(this).val() ?? '');
             applyAccessHistoryView();
+        });
+
+        $('#exportAccessHistoryBtn').on('click', function () {
+            exportAccessHistoryCsv();
+        });
+
+        $('#clearAccessHistoryBtn').on('click', function () {
+            if (!confirm('Clear the persisted access history log?')) {
+                return;
+            }
+            $('#clearAccessHistoryBtn').prop('disabled', true);
+            $.ajax({
+                url: '/api/admin/access-history/clear',
+                type: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify({ include_clients: false }),
+                complete: function () {
+                    $('#clearAccessHistoryBtn').prop('disabled', false);
+                    loadActivity();
+                }
+            });
         });
 
         $('th.sortable').on('click', function () {
@@ -367,7 +551,9 @@
         });
 
         loadActivity();
+        loadClientsHistory();
         setInterval(loadActivity, 2500);
+        setInterval(loadClientsHistory, 15000);
     });
 </script>
 

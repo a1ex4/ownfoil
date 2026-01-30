@@ -203,19 +203,25 @@ def add_access_event(
         return False
 
 
-def get_access_events(limit=100):
+def get_access_events(limit=100, kind=None, kinds=None):
     try:
         limit = int(limit)
     except Exception:
         limit = 100
     limit = max(1, min(limit, 1000))
 
-    events = (
-        AccessEvents.query
-        .order_by(AccessEvents.at.desc())
-        .limit(limit)
-        .all()
-    )
+    q = AccessEvents.query
+    if kinds:
+        try:
+            kinds = [str(k) for k in kinds if k is not None and str(k).strip()]
+        except Exception:
+            kinds = []
+        if kinds:
+            q = q.filter(AccessEvents.kind.in_(kinds))
+    elif kind:
+        q = q.filter_by(kind=str(kind))
+
+    events = q.order_by(AccessEvents.at.desc()).limit(limit).all()
     out = []
     for e in events:
         out.append({
@@ -234,6 +240,47 @@ def get_access_events(limit=100):
             'duration_ms': e.duration_ms,
         })
     return out
+
+
+def delete_access_events(kind=None, kinds=None):
+    try:
+        q = AccessEvents.query
+        if kinds:
+            try:
+                kinds = [str(k) for k in kinds if k is not None and str(k).strip()]
+            except Exception:
+                kinds = []
+            if kinds:
+                q = q.filter(AccessEvents.kind.in_(kinds))
+        elif kind:
+            q = q.filter_by(kind=str(kind))
+
+        q.delete(synchronize_session=False)
+        db.session.commit()
+        return True
+    except Exception:
+        db.session.rollback()
+        return False
+
+
+def delete_access_events_excluding(kinds=None):
+    """Delete access events excluding the provided kinds."""
+    try:
+        q = AccessEvents.query
+        if kinds:
+            try:
+                kinds = [str(k) for k in kinds if k is not None and str(k).strip()]
+            except Exception:
+                kinds = []
+            if kinds:
+                q = q.filter(~AccessEvents.kind.in_(kinds))
+
+        q.delete(synchronize_session=False)
+        db.session.commit()
+        return True
+    except Exception:
+        db.session.rollback()
+        return False
 
 def init_db(app):
     with app.app_context():
