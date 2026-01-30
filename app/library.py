@@ -438,7 +438,12 @@ def compute_apps_hash():
         hash_md5.update((app['app_type'] or '').encode())
         hash_md5.update(str(app['owned'] or False).encode())
         hash_md5.update((app['title_id'] or '').encode())
+        hash_md5.update(str(app.get('size') or 0).encode())
     return hash_md5.hexdigest()
+
+
+# Bump this when the cached library schema changes.
+LIBRARY_CACHE_VERSION = 3
 
 def is_library_unchanged():
     cache_path = Path(LIBRARY_CACHE_FILE)
@@ -447,6 +452,9 @@ def is_library_unchanged():
 
     saved_library = load_library_from_disk()
     if not saved_library:
+        return False
+
+    if saved_library.get('version') != LIBRARY_CACHE_VERSION:
         return False
 
     if not saved_library.get('hash'):
@@ -478,6 +486,14 @@ def generate_library():
         saved_library = load_library_from_disk()
         if saved_library:
             return saved_library['library']
+
+    # If the schema changed, regenerate and overwrite the cache.
+    try:
+        cache_path = Path(LIBRARY_CACHE_FILE)
+        if cache_path.exists():
+            cache_path.unlink(missing_ok=True)
+    except Exception:
+        pass
     
     logger.info(f'Generating library ...')
     titles_lib.load_titledb()
@@ -529,6 +545,7 @@ def generate_library():
                 version_list.append({
                     'version': app_version,
                     'owned': update_app.get('owned', False),
+                    'size': update_app.get('size', 0) or 0,
                     'release_date': version_release_dates.get(app_version, 'Unknown')
                 })
             
@@ -578,6 +595,7 @@ def generate_library():
         games_info.append(title)
     
     library_data = {
+        'version': LIBRARY_CACHE_VERSION,
         'hash': compute_apps_hash(),
         'library': sorted(games_info, key=lambda x: (
             "title_id_name" not in x, 

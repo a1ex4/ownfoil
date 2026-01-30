@@ -821,6 +821,9 @@
         if (game.has_all_dlcs !== undefined) {
             metaItems.push(`<span class="badge text-bg-${game.has_all_dlcs ? 'success' : 'warning'}">All DLC: ${game.has_all_dlcs ? 'Yes' : 'No'}</span>`);
         }
+        if (game.size !== undefined) {
+            metaItems.push(`<span class="badge text-bg-secondary">Size: ${formatBytes(game.size)}</span>`);
+        }
         $('#detailsMeta').html(metaItems.join(' '));
 
         const versions = Array.isArray(game.version) ? game.version : [];
@@ -834,6 +837,7 @@
             <tr>
                 <td>v${version.version}</td>
                 <td>${version.owned ? 'Owned' : 'Missing'}</td>
+                <td>${(version.size !== undefined && version.size !== null) ? formatBytes(version.size) : '-'}</td>
                 <td>${version.release_date || 'Unknown'}</td>
             </tr>
         `).join('');
@@ -853,13 +857,14 @@
 
         $('#detailsVersions').html(`
             <table class="table table-sm table-striped">
-                <thead>
-                    <tr>
-                        <th scope="col">Version</th>
-                        <th scope="col">Status</th>
-                        <th scope="col">Release date</th>
-                    </tr>
-                </thead>
+                 <thead>
+                     <tr>
+                         <th scope="col">Version</th>
+                         <th scope="col">Status</th>
+                         <th scope="col">Size</th>
+                         <th scope="col">Release date</th>
+                     </tr>
+                 </thead>
                 <tbody>
                     ${rows}
                 </tbody>

@@ -309,9 +309,10 @@ def get_all_apps():
             "app_id": app.app_id,
             "app_version": app.app_version,
             "app_type": app.app_type,
-            "owned": app.owned
+            "owned": app.owned,
+            "size": sum((f.size or 0) for f in (getattr(app, 'files', None) or [])),
         }
-        for app in Apps.query.options(db.joinedload(Apps.title)).all()  # Optimized with joinedload
+        for app in Apps.query.options(db.joinedload(Apps.title), db.joinedload(Apps.files)).all()  # Optimized with joinedload
     ]
     return apps_list
 
@@ -393,8 +394,21 @@ def add_title_id_in_db(title_id):
         db.session.commit()
 
 def get_all_title_apps(title_id):
-    title = Titles.query.options(joinedload(Titles.apps)).filter_by(title_id=title_id).first()
-    return[to_dict(a)  for a in title.apps]
+    title = (
+        Titles.query
+        .options(joinedload(Titles.apps).joinedload(Apps.files))
+        .filter_by(title_id=title_id)
+        .first()
+    )
+    if not title:
+        return []
+
+    out = []
+    for a in title.apps:
+        d = to_dict(a)
+        d['size'] = sum((f.size or 0) for f in (getattr(a, 'files', None) or []))
+        out.append(d)
+    return out
 
 def get_app_by_id_and_version(app_id, app_version):
     """Get app entry for a specific app_id and version (unique due to constraint)"""
