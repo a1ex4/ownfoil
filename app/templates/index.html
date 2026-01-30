@@ -507,6 +507,14 @@
             description.append(small);
             cardOverlay.append(description);
 
+            const genres = splitGenres(getGameGenre(game));
+            if (genres.length) {
+                const genreText = genres.join(', ');
+                const genreLine = $('<p class="card-text game-genre mb-0"></p>');
+                genreLine.append($('<small></small>').text(genreText));
+                cardOverlay.append(genreLine);
+            }
+
             const tagsContainer = $('<div class="tags-container"></div>');
 
             const typeBadgeClass = (game.owned === false) ? 'text-bg-warning' : 'text-bg-info';
@@ -584,7 +592,8 @@
             const cacheIconSrc = game.title_id ? `/api/shop/icon/${game.title_id}` : '';
             const iconFallback = '/static/placeholder-icon.svg';
             const title = escapeHtml(getGameTitle(game));
-            const genre = escapeHtml(getPrimaryGenre(game));
+            const parts = splitGenres(getGameGenre(game));
+            const genre = escapeHtml(parts.length > 3 ? `${parts.slice(0, 3).join(', ')}...` : parts.join(', '));
 
             iconBtn.html(`
                 <div class="discover-tile-body">
@@ -652,6 +661,7 @@
                 <thead>
                     <tr>
                         <th scope="col">Title</th>
+                        <th scope="col">Genres</th>
                         <th scope="col">Type</th>
                         <th scope="col">Version</th>
                         <th scope="col">Status</th>
@@ -693,6 +703,7 @@
                         <div class="fw-semibold">${title}</div>
                         <div class="text-muted small">${subtitle}</div>
                     </td>
+                    <td class="text-muted small">${escapeHtml(splitGenres(getGameGenre(game)).join(', ')) || '-'}</td>
                     <td>${game.app_type}</td>
                     <td>${versionText}</td>
                     <td>${statusBadges.join(' ')}</td>
@@ -1167,6 +1178,10 @@
         $('#detailsSubtitle').text(`${game.app_type} | App ID ${game.app_id} | Title ID ${game.title_id}`);
 
         const metaItems = [];
+        const genres = splitGenres(getGameGenre(game));
+        if (genres.length) {
+            metaItems.push(`<span class="badge text-bg-secondary">Genres: ${escapeHtml(genres.join(', '))}</span>`);
+        }
         if (game.owned !== undefined) {
             metaItems.push(`<span class="badge text-bg-${game.owned ? 'success' : 'warning'}">Owned: ${game.owned ? 'Yes' : 'No'}</span>`);
         }

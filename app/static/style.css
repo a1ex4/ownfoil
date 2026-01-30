@@ -80,6 +80,13 @@ p.game-description {
     font-size: 0.875rem;
 }
 
+.game-genre {
+    margin-top: 4px;
+    margin-bottom: 0;
+    font-size: 0.8rem;
+    color: rgba(255, 255, 255, 0.75);
+}
+
 .tags-container {
     position: absolute;
     bottom: 10px;
