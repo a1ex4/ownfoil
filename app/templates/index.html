@@ -276,8 +276,7 @@
 
     function renderGames() {
         renderDiscoverySections();
-        // Set slider to show `cardsize` columns by default
-        $('#cardSizeRange').val(cardSize);
+        applyCardSizeLimits();
 
         if (currentView === 'card') {
             renderCardView();
@@ -734,6 +733,54 @@
         }
     }
 
+    function getCardSizeRangeForView(view) {
+        // Card view extremes are too small/big; icon view keeps full range.
+        if (view === 'card') {
+            return { min: 2, max: 4, def: 3 };
+        }
+        return { min: 1, max: 5, def: 3 };
+    }
+
+    function clampCardSizeForView(view, size) {
+        const r = getCardSizeRangeForView(view);
+        const n = parseInt(size, 10);
+        if (!Number.isFinite(n)) return r.def;
+        return Math.min(r.max, Math.max(r.min, n));
+    }
+
+    function getCardSizeStorageKeyForView(view) {
+        return view === 'icon' ? 'cardSizeIcon' : 'cardSizeCard';
+    }
+
+    function loadCardSizeForView(view) {
+        const key = getCardSizeStorageKeyForView(view);
+        const saved = localStorage.getItem(key);
+        if (saved) {
+            return clampCardSizeForView(view, saved);
+        }
+
+        // Backward-compat: older builds used a single shared key.
+        const legacy = localStorage.getItem('cardSize');
+        if (legacy) {
+            return clampCardSizeForView(view, legacy);
+        }
+
+        return clampCardSizeForView(view, cardSize);
+    }
+
+    function saveCardSizeForView(view, size) {
+        const key = getCardSizeStorageKeyForView(view);
+        localStorage.setItem(key, String(size));
+    }
+
+    function applyCardSizeLimits() {
+        const r = getCardSizeRangeForView(currentView);
+        const slider = $('#cardSizeRange');
+        slider.attr('min', r.min);
+        slider.attr('max', r.max);
+        slider.val(clampCardSizeForView(currentView, cardSize));
+    }
+
     function updatePaginationControls(nbDisplayedGames) {
         const paginationControls = $('#paginationControls');
         paginationControls.empty(); // Clear existing pagination
@@ -803,8 +850,16 @@
     }
 
     function adjustIconSizes() {
-        // Calculate the size of the icons based on the slider value
-        const iconSize = 280 - (cardSize * 20);
+        // Calculate the size of the icons based on the slider value.
+        // Use distinct steps so adjacent settings are visually different.
+        const iconSizes = {
+            1: 320,
+            2: 280,
+            3: 240,
+            4: 200,
+            5: 160,
+        };
+        const iconSize = iconSizes[cardSize] || 240;
         $('#gameGrid').css('--icon-size', `${iconSize}px`);
     }
 
@@ -965,9 +1020,14 @@
         }
 
         const savedCardSize = localStorage.getItem('cardSize');
-        if (savedCardSize){
-            cardSize = parseInt(savedCardSize);
+        if (savedCardSize) {
+            // Migrate old shared key into per-view keys on first load.
+            localStorage.setItem('cardSizeCard', String(clampCardSizeForView('card', savedCardSize)));
+            localStorage.setItem('cardSizeIcon', String(clampCardSizeForView('icon', savedCardSize)));
+            localStorage.removeItem('cardSize');
         }
+
+        cardSize = loadCardSizeForView(currentView);
 
         const savedSort = localStorage.getItem('sortMethod');
         const allowedSorts = new Set(['title_asc', 'title_desc', 'newest']);
@@ -1028,8 +1088,9 @@
 
         // Event listener for card size slider
         $('#cardSizeRange').on('input', function () {
-            cardSize = parseInt($(this).val());
-            localStorage.setItem('cardSize', cardSize);
+            cardSize = clampCardSizeForView(currentView, $(this).val());
+            saveCardSizeForView(currentView, cardSize);
+            applyCardSizeLimits();
             if (currentView === 'icon') {
                 adjustIconSizes(cardSize);
             } else {
@@ -1050,6 +1111,9 @@
             } else if (view === 'list') {
                 currentView = 'list';
             }
+
+            cardSize = loadCardSizeForView(currentView);
+            applyCardSizeLimits();
             renderGames();
         });
         
