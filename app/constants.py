@@ -27,6 +27,19 @@ TITLEDB_DEFAULT_FILES = [
 OWNFOIL_DB = 'sqlite:///' + DB_FILE
 
 DEFAULT_SETTINGS = {
+    "security": {
+        # When true, the application will not re-enter "setup mode" even if all admin
+        # accounts are removed. Recovery must be done via environment-initialized users.
+        "setup_complete": False,
+        # When no admin exists yet, only allow bootstrap endpoints from private networks.
+        "bootstrap_private_networks_only": True,
+        # If running behind a reverse proxy (eg Nginx Proxy Manager), list its IP/CIDR here
+        # so OwnFoil can safely trust X-Forwarded-For.
+        # Examples: ["172.18.0.0/16", "192.168.1.10"]
+        "trusted_proxies": [],
+        # When true, use X-Forwarded-For only if request.remote_addr is trusted.
+        "trust_proxy_headers": False,
+    },
     "library": {
         "paths": ["/games"],
     },

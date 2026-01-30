@@ -1512,6 +1512,7 @@ def set_titles_settings_api():
     return jsonify(resp)
 
 @app.post('/api/settings/shop')
+@access_required('admin')
 def set_shop_settings_api():
     data = request.json
     set_shop_settings(data)

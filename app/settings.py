@@ -28,6 +28,14 @@ def load_settings():
         with open(CONFIG_FILE, 'r') as yaml_file:
             settings = yaml.safe_load(yaml_file)
 
+        if 'security' not in settings:
+            settings['security'] = DEFAULT_SETTINGS.get('security', {})
+        else:
+            defaults = DEFAULT_SETTINGS.get('security', {})
+            merged = defaults.copy()
+            merged.update(settings.get('security', {}))
+            settings['security'] = merged
+
         if 'downloads' not in settings:
             settings['downloads'] = DEFAULT_SETTINGS.get('downloads', {})
         else:
@@ -44,6 +52,14 @@ def load_settings():
         with open(CONFIG_FILE, 'w') as yaml_file:
             yaml.dump(settings, yaml_file)
     return settings
+
+
+def set_security_settings(data):
+    settings = load_settings()
+    settings.setdefault('security', {})
+    settings['security'].update(data or {})
+    with open(CONFIG_FILE, 'w') as yaml_file:
+        yaml.dump(settings, yaml_file)
 
 def verify_settings(section, data):
     success = True

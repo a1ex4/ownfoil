@@ -4,6 +4,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from functools import wraps
 from db import *
 from flask_login import LoginManager
+from settings import load_settings, set_security_settings
 
 import logging
 
@@ -11,7 +12,139 @@ import logging
 logger = logging.getLogger('main')
 
 def admin_account_created():
-    return len(User.query.filter_by(admin_access=True).all())
+    # Setup mode is active until at least one admin user exists.
+    # If setup was explicitly completed, do not fall back into setup mode.
+    try:
+        settings = load_settings()
+        if _setup_complete(settings):
+            return True
+    except Exception:
+        pass
+
+    try:
+        return User.query.filter_by(admin_access=True).count() > 0
+    except Exception:
+        return False
+
+
+def _setup_complete(settings: dict) -> bool:
+    try:
+        return bool((settings or {}).get('security', {}).get('setup_complete', False))
+    except Exception:
+        return False
+
+
+def _bootstrap_private_only(settings: dict) -> bool:
+    try:
+        return bool((settings or {}).get('security', {}).get('bootstrap_private_networks_only', True))
+    except Exception:
+        return True
+
+
+def _trusted_proxies(settings: dict):
+    try:
+        return list((settings or {}).get('security', {}).get('trusted_proxies') or [])
+    except Exception:
+        return []
+
+
+def _trust_proxy_headers(settings: dict) -> bool:
+    try:
+        return bool((settings or {}).get('security', {}).get('trust_proxy_headers', False))
+    except Exception:
+        return False
+
+
+def _peer_ip() -> str:
+    return (request.remote_addr or '').strip()
+
+
+def _parse_first_ip_list(value: str) -> str:
+    if not value:
+        return ''
+    # X-Forwarded-For can be: "client, proxy1, proxy2"
+    return value.split(',', 1)[0].strip()
+
+
+def _peer_is_trusted_proxy(settings: dict) -> bool:
+    try:
+        import ipaddress
+        peer = _peer_ip()
+        if not peer:
+            return False
+        peer_ip = ipaddress.ip_address(peer)
+        entries = _trusted_proxies(settings)
+        if not entries:
+            return False
+        for entry in entries:
+            entry = str(entry).strip()
+            if not entry:
+                continue
+            try:
+                if '/' in entry:
+                    if peer_ip in ipaddress.ip_network(entry, strict=False):
+                        return True
+                else:
+                    if peer_ip == ipaddress.ip_address(entry):
+                        return True
+            except Exception:
+                continue
+        return False
+    except Exception:
+        return False
+
+
+def _effective_client_ip(settings: dict) -> str:
+    """Return client IP, trusting XFF only from configured proxies."""
+    peer = _peer_ip()
+    xff = (request.headers.get('X-Forwarded-For') or '').strip()
+    if xff and _trust_proxy_headers(settings) and _peer_is_trusted_proxy(settings):
+        candidate = _parse_first_ip_list(xff)
+        if candidate:
+            return candidate
+    return peer
+
+
+def _is_private_ip(value: str) -> bool:
+    try:
+        import ipaddress
+        if not value:
+            return False
+        ip = ipaddress.ip_address(value)
+        return bool(ip.is_private or ip.is_loopback)
+    except Exception:
+        return False
+
+
+def _bootstrap_request_allowed(settings: dict) -> bool:
+    """Bootstrap is only allowed from private networks.
+
+    If a reverse proxy is used (X-Forwarded-For present), require explicit proxy trust config.
+    """
+    peer = _peer_ip()
+    xff = (request.headers.get('X-Forwarded-For') or '').strip()
+
+    if xff:
+        # Don't trust XFF unless explicitly configured and peer is trusted.
+        if not _trust_proxy_headers(settings) or not _peer_is_trusted_proxy(settings):
+            return False
+        client = _effective_client_ip(settings)
+        return _is_private_ip(client)
+
+    # Direct connection.
+    return _is_private_ip(peer)
+
+
+def _render_setup_required(reason: str = ''):
+    peer = _peer_ip()
+    xff = (request.headers.get('X-Forwarded-For') or '').strip()
+    return render_template(
+        'setup_required.html',
+        title='Setup required',
+        reason=reason,
+        peer_addr=peer,
+        x_forwarded_for=xff,
+    ), 403
 
 def unauthorized_json():
     response = login_manager.unauthorized()
@@ -27,8 +160,34 @@ def access_required(access: str):
         @wraps(f)
         def decorated_view(*args, **kwargs):
             if not admin_account_created():
-                # Auth disabled, request ok
-                return f(*args, **kwargs)
+                # Setup mode: do NOT disable auth globally.
+                # Optionally allow bootstrap only from private networks.
+                _app_settings = {}
+                try:
+                    _app_settings = load_settings()
+                except Exception:
+                    _app_settings = {}
+
+                if _setup_complete(_app_settings):
+                    # Safety latch: don't ever re-enter setup mode automatically.
+                    return 'Forbidden', 403
+
+                setup_allow = (access == 'admin' and request.path in ('/users', '/api/user/signup'))
+                if _bootstrap_private_only(_app_settings) and not _bootstrap_request_allowed(_app_settings):
+                    # Show a friendly page to non-private clients during setup.
+                    if request.path.startswith('/api/'):
+                        return jsonify({'success': False, 'error': 'Forbidden'}), 403
+                    reason = 'Access denied from this network during initial setup.'
+                    if request.headers.get('X-Forwarded-For'):
+                        reason = reason + ' Reverse proxy detected; configure security.trusted_proxies and enable security.trust_proxy_headers.'
+                    return _render_setup_required(reason)
+
+                if setup_allow:
+                    return f(*args, **kwargs)
+
+                if request.path.startswith('/api/'):
+                    return jsonify({'success': False, 'error': 'Setup required: create the first admin user at /users.'}), 403
+                return redirect('/users')
 
             if not current_user.is_authenticated:
                 # return unauthorized_json()
@@ -239,21 +398,30 @@ def freeze_user():
 @login_required
 @access_required('admin')
 def delete_user():
-    success = True
-    data = request.json
-    user_id = data['user_id']
+    data = request.json or {}
+    user_id = data.get('user_id')
+    if not user_id:
+        return jsonify({'success': False, 'error': 'Missing user_id.'}), 400
+
+    user = User.query.filter_by(id=user_id).first()
+    if not user:
+        return jsonify({'success': False, 'error': 'User not found.'}), 404
+
+    # Prevent accidentally removing the last admin account.
+    if bool(getattr(user, 'admin_access', False)):
+        admin_count = User.query.filter_by(admin_access=True).count()
+        if admin_count <= 1:
+            return jsonify({'success': False, 'error': 'Cannot delete the last admin account.'}), 400
+
     try:
         User.query.filter_by(id=user_id).delete()
         db.session.commit()
         logger.info(f'Successfully deleted user with id {user_id}.')
+        return jsonify({'success': True})
     except Exception as e:
+        db.session.rollback()
         logger.error(f'Could not delete user with id {user_id}: {e}')
-        success = False
-
-    resp = {
-        'success': success
-    } 
-    return jsonify(resp)
+        return jsonify({'success': False, 'error': 'Delete failed.'}), 500
 
 @auth_blueprint.route('/api/user', methods=['PATCH'])
 @login_required
@@ -390,6 +558,10 @@ def signup_post():
 
     if not existing_admin and admin_access:
         logger.debug('First admin account created')
+        try:
+            set_security_settings({'setup_complete': True})
+        except Exception:
+            pass
         resp['status_code'] = 302,
         resp['location'] = '/settings'
     
