@@ -445,6 +445,23 @@ logging.getLogger('werkzeug').addFilter(FilterRemoveDateFromWerkzeugLogs())
 # Suppress specific Alembic INFO logs
 logging.getLogger('alembic.runtime.migration').setLevel(logging.WARNING)
 
+# API response helper functions for consistent error handling
+def api_error(message, status_code=400, error_code=None):
+    """Return a standardized error response."""
+    response = {'success': False, 'message': message}
+    if error_code:
+        response['error_code'] = error_code
+    return jsonify(response), status_code
+
+def api_success(data=None, message=None):
+    """Return a standardized success response."""
+    response = {'success': True}
+    if data:
+        response.update(data)
+    if message:
+        response['message'] = message
+    return jsonify(response)
+
 @login_manager.user_loader
 def load_user(user_id):
     # since the user_id is just the primary key of our user table, use it in the query for the user
@@ -1446,7 +1463,7 @@ def admin_unseen_requests_count_api():
         return jsonify({'success': True, 'count': int(count)})
     except Exception as e:
         logger.error(f"Error in title request endpoint: {e}")
-        return jsonify({'success': False, 'count': 0, 'message': 'An error occurred processing the request'})
+        return api_error('An error occurred processing the request', 500)
 
 
 @app.post('/api/requests/mark-seen')
@@ -1465,7 +1482,7 @@ def admin_mark_requests_seen_api():
     try:
         ids = [int(x) for x in (ids or [])]
     except Exception:
-        return jsonify({'success': False, 'message': 'Invalid request_ids.'}), 400
+        return api_error('Invalid request_ids.', 400)
 
     ids = list(dict.fromkeys([x for x in ids if x > 0]))
     if not ids:
@@ -1492,7 +1509,7 @@ def admin_mark_requests_seen_api():
         return jsonify({'success': True, 'message': 'Marked seen.', 'marked': int(marked)})
     except Exception as e:
         db.session.rollback()
-        return jsonify({'success': False, 'message': str(e)}), 500
+        return api_error(str(e), 500)
 
 
 @app.post('/api/requests/delete')
@@ -1502,12 +1519,12 @@ def admin_delete_request_api():
     try:
         req_id = int(data.get('request_id'))
     except Exception:
-        return jsonify({'success': False, 'message': 'Invalid request_id.'}), 400
+        return api_error('Invalid request_id.', 400)
 
     try:
         req = TitleRequests.query.filter_by(id=req_id).first()
         if req is None:
-            return jsonify({'success': False, 'message': 'Request not found.'}), 404
+            return api_error('Request not found.', 404)
 
         # Clean up per-admin view markers for this request.
         try:
@@ -1520,7 +1537,7 @@ def admin_delete_request_api():
         return jsonify({'success': True})
     except Exception as e:
         db.session.rollback()
-        return jsonify({'success': False, 'message': str(e)}), 500
+        return api_error(str(e), 500)
 
 
 @app.get('/api/requests/search')
@@ -1529,7 +1546,7 @@ def request_prowlarr_search_api():
     title_id = (request.args.get('title_id') or '').strip().upper()
     title_name = (request.args.get('title_name') or '').strip()
     if not title_id and not title_name:
-        return jsonify({'success': False, 'message': 'Missing title_id or title_name.', 'results': []})
+        return api_error('Missing title_id or title_name.', 400)
 
     settings = load_settings()
     downloads = settings.get('downloads', {})
