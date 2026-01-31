@@ -444,7 +444,7 @@ def compute_apps_hash():
 
 
 # Bump this when the cached library schema changes.
-LIBRARY_CACHE_VERSION = 4
+LIBRARY_CACHE_VERSION = 6
 
 def is_library_unchanged():
     cache_path = Path(LIBRARY_CACHE_FILE)

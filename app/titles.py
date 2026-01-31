@@ -2,6 +2,7 @@ import os
 import sys
 import re
 import json
+import requests
 
 import titledb
 from constants import *
@@ -28,8 +29,41 @@ identification_in_progress_count = 0
 _titles_db_loaded = False
 _cnmts_db = None
 _titles_db = None
+_titles_desc_db = None
+_titles_desc_by_title_id = None
+_titles_images_by_title_id = None
 _versions_db = None
 _versions_txt_db = None
+
+
+def _ensure_titledb_descriptions_file():
+    """Ensure the descriptions index file exists locally."""
+    try:
+        desc_path = os.path.join(TITLEDB_DIR, TITLEDB_DESCRIPTIONS_FILE)
+        if os.path.isfile(desc_path):
+            return True
+
+        os.makedirs(TITLEDB_DIR, exist_ok=True)
+        tmp_path = desc_path + '.tmp'
+        try:
+            logger.info(f"Downloading {TITLEDB_DESCRIPTIONS_FILE} from {TITLEDB_DESCRIPTIONS_URL}...")
+            r = requests.get(TITLEDB_DESCRIPTIONS_URL, stream=True, timeout=120)
+            r.raise_for_status()
+            with open(tmp_path, 'wb') as fp:
+                for chunk in r.iter_content(chunk_size=1024 * 1024):
+                    if chunk:
+                        fp.write(chunk)
+            os.replace(tmp_path, desc_path)
+            return True
+        finally:
+            try:
+                if os.path.isfile(tmp_path):
+                    os.remove(tmp_path)
+            except Exception:
+                pass
+    except Exception as e:
+        logger.warning(f"Failed to ensure {TITLEDB_DESCRIPTIONS_FILE}: {e}")
+        return False
 
 def getDirsAndFiles(path):
     entries = os.listdir(path)
@@ -141,6 +175,9 @@ def load_titledb():
     global _titles_db
     global _versions_db
     global _versions_txt_db
+    global _titles_desc_db
+    global _titles_desc_by_title_id
+    global _titles_images_by_title_id
     global identification_in_progress_count
     global _titles_db_loaded
 
@@ -153,6 +190,43 @@ def load_titledb():
 
         with open(os.path.join(TITLEDB_DIR, titledb.get_region_titles_file(app_settings)), encoding="utf-8") as f:
             _titles_db = json.load(f)
+
+        _titles_desc_db = None
+        _titles_desc_by_title_id = None
+        _titles_images_by_title_id = None
+        try:
+            desc_path = os.path.join(TITLEDB_DIR, TITLEDB_DESCRIPTIONS_FILE)
+            if not os.path.isfile(desc_path):
+                _ensure_titledb_descriptions_file()
+            if os.path.isfile(desc_path):
+                with open(desc_path, encoding="utf-8") as f:
+                    _titles_desc_db = json.load(f)
+
+                # Build a fast lookup by the actual Nintendo Title ID (the "id" field).
+                # The descriptions file keys are NOT the title id; they are internal ids like 7001...
+                # Keeping only descriptions limits memory usage.
+                by_id = {}
+                images_by_id = {}
+                if isinstance(_titles_desc_db, dict):
+                    for _, item in _titles_desc_db.items():
+                        if not isinstance(item, dict):
+                            continue
+                        tid = (item.get('id') or '').strip().upper()
+                        if not tid:
+                            continue
+                        desc = (item.get('description') or '').strip()
+                        if desc:
+                            by_id[tid] = desc
+
+                        screenshots = item.get('screenshots')
+                        if isinstance(screenshots, list):
+                            urls = [str(u).strip() for u in screenshots if str(u or '').strip()]
+                            if urls:
+                                images_by_id[tid] = urls[:12]
+                _titles_desc_by_title_id = by_id
+                _titles_images_by_title_id = images_by_id
+        except Exception as e:
+            logger.warning(f"Failed to load {TITLEDB_DESCRIPTIONS_FILE}: {e}")
 
         with open(os.path.join(TITLEDB_DIR, 'versions.json'), encoding="utf-8") as f:
             _versions_db = json.load(f)
@@ -174,6 +248,9 @@ def unload_titledb():
     global _titles_db
     global _versions_db
     global _versions_txt_db
+    global _titles_desc_db
+    global _titles_desc_by_title_id
+    global _titles_images_by_title_id
     global identification_in_progress_count
     global _titles_db_loaded
 
@@ -186,6 +263,9 @@ def unload_titledb():
     _titles_db = None
     _versions_db = None
     _versions_txt_db = None
+    _titles_desc_db = None
+    _titles_desc_by_title_id = None
+    _titles_images_by_title_id = None
     _titles_db_loaded = False
     logger.info("TitleDBs unloaded.")
 
@@ -288,18 +368,38 @@ def identify_file(filepath):
 
 def get_game_info(title_id):
     global _titles_db
+    global _titles_desc_db
+    global _titles_desc_by_title_id
+    global _titles_images_by_title_id
     if _titles_db is None:
         logger.error("titles_db is not loaded. Call load_titledb first.")
         return None
 
     try:
         title_info = [_titles_db[t] for t in list(_titles_db.keys()) if _titles_db[t]['id'] == title_id][0]
+
+        description = (title_info.get('description') or '').strip() or None
+        if not description and isinstance(_titles_desc_by_title_id, dict):
+            try:
+                description = (_titles_desc_by_title_id.get(str(title_id).strip().upper()) or '').strip() or None
+            except Exception:
+                pass
+
+        screenshots = []
+        if isinstance(_titles_images_by_title_id, dict):
+            try:
+                screenshots = _titles_images_by_title_id.get(str(title_id).strip().upper()) or []
+            except Exception:
+                screenshots = []
         return {
             'name': title_info['name'],
             'bannerUrl': title_info['bannerUrl'],
             'iconUrl': title_info['iconUrl'],
             'id': title_info['id'],
             'category': title_info['category'],
+            'nsuId': title_info.get('nsuId'),
+            'description': description,
+            'screenshots': screenshots,
         }
     except Exception:
         logger.error(f"Title ID not found in titledb: {title_id}")
@@ -309,6 +409,7 @@ def get_game_info(title_id):
             'iconUrl': '',
             'id': title_id + ' not found in titledb',
             'category': '',
+            'nsuId': None,
         }
 
 
