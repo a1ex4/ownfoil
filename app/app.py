@@ -2540,7 +2540,10 @@ def serve_game(id):
         db.session.commit()
     except Exception:
         db.session.rollback()
-    filepath = db.session.query(Files.filepath).filter_by(id=id).first()[0]
+    file_result = db.session.query(Files.filepath).filter_by(id=id).first()
+    if not file_result:
+        return Response(status=404)
+    filepath = file_result[0]
     filedir, filename = os.path.split(filepath)
 
     title_id = None
