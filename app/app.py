@@ -83,7 +83,8 @@ def _resize_image_to_path(src_path, dest_path, size, quality=85):
                 # PNG etc.
                 fitted.save(dest_path, optimize=True)
         return True
-    except Exception:
+    except Exception as e:
+        logger.error(f"Failed to resize image from {src_path} to {dest_path}: {e}")
         return False
 
 def _get_variant_path(cache_dir, cached_name, media_kind):
@@ -1443,8 +1444,9 @@ def admin_unseen_requests_count_api():
             .count()
         )
         return jsonify({'success': True, 'count': int(count)})
-    except Exception:
-        return jsonify({'success': False, 'count': 0})
+    except Exception as e:
+        logger.error(f"Error in title request endpoint: {e}")
+        return jsonify({'success': False, 'count': 0, 'message': 'An error occurred processing the request'})
 
 
 @app.post('/api/requests/mark-seen')
@@ -2538,8 +2540,9 @@ def serve_game(id):
     try:
         Files.query.filter_by(id=id).update({Files.download_count: Files.download_count + 1})
         db.session.commit()
-    except Exception:
+    except Exception as e:
         db.session.rollback()
+        logger.error(f"Failed to increment download count for file id {id}: {e}")
     file_result = db.session.query(Files.filepath).filter_by(id=id).first()
     if not file_result:
         return Response(status=404)
@@ -2553,7 +2556,8 @@ def serve_game(id):
             app_obj = file_obj.apps[0] if file_obj.apps else None
             if app_obj and getattr(app_obj, 'title', None):
                 title_id = app_obj.title.title_id
-    except Exception:
+    except Exception as e:
+        logger.error(f"Failed to get title_id for file id {id}: {e}")
         title_id = None
 
     transfer_id = uuid.uuid4().hex
