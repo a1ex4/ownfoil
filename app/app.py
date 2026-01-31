@@ -295,104 +295,105 @@ def _save_shop_sections_cache_to_disk(payload, limit, timestamp):
 
 def _build_shop_sections_payload(limit):
     titles.load_titledb()
+    try:
+        apps = Apps.query.options(
+            joinedload(Apps.files),
+            joinedload(Apps.title)
+        ).filter_by(owned=True).all()
 
-    apps = Apps.query.options(
-        joinedload(Apps.files),
-        joinedload(Apps.title)
-    ).filter_by(owned=True).all()
+        def _safe_int(value, default=0):
+            try:
+                return int(value)
+            except (TypeError, ValueError):
+                return default
 
-    def _safe_int(value, default=0):
-        try:
-            return int(value)
-        except (TypeError, ValueError):
-            return default
+        def _select_file(app):
+            if not app.files:
+                return None
+            return max(app.files, key=lambda f: f.size or 0)
 
-    def _select_file(app):
-        if not app.files:
-            return None
-        return max(app.files, key=lambda f: f.size or 0)
+        def _build_item(app):
+            file_obj = _select_file(app)
+            if not file_obj:
+                return None
+            title_id = app.title.title_id if app.title else None
+            base_info = titles.get_game_info(title_id) if title_id else None
+            app_info = None
+            if app.app_type == APP_TYPE_DLC:
+                app_info = titles.get_game_info(app.app_id)
+            name = (app_info or base_info or {}).get('name') or app.app_id
+            title_name = (base_info or {}).get('name') or name
+            icon_url = f'/api/shop/icon/{title_id}' if title_id else ''
+            return {
+                'name': name,
+                'title_name': title_name,
+                'title_id': title_id,
+                'app_id': app.app_id,
+                'app_version': app.app_version,
+                'app_type': app.app_type,
+                'category': (base_info or {}).get('category', ''),
+                'icon_url': icon_url,
+                'url': f'/api/get_game/{file_obj.id}#{file_obj.filename}',
+                'size': file_obj.size or 0,
+                'file_id': file_obj.id,
+                'filename': file_obj.filename,
+                'download_count': file_obj.download_count or 0
+            }
 
-    def _build_item(app):
-        file_obj = _select_file(app)
-        if not file_obj:
-            return None
-        title_id = app.title.title_id if app.title else None
-        base_info = titles.get_game_info(title_id) if title_id else None
-        app_info = None
-        if app.app_type == APP_TYPE_DLC:
-            app_info = titles.get_game_info(app.app_id)
-        name = (app_info or base_info or {}).get('name') or app.app_id
-        title_name = (base_info or {}).get('name') or name
-        icon_url = f'/api/shop/icon/{title_id}' if title_id else ''
+        base_apps = [app for app in apps if app.app_type == APP_TYPE_BASE]
+        update_apps = [app for app in apps if app.app_type == APP_TYPE_UPD]
+        dlc_apps = [app for app in apps if app.app_type == APP_TYPE_DLC]
+
+        base_items = [item for item in (_build_item(app) for app in base_apps) if item]
+        base_items.sort(key=lambda item: item['file_id'], reverse=True)
+        new_items = base_items[:limit]
+
+        recommended_items = sorted(base_items, key=lambda item: item['download_count'], reverse=True)[:limit]
+        if not any(item['download_count'] for item in recommended_items):
+            recommended_items = new_items[:limit]
+
+        latest_available_update_by_title = {}
+        for app in update_apps:
+            title_id = app.title.title_id if app.title else None
+            if not title_id:
+                continue
+            version = _safe_int(app.app_version)
+            current_available = latest_available_update_by_title.get(title_id)
+            if not current_available or version > current_available['version']:
+                latest_available_update_by_title[title_id] = {'version': version, 'app': app}
+
+        update_items_full = []
+        for title_id, available in latest_available_update_by_title.items():
+            item = _build_item(available['app'])
+            if item:
+                update_items_full.append(item)
+        update_items_full.sort(key=lambda item: _safe_int(item['app_version']), reverse=True)
+        update_items = update_items_full
+
+        dlc_by_id = {}
+        for app in dlc_apps:
+            version = _safe_int(app.app_version)
+            current = dlc_by_id.get(app.app_id)
+            if not current or version > current['version']:
+                dlc_by_id[app.app_id] = {'version': version, 'app': app}
+        dlc_items_full = [item for item in (_build_item(entry['app']) for entry in dlc_by_id.values()) if item]
+        dlc_items_full.sort(key=lambda item: _safe_int(item['app_version']), reverse=True)
+        dlc_items = dlc_items_full[:limit]
+
+        all_items = sorted(base_items + update_items_full + dlc_items_full, key=lambda item: item['name'].lower())
+
         return {
-            'name': name,
-            'title_name': title_name,
-            'title_id': title_id,
-            'app_id': app.app_id,
-            'app_version': app.app_version,
-            'app_type': app.app_type,
-            'category': (base_info or {}).get('category', ''),
-            'icon_url': icon_url,
-            'url': f'/api/get_game/{file_obj.id}#{file_obj.filename}',
-            'size': file_obj.size or 0,
-            'file_id': file_obj.id,
-            'filename': file_obj.filename,
-            'download_count': file_obj.download_count or 0
+            'sections': [
+                {'id': 'new', 'title': 'New', 'items': new_items},
+                {'id': 'recommended', 'title': 'Recommended', 'items': recommended_items},
+                {'id': 'updates', 'title': 'Updates', 'items': update_items},
+                {'id': 'dlc', 'title': 'DLC', 'items': dlc_items},
+                {'id': 'all', 'title': 'All', 'items': all_items}
+            ]
         }
-
-    base_apps = [app for app in apps if app.app_type == APP_TYPE_BASE]
-    update_apps = [app for app in apps if app.app_type == APP_TYPE_UPD]
-    dlc_apps = [app for app in apps if app.app_type == APP_TYPE_DLC]
-
-    base_items = [item for item in (_build_item(app) for app in base_apps) if item]
-    base_items.sort(key=lambda item: item['file_id'], reverse=True)
-    new_items = base_items[:limit]
-
-    recommended_items = sorted(base_items, key=lambda item: item['download_count'], reverse=True)[:limit]
-    if not any(item['download_count'] for item in recommended_items):
-        recommended_items = new_items[:limit]
-
-    latest_available_update_by_title = {}
-    for app in update_apps:
-        title_id = app.title.title_id if app.title else None
-        if not title_id:
-            continue
-        version = _safe_int(app.app_version)
-        current_available = latest_available_update_by_title.get(title_id)
-        if not current_available or version > current_available['version']:
-            latest_available_update_by_title[title_id] = {'version': version, 'app': app}
-
-    update_items_full = []
-    for title_id, available in latest_available_update_by_title.items():
-        item = _build_item(available['app'])
-        if item:
-            update_items_full.append(item)
-    update_items_full.sort(key=lambda item: _safe_int(item['app_version']), reverse=True)
-    update_items = update_items_full
-
-    dlc_by_id = {}
-    for app in dlc_apps:
-        version = _safe_int(app.app_version)
-        current = dlc_by_id.get(app.app_id)
-        if not current or version > current['version']:
-            dlc_by_id[app.app_id] = {'version': version, 'app': app}
-    dlc_items_full = [item for item in (_build_item(entry['app']) for entry in dlc_by_id.values()) if item]
-    dlc_items_full.sort(key=lambda item: _safe_int(item['app_version']), reverse=True)
-    dlc_items = dlc_items_full[:limit]
-
-    all_items = sorted(base_items + update_items_full + dlc_items_full, key=lambda item: item['name'].lower())
-
-    titles.unload_titledb()
-
-    return {
-        'sections': [
-            {'id': 'new', 'title': 'New', 'items': new_items},
-            {'id': 'recommended', 'title': 'Recommended', 'items': recommended_items},
-            {'id': 'updates', 'title': 'Updates', 'items': update_items},
-            {'id': 'dlc', 'title': 'DLC', 'items': dlc_items},
-            {'id': 'all', 'title': 'All', 'items': all_items}
-        ]
-    }
+    finally:
+        titles.identification_in_progress_count -= 1
+        titles.unload_titledb()
 
 def _refresh_shop_sections_cache(limit):
     global shop_sections_refresh_running
@@ -1898,6 +1899,7 @@ def prefetch_media_icons_api():
                         'message': str(e)
                     })
     finally:
+        titles.identification_in_progress_count -= 1
         titles.unload_titledb()
 
     return jsonify({
@@ -1976,6 +1978,7 @@ def prefetch_media_banners_api():
                         'message': str(e)
                     })
     finally:
+        titles.identification_in_progress_count -= 1
         titles.unload_titledb()
 
     return jsonify({
@@ -2747,8 +2750,11 @@ def shop_icon_api(title_id):
         return response
 
     titles.load_titledb()
-    info = titles.get_game_info(title_id)
-    titles.unload_titledb()
+    try:
+        info = titles.get_game_info(title_id)
+    finally:
+        titles.identification_in_progress_count -= 1
+        titles.unload_titledb()
     icon_url = info.get('iconUrl') if info else ''
     if not icon_url:
         response = send_from_directory(app.static_folder, 'placeholder-icon.svg')
@@ -2896,8 +2902,11 @@ def shop_banner_api(title_id):
         return response
 
     titles.load_titledb()
-    info = titles.get_game_info(title_id)
-    titles.unload_titledb()
+    try:
+        info = titles.get_game_info(title_id)
+    finally:
+        titles.identification_in_progress_count -= 1
+        titles.unload_titledb()
     banner_url = info.get('bannerUrl') if info else ''
     if not banner_url:
         response = send_from_directory(app.static_folder, 'placeholder-banner.svg')
@@ -3004,8 +3013,6 @@ def post_library_change():
             # The process_library_identification already handles updating titles and generating library
             # So, we just need to ensure titles_library is updated from the generated library
             generate_library()
-            titles.identification_in_progress_count -= 1
-            titles.unload_titledb()
             with shop_sections_cache_lock:
                 shop_sections_cache['payload'] = None
                 shop_sections_cache['timestamp'] = 0
@@ -3023,6 +3030,8 @@ def post_library_change():
                 shop_sections_cache['timestamp'] = now
             _save_shop_sections_cache_to_disk(payload, 50, now)
         finally:
+            titles.identification_in_progress_count -= 1
+            titles.unload_titledb()
             with library_rebuild_lock:
                 library_rebuild_status['in_progress'] = False
                 library_rebuild_status['updated_at'] = time.time()
