@@ -504,6 +504,7 @@ def create_app():
 
     return app
 
+
 # Create app
 app = create_app()
 
