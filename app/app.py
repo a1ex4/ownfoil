@@ -32,6 +32,7 @@ import threading
 import time
 import uuid
 import re
+import secrets
 
 from db import add_access_event, get_access_events
 
@@ -492,8 +493,12 @@ def on_library_change(events):
 def create_app():
     app = Flask(__name__)
     app.config["SQLALCHEMY_DATABASE_URI"] = OWNFOIL_DB
-    # TODO: generate random secret_key
-    app.config['SECRET_KEY'] = '8accb915665f11dfa15c2db1a4e8026905f57716'
+    # Generate secret key from environment variable or create random one
+    secret_key = os.getenv('OWNFOIL_SECRET_KEY')
+    if not secret_key:
+        secret_key = secrets.token_hex(32)
+        logger.warning('SECRET_KEY not set in environment. Generated random key. Set OWNFOIL_SECRET_KEY for production.')
+    app.config['SECRET_KEY'] = secret_key
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
     db.init_app(app)
