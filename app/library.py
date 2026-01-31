@@ -795,6 +795,8 @@ def organize_library(dry_run=False, verbose=False, detail_limit=200):
         'success': True,
         'moved': 0,
         'skipped': 0,
+        'folders_deleted': 0,
+        'folders_failed': 0,
         'errors': [],
         'details': []
     }
@@ -805,6 +807,49 @@ def organize_library(dry_run=False, verbose=False, detail_limit=200):
         if (verbose or dry_run) and detail_count < detail_limit:
             results['details'].append(message)
             detail_count += 1
+
+    def plan_empty_dirs(root_dir):
+        """Return a bottom-up list of empty directories (excluding root_dir).
+
+        In dry_run mode we plan deletions so parent directories that only contain
+        empty directories are also considered deletable.
+        """
+        root_dir = os.path.normpath(root_dir or '')
+        if not root_dir or not os.path.isdir(root_dir):
+            return []
+
+        removable = set()
+        planned = []
+        for dirpath, dirnames, filenames in os.walk(root_dir, topdown=False):
+            try:
+                norm_dirpath = os.path.normpath(dirpath)
+                if norm_dirpath == root_dir:
+                    continue
+                if os.path.islink(dirpath):
+                    continue
+
+                has_remaining = False
+                with os.scandir(dirpath) as it:
+                    for entry in it:
+                        try:
+                            if entry.is_dir(follow_symlinks=False):
+                                if os.path.normpath(entry.path) in removable:
+                                    continue
+                                has_remaining = True
+                                break
+                            else:
+                                has_remaining = True
+                                break
+                        except OSError:
+                            has_remaining = True
+                            break
+
+                if not has_remaining:
+                    removable.add(norm_dirpath)
+                    planned.append(dirpath)
+            except OSError:
+                continue
+        return planned
 
     titles_lib.load_titledb()
     title_name_cache = {}
@@ -903,6 +948,32 @@ def organize_library(dry_run=False, verbose=False, detail_limit=200):
             add_detail(f"Plan move: {file_entry.filepath} -> {dest_path}.")
 
     titles_lib.unload_titledb()
+
+    # Cleanup: delete empty folders created or left behind after organizing.
+    try:
+        library_roots = [lib.path for lib in get_libraries() if lib and lib.path]
+    except Exception:
+        library_roots = []
+
+    planned_dirs = []
+    for root in library_roots:
+        planned_dirs.extend(plan_empty_dirs(root))
+
+    if planned_dirs:
+        if dry_run:
+            results['folders_deleted'] = len(planned_dirs)
+            for d in planned_dirs[:detail_limit]:
+                add_detail(f"Plan delete empty folder: {d}.")
+        else:
+            for d in planned_dirs:
+                try:
+                    os.rmdir(d)
+                    results['folders_deleted'] += 1
+                    add_detail(f"Deleted empty folder: {d}.")
+                except OSError:
+                    results['folders_failed'] += 1
+                    add_detail(f"Failed to delete empty folder: {d}.")
+
     if results['errors']:
         results['success'] = False
     return results

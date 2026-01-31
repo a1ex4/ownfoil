@@ -182,7 +182,12 @@
             contentType: "application/json",
             success: function (result) {
                 if (result['success']) {
-                    showManageAlert(`Organize complete. Moved ${result['moved']} items. Skipped ${result['skipped']}.`, 'success');
+                    const deletedFolders = result['folders_deleted'] != null ? result['folders_deleted'] : 0;
+                    const failedFolders = result['folders_failed'] != null ? result['folders_failed'] : 0;
+                    const folderNote = deletedFolders || failedFolders
+                        ? ` Deleted ${deletedFolders} empty folders${failedFolders ? ` (${failedFolders} failed)` : ''}.`
+                        : '';
+                    showManageAlert(`Organize complete. Moved ${result['moved']} items. Skipped ${result['skipped']}.${folderNote}`, 'success');
                     showManageOutput(result['details']);
                 } else {
                     showManageAlert(`Organize failed: ${result['errors'].join('; ')}`, 'danger');
