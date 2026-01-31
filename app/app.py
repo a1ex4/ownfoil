@@ -462,6 +462,38 @@ def api_success(data=None, message=None):
         response['message'] = message
     return jsonify(response)
 
+# Input validation constants and helpers
+MAX_UPLOAD_SIZE = 100 * 1024 * 1024  # 100MB for keys.txt files
+MAX_LIBRARY_UPLOAD_SIZE = 64 * 1024 * 1024 * 1024  # 64GB for game files
+MAX_TITLE_ID_LENGTH = 16
+
+def validate_title_id(title_id):
+    """Validate title_id format (should be 16 hex characters)."""
+    if not title_id:
+        return False, "Title ID is required"
+    title_id = title_id.strip().upper()
+    if len(title_id) != MAX_TITLE_ID_LENGTH:
+        return False, f"Title ID must be {MAX_TITLE_ID_LENGTH} characters"
+    if not all(c in '0123456789ABCDEF' for c in title_id):
+        return False, "Title ID must contain only hexadecimal characters"
+    return True, title_id
+
+def validate_file_size(file_size):
+    """Validate file size against maximum upload limit (for keys.txt files)."""
+    if file_size is None:
+        return False, "File size is unknown"
+    if file_size > MAX_UPLOAD_SIZE:
+        return False, f"File size exceeds maximum limit of {MAX_UPLOAD_SIZE // (1024*1024)}MB"
+    return True, None
+
+def validate_library_file_size(file_size):
+    """Validate file size against maximum library upload limit (for game files)."""
+    if file_size is None:
+        return False, "File size is unknown"
+    if file_size > MAX_LIBRARY_UPLOAD_SIZE:
+        return False, f"File size exceeds maximum limit of {MAX_LIBRARY_UPLOAD_SIZE // (1024*1024*1024)}GB"
+    return True, None
+
 @login_manager.user_loader
 def load_user(user_id):
     # since the user_id is just the primary key of our user table, use it in the query for the user
@@ -1385,9 +1417,15 @@ def requests_page():
 @access_required('shop')
 def create_title_request_api():
     data = request.json or {}
-    title_id = (data.get('title_id') or '').strip().upper()
+    title_id_raw = data.get('title_id', '').strip()
     title_name = (data.get('title_name') or '').strip() or None
 
+    # Validate title_id format
+    is_valid, title_id_result = validate_title_id(title_id_raw)
+    if not is_valid:
+        return api_error(title_id_result, 400)
+    
+    title_id = title_id_result
     ok, message, req = create_title_request(current_user.id, title_id, title_name=title_name)
     if ok:
         return jsonify({'success': True, 'message': message, 'request_id': req.id if req else None})
@@ -2427,7 +2465,18 @@ def upload_file():
     errors = []
     success = False
 
+    if 'file' not in request.files:
+        return api_error('No file provided', 400)
+    
     file = request.files['file']
+    
+    # Validate file size
+    file.seek(0, os.SEEK_END)
+    file_size = file.tell()
+    file.seek(0)
+    is_valid_size, size_error = validate_file_size(file_size)
+    if not is_valid_size:
+        return api_error(size_error, 400)
     if file and allowed_file(file.filename):
         # filename = secure_filename(file.filename)
         file.save(KEYS_FILE + '.tmp')
@@ -2480,6 +2529,17 @@ def upload_library_files():
         if not filename:
             skipped += 1
             continue
+        
+        # Validate file size (use library limit for game files)
+        file.seek(0, os.SEEK_END)
+        file_size = file.tell()
+        file.seek(0)
+        is_valid_size, size_error = validate_library_file_size(file_size)
+        if not is_valid_size:
+            errors.append(f"{filename}: {size_error}")
+            skipped += 1
+            continue
+        
         ext = filename.rsplit('.', 1)[-1].lower() if '.' in filename else ''
         if ext not in allowed_exts:
             skipped += 1
