@@ -204,6 +204,44 @@
     </div>
 </div>
 
+<!-- Game Info Modal -->
+<div class="modal fade" id="gameInfoModal" tabindex="-1" aria-labelledby="gameInfoModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h1 class="modal-title fs-5" id="gameInfoModalLabel">Game info</h1>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-2">
+                    <div class="fw-semibold" id="gameInfoTitle"></div>
+                    <div class="text-muted small" id="gameInfoMeta"></div>
+                </div>
+                <div id="gameInfoStatus" class="text-muted small mb-2"></div>
+                <div id="gameInfoBody" class="game-info-body"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Screenshot Modal -->
+<div class="modal fade" id="screenshotModal" tabindex="-1" aria-labelledby="screenshotModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+        <div class="modal-content bg-dark text-white">
+            <div class="modal-header">
+                <h1 class="modal-title fs-6" id="screenshotModalLabel">Screenshot</h1>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body p-0">
+                <img id="screenshotModalImg" class="w-100" alt="">
+            </div>
+        </div>
+    </div>
+</div>
+
 {% if current_user.is_admin or admin_account_created == false %}
 <div class="modal fade" id="torrentSearchModal" tabindex="-1" aria-labelledby="torrentSearchModalLabel" aria-hidden="true">
     <div class="modal-dialog modal-lg modal-dialog-centered">
@@ -511,14 +549,23 @@
                 const genreText = genres.join(', ');
                 const genreLine = $('<p class="card-text game-genre mb-0"></p>');
                 genreLine.append($('<small></small>').text(genreText));
-                cardOverlay.append(genreLine);
+            cardOverlay.append(genreLine);
             }
 
             const tagsContainer = $('<div class="tags-container"></div>');
 
-            const typeBadgeClass = (game.owned === false) ? 'text-bg-warning' : 'text-bg-info';
-            const typeBadge = $(`<span class="badge rounded-pill ${typeBadgeClass} game-tag"></span>`).text(game.app_type);
-            tagsContainer.append(typeBadge);
+            // Status icons (Base / Update / DLC) shown above action buttons.
+            const statusIcons = $('<div class="game-status-icons"></div>');
+
+            const baseState = (game.has_base !== undefined)
+                ? (game.has_base ? 'success' : 'warning')
+                : ((game.app_type === 'BASE') ? ((game.owned === false) ? 'warning' : 'success') : null);
+            if (baseState) {
+                statusIcons.append(
+                    $(`<span class="badge rounded-pill game-tag text-bg-${baseState}" title="Base"></span>`)
+                        .html('<i class="bi bi-disc-fill"></i>')
+                );
+            }
 
             if (game.has_latest_version !== undefined) {
                 const versionBadge = $(`<span class="badge rounded-pill game-tag version-tag" title="${game.name} [${game.title_id}] Updates"></span>`)
@@ -545,21 +592,38 @@
                         versionBadge.attr("data-bs-title", "Version v" + game.version)
                     }
                 }
-                tagsContainer.append(versionBadge);
+                statusIcons.append(versionBadge);
             }
 
             if (game.has_all_dlcs !== undefined) {
                 const dlcBadge = $('<span class="badge rounded-pill game-tag"></span>').addClass(`text-bg-${game.has_all_dlcs ? 'success' : 'warning'}`).html('<i class="bi bi-box-seam-fill"></i>');
-                tagsContainer.append(dlcBadge);
+                dlcBadge.attr('title', 'DLC');
+                statusIcons.append(dlcBadge);
             }
 
-            const detailsBtn = $('<button type="button" class="btn btn-outline-light btn-sm ms-2"></button>')
+            if (statusIcons.children().length) {
+                tagsContainer.append(statusIcons);
+            }
+
+            const actionButtons = $('<div class="game-action-buttons"></div>');
+
+            const detailsBtn = $('<button type="button" class="btn btn-outline-light btn-sm"></button>')
                 .attr('data-bs-toggle', 'modal')
                 .attr('data-bs-target', '#detailsModal')
                 .attr('data-bs-app-id', game.app_id)
                 .attr('data-bs-app-type', game.app_type)
                 .html('<i class="bi bi-info-circle"></i> Details');
-            tagsContainer.append(detailsBtn);
+            actionButtons.append(detailsBtn);
+
+            const infoBtn = $('<button type="button" class="btn btn-outline-info btn-sm game-info-btn"></button>')
+                .attr('data-bs-toggle', 'modal')
+                .attr('data-bs-target', '#gameInfoModal')
+                .attr('data-title-id', game.title_id || '')
+                .attr('data-title', getGameTitle(game))
+                .html('<i class="bi bi-journal-text"></i> Game info');
+            actionButtons.append(infoBtn);
+
+            tagsContainer.append(actionButtons);
 
             cardOverlay.append(tagsContainer);
             card.append(cardOverlay);
@@ -609,7 +673,19 @@
                     this.src = iconFallback;
                 }
             });
-            gameGrid.append(iconBtn);
+            const item = $('<div class="library-icon-item"></div>');
+            item.append(iconBtn);
+
+            const infoBtn = $('<button type="button" class="btn btn-outline-info btn-sm game-info-btn library-icon-info-overlay" aria-label="Game info"></button>')
+                .attr('data-bs-toggle', 'modal')
+                .attr('data-bs-target', '#gameInfoModal')
+                .attr('data-title-id', game.title_id || '')
+                .attr('data-title', getGameTitle(game))
+                .html('<i class="bi bi-journal-text"></i>');
+            infoBtn.on('click', function (e) { e.stopPropagation(); });
+            item.append(infoBtn);
+
+            gameGrid.append(item);
         });
 
         // Adjust icon sizes based on the slider value
@@ -711,6 +787,13 @@
                             data-bs-toggle="modal" data-bs-target="#detailsModal"
                             data-bs-app-id="${game.app_id}" data-bs-app-type="${game.app_type}">
                             <i class="bi bi-info-circle"></i> Details
+                        </button>
+
+                        <button type="button" class="btn btn-outline-info btn-sm ms-2 game-info-btn"
+                            data-bs-toggle="modal" data-bs-target="#gameInfoModal"
+                            data-title-id="${game.title_id || ''}"
+                            data-title="${escapeHtml(getGameTitle(game))}">
+                            <i class="bi bi-journal-text"></i> Game info
                         </button>
                     </td>
                 </tr>
@@ -1323,6 +1406,76 @@
             renderDetails(game);
         });
     }
+
+    function findGameByTitleId(titleId) {
+        const tid = (titleId || '').trim().toUpperCase();
+        if (!tid || !Array.isArray(games)) return null;
+
+        const base = games.find(g => (g && String(g.title_id || '').toUpperCase() === tid && g.app_type === 'BASE'));
+        if (base) return base;
+        return games.find(g => (g && String(g.title_id || '').toUpperCase() === tid)) || null;
+    }
+
+    function renderGameInfoModalFromTitleDb(game, titleId, title) {
+        $('#gameInfoTitle').text(title || (game && (game.title_id_name || game.name)) || 'Game info');
+        $('#gameInfoMeta').text(titleId ? `Title ID ${titleId}` : '');
+        const body = $('#gameInfoBody');
+        body.empty();
+
+        const desc = (game && game.description) ? String(game.description).trim() : '';
+        if (desc) {
+            $('#gameInfoStatus').text('').removeClass('text-danger').addClass('text-muted');
+            body.append($('<div class="game-info-description"></div>').text(desc));
+        } else {
+            $('#gameInfoStatus')
+                .text('No description available in TitleDB for this title.')
+                .removeClass('text-danger')
+                .addClass('text-muted');
+        }
+
+        const shots = (game && Array.isArray(game.screenshots)) ? game.screenshots : [];
+        if (shots.length) {
+            const grid = $('<div class="game-info-image-grid"></div>');
+            shots.slice(0, 12).forEach(u => {
+                const img = $('<img class="game-info-image" alt="">').attr('src', u);
+                img.on('error', function () { $(this).remove(); });
+                grid.append(img);
+            });
+            body.append(grid);
+        }
+    }
+
+    const gameInfoModal = document.getElementById('gameInfoModal');
+    if (gameInfoModal) {
+        gameInfoModal.addEventListener('show.bs.modal', event => {
+            const button = event.relatedTarget;
+            const titleId = (button.getAttribute('data-title-id') || '').trim().toUpperCase();
+            const title = button.getAttribute('data-title') || '';
+            if (!titleId) {
+                renderGameInfoModalFromTitleDb(null, titleId, title);
+                $('#gameInfoStatus').text('This item has no Title ID.').removeClass('text-muted').addClass('text-danger');
+                return;
+            }
+
+            const game = findGameByTitleId(titleId);
+            renderGameInfoModalFromTitleDb(game, titleId, title);
+        });
+    }
+
+    const screenshotModalEl = document.getElementById('screenshotModal');
+    const screenshotModal = screenshotModalEl ? new bootstrap.Modal(screenshotModalEl) : null;
+    if (screenshotModalEl) {
+        screenshotModalEl.addEventListener('hidden.bs.modal', () => {
+            $('#screenshotModalImg').attr('src', '');
+        });
+    }
+
+    $(document).on('click', '.game-info-image', function () {
+        const src = $(this).attr('src') || '';
+        if (!src || !screenshotModal) return;
+        $('#screenshotModalImg').attr('src', src);
+        screenshotModal.show();
+    });
 
     $(document).on('click', '.manual-download-btn', function () {
         const button = $(this);
