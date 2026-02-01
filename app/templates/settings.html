@@ -20,22 +20,19 @@
                 </div>
                 {% endif %}
 
-                {% if valid_keys == false %}
-                <div id="missingKeysAlert" class="alert alert-warning alert-dismissible fade show" role="alert">
-                    <h4 class="alert-heading">Missing console keys!</h4>
+                <div id="missingKeysAlert" class="alert alert-warning alert-dismissible fade show d-none" role="alert">
+                    <h4 class="alert-heading">Missing / invalid console keys file!</h4>
                     Console keys are required to decrypt any Nintendo content, including
                     backups. Ownfoil uses this to identify files, regardless of the filename.</br>
                     <strong>Titles will be missed or misidentified if you don't fill in your keys!</strong>
                     See <a target="_blank" href="https://gitea.com/KudbiOdd/easy-switch-hacking-shise/wiki/Dump-device-keys" class="alert-link">this guide</a> on
                     how to extract the
-                    keys from your console, and upload them <a href="/settings#consoleKeysInput" class="alert-link">here
+                    keys from your console, and upload them <a href="/settings#consoleKeysInputLabel" class="alert-link">here
                         in Ownfoil.</a>
                     <hr>
-                    If keys are missing, all files <strong>must follow the format "Title Name
-                        [TITLEID][vVERSION]"</strong>, else the file won't be recognized.
+                    If keys are missing, all files <strong>must contain "[TITLEID][vVERSION]"</strong>, else the file won't be recognized.
                     <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
                 </div>
-                {% endif %}
 
                 <div id="missingShopHostAlert" class="alert alert-warning alert-dismissible fade show" role="alert" style="display: none;">
                     <h4 class="alert-heading">Missing shop Host!</h4>
@@ -277,7 +274,7 @@
                 <hr class="hr-settings">
                 <h2 class="pb-2">Titles</h2>
                 <p>Titles identification configuration.</p>
-                <div class="row mb-3">
+                <div class="row mb-4">
                     <div class="col">
                         <label for="selectRegion" class="form-label">Library Region:</label>
                         <select id="selectRegion" class="form-select" aria-label="Select library region">
@@ -292,19 +289,26 @@
                         informations.</div>
                 </div>
 
-                <div class="mb-3">
-                    <label for="consoleKeysInput" class="form-label">Console keys:</label>
-                    <input class="form-control {% if valid_keys == true %}is-valid{% endif %}" type="file"
-                        accept=".keys,.txt" id="consoleKeysInput">
-                    <div class="valid-feedback">
-                        Keys are valid!
+                <div class="row mb-3">
+                    <!-- Console key upload form -->
+                    <div class="col-6">
+                        <label id="consoleKeysInputLabel" for="consoleKeysInput" class="form-label">Console Keys file:</label>
+                        <input class="form-control" type="file"
+                            accept=".keys,.txt" id="consoleKeysInput">
+                        <div id="consoleKeysFeedback">
+                        </div>
+                        <div id="consoleKeysHelp" class="form-text">Console keys are required to decrypt any Nintendo
+                            content, including
+                            backups. Ownfoil uses this to identify files, regardless of the filename.
+                        </div>
                     </div>
-                    <div id="invalidConsoleKeysFeedback" class="invalid-feedback">
-                        Invalid keys file!
-                    </div>
-                    <div id="consoleKeysHelp" class="form-text">Console keys are required to decrypt any Nintendo
-                        content, including
-                        backups. Ownfoil uses this to identify files, regardless of the filename.
+
+                    <!-- Missing console keys -->
+                    <div class="col-6">
+                        <label for="keysAlert" class="form-label">Master key revisions:</label>
+                        <div id="keysAlert" class="alert alert-secondary py-2 mb-0">
+                            <p id="keysMissingLabel" class="mb-0"></p>
+                        </div>
                     </div>
                 </div>
 
@@ -488,6 +492,52 @@
             });
         })
 
+    }
+
+    function updateKeysElements(titlesSettings) {
+        // Keys alert
+        if (titlesSettings['valid_keys']) {
+            $('#consoleKeysFeedback').text("Keys are valid!");
+            $('#consoleKeysFeedback').removeClass('invalid-feedback');
+            $('#consoleKeysFeedback').addClass('valid-feedback d-block');
+            $('#missingKeysAlert').removeClass('d-block');
+            $('#missingKeysAlert').addClass('d-none');
+        } else {
+            $('#consoleKeysFeedback').removeClass('valid-feedback');
+            $('#consoleKeysFeedback').addClass('invalid-feedback d-block');
+            $('#missingKeysAlert').removeClass('d-none');
+            $("#missingKeysAlert").addClass('d-block');
+            if (titlesSettings['valid_keys'] === null) {
+                $('#consoleKeysFeedback').text("Missing keys file! Use the button above to upload a new file.");
+            } else {
+                $('#consoleKeysFeedback').text("Invalid keys file! At least one master key is incorrect. Use the button above to upload a new file.");
+            }
+        }
+
+        // Missing and invalid master key revisions
+        if (titlesSettings['valid_keys'] === null) {
+            $('#keysAlert').css("border-color", "var(--bs-danger-border-subtle)");
+            $("#keysMissingLabel").text("Missing console keys file.");
+        } else if ((titlesSettings['missing_keys'] && titlesSettings['missing_keys'].length > 0) || (titlesSettings['corrupt_keys'] && titlesSettings['corrupt_keys'].length > 0)) {
+            $('#keysAlert').css("border-color", "var(--bs-warning-border-subtle)");
+            $("#keysMissingLabel").text("Missing/invalid master key revisions:");
+            $("#keysMissingLabel").next('ul').remove(); // Clear existing ul if any
+            var ul = $('<ul class="mb-0">');
+            if (titlesSettings['corrupt_keys'] && titlesSettings['corrupt_keys'].length > 0) {
+                $.each(titlesSettings['corrupt_keys'], function(index, key) {
+                    ul.append($('<li>').html('<code>' + key + '</code> is invalid'));
+                });
+            }
+            if (titlesSettings['missing_keys'] && titlesSettings['missing_keys'].length > 0) {
+                $.each(titlesSettings['missing_keys'], function(index, key) {
+                    ul.append($('<li>').html('<code>' + key + '</code> is missing'));
+                });
+            }
+            $("#keysMissingLabel").after(ul);
+        } else {
+            $('#keysAlert').css("border-color", "var(--bs-form-valid-border-color)");
+            $("#keysMissingLabel").text("All master key revisions are present and valid.");
+        }
     }
 
     const deletePathModal = $('#deletePathModal')
@@ -838,12 +888,12 @@
                 processData: false,
                 success: function (result) {
                     if (result['success']) {
-                        $('#consoleKeysInput').removeClass('is-invalid');
-                        $('#consoleKeysInput').addClass('is-valid');
-                        $('#missingKeysAlert').addClass('d-none');
+                        updateKeysElements(result['data']);
+                        $('#consoleKeysInput').val('');
                     } else {
-                        $('#invalidConsoleKeysFeedback').text("Invalid keys file! Invalid keys detected: " + result['errors'].join(', '));
-                        $('#consoleKeysInput').addClass('is-invalid');
+                        errors = result['errors'].join(';')
+                        $('#consoleKeysFeedback').text("Failed to upload keys file: " + errors);
+                        $('#consoleKeysFeedback').addClass('invalid-feedback d-block');
                     }
                 }
             });
@@ -867,6 +917,7 @@
                         $("#" + formTextElement).text(error['error']);
                     });
                 }
+                $('#consoleKeysInput').val('');
                 $('#submitTitlesSettingsBtn').prop('disabled', false);
             }
         });
@@ -978,7 +1029,6 @@
                 });
             });
 
-
             // Library settings
             librarySettings = result['library'];
             // Populate library management settings
@@ -991,9 +1041,9 @@
             setInputVal("dlcTemplateInput", librarySettings['management']['organizer']['templates']['dlc']);
             setInputVal("multiTemplateInput", librarySettings['management']['organizer']['templates']['multi']);
 
-
             // Titles settings
             titlesSettings = result['titles'];
+            updateKeysElements(titlesSettings);
 
             // Fill region and language
             setInputVal("selectRegion", titlesSettings['region']);
