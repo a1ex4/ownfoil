@@ -210,12 +210,63 @@ p.game-description {
 }
 
 /* Library discovery rows */
+.discover-row-wrapper {
+    position: relative;
+    min-width: 0; /* Allow flex item to shrink below content size */
+}
+
 .discover-row {
     display: flex;
     gap: 12px;
     overflow-x: auto;
-    padding: 10px 2px;
+    padding: 10px 40px;
     scroll-snap-type: x mandatory;
+    scroll-behavior: smooth;
+    scrollbar-width: thin;
+}
+
+.discover-scroll-btn {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 10;
+    background: rgba(33, 37, 41, 0.9);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 50%;
+    width: 40px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: rgba(255, 255, 255, 0.8);
+    cursor: pointer;
+    transition: all 0.2s ease;
+    padding: 0;
+}
+
+.discover-scroll-btn:hover {
+    background: rgba(33, 37, 41, 1);
+    color: rgba(255, 255, 255, 1);
+    border-color: rgba(255, 255, 255, 0.4);
+    transform: translateY(-50%) scale(1.1);
+}
+
+.discover-scroll-btn:active {
+    transform: translateY(-50%) scale(0.95);
+}
+
+.discover-scroll-btn:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+    pointer-events: none;
+}
+
+.discover-scroll-left {
+    left: 0;
+}
+
+.discover-scroll-right {
+    right: 0;
 }
 
 .discover-tile {
