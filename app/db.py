@@ -236,31 +236,12 @@ def get_files_with_identification_from_library(library_id, identification_type):
     return Files.query.filter_by(library_id=library_id, identification_type=identification_type).all()
 
 def get_shop_files():
-    shop_files = []
-    results = Files.query.options(db.joinedload(Files.apps).joinedload(Apps.title)).all()
-
-    for file in results:
-        if file.identified:
-            # Get the first app associated with this file using the many-to-many relationship
-            app = file.apps[0] if file.apps else None
-
-            if app:
-                if file.multicontent or file.extension.startswith('x'):
-                    title_id = app.title.title_id
-                    final_filename = f"[{title_id}].{file.extension}"
-                else:
-                    final_filename = f"[{app.app_id}][v{app.app_version}].{file.extension}"
-            else:
-                final_filename = file.filename.replace(f'.{file.extension}', '') + ' (unidentified).' + file.extension
-        else:
-            final_filename = file.filename.replace(f'.{file.extension}', '') + ' (unidentified).' + file.extension
-
-        shop_files.append({
-            "id": file.id,
-            "filename": final_filename,
-            "size": file.size
-        })
-
+    results = Files.query.all()
+    shop_files = [{
+        "id": file.id,
+        "filename": file.filename,
+        "size": file.size
+    } for file in results]
     return shop_files
 
 def get_libraries():
