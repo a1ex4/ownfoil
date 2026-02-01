@@ -255,6 +255,9 @@ def add_missing_apps_to_db():
     
     for n, title in enumerate(titles):
         title_id = title.title_id
+        if not title_id:
+            logger.warning(f'Skipping title with None title_id: {title}')
+            continue
         title_db_id = get_title_id_db_id(title_id)
         
         # Add base game if not present at all (any base version)
@@ -499,6 +502,7 @@ def generate_library():
     logger.info(f'Generating library ...')
     titles_lib.load_titledb()
     titles = get_all_apps()
+    logger.info(f'Found {len(titles)} apps in database')
     games_info = []
     processed_dlc_apps = set()  # Track processed DLC app_ids to avoid duplicates
 
@@ -513,6 +517,7 @@ def generate_library():
             
         # Get title info from titledb
         info_from_titledb = titles_lib.get_game_info(title['app_id'])
+        # Note: get_game_info now returns a default dict instead of None, so this check is mostly for safety
         if info_from_titledb is None:
             logger.warning(f'Info not found for game: {title}')
             continue

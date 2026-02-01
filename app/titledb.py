@@ -1,7 +1,9 @@
 import unzip_http
 import requests
+from requests.exceptions import RequestException, ConnectionError, Timeout
 import os, re
 import logging
+import time
 
 from constants import *
 
@@ -57,16 +59,68 @@ def download_titledb_files(rzf, files):
         download_from_remote_zip(rzf, file, store_path)
 
 
+def _get_with_retry(url, max_retries=5, backoff_factor=2):
+    """Get URL with retry logic for DNS and network errors."""
+    # Disable requests' built-in retries to use our own retry logic
+    from requests.adapters import HTTPAdapter
+    from urllib3.util.retry import Retry
+    
+    session = requests.Session()
+    # Disable automatic retries - we'll handle retries ourselves
+    adapter = HTTPAdapter(max_retries=0)
+    session.mount('http://', adapter)
+    session.mount('https://', adapter)
+    
+    for attempt in range(max_retries):
+        try:
+            r = session.get(url, allow_redirects=False, timeout=60)
+            return r
+        except Exception as e:
+            error_msg = str(e)
+            error_type = type(e).__name__
+            
+            # Check if it's a DNS/network error
+            is_dns_error = (
+                'Failed to resolve' in error_msg or 
+                'NameResolutionError' in error_type or
+                'NameResolutionError' in error_msg or
+                isinstance(e, (ConnectionError, RequestException))
+            )
+            
+            if attempt < max_retries - 1:
+                wait_time = backoff_factor ** attempt
+                if is_dns_error:
+                    logger.warning(f'DNS resolution failed for {url}, retrying in {wait_time}s (attempt {attempt + 1}/{max_retries})...')
+                elif 'Timeout' in error_type or isinstance(e, Timeout):
+                    logger.warning(f'Timeout connecting to {url}, retrying in {wait_time}s (attempt {attempt + 1}/{max_retries})...')
+                else:
+                    logger.warning(f'Network error connecting to {url}: {error_type}, retrying in {wait_time}s (attempt {attempt + 1}/{max_retries})...')
+                time.sleep(wait_time)
+            else:
+                if is_dns_error:
+                    logger.error(f'DNS resolution failed for {url} after {max_retries} attempts. Check your network connection and DNS configuration.')
+                else:
+                    logger.error(f'Failed to connect to {url} after {max_retries} attempts: {e}')
+                raise
+
 def update_titledb_files(app_settings):
     files_to_update = []
     need_descriptions = False
     
     region_titles_file = get_region_titles_file(app_settings)
-    region_titles_file_present = region_titles_file in os.listdir(TITLEDB_DIR)
+    try:
+        region_titles_file_present = region_titles_file in os.listdir(TITLEDB_DIR)
+    except FileNotFoundError:
+        # Directory doesn't exist yet
+        region_titles_file_present = False
 
-    r = requests.get(TITLEDB_ARTEFACTS_URL, allow_redirects=False, timeout=60)
-    direct_url = r.headers.get('Location') if (300 <= r.status_code < 400) else str(TITLEDB_ARTEFACTS_URL)
-    rzf = unzip_http.RemoteZipFile(direct_url)
+    try:
+        r = _get_with_retry(TITLEDB_ARTEFACTS_URL)
+        direct_url = r.headers.get('Location') if (300 <= r.status_code < 400) else str(TITLEDB_ARTEFACTS_URL)
+        rzf = unzip_http.RemoteZipFile(direct_url)
+    except Exception as e:
+        logger.error(f'Failed to fetch TitleDB artefacts: {e}')
+        raise
     
     if is_titledb_update_available(rzf):
         files_to_update = TITLEDB_DEFAULT_FILES + [region_titles_file]
@@ -91,7 +145,7 @@ def update_titledb_files(app_settings):
             store_path = os.path.join(TITLEDB_DIR, TITLEDB_DESCRIPTIONS_FILE)
             rel_store_path = os.path.relpath(store_path, start=APP_DIR)
             logger.info(f'Downloading {TITLEDB_DESCRIPTIONS_FILE} from {desc_url} to {rel_store_path}')
-            r = requests.get(desc_url, stream=True, timeout=60)
+            r = _get_with_retry(desc_url)
             r.raise_for_status()
             with open(store_path, 'wb') as fp:
                 for chunk in r.iter_content(chunk_size=1024 * 1024):
@@ -106,5 +160,10 @@ def update_titledb(app_settings):
     if not os.path.isdir(TITLEDB_DIR):
         os.makedirs(TITLEDB_DIR, exist_ok=True)
 
-    update_titledb_files(app_settings)
-    logger.info('titledb update done.')
+    try:
+        update_titledb_files(app_settings)
+        logger.info('titledb update done.')
+    except Exception as e:
+        logger.error(f'TitleDB update failed: {e}')
+        logger.warning('TitleDB files may be missing. Some features may not work until TitleDB is successfully downloaded.')
+        raise
