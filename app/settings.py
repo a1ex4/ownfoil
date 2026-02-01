@@ -3,28 +3,43 @@ from utils import *
 import yaml
 import os, sys
 import threading
+import hashlib
 
 from nsz.nut import Keys
 
 import logging
 
 settings_lock = threading.Lock()
+keys_lock = threading.Lock()
 
 # Retrieve main logger
 logger = logging.getLogger('main')
 
 def load_keys(key_file=KEYS_FILE):
-    valid = False
-    try:
-        if os.path.isfile(key_file):
-            valid = Keys.load(key_file)
-            return valid
-        else:
-            logger.debug(f'Keys file {key_file} does not exist.')
+    with keys_lock:
+        valid = None
+        missing = Keys.getExistingMasterKeys()
+        corrupt = []
 
-    except:
-        logger.error(f'Provided keys file {key_file} is invalid.')
-    return valid
+        if not os.path.isfile(key_file):
+            logger.debug(f'Keys file {key_file} does not exist.')
+            return valid, missing, corrupt
+        
+        with open(key_file, 'rb') as f:
+            key_file_checksum = hashlib.sha256(f.read()).hexdigest()
+        
+        try:
+            if Keys.keys_loaded == None or key_file_checksum != Keys.getLoadedKeysChecksum():
+                valid = Keys.load(key_file)
+                missing = Keys.getMissingMasterKeys()
+                corrupt = Keys.getIncorrectKeysRevisions()
+            else:
+                valid = Keys.keys_loaded
+                missing = Keys.getMissingMasterKeys()
+                corrupt = Keys.getIncorrectKeysRevisions()
+        except:
+            logger.error(f'Provided keys file {key_file} is invalid.')
+        return valid, missing, corrupt
 
 def remove_obsolete_keys(target, defaults):
     removed = False
@@ -60,12 +75,15 @@ def load_settings():
             settings = DEFAULT_SETTINGS
             settings_updated = True
 
-        valid_keys = load_keys()
-        settings['titles']['valid_keys'] = valid_keys
-
         if settings_updated:
             with open(CONFIG_FILE, 'w') as yaml_file:
                 yaml.dump(settings, yaml_file)
+        
+        # Get Keys informations
+        valid_keys, missing_keys, corrupt_keys = load_keys()
+        settings['titles']['valid_keys'] = valid_keys
+        settings['titles']['missing_keys'] = missing_keys
+        settings['titles']['corrupt_keys'] = corrupt_keys
         return settings
 
 def verify_settings(section, data):
