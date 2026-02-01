@@ -43,7 +43,6 @@ DEFAULT_SETTINGS = {
     "titles": {
         "language": "en",
         "region": "US",
-        "valid_keys": False,
     },
     "shop": {
         "motd": "Welcome to your own shop!",

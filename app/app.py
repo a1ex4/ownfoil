@@ -15,7 +15,7 @@ from settings import *
 from db import *
 from shop import *
 from auth import *
-import titles
+import titles as titles_lib
 from utils import *
 from library import *
 import titledb
@@ -266,7 +266,7 @@ def tinfoil_access(f):
     return _tinfoil_access
 
 def access_shop():
-    return render_template('index.html', title='Library', admin_account_created=admin_account_created(), valid_keys=app_settings['titles']['valid_keys'])
+    return render_template('index.html', title='Library', admin_account_created=admin_account_created())
 
 @access_required('shop')
 def access_shop_auth():
@@ -311,8 +311,7 @@ def settings_page():
         'settings.html',
         title='Settings',
         languages_from_titledb=languages,
-        admin_account_created=admin_account_created(),
-        valid_keys=app_settings['titles']['valid_keys'])
+        admin_account_created=admin_account_created())
 
 @app.get('/api/settings')
 @access_required('admin')
@@ -328,9 +327,10 @@ def get_settings_api():
 @app.post('/api/settings/titles')
 @access_required('admin')
 def set_titles_settings_api():
-    settings = request.json
-    region = settings['region']
-    language = settings['language']
+    reload_conf()
+    title_settings = request.json
+    region = title_settings['region']
+    language = title_settings['language']
     with open(os.path.join(TITLEDB_DIR, 'languages.json')) as f:
         languages = json.load(f)
         languages = dict(sorted(languages.items()))
@@ -345,10 +345,12 @@ def set_titles_settings_api():
         }
         return jsonify(resp)
     
-    set_titles_settings(region, language)
-    reload_conf()
-    titledb.update_titledb(app_settings)
-    post_library_change()
+    if region != app_settings['titles']['region'] or language != app_settings['titles']['language']:
+        set_titles_settings(region, language)
+        reload_conf()
+        titledb.update_titledb(app_settings)
+        post_library_change()
+
     resp = {
         'success': True,
         'errors': []
@@ -417,27 +419,38 @@ def set_library_management_settings_api():
 def upload_file():
     errors = []
     success = False
-
-    file = request.files['file']
-    if file and allowed_file(file.filename):
-        # filename = secure_filename(file.filename)
-        file.save(KEYS_FILE + '.tmp')
-        logger.info(f'Validating {file.filename}...')
-        valid = load_keys(KEYS_FILE + '.tmp')
-        if valid:
-            os.rename(KEYS_FILE + '.tmp', KEYS_FILE)
+    valid_keys = None
+    try:
+        file = request.files['file']
+        if file and allowed_file(file.filename):
+            # filename = secure_filename(file.filename)
+            file.save(KEYS_FILE)
+            logger.info(f'Validating {file.filename}...')
+            valid_keys, missing_keys, corrupt_keys = load_keys(KEYS_FILE)
+            if valid_keys:
+                post_library_change()
+            else:
+                logger.warning(f'Invalid keys from {file.filename}')
             success = True
-            logger.info('Successfully saved valid keys.txt')
-            reload_conf()
-            post_library_change()
-        else:
-            os.remove(KEYS_FILE + '.tmp')
-            logger.error(f'Invalid keys from {file.filename}')
+            logger.info('Successfully saved keys.txt')
+
+    except Exception as e:
+        logger.error(f'Failed to upload console keys file: {e}')
+        os.remove(KEYS_FILE)
+        success = False
+        errors.append(str(e))
 
     resp = {
         'success': success,
-        'errors': errors
-    } 
+        'errors': errors,
+        'data': {}
+    }
+
+    if valid_keys is not None:
+        resp['data']['valid_keys'] = valid_keys
+        resp['data']['missing_keys'] = missing_keys
+        resp['data']['corrupt_keys'] = corrupt_keys
+    
     return jsonify(resp)
 
 
@@ -463,7 +476,7 @@ def serve_game(id):
 @debounce(10)
 def post_library_change():
     with app.app_context():
-        titles.load_titledb()
+        titles_lib.load_titledb()
         process_library_identification(app)
         add_missing_apps_to_db()
         update_titles() # Ensure titles are updated after identification
@@ -473,8 +486,8 @@ def post_library_change():
         # The process_library_identification already handles updating titles and generating library
         # So, we just need to ensure titles_library is updated from the generated library
         generate_library()
-        titles.identification_in_progress_count -= 1
-        titles.unload_titledb()
+        titles_lib.identification_in_progress_count -= 1
+        titles_lib.unload_titledb()
 
 @app.post('/api/library/scan')
 @access_required('admin')

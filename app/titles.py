@@ -239,11 +239,18 @@ def extract_meta_from_cnmt(cnmt_sections):
 def identify_file_from_cnmt(filepath):
     contents = []
     container = factory(Path(filepath).resolve())
-    container.open(filepath, 'rb', meta_only=True)
     try:
+        container.open(filepath, 'rb', meta_only=True)
         for cnmt_sections in get_cnmts(container):
             contents += extract_meta_from_cnmt(cnmt_sections)
-
+    except OSError as e:
+        # Check if the error is due to a missing master_key
+        match = re.search(r"master_key_([0-9a-fA-F]{2}) missing from", str(e))
+        if match:
+            key_index = match.group(1)
+            raise ValueError(f"Missing valid master_key_{key_index} from keys file.") from e
+        else:
+            raise # Re-raise other OSErrors
     finally:
         container.close()
 
