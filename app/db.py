@@ -83,6 +83,12 @@ class Files(db.Model):
 
     library = db.relationship('Libraries', backref=db.backref('files', lazy=True, cascade="all, delete-orphan"))
 
+    __table_args__ = (
+        db.Index('idx_files_library_id', 'library_id'),
+        db.Index('idx_files_filename', 'filename'),
+        db.Index('idx_files_identified', 'identified'),
+    )
+
 class Titles(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     title_id = db.Column(db.String, unique=True)
@@ -107,7 +113,11 @@ class Apps(db.Model):
     title = db.relationship('Titles', backref=db.backref('apps', lazy=True, cascade="all, delete-orphan"))
     files = db.relationship('Files', secondary=app_files, backref=db.backref('apps', lazy='select'))
 
-    __table_args__ = (db.UniqueConstraint('app_id', 'app_version', name='uq_apps_app_version'),)
+    __table_args__ = (
+        db.UniqueConstraint('app_id', 'app_version', name='uq_apps_app_version'),
+        db.Index('idx_apps_owned', 'owned'),
+        db.Index('idx_apps_app_id', 'app_id'),
+    )
 
 class User(UserMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
