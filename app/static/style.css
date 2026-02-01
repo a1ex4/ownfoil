@@ -464,3 +464,92 @@ p.game-description {
 .upload-file-item:last-child {
     border-bottom: none;
 }
+
+/* Settings sidebar navigation */
+.setting-body {
+    padding-left: 0;
+    padding-right: 0;
+}
+
+#settingsSidebar {
+    min-height: calc(100vh - 56px);
+    position: sticky;
+    top: 56px;
+    overflow-y: auto;
+    background-color: rgba(26, 30, 34, 0.98) !important;
+    border-right: 1px solid rgba(255, 255, 255, 0.1) !important;
+}
+
+#settingsSidebar .d-flex {
+    border-bottom-color: rgba(255, 255, 255, 0.1) !important;
+}
+
+#settingsNav .nav-link {
+    color: rgba(255, 255, 255, 0.75);
+    padding: 0.75rem 1rem;
+    border-radius: 0.375rem;
+    margin-bottom: 0.25rem;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+}
+
+#settingsNav .nav-link:hover {
+    color: rgba(255, 255, 255, 0.95);
+    background-color: rgba(255, 255, 255, 0.08);
+}
+
+#settingsNav .nav-link.active {
+    color: #fff;
+    background-color: rgba(13, 110, 253, 0.25);
+    font-weight: 500;
+}
+
+#settingsNav .nav-link svg {
+    flex-shrink: 0;
+}
+
+/* Mobile sidebar */
+@media (max-width: 767.98px) {
+    #settingsSidebar {
+        position: fixed;
+        top: 56px;
+        left: -100%;
+        width: 280px;
+        height: calc(100vh - 56px);
+        z-index: 1040;
+        transition: left 0.3s ease;
+        box-shadow: 2px 0 8px rgba(0, 0, 0, 0.3);
+    }
+    
+    #settingsSidebar.show {
+        left: 0;
+    }
+    
+    /* Overlay when sidebar is open */
+    body.sidebar-open::before {
+        content: '';
+        position: fixed;
+        top: 56px;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0, 0, 0, 0.5);
+        z-index: 1039;
+    }
+}
+
+.settings-section {
+    animation: fadeIn 0.2s ease-in;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
