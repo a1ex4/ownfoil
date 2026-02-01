@@ -26,6 +26,20 @@ def load_keys(key_file=KEYS_FILE):
         logger.error(f'Provided keys file {key_file} is invalid.')
     return valid
 
+def remove_obsolete_keys(target, defaults):
+    removed = False
+    keys_to_remove = [key for key in target if key not in defaults]
+    for key in keys_to_remove:
+        logger.debug(f"Removing obsolete key: {key}")
+        del target[key]
+        removed = True
+
+    for key, value in target.items():
+        if isinstance(value, dict) and key in defaults and isinstance(defaults[key], dict):
+            if remove_obsolete_keys(value, defaults[key]):
+                removed = True
+    return removed
+
 def load_settings():
     settings_updated = False
     with settings_lock:
@@ -33,6 +47,10 @@ def load_settings():
             logger.debug('Reading configuration file.')
             with open(CONFIG_FILE, 'r') as yaml_file:
                 settings = yaml.safe_load(yaml_file)
+
+            # Remove obsolete keys from loaded settings
+            if remove_obsolete_keys(settings, DEFAULT_SETTINGS):
+                settings_updated = True
 
             # Merge default settings into loaded settings
             if merge_dicts_recursive(DEFAULT_SETTINGS, settings):
