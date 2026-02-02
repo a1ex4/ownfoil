@@ -27,7 +27,8 @@
     /* Keep icon tiles at an actual, distinct size per step (don't stretch to fill). */
     grid-template-columns: repeat(auto-fill, minmax(var(--icon-size, 120px), var(--icon-size, 120px)));
     gap: 1rem;
-    margin: 0;
+    margin: 0 auto;
+    justify-content: center;
 }
 
 .game-icon-btn {
