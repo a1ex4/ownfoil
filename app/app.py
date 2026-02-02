@@ -1,6 +1,6 @@
 from flask import Flask, render_template, request, redirect, url_for, jsonify, send_from_directory, Response
 from flask_login import LoginManager
-from scheduler import init_scheduler
+from scheduler import init_scheduler, validate_interval_string, schedule_update_and_scan_job
 from functools import wraps
 from file_watcher import Watcher
 import threading
@@ -39,77 +39,19 @@ def init():
     library_paths = app_settings['library']['paths']
     init_libraries(app, watcher, library_paths)
 
-     # Initialize job scheduler
+    # Initialize and schedule jobs
     logger.info('Initializing Scheduler...')
     init_scheduler(app)
-    
-    # Define update_titledb_job
-    def update_titledb_job():
-        global is_titledb_update_running
-        with titledb_update_lock:
-            is_titledb_update_running = True
-        logger.info("Starting TitleDB update job...")
-        try:
-            current_settings = load_settings()
-            titledb.update_titledb(current_settings)
-            logger.info("TitleDB update job completed.")
-        except Exception as e:
-            logger.error(f"Error during TitleDB update job: {e}")
-        finally:
-            with titledb_update_lock:
-                is_titledb_update_running = False
-        
-    # Define scan_library_job
-    def scan_library_job():
-        global is_titledb_update_running
-        with titledb_update_lock:
-            if is_titledb_update_running:
-                logger.info("Skipping scheduled library scan: update_titledb job is currently in progress. Rescheduling in 5 minutes.")
-                # Reschedule the job for 5 minutes later
-                app.scheduler.add_job(
-                    job_id=f'scan_library_rescheduled_{datetime.now().timestamp()}', # Unique ID
-                    func=scan_library_job,
-                    run_once=True,
-                    start_date=datetime.now().replace(microsecond=0) + timedelta(minutes=5)
-                )
-                return
-        logger.info("Starting scheduled library scan job...")
-        global scan_in_progress
-        with scan_lock:
-            if scan_in_progress:
-                logger.info(f'Skipping scheduled library scan: scan already in progress.')
-                return # Skip the scan if already in progress
-            scan_in_progress = True
-        try:
-            scan_library()
-            post_library_change()
-            logger.info("Scheduled library scan job completed.")
-        except Exception as e:
-            logger.error(f"Error during scheduled library scan job: {e}")
-        finally:
-            with scan_lock:
-                scan_in_progress = False
-
-    # Update job: run update_titledb then scan_library once on startup
-    def update_db_and_scan_job():
-        logger.info("Running update job (TitleDB update and library scan)...")
-        update_titledb_job() # This will set/reset the flag
-        scan_library_job() # This will check the flag and run if update_titledb_job is done
-        logger.info("Update job completed.")
-
-    # Schedule the update job to run immediately and only once
-    app.scheduler.add_job(
-        job_id='update_db_and_scan',
-        func=update_db_and_scan_job,
-        interval=timedelta(hours=2),
-        run_first=True
-    )
+    scan_interval_str = app_settings.get('scheduler', {}).get('scan_interval', '2h')
+    schedule_update_and_scan_job(app, scan_interval_str, run_first=True)
 
 os.makedirs(CONFIG_DIR, exist_ok=True)
 os.makedirs(DATA_DIR, exist_ok=True)
 
 ## Global variables
 app_settings = {}
+watcher = None
+watcher_thread = None
 # Create a global variable and lock for scan_in_progress
 scan_in_progress = False
 scan_lock = threading.Lock()
@@ -413,6 +355,36 @@ def set_library_management_settings_api():
         'errors': []
     }
     return jsonify(resp)
+
+@app.post('/api/settings/scheduler')
+@access_required('admin')
+def set_scheduler_settings_api():
+    data = request.json
+    scan_interval_str = data.get('scan_interval')
+    
+    if scan_interval_str is not None:
+        is_valid, error_msg = validate_interval_string(scan_interval_str)
+        if not is_valid:
+            return jsonify({
+                'success': False,
+                'errors': [{'path': 'scheduler/scan_interval', 'error': error_msg}]
+            })
+    
+    set_scheduler_settings(data)
+    reload_conf()
+    
+    if scan_interval_str is not None:
+        try:
+            current_interval_str = app_settings.get('scheduler', {}).get('scan_interval', '2h')
+            schedule_update_and_scan_job(app, current_interval_str, run_first=False)
+        except Exception as e:
+            logger.error(f"Error updating scheduler: {e}")
+            return jsonify({
+                'success': False,
+                'errors': [{'path': 'scheduler', 'error': str(e)}]
+            })
+    
+    return jsonify({'success': True, 'errors': []})
 
 @app.post('/api/upload')
 @access_required('admin')
