@@ -149,6 +149,32 @@
                 <div class="settings-section" id="section-library" data-section="library">
                 <h2 class="pb-3">Library</h2>
 
+                <div class="form-check form-switch mb-3">
+                    <input class="form-check-input" type="checkbox" id="libraryAutoMaintenanceCheck" onChange="submitLibrarySettings()">
+                    <label class="form-check-label" for="libraryAutoMaintenanceCheck">Auto-maintain library</label>
+                    <div class="form-text">Runs library organization and removes empty folders on a schedule.</div>
+                </div>
+
+                <div class="row g-3 mb-3">
+                    <div class="col-md-4">
+                        <label for="libraryMaintenanceIntervalInput" class="form-label">Maintenance interval (minutes)</label>
+                        <input type="number" min="30" class="form-control" id="libraryMaintenanceIntervalInput" onChange="submitLibrarySettings()">
+                        <div class="form-text">Minimum 30 minutes. Values below 30 are clamped.</div>
+                    </div>
+                    <div class="col-md-5 d-flex align-items-end">
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="libraryMaintenanceDeleteUpdatesCheck" onChange="submitLibrarySettings()">
+                            <label class="form-check-label" for="libraryMaintenanceDeleteUpdatesCheck">Delete older updates during maintenance</label>
+                        </div>
+                    </div>
+                    <div class="col-md-3 d-flex align-items-end">
+                        <div>
+                            <div class="form-text">Last maintenance run</div>
+                            <div id="libraryMaintenanceLastRun" class="small text-muted">Never</div>
+                        </div>
+                    </div>
+                </div>
+
                 <label class="form-label">Library paths:</label>
                 <div id="libraryPathHelp" class="form-text">Path of directory containing your games.</div>
                 <table class="table table-hover caption-top" id="pathsTable">
@@ -905,6 +931,29 @@
         });
     }
 
+    function submitLibrarySettings() {
+        let intervalVal = parseInt(getInputVal("libraryMaintenanceIntervalInput"), 10);
+        if (isNaN(intervalVal)) {
+            intervalVal = 720;
+        }
+        intervalVal = Math.max(30, intervalVal);
+        setInputVal("libraryMaintenanceIntervalInput", intervalVal);
+        const payload = {
+            auto_maintenance: getCheckboxStatus("libraryAutoMaintenanceCheck"),
+            maintenance_interval_minutes: intervalVal,
+            maintenance_delete_updates: getCheckboxStatus("libraryMaintenanceDeleteUpdatesCheck")
+        };
+        $.ajax({
+            url: "/api/settings/library",
+            type: "POST",
+            data: JSON.stringify(payload),
+            contentType: "application/json",
+            success: function () {
+                console.log("Library settings saved.");
+            }
+        });
+    }
+
     function testProwlarrSettings() {
         $('#testProwlarrBtn').prop('disabled', true);
         $('#prowlarrTestResult').text('Testing...').removeClass('text-danger text-success').addClass('text-muted');
@@ -1067,6 +1116,20 @@
 
             // Library settings
             librarySettings = result['library'];
+            $("#libraryAutoMaintenanceCheck").prop("checked", !!librarySettings['auto_maintenance']);
+            setInputVal("libraryMaintenanceIntervalInput", librarySettings['maintenance_interval_minutes'] || 720);
+            $("#libraryMaintenanceDeleteUpdatesCheck").prop("checked", librarySettings['maintenance_delete_updates'] !== false);
+            const maintenanceLastRun = librarySettings['maintenance_last_run'];
+            if (maintenanceLastRun) {
+                try {
+                    const dt = new Date(maintenanceLastRun);
+                    $('#libraryMaintenanceLastRun').text(dt.toLocaleString());
+                } catch (e) {
+                    $('#libraryMaintenanceLastRun').text(maintenanceLastRun);
+                }
+            } else {
+                $('#libraryMaintenanceLastRun').text('Never');
+            }
             // Titles settings
             titlesSettings = result['titles'];
 

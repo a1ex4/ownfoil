@@ -58,6 +58,14 @@ def load_settings(force_reload=False):
             merged.update(settings.get('downloads', {}))
             settings['downloads'] = merged
 
+        if 'library' not in settings:
+            settings['library'] = DEFAULT_SETTINGS.get('library', {})
+        else:
+            defaults = DEFAULT_SETTINGS.get('library', {})
+            merged = defaults.copy()
+            merged.update(settings.get('library', {}))
+            settings['library'] = merged
+
         valid_keys = load_keys()
         settings['titles']['valid_keys'] = valid_keys
 
@@ -181,5 +189,14 @@ def set_download_settings(data):
     with open(CONFIG_FILE, 'w') as yaml_file:
         yaml.dump(settings, yaml_file)
     # Invalidate cache
+    global _settings_cache
+    _settings_cache = None
+
+def set_library_settings(data):
+    settings = load_settings(force_reload=True)
+    settings.setdefault('library', {})
+    settings['library'].update(data)
+    with open(CONFIG_FILE, 'w') as yaml_file:
+        yaml.dump(settings, yaml_file)
     global _settings_cache
     _settings_cache = None

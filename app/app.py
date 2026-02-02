@@ -16,6 +16,7 @@ flask.cli.show_server_banner = lambda *args: None
 from constants import *
 from settings import *
 from downloads import ProwlarrClient, test_torrent_client, run_downloads_job, manual_search_update, queue_download_url, search_update_options, check_completed_downloads, get_downloads_state
+from library import organize_library, delete_older_updates
 from db import *
 from shop import *
 from auth import *
@@ -168,11 +169,22 @@ def init():
     def downloads_job():
         run_downloads_job(scan_cb=scan_library, post_cb=post_library_change)
 
+    def maintenance_job():
+        run_library_maintenance()
+
     # Automatic update downloader job
     app.scheduler.add_job(
         job_id='downloads_update_job',
         func=downloads_job,
         interval=timedelta(minutes=5)
+    )
+
+    maintenance_interval_minutes = _get_maintenance_interval_minutes(app_settings)
+    app.scheduler.add_job(
+        job_id=LIBRARY_MAINTENANCE_JOB_ID,
+        func=maintenance_job,
+        interval=timedelta(minutes=maintenance_interval_minutes),
+        run_first=True
     )
     
     # Define update_titledb_job
@@ -239,6 +251,67 @@ def init():
 
 os.makedirs(CONFIG_DIR, exist_ok=True)
 os.makedirs(DATA_DIR, exist_ok=True)
+
+LIBRARY_MAINTENANCE_JOB_ID = 'library_maintenance_job'
+
+def _get_maintenance_interval_minutes(settings):
+    interval = settings.get('library', {}).get('maintenance_interval_minutes', 720)
+    try:
+        interval = int(interval)
+    except Exception:
+        interval = 720
+    return max(30, interval)
+
+def run_library_maintenance():
+    try:
+        current_settings = load_settings()
+        library_cfg = current_settings.get('library', {})
+        if not library_cfg.get('auto_maintenance', False):
+            return
+        logger.info("Starting scheduled library maintenance job...")
+        results = organize_library(dry_run=False, verbose=False)
+        if library_cfg.get('maintenance_delete_updates', True):
+            delete_results = delete_older_updates(dry_run=False, verbose=False)
+            if not delete_results.get('success'):
+                logger.warning("Delete updates reported errors: %s", delete_results.get('errors'))
+        if results.get('success'):
+            post_library_change()
+            logger.info("Library maintenance completed.")
+        else:
+            logger.warning("Library maintenance reported errors: %s", results.get('errors'))
+    except Exception as e:
+        logger.error("Error during library maintenance job: %s", e)
+
+def _reschedule_library_maintenance(app):
+    try:
+        interval_minutes = _get_maintenance_interval_minutes(app_settings)
+        interval = timedelta(minutes=interval_minutes)
+        import datetime as dt
+        scheduler = getattr(app, 'scheduler', None)
+        if not scheduler:
+            return False
+        lock = getattr(scheduler, '_lock', None)
+        jobs = getattr(scheduler, 'scheduled_jobs', None)
+        if lock is None or jobs is None:
+            return False
+        with lock:
+            job = jobs.get(LIBRARY_MAINTENANCE_JOB_ID)
+            if job:
+                job['interval'] = interval
+                job['cron'] = None
+                job['run_once'] = False
+                job['next_run'] = dt.datetime.now().replace(microsecond=0) + interval
+                return True
+        scheduler.add_job(
+            job_id=LIBRARY_MAINTENANCE_JOB_ID,
+            func=run_library_maintenance,
+            interval=interval,
+            run_first=False
+        )
+        return True
+    except Exception as e:
+        logger.warning("Failed to reschedule maintenance job: %s", e)
+        return False
 
 ## Global variables
 app_settings = {}
@@ -1822,6 +1895,15 @@ def get_settings_api():
 
     # Surface the effective public key in the UI even if it isn't in settings.yaml yet.
     settings['shop']['public_key'] = settings['shop'].get('public_key') or TINFOIL_PUBLIC_KEY
+    try:
+        scheduler = getattr(app, 'scheduler', None)
+        if scheduler:
+            job = scheduler.scheduled_jobs.get(LIBRARY_MAINTENANCE_JOB_ID)
+            last_run = job.get('last_run') if job else None
+            settings.setdefault('library', {})
+            settings['library']['maintenance_last_run'] = last_run.isoformat() if last_run else None
+    except Exception:
+        pass
     return jsonify(settings)
 
 @app.post('/api/settings/titles')
@@ -1883,6 +1965,19 @@ def set_download_settings_api():
     data = request.json or {}
     set_download_settings(data)
     reload_conf()
+    resp = {
+        'success': True,
+        'errors': []
+    }
+    return jsonify(resp)
+
+@app.post('/api/settings/library')
+@access_required('admin')
+def set_library_settings_api():
+    data = request.json or {}
+    set_library_settings(data)
+    reload_conf()
+    _reschedule_library_maintenance(app)
     resp = {
         'success': True,
         'errors': []

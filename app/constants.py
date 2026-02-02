@@ -44,6 +44,9 @@ DEFAULT_SETTINGS = {
     },
     "library": {
         "paths": ["/games"],
+        "auto_maintenance": False,
+        "maintenance_interval_minutes": 720,
+        "maintenance_delete_updates": True,
     },
     "titles": {
         "language": "en",
