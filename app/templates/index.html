@@ -592,7 +592,7 @@
 
             const card = $('<div class="card text-bg-dark game-card"></div>');
 
-            const cacheBannerSrc = game.title_id ? `/api/shop/banner/${game.title_id}` : '';
+            const cacheBannerSrc = game.title_id ? `/api/shop/banner/${game.title_id}?size=web` : '';
             const bannerFallback = '/static/placeholder-banner.svg';
             const img = $('<img class="card-img"></img>').attr('src', cacheBannerSrc || bannerFallback);
             img.on('error', function () {
@@ -725,7 +725,7 @@
                 .attr('data-bs-target', '#detailsModal')
                 .attr('data-bs-app-id', game.app_id)
                 .attr('data-bs-app-type', game.app_type);
-            const cacheIconSrc = game.title_id ? `/api/shop/icon/${game.title_id}` : '';
+            const cacheIconSrc = game.title_id ? `/api/shop/icon/${game.title_id}?size=web` : '';
             const iconFallback = '/static/placeholder-icon.svg';
             const title = escapeHtml(getGameTitle(game));
             const parts = splitGenres(getGameGenre(game));

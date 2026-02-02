@@ -55,11 +55,15 @@ _media_resize_lock = threading.Lock()
 
 _ICON_SIZE = (300, 300)
 _BANNER_SIZE = (920, 520)
+_WEB_ICON_SIZE = (300, 300)
+_WEB_BANNER_SIZE = (640, 360)
 
-def _media_variant_dirname(media_kind):
+def _media_variant_dirname(media_kind, size_override=None):
     if media_kind == 'icon':
-        return f"icons_{_ICON_SIZE[0]}x{_ICON_SIZE[1]}"
-    return f"banners_{_BANNER_SIZE[0]}x{_BANNER_SIZE[1]}"
+        size = size_override or _ICON_SIZE
+        return f"icons_{size[0]}x{size[1]}"
+    size = size_override or _BANNER_SIZE
+    return f"banners_{size[0]}x{size[1]}"
 
 def _is_jpeg_name(filename):
     return str(filename).lower().endswith(('.jpg', '.jpeg'))
@@ -88,13 +92,19 @@ def _resize_image_to_path(src_path, dest_path, size, quality=85):
         logger.error(f"Failed to resize image from {src_path} to {dest_path}: {e}")
         return False
 
-def _get_variant_path(cache_dir, cached_name, media_kind):
+def _get_variant_path(cache_dir, cached_name, media_kind, size_override=None):
     if not cached_name:
         return None
-    size = _ICON_SIZE if media_kind == 'icon' else _BANNER_SIZE
-    variant_dir = os.path.join(CACHE_DIR, _media_variant_dirname(media_kind))
+    size = size_override or (_ICON_SIZE if media_kind == 'icon' else _BANNER_SIZE)
+    variant_dir = os.path.join(CACHE_DIR, _media_variant_dirname(media_kind, size_override=size_override))
     variant_path = os.path.join(variant_dir, cached_name)
     return size, variant_dir, variant_path
+
+def _get_web_media_size(media_kind):
+    size_key = (request.args.get('size') or '').lower().strip()
+    if size_key not in ('web', 'small'):
+        return None
+    return _WEB_ICON_SIZE if media_kind == 'icon' else _WEB_BANNER_SIZE
 
 def _get_cached_media_filename(cache_dir, title_id, media_kind='icon'):
     """Return cached filename for title_id if present on disk."""
@@ -2913,10 +2923,11 @@ def shop_icon_api(title_id):
     os.makedirs(cache_dir, exist_ok=True)
 
     # Fast path: serve cached file without TitleDB lookup.
+    size_override = _get_web_media_size('icon')
     cached_name = _get_cached_media_filename(cache_dir, title_id, media_kind='icon')
     if cached_name:
         src_path = os.path.join(cache_dir, cached_name)
-        size, variant_dir, variant_path = _get_variant_path(cache_dir, cached_name, media_kind='icon')
+        size, variant_dir, variant_path = _get_variant_path(cache_dir, cached_name, media_kind='icon', size_override=size_override)
         if variant_path and os.path.exists(variant_path) and os.path.getmtime(variant_path) >= os.path.getmtime(src_path):
             response = send_from_directory(variant_dir, cached_name)
             response.headers['Cache-Control'] = 'public, max-age=604800, immutable'
@@ -3007,7 +3018,7 @@ def shop_icon_api(title_id):
 
     if cache_path and os.path.exists(cache_path):
         _remember_cached_media_filename(title_id, cache_name, media_kind='icon')
-        size, variant_dir, variant_path = _get_variant_path(cache_dir, cache_name, media_kind='icon')
+        size, variant_dir, variant_path = _get_variant_path(cache_dir, cache_name, media_kind='icon', size_override=size_override)
         if variant_path:
             with _media_resize_lock:
                 if not os.path.exists(variant_path) or os.path.getmtime(variant_path) < os.path.getmtime(cache_path):
@@ -3065,10 +3076,11 @@ def shop_banner_api(title_id):
     os.makedirs(cache_dir, exist_ok=True)
 
     # Fast path: serve cached file without TitleDB lookup.
+    size_override = _get_web_media_size('banner')
     cached_name = _get_cached_media_filename(cache_dir, title_id, media_kind='banner')
     if cached_name:
         src_path = os.path.join(cache_dir, cached_name)
-        size, variant_dir, variant_path = _get_variant_path(cache_dir, cached_name, media_kind='banner')
+        size, variant_dir, variant_path = _get_variant_path(cache_dir, cached_name, media_kind='banner', size_override=size_override)
         if variant_path and os.path.exists(variant_path) and os.path.getmtime(variant_path) >= os.path.getmtime(src_path):
             response = send_from_directory(variant_dir, cached_name)
             response.headers['Cache-Control'] = 'public, max-age=604800, immutable'
@@ -3159,7 +3171,7 @@ def shop_banner_api(title_id):
 
     if cache_path and os.path.exists(cache_path):
         _remember_cached_media_filename(title_id, cache_name, media_kind='banner')
-        size, variant_dir, variant_path = _get_variant_path(cache_dir, cache_name, media_kind='banner')
+        size, variant_dir, variant_path = _get_variant_path(cache_dir, cache_name, media_kind='banner', size_override=size_override)
         if variant_path:
             with _media_resize_lock:
                 if not os.path.exists(variant_path) or os.path.getmtime(variant_path) < os.path.getmtime(cache_path):
