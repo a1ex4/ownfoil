@@ -31,9 +31,9 @@ def add_torrent(client_type, url, username=None, password=None, download_url=Non
     if client_type == "qbittorrent":
         return _add_qbittorrent(url, username, password, download_url, category, download_path, timeout_seconds, expected_name, update_only, exclude_russian, expected_update_number, expected_version)
     if client_type == "transmission":
-        return _add_transmission(url, username, password, download_url, category, download_path, timeout_seconds)
+        return _add_transmission(url, username, password, download_url, category, download_path, timeout_seconds, expected_name, update_only, exclude_russian, expected_update_number, expected_version)
     if client_type == "deluge":
-        return _add_deluge(url, password, download_url, category, download_path, timeout_seconds)
+        return _add_deluge(url, password, download_url, category, download_path, timeout_seconds, update_only, exclude_russian, expected_update_number, expected_version)
     return False, "Unsupported client type.", None
 
 
@@ -146,12 +146,14 @@ def _test_deluge(url, password=None, timeout_seconds=10):
     return True, f"Deluge OK{f' (v{version})' if version else ''}."
 
 
-def _add_deluge(url, password, download_url, category, download_path, timeout_seconds):
+def _add_deluge(url, password, download_url, category, download_path, timeout_seconds, update_only, exclude_russian, expected_update_number, expected_version):
     ok, logged_in = _deluge_login(url, password, timeout_seconds=timeout_seconds)
     if not ok or not logged_in:
         return False, "Deluge login failed.", None
 
     options = {}
+    if update_only:
+        options["add_paused"] = True
     if download_path:
         options["download_location"] = download_path
 
@@ -179,6 +181,49 @@ def _add_deluge(url, password, download_url, category, download_path, timeout_se
         torrent_hash = result.get("id")
     if not torrent_hash:
         torrent_hash = _extract_magnet_hash(download_url)
+
+    if update_only and torrent_hash:
+        file_names = None
+        for _ in range(10):
+            ok, status = _deluge_json_rpc(
+                url,
+                password,
+                "core.get_torrent_status",
+                [torrent_hash, ["files"]],
+                timeout_seconds=timeout_seconds
+            )
+            if ok and isinstance(status, dict) and status.get("files"):
+                files = status.get("files") or []
+                file_names = [f.get("path") for f in files]
+                break
+            time.sleep(1)
+        keep_indices = _select_update_file_indices(
+            file_names or [],
+            expected_update_number=expected_update_number,
+            expected_version=expected_version,
+            exclude_russian=exclude_russian
+        )
+        if not keep_indices:
+            _remove_deluge(url, password, torrent_hash, timeout_seconds)
+            return False, "No matching update version found in torrent.", None
+        priorities = [0] * len(file_names or [])
+        for idx in keep_indices:
+            if idx < len(priorities):
+                priorities[idx] = 1
+        _deluge_json_rpc(
+            url,
+            password,
+            "core.set_torrent_file_priorities",
+            [torrent_hash, priorities],
+            timeout_seconds=timeout_seconds
+        )
+        _deluge_json_rpc(
+            url,
+            password,
+            "core.resume_torrent",
+            [[torrent_hash]],
+            timeout_seconds=timeout_seconds
+        )
     return True, "Deluge accepted torrent.", torrent_hash
 
 
@@ -198,6 +243,16 @@ def _add_qbittorrent(url, username, password, download_url, category, download_p
     data = {"urls": download_url}
     temp_tag = None
     if update_only:
+        preflight_files = _get_torrent_file_list(download_url, timeout_seconds)
+        if preflight_files is not None:
+            keep_ids = _select_update_file_indices(
+                preflight_files,
+                expected_update_number=expected_update_number,
+                expected_version=expected_version,
+                exclude_russian=exclude_russian
+            )
+            if not keep_ids:
+                return False, "No matching update version found in torrent.", None
         temp_tag = f"ownfoil_update_{int(time.time())}_{secrets.token_hex(3)}"
     if category:
         data["category"] = category
@@ -260,30 +315,91 @@ def _add_qbittorrent(url, username, password, download_url, category, download_p
     return True, "qBittorrent accepted torrent.", torrent_hash
 
 
-def _add_transmission(url, username, password, download_url, category, download_path, timeout_seconds):
+def _add_transmission(url, username, password, download_url, category, download_path, timeout_seconds, expected_name, update_only, exclude_russian, expected_update_number, expected_version):
     base = url.rstrip("/")
     session = requests.Session()
     session.headers.update({"User-Agent": "Ownfoil/Downloads"})
     if username or password:
         session.auth = (username or "", password or "")
 
+    preflight_files = None
+    if update_only:
+        preflight_files = _get_torrent_file_list(download_url, timeout_seconds)
+        if preflight_files is not None:
+            keep_ids = _select_update_file_indices(
+                preflight_files,
+                expected_update_number=expected_update_number,
+                expected_version=expected_version,
+                exclude_russian=exclude_russian
+            )
+            if not keep_ids:
+                return False, "No matching update version found in torrent.", None
+
     payload = {"method": "torrent-add", "arguments": {"filename": download_url}}
+    if update_only:
+        payload["arguments"]["paused"] = True
     if category:
         payload["arguments"]["labels"] = [category]
     if download_path:
         payload["arguments"]["download-dir"] = download_path
 
-    resp = session.post(f"{base}/transmission/rpc", json=payload, timeout=timeout_seconds)
-    if resp.status_code == 409:
-        session_id = resp.headers.get("X-Transmission-Session-Id")
-        if session_id:
-            session.headers.update({"X-Transmission-Session-Id": session_id})
-            resp = session.post(f"{base}/transmission/rpc", json=payload, timeout=timeout_seconds)
+    def _request(payload_body):
+        resp = session.post(f"{base}/transmission/rpc", json=payload_body, timeout=timeout_seconds)
+        if resp.status_code == 409:
+            session_id = resp.headers.get("X-Transmission-Session-Id")
+            if session_id:
+                session.headers.update({"X-Transmission-Session-Id": session_id})
+                resp = session.post(f"{base}/transmission/rpc", json=payload_body, timeout=timeout_seconds)
+        return resp
+
+    resp = _request(payload)
     if resp.status_code != 200:
         return False, f"Transmission returned {resp.status_code}.", None
     data = resp.json().get("arguments", {})
     torrent = data.get("torrent-added") or data.get("torrent-duplicate") or {}
     torrent_hash = torrent.get("hashString") or _extract_magnet_hash(download_url)
+    torrent_id = torrent.get("id") or torrent.get("hashString")
+
+    if update_only and not torrent_id:
+        return False, "Unable to resolve torrent id for file selection.", None
+    if update_only and torrent_id:
+        file_indices = None
+        file_names = None
+        for _ in range(10):
+            info_payload = {
+                "method": "torrent-get",
+                "arguments": {"fields": ["id", "files", "name"], "ids": [torrent_id]}
+            }
+            info_resp = _request(info_payload)
+            if info_resp.status_code == 200:
+                torrents = info_resp.json().get("arguments", {}).get("torrents", []) or []
+                if torrents and torrents[0].get("files"):
+                    files = torrents[0].get("files") or []
+                    file_names = [f.get("name") for f in files]
+                    file_indices = _select_update_file_indices(
+                        file_names,
+                        expected_update_number=expected_update_number,
+                        expected_version=expected_version,
+                        exclude_russian=exclude_russian
+                    )
+                    break
+            time.sleep(1)
+        if not file_indices:
+            if torrent_hash:
+                _remove_transmission(url, username, password, torrent_hash, timeout_seconds)
+            return False, "No matching update version found in torrent.", None
+        all_indices = list(range(len(file_names))) if file_names else []
+        unwanted = [i for i in all_indices if i not in file_indices]
+        set_payload = {
+            "method": "torrent-set",
+            "arguments": {
+                "ids": [torrent_id],
+                "files-wanted": file_indices,
+                "files-unwanted": unwanted
+            }
+        }
+        _request(set_payload)
+        _request({"method": "torrent-start", "arguments": {"ids": [torrent_id]}})
     return True, "Transmission accepted torrent.", torrent_hash
 
 
@@ -518,6 +634,120 @@ def _compute_torrent_infohash(download_url, timeout_seconds):
         return hashlib.sha1(info_slice).hexdigest()
     except Exception:
         return None
+
+
+def _bdecode_value(data, idx):
+    if idx >= len(data):
+        return None, idx
+    token = data[idx:idx + 1]
+    if token == b"i":
+        idx += 1
+        end = data.find(b"e", idx)
+        if end == -1:
+            return None, idx
+        try:
+            value = int(data[idx:end])
+        except Exception:
+            value = None
+        return value, end + 1
+    if token == b"l":
+        idx += 1
+        items = []
+        while idx < len(data) and data[idx:idx + 1] != b"e":
+            item, idx = _bdecode_value(data, idx)
+            items.append(item)
+        return items, idx + 1
+    if token == b"d":
+        idx += 1
+        items = {}
+        while idx < len(data) and data[idx:idx + 1] != b"e":
+            key, idx = _bdecode_bytes(data, idx)
+            if key is None:
+                return None, idx
+            value, idx = _bdecode_value(data, idx)
+            items[key] = value
+        return items, idx + 1
+    if token.isdigit():
+        value, next_idx = _bdecode_bytes(data, idx)
+        return value, next_idx
+    return None, idx
+
+
+def _decode_torrent_text(value):
+    if value is None:
+        return ""
+    if isinstance(value, bytes):
+        try:
+            return value.decode("utf-8")
+        except Exception:
+            return value.decode("latin-1", errors="ignore")
+    return str(value)
+
+
+def _get_torrent_file_list(download_url, timeout_seconds):
+    if not download_url or download_url.lower().startswith("magnet:"):
+        return None
+    try:
+        resp = requests.get(download_url, timeout=timeout_seconds)
+        if resp.status_code != 200:
+            return None
+        data = resp.content
+        metadata, _ = _bdecode_value(data, 0)
+        if not isinstance(metadata, dict):
+            return None
+        info = metadata.get(b"info")
+        if not isinstance(info, dict):
+            return None
+        files = info.get(b"files")
+        if isinstance(files, list):
+            file_list = []
+            for entry in files:
+                if not isinstance(entry, dict):
+                    continue
+                path_parts = entry.get(b"path.utf-8") or entry.get(b"path") or []
+                if not isinstance(path_parts, list):
+                    continue
+                decoded_parts = [_decode_torrent_text(p) for p in path_parts if p is not None]
+                if decoded_parts:
+                    file_list.append("/".join(decoded_parts))
+            return file_list
+        name = info.get(b"name.utf-8") or info.get(b"name")
+        if name:
+            return [_decode_torrent_text(name)]
+    except Exception:
+        return None
+    return None
+
+
+def _select_update_file_indices(file_names, expected_update_number=None, expected_version=None, exclude_russian=False):
+    if not file_names:
+        return []
+    version_map = []
+    for idx, name in enumerate(file_names):
+        name = name or ""
+        lowered = name.lower()
+        if exclude_russian and ("russian" in lowered or "rus" in lowered):
+            continue
+        match = re.search(r"\[v(\d+)\]", name, re.IGNORECASE)
+        if match:
+            try:
+                version_map.append((int(match.group(1)), idx))
+            except ValueError:
+                continue
+    if not version_map:
+        return []
+    expected_value = None
+    if expected_version is not None:
+        try:
+            expected_value = int(expected_version)
+        except (TypeError, ValueError):
+            expected_value = None
+    if expected_value and expected_value > 0:
+        return [idx for version, idx in version_map if version == expected_value]
+    if expected_update_number is not None and expected_update_number > 0:
+        return [idx for version, idx in version_map if version == expected_update_number]
+    highest = max(version_map, key=lambda pair: pair[0])[0]
+    return [idx for version, idx in version_map if version == highest]
 
 
 def _extract_info_bencode_slice(data):
