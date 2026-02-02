@@ -1299,7 +1299,7 @@
                 $('#torrentSearchResults').empty();
                 const modal = new bootstrap.Modal(document.getElementById('torrentSearchModal'));
                 modal.show();
-                $.getJSON(`/api/downloads/search?query=${encodeURIComponent(query)}`, function (result) {
+                $.getJSON(`/api/downloads/search?query=${encodeURIComponent(query)}&apply_settings=1`, function (result) {
                     if (!result['success']) {
                         $('#torrentSearchStatus').text(result['message'] || 'Search failed.');
                         return;
@@ -1446,6 +1446,13 @@
                         data-title-id="${game.title_id}" data-version="${latestMissing.version}">
                         <i class="bi bi-cloud-arrow-down"></i> Search & download v${latestMissing.version}
                     </button>
+                    <div class="input-group input-group-sm mt-2 manual-search-group">
+                        <input type="text" class="form-control manual-search-input" placeholder="Custom search terms">
+                        <button type="button" class="btn btn-outline-secondary manual-search-btn"
+                            data-title-id="${game.title_id}" data-version="${latestMissing.version}">
+                            Search files
+                        </button>
+                    </div>
                 </div>
             `
             : '';
@@ -1604,6 +1611,62 @@
             complete: function () {
                 button.prop('disabled', false);
             }
+        });
+    });
+
+    $(document).on('click', '.manual-search-btn', function () {
+        const button = $(this);
+        const group = button.closest('.manual-search-group');
+        const input = group.find('.manual-search-input');
+        const query = (input.val() || '').trim();
+        const titleId = button.data('title-id');
+        const version = button.data('version');
+        if (!query) {
+            input.focus();
+            return;
+        }
+        button.prop('disabled', true);
+        $('#detailsDownloadStatus').text('Searching Prowlarr...').removeClass('text-danger text-success').addClass('text-muted');
+        $('#torrentSearchStatus').text('Searching Prowlarr...');
+        $('#torrentSearchResults').empty();
+        const modal = new bootstrap.Modal(document.getElementById('torrentSearchModal'));
+        modal.show();
+        $.getJSON(`/api/downloads/search?query=${encodeURIComponent(query)}`, function (result) {
+            if (!result['success']) {
+                $('#torrentSearchStatus').text(result['message'] || 'Search failed.');
+                return;
+            }
+            const results = result['results'] || [];
+            if (!results.length) {
+                $('#torrentSearchStatus').text('No results found.');
+                return;
+            }
+            $('#torrentSearchStatus').text(`Found ${results.length} results.`);
+            results.forEach(item => {
+                const row = $(`
+                    <tr>
+                        <td>${item.title || '-'}</td>
+                        <td>${formatBytes(item.size)}</td>
+                        <td>${item.seeders ?? '-'}</td>
+                        <td>${item.leechers ?? '-'}</td>
+                        <td>
+                            <button class="btn btn-sm btn-warning queue-torrent-btn"
+                                data-download-url="${item.download_url}"
+                                data-title="${item.title || ''}"
+                                data-update-only="true"
+                                data-expected-version="${version}">
+                                Queue update
+                            </button>
+                        </td>
+                    </tr>
+                `);
+                $('#torrentSearchResults').append(row);
+            });
+            $('#detailsDownloadStatus').text('');
+        }).fail(function () {
+            $('#torrentSearchStatus').text('Search failed.');
+        }).always(function () {
+            button.prop('disabled', false);
         });
     });
 

@@ -2260,6 +2260,7 @@ def manual_search_update_options():
 @access_required('admin')
 def downloads_search():
     query = request.args.get('query', '').strip()
+    apply_settings = request.args.get('apply_settings', '').strip() in ('1', 'true', 'yes')
     if not query:
         return jsonify({'success': False, 'message': 'Missing query.'})
     settings = load_settings()
@@ -2268,15 +2269,32 @@ def downloads_search():
     if not prowlarr_cfg.get('url') or not prowlarr_cfg.get('api_key'):
         return jsonify({'success': False, 'message': 'Prowlarr is not configured.'})
     try:
-        prefix = (downloads.get('search_prefix') or '').strip()
-        suffix = (downloads.get('search_suffix') or '').strip()
         full_query = query
-        if prefix and not full_query.lower().startswith(prefix.lower()):
-            full_query = f"{prefix} {full_query}".strip()
-        if suffix and not full_query.lower().endswith(suffix.lower()):
-            full_query = f"{full_query} {suffix}".strip()
+        if apply_settings:
+            prefix = (downloads.get('search_prefix') or '').strip()
+            suffix = (downloads.get('search_suffix') or '').strip()
+            if prefix and not full_query.lower().startswith(prefix.lower()):
+                full_query = f"{prefix} {full_query}".strip()
+            if suffix and not full_query.lower().endswith(suffix.lower()):
+                full_query = f"{full_query} {suffix}".strip()
         client = ProwlarrClient(prowlarr_cfg['url'], prowlarr_cfg['api_key'])
         results = client.search(full_query, indexer_ids=prowlarr_cfg.get('indexer_ids') or [])
+        if apply_settings:
+            required_terms = [t.lower() for t in (downloads.get('required_terms') or []) if t]
+            blacklist_terms = [t.lower() for t in (downloads.get('blacklist_terms') or []) if t]
+            min_seeders = int(downloads.get('min_seeders') or 0)
+            filtered = []
+            for item in results or []:
+                title = (item.get('title') or '').lower()
+                seeders = item.get('seeders') or 0
+                if min_seeders and seeders < min_seeders:
+                    continue
+                if required_terms and not all(term in title for term in required_terms):
+                    continue
+                if blacklist_terms and any(term in title for term in blacklist_terms):
+                    continue
+                filtered.append(item)
+            results = filtered
         trimmed = [
             {
                 'title': r.get('title'),

@@ -1,12 +1,14 @@
 import logging
 import os
+import re
 import shutil
 import threading
 import time
+import unicodedata
 
 from constants import APP_TYPE_UPD
 from db import get_all_titles, get_all_title_apps, get_libraries_path
-from library import _ensure_unique_path, enqueue_organize_paths
+from library import _ensure_unique_path, enqueue_organize_paths, _sanitize_component
 import titles as titles_lib
 from settings import load_settings
 from downloads.prowlarr import ProwlarrClient, pick_best_result
@@ -281,9 +283,20 @@ def _search_and_queue(client, update, downloads, indexer_ids, required_terms, bl
 
 def _build_queries(update):
     title_name = update.get("title_name") or update["title_id"]
+    def _normalize_query(text):
+        if not text:
+            return ""
+        try:
+            normalized = unicodedata.normalize('NFKD', text)
+            normalized = normalized.encode('ascii', 'ignore').decode('ascii')
+        except Exception:
+            normalized = text
+        normalized = re.sub(r"[^A-Za-z0-9\s]+", " ", normalized)
+        return re.sub(r"\s+", " ", normalized).strip()
+    title_name = _normalize_query(title_name)
     downloads = load_settings().get("downloads", {})
-    prefix = (downloads.get("search_prefix") or "").strip()
-    suffix = (downloads.get("search_suffix") or "").strip()
+    prefix = _normalize_query(downloads.get("search_prefix") or "")
+    suffix = _normalize_query(downloads.get("search_suffix") or "")
     base = f"{prefix} {title_name}".strip() if prefix else title_name
     tail = f" {suffix}".strip() if suffix else ""
     update["search_terms"] = title_name
@@ -379,7 +392,7 @@ def _check_completed(torrent_cfg, scan_cb=None, post_cb=None):
                     matched_hashes.add(match.get("hash"))
                 _state["pending"].pop(key, None)
                 _state["completed"].add(key)
-                moved_path = _move_completed(match)
+                moved_path = _move_completed(match, info)
                 if moved_path:
                     moved_paths.append(moved_path)
                     torrent_hash = match.get("hash")
@@ -422,7 +435,83 @@ def _check_completed(torrent_cfg, scan_cb=None, post_cb=None):
             enqueue_organize_paths(moved_paths)
 
 
-def _move_completed(item):
+def _extract_update_version_from_name(name):
+    if not name:
+        return None
+    match = re.search(r"\[v(\d+)\]", name, re.IGNORECASE)
+    if not match:
+        return None
+    try:
+        return int(match.group(1))
+    except (TypeError, ValueError):
+        return None
+
+
+def _select_update_file_path(src_path, expected_version):
+    if not src_path or not expected_version:
+        return None
+    try:
+        expected_version = int(expected_version)
+    except (TypeError, ValueError):
+        return None
+    if os.path.isfile(src_path):
+        version = _extract_update_version_from_name(os.path.basename(src_path))
+        return src_path if version == expected_version else None
+    if not os.path.isdir(src_path):
+        return None
+    candidates = []
+    for root, _, files in os.walk(src_path):
+        for filename in files:
+            version = _extract_update_version_from_name(filename)
+            if version == expected_version:
+                path = os.path.join(root, filename)
+                try:
+                    size = os.path.getsize(path)
+                except OSError:
+                    size = 0
+                candidates.append((size, path))
+    if not candidates:
+        return None
+    candidates.sort(key=lambda item: item[0], reverse=True)
+    return candidates[0][1]
+
+
+def _build_update_destination(dest_root, title_id, title_name, version, src_path):
+    safe_title = _sanitize_component(title_name or title_id)
+    safe_title_id = _sanitize_component(title_id)
+    extension = os.path.splitext(src_path)[1].lstrip('.')
+    folder = os.path.join(dest_root, f"{safe_title} [{safe_title_id}]", "Updates", f"v{version}")
+    filename = f"{safe_title} [{safe_title_id}] [UPDATE][v{version}].{extension}"
+    filename = _sanitize_component(filename)
+    return folder, filename
+
+
+def _cleanup_download_path(src_path, dest_root):
+    if not src_path:
+        return
+    src_is_dir = os.path.isdir(src_path)
+    src_root = src_path if src_is_dir else os.path.dirname(src_path)
+    if not src_root or not os.path.exists(src_root):
+        return
+    try:
+        if dest_root and os.path.commonpath([os.path.abspath(src_root), os.path.abspath(dest_root)]) == os.path.abspath(dest_root):
+            return
+    except Exception:
+        return
+    try:
+        if src_is_dir:
+            shutil.rmtree(src_root, ignore_errors=True)
+        else:
+            try:
+                if os.path.isdir(src_root) and not os.listdir(src_root):
+                    os.rmdir(src_root)
+            except Exception:
+                pass
+    except Exception:
+        return
+
+
+def _move_completed(item, update_info=None):
     library_paths = get_libraries_path()
     if not library_paths:
         logger.warning("No library paths configured; cannot move download.")
@@ -432,6 +521,27 @@ def _move_completed(item):
     if not src_path or not os.path.exists(src_path):
         logger.warning("Completed download path not found: %s", src_path)
         return
+
+    if update_info and update_info.get("title_id") and update_info.get("version"):
+        title_id = update_info.get("title_id")
+        version = update_info.get("version")
+        title_name = update_info.get("title_name") or update_info.get("expected_name")
+        update_path = _select_update_file_path(src_path, version)
+        if not update_path:
+            logger.warning("No update file found for %s v%s in %s", title_id, version, src_path)
+            return
+        dest_dir, dest_filename = _build_update_destination(dest_root, title_id, title_name, version, update_path)
+        dest_path = os.path.join(dest_dir, dest_filename)
+        dest_path = _ensure_unique_path(dest_path)
+        try:
+            os.makedirs(dest_dir, exist_ok=True)
+            shutil.move(update_path, dest_path)
+            logger.info("Moved update to library: %s", dest_path)
+            _cleanup_download_path(src_path, dest_root)
+            return dest_path
+        except Exception as e:
+            logger.warning("Failed to move update %s: %s", update_path, e)
+            return None
 
     dest_path = os.path.join(dest_root, os.path.basename(src_path))
     if os.path.abspath(os.path.dirname(src_path)) == os.path.abspath(dest_root):
