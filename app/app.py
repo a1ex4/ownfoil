@@ -445,7 +445,7 @@ def serve_game(id):
     return send_from_directory(filedir, filename)
 
 
-@debounce(10)
+@debounce(10, key='post_library_change')
 def post_library_change():
     with app.app_context():
         titles_lib.load_titledb()
