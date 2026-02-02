@@ -8,6 +8,20 @@
     padding: 20px;
 }
 
+.discover-columns {
+    flex-wrap: nowrap;
+}
+
+.discover-columns > .flex-fill {
+    min-width: 0;
+    flex: 1 1 0;
+}
+
+.discover-separator {
+    flex: 0 0 1px;
+}
+
+
 .icon-grid {
     display: grid;
     /* Keep icon tiles at an actual, distinct size per step (don't stretch to fill). */
