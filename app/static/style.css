@@ -63,6 +63,7 @@ p.game-description {
 .text-bg-warning {
     color: #fff !important;
     background-color: RGBA(var(--bs-warning-rgb),var(--bs-bg-opacity,1)) !important;
+    font-weight: normal;
 }
 
 .text-bg-info {
