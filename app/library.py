@@ -5,17 +5,30 @@ from constants import *
 from db import *
 import titles as titles_lib
 import datetime
-import re
+import sys
 from pathlib import Path
 from utils import *
 from settings import load_settings
-from db import update_file_path # Import update_file_path
+from db import update_file_path 
 
 def sanitize_filename(name):
-    # Lista de caracteres proibidos no Windows e na maioria dos sistemas
-    forbidden_chars = set('<>:"/\\|?*')
-    sanitized = ''.join(c for c in name if c not in forbidden_chars)
-    return sanitized.strip().rstrip('.')
+    if sys.platform == 'win32':
+        forbidden_chars = FORBIDDEN_CHARS_WINDOWS
+        # Replace forbidden characters with underscore
+        sanitized = ''.join('_' if c in forbidden_chars else c for c in name)
+        # Remove trailing periods and spaces specific to Windows
+        sanitized = sanitized.strip().rstrip('. ')
+        # Handle Windows reserved names
+        if sanitized.lower() in RESERVED_NAMES_WINDOWS:
+            sanitized = '_' + sanitized # Prepend an underscore to avoid conflict
+    else:
+        forbidden_chars = FORBIDDEN_CHARS_UNIX
+        # Replace forbidden characters with underscore
+        sanitized = ''.join('_' if c in forbidden_chars else c for c in name)
+        # Remove leading/trailing spaces (general good practice)
+        sanitized = sanitized.strip()
+
+    return sanitized
 
 def organize_file(file_obj, library_path, organizer_settings, watcher):
     try:
