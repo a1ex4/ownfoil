@@ -382,10 +382,13 @@ def add_missing_apps_to_db():
         title_id = title.title_id
         title_db_id = get_title_id_db_id(title_id)
         
-        # Add base game if not present
-        existing_base = get_app_by_id_and_version(title_id, "0")
-        
-        if not existing_base:
+        # Add base game if not present at all (any version)
+        existing_bases = [
+            a for a in get_all_title_apps(title_id)
+            if a.get("app_type") == APP_TYPE_BASE
+        ]
+
+        if not existing_bases:
             new_base_app = Apps(
                 app_id=title_id,
                 app_version="0",
@@ -715,7 +718,10 @@ def generate_library():
             title_obj = get_title(title['title_id'])
             if title_obj:
                 title['has_base'] = title_obj.have_base
-                title['has_latest_version'] = title_obj.up_to_date
+                # Only mark as up to date if the base itself is owned and up_to_date
+                title['has_latest_version'] = (
+                    title_obj.have_base and title_obj.up_to_date
+                )
                 title['has_all_dlcs'] = title_obj.complete
             else:
                 title['has_base'] = False
@@ -763,12 +769,16 @@ def generate_library():
                 })
             
             title['version'] = sorted(version_list, key=lambda x: x['version'])
-            
+            title['owned'] = any(app.get('owned') for app in dlc_apps)
+
             # Check if this DLC has latest version
             if dlc_apps:
                 highest_version = max(int(app['app_version']) for app in dlc_apps)
-                highest_owned_version = max((int(app['app_version']) for app in dlc_apps if app.get('owned')), default=0)
-                title['has_latest_version'] = highest_owned_version >= highest_version
+                owned_versions = [int(app['app_version']) for app in dlc_apps if app.get('owned')]
+                # Only true if at least one version is OWNED and the highest owned >= highest available
+                title['has_latest_version'] = (
+                    len(owned_versions) > 0 and max(owned_versions) >= highest_version
+                )
             else:
                 title['has_latest_version'] = True
             
