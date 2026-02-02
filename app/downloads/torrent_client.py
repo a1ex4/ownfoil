@@ -19,6 +19,8 @@ def test_torrent_client(client_type, url, username=None, password=None, timeout_
         return _test_qbittorrent(url, username, password, timeout_seconds)
     if client_type == "transmission":
         return _test_transmission(url, username, password, timeout_seconds)
+    if client_type == "deluge":
+        return _test_deluge(url, password, timeout_seconds)
     return False, "Unsupported client type."
 
 
@@ -30,6 +32,8 @@ def add_torrent(client_type, url, username=None, password=None, download_url=Non
         return _add_qbittorrent(url, username, password, download_url, category, download_path, timeout_seconds, expected_name, update_only, exclude_russian, expected_update_number, expected_version)
     if client_type == "transmission":
         return _add_transmission(url, username, password, download_url, category, download_path, timeout_seconds)
+    if client_type == "deluge":
+        return _add_deluge(url, password, download_url, category, download_path, timeout_seconds)
     return False, "Unsupported client type.", None
 
 
@@ -39,6 +43,8 @@ def list_completed(client_type, url, username=None, password=None, category=None
         return _list_completed_qbittorrent(url, username, password, category, timeout_seconds)
     if client_type == "transmission":
         return _list_completed_transmission(url, username, password, category, timeout_seconds)
+    if client_type == "deluge":
+        return _list_completed_deluge(url, password, category, timeout_seconds)
     return []
 
 
@@ -50,6 +56,8 @@ def remove_torrent(client_type, url, torrent_hash, username=None, password=None,
         return _remove_qbittorrent(url, username, password, torrent_hash, timeout_seconds)
     if client_type == "transmission":
         return _remove_transmission(url, username, password, torrent_hash, timeout_seconds)
+    if client_type == "deluge":
+        return _remove_deluge(url, password, torrent_hash, timeout_seconds)
     return False, "Unsupported client type."
 
 
@@ -96,6 +104,82 @@ def _test_transmission(url, username=None, password=None, timeout_seconds=10):
     if resp.status_code != 200:
         return False, f"Transmission returned {resp.status_code}."
     return True, "Transmission OK."
+
+
+def _deluge_json_rpc(url, password, method, params=None, timeout_seconds=10):
+    base = url.rstrip("/")
+    session = requests.Session()
+    session.headers.update({"User-Agent": "Ownfoil/Downloads"})
+    if password is None:
+        password = ""
+    payload = {
+        "method": method,
+        "params": params or [],
+        "id": 1
+    }
+    resp = session.post(f"{base}/json", json=payload, timeout=timeout_seconds)
+    if resp.status_code != 200:
+        return False, resp
+    data = resp.json()
+    if data.get("error"):
+        return False, data
+    return True, data.get("result")
+
+
+def _deluge_login(url, password, timeout_seconds=10):
+    ok, result = _deluge_json_rpc(url, password, "auth.login", [password], timeout_seconds=timeout_seconds)
+    if not ok:
+        return False, result
+    return bool(result), result
+
+
+def _test_deluge(url, password=None, timeout_seconds=10):
+    ok, result = _deluge_login(url, password, timeout_seconds=timeout_seconds)
+    if not ok or not result:
+        return False, "Deluge login failed."
+    ok, result = _deluge_json_rpc(url, password, "daemon.info", [], timeout_seconds=timeout_seconds)
+    if not ok:
+        return False, "Deluge returned an error."
+    version = None
+    if isinstance(result, dict):
+        version = result.get("daemon_version") or result.get("version")
+    return True, f"Deluge OK{f' (v{version})' if version else ''}."
+
+
+def _add_deluge(url, password, download_url, category, download_path, timeout_seconds):
+    ok, logged_in = _deluge_login(url, password, timeout_seconds=timeout_seconds)
+    if not ok or not logged_in:
+        return False, "Deluge login failed.", None
+
+    options = {}
+    if download_path:
+        options["download_location"] = download_path
+
+    if category:
+        ok, result = _deluge_json_rpc(url, password, "label.add", [category], timeout_seconds=timeout_seconds)
+        if not ok:
+            err = result.get("error") if isinstance(result, dict) else None
+            if not err or "already" not in str(err).lower():
+                return False, "Deluge label error.", None
+        options["label"] = category
+
+    ok, result = _deluge_json_rpc(
+        url,
+        password,
+        "core.add_torrent_url",
+        [download_url, options],
+        timeout_seconds=timeout_seconds
+    )
+    if not ok:
+        return False, "Deluge returned an error.", None
+    torrent_hash = None
+    if isinstance(result, str):
+        torrent_hash = result
+    elif isinstance(result, dict):
+        torrent_hash = result.get("id")
+    if not torrent_hash:
+        torrent_hash = _extract_magnet_hash(download_url)
+    return True, "Deluge accepted torrent.", torrent_hash
 
 
 def _add_qbittorrent(url, username, password, download_url, category, download_path, timeout_seconds, expected_name, update_only, exclude_russian, expected_update_number, expected_version):
@@ -295,6 +379,42 @@ def _list_completed_transmission(url, username, password, category, timeout_seco
     return completed
 
 
+def _list_completed_deluge(url, password, category, timeout_seconds):
+    ok, logged_in = _deluge_login(url, password, timeout_seconds=timeout_seconds)
+    if not ok or not logged_in:
+        return []
+
+    state_filter = {"state": "Seeding"}
+    fields = ["hash", "name", "save_path", "download_location", "state", "label"]
+    ok, result = _deluge_json_rpc(
+        url,
+        password,
+        "core.get_torrents_status",
+        [state_filter, fields],
+        timeout_seconds=timeout_seconds
+    )
+    if not ok or not isinstance(result, dict):
+        return []
+    completed = []
+    for torrent_hash, data in result.items():
+        if not isinstance(data, dict):
+            continue
+        label = data.get("label")
+        if category and category != label:
+            continue
+        path = data.get("download_location") or data.get("save_path")
+        name = data.get("name")
+        content_path = None
+        if path and name:
+            content_path = os.path.join(path.rstrip("/\\"), name)
+        completed.append({
+            "hash": torrent_hash,
+            "path": content_path,
+            "name": name
+        })
+    return completed
+
+
 def _remove_qbittorrent(url, username, password, torrent_hash, timeout_seconds):
     base = url.rstrip("/")
     session = requests.Session()
@@ -348,6 +468,23 @@ def _remove_transmission(url, username, password, torrent_hash, timeout_seconds)
     if resp.status_code != 200:
         return False, f"Transmission returned {resp.status_code}."
     return True, "Transmission removed torrent."
+
+
+def _remove_deluge(url, password, torrent_hash, timeout_seconds):
+    ok, logged_in = _deluge_login(url, password, timeout_seconds=timeout_seconds)
+    if not ok or not logged_in:
+        return False, "Deluge login failed."
+
+    ok, result = _deluge_json_rpc(
+        url,
+        password,
+        "core.remove_torrent",
+        [torrent_hash, False],
+        timeout_seconds=timeout_seconds
+    )
+    if not ok:
+        return False, "Deluge returned an error."
+    return True, "Deluge removed torrent."
 
 
 def _extract_magnet_hash(magnet_url):
