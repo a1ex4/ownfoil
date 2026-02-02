@@ -155,21 +155,49 @@
     </div>
 
     <div class="px-3 mt-3 d-none" id="discoverSection">
-        <div class="d-flex align-items-end justify-content-between flex-wrap gap-2">
-            <div>
-                <div class="fw-semibold">Newly added</div>
-                <div class="text-muted small">Latest titles found in your library.</div>
+        <div class="d-flex gap-3 align-items-stretch mt-3 py-4">
+            <div class="flex-fill">
+                <div class="mb-3">
+                    <div class="fw-semibold">Newly added</div>
+                    <div class="text-muted small">Latest titles found in your library.</div>
+                </div>
+                <div class="discover-row-wrapper position-relative">
+                    <button class="discover-scroll-btn discover-scroll-left" aria-label="Scroll left">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="currentColor" viewBox="0 0 16 16">
+                            <path fill-rule="evenodd" d="M11.354 1.646a.5.5 0 0 1 0 .708L5.707 8l5.647 5.646a.5.5 0 0 1-.708.708l-6-6a.5.5 0 0 1 0-.708l6-6a.5.5 0 0 1 .708 0z"/>
+                        </svg>
+                    </button>
+                    <div class="discover-row" id="newlyAddedRow"></div>
+                    <button class="discover-scroll-btn discover-scroll-right" aria-label="Scroll right">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="currentColor" viewBox="0 0 16 16">
+                            <path fill-rule="evenodd" d="M4.646 1.646a.5.5 0 0 1 .708 0l6 6a.5.5 0 0 1 0 .708l-6 6a.5.5 0 0 1-.708-.708L10.293 8 4.646 2.354a.5.5 0 0 1 0-.708z"/>
+                        </svg>
+                    </button>
+                </div>
             </div>
-        </div>
-        <div class="discover-row" id="newlyAddedRow"></div>
 
-        <div class="d-flex align-items-end justify-content-between flex-wrap gap-2 mt-3">
-            <div>
-                <div class="fw-semibold">Recommended</div>
-                <div class="text-muted small">A rotating selection from your library.</div>
+            <div class="discover-separator" style="width: 1px; background-color: rgba(255, 255, 255, 0.1); align-self: stretch;"></div>
+
+            <div class="flex-fill">
+                <div class="mb-3">
+                    <div class="fw-semibold">Recommended</div>
+                    <div class="text-muted small">A rotating selection from your library.</div>
+                </div>
+                <div class="discover-row-wrapper position-relative">
+                    <button class="discover-scroll-btn discover-scroll-left" aria-label="Scroll left">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="currentColor" viewBox="0 0 16 16">
+                            <path fill-rule="evenodd" d="M11.354 1.646a.5.5 0 0 1 0 .708L5.707 8l5.647 5.646a.5.5 0 0 1-.708.708l-6-6a.5.5 0 0 1 0-.708l6-6a.5.5 0 0 1 .708 0z"/>
+                        </svg>
+                    </button>
+                    <div class="discover-row" id="recommendedRow"></div>
+                    <button class="discover-scroll-btn discover-scroll-right" aria-label="Scroll right">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="currentColor" viewBox="0 0 16 16">
+                            <path fill-rule="evenodd" d="M4.646 1.646a.5.5 0 0 1 .708 0l6 6a.5.5 0 0 1 0 .708l-6 6a.5.5 0 0 1-.708-.708L10.293 8 4.646 2.354a.5.5 0 0 1 0-.708z"/>
+                        </svg>
+                    </button>
+                </div>
             </div>
         </div>
-        <div class="discover-row" id="recommendedRow"></div>
     </div>
 
     <div class="grid-container" id="gridContainer">
@@ -501,6 +529,51 @@
         wrapper.classList.remove('d-none');
         renderDiscoverRow('newlyAddedRow', newest);
         renderDiscoverRow('recommendedRow', recommended);
+        
+        // Initialize scroll buttons
+        initDiscoverScrollButtons('newlyAddedRow');
+        initDiscoverScrollButtons('recommendedRow');
+    }
+
+    function initDiscoverScrollButtons(rowId) {
+        const row = document.getElementById(rowId);
+        if (!row) return;
+        
+        const wrapper = row.closest('.discover-row-wrapper');
+        if (!wrapper) return;
+        
+        const leftBtn = wrapper.querySelector('.discover-scroll-left');
+        const rightBtn = wrapper.querySelector('.discover-scroll-right');
+        
+        if (!leftBtn || !rightBtn) return;
+        
+        function updateButtonStates() {
+            const scrollLeft = row.scrollLeft;
+            const scrollWidth = row.scrollWidth;
+            const clientWidth = row.clientWidth;
+            const maxScroll = scrollWidth - clientWidth;
+            
+            leftBtn.disabled = scrollLeft <= 0;
+            rightBtn.disabled = scrollLeft >= maxScroll - 1; // -1 for rounding
+        }
+        
+        // Update button states on scroll
+        row.addEventListener('scroll', updateButtonStates);
+        
+        // Update button states on resize
+        window.addEventListener('resize', updateButtonStates);
+        
+        // Initial state
+        updateButtonStates();
+        
+        // Scroll handlers
+        leftBtn.addEventListener('click', () => {
+            row.scrollBy({ left: -320, behavior: 'smooth' });
+        });
+        
+        rightBtn.addEventListener('click', () => {
+            row.scrollBy({ left: 320, behavior: 'smooth' });
+        });
     }
 
     function renderCardView() {

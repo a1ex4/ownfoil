@@ -423,6 +423,17 @@ def _refresh_shop_sections_cache(limit):
     thread.start()
 
 # Configure logging
+# Get log level from environment variable, default to INFO
+log_level_str = os.environ.get('LOG_LEVEL', 'INFO').upper()
+log_level_map = {
+    'DEBUG': logging.DEBUG,
+    'INFO': logging.INFO,
+    'WARNING': logging.WARNING,
+    'ERROR': logging.ERROR,
+    'CRITICAL': logging.CRITICAL,
+}
+log_level = log_level_map.get(log_level_str, logging.INFO)
+
 formatter = ColoredFormatter(
     '[%(asctime)s.%(msecs)03d] %(levelname)s (%(module)s) %(message)s',
     datefmt='%Y-%m-%d %H:%M:%S',
@@ -431,13 +442,13 @@ handler = logging.StreamHandler(sys.stdout)
 handler.setFormatter(formatter)
 
 logging.basicConfig(
-    level=logging.INFO,
+    level=log_level,
     handlers=[handler]
 )
 
 # Create main logger
 logger = logging.getLogger('main')
-logger.setLevel(logging.DEBUG)
+logger.setLevel(log_level)
 
 # Apply filter to hide date from http access logs
 logging.getLogger('werkzeug').addFilter(FilterRemoveDateFromWerkzeugLogs())
@@ -1358,9 +1369,13 @@ def index():
 @app.route('/settings')
 @access_required('admin')
 def settings_page():
-    with open(os.path.join(TITLEDB_DIR, 'languages.json')) as f:
-        languages = json.load(f)
-        languages = dict(sorted(languages.items()))
+    languages_file = os.path.join(TITLEDB_DIR, 'languages.json')
+    if os.path.exists(languages_file):
+        with open(languages_file) as f:
+            languages = json.load(f)
+            languages = dict(sorted(languages.items()))
+    else:
+        languages = {}
     return render_template(
         'settings.html',
         title='Settings',
@@ -1815,9 +1830,20 @@ def set_titles_settings_api():
     settings = request.json
     region = settings['region']
     language = settings['language']
-    with open(os.path.join(TITLEDB_DIR, 'languages.json')) as f:
-        languages = json.load(f)
-        languages = dict(sorted(languages.items()))
+    languages_file = os.path.join(TITLEDB_DIR, 'languages.json')
+    if os.path.exists(languages_file):
+        with open(languages_file) as f:
+            languages = json.load(f)
+            languages = dict(sorted(languages.items()))
+    else:
+        resp = {
+            'success': False,
+            'errors': [{
+                    'path': 'titles',
+                    'error': "TitleDB has not been initialized yet. Please wait for the initial update to complete or trigger it manually."
+                }]
+        }
+        return jsonify(resp)
 
     if region not in languages or language not in languages[region]:
         resp = {

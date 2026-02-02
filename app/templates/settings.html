@@ -2,10 +2,53 @@
 {% block content %}
 {% include 'nav.html' %}
 
-<div class="container-fluid setting-body">
-    <div class="row">
-        <div class="col">
-            <div class="settings-container container mt-3">
+<div class="setting-body">
+    <div class="row g-0">
+        <!-- Sidebar Navigation -->
+        <div class="col-md-3 col-lg-2 border-end" id="settingsSidebar">
+            <div class="d-flex align-items-center justify-content-between p-3 border-bottom">
+                <h5 class="mb-0">Settings</h5>
+                <button class="btn btn-sm d-md-none" type="button" id="sidebarToggle" aria-label="Toggle sidebar">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" viewBox="0 0 16 16">
+                        <path fill-rule="evenodd" d="M2.5 12a.5.5 0 0 1 .5-.5h10a.5.5 0 0 1 0 1H3a.5.5 0 0 1-.5-.5zm0-4a.5.5 0 0 1 .5-.5h10a.5.5 0 0 1 0 1H3a.5.5 0 0 1-.5-.5zm0-4a.5.5 0 0 1 .5-.5h10a.5.5 0 0 1 0 1H3a.5.5 0 0 1-.5-.5z"/>
+                    </svg>
+                </button>
+            </div>
+            <nav class="nav flex-column p-2" id="settingsNav">
+                <a class="nav-link active" href="#" data-section="library">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16" style="vertical-align: -0.125em; margin-right: 0.5rem;">
+                        <path d="M1 2.828c.885-.37 2.154-.769 3.388-.893 1.33-.134 2.458.063 3.112.752v9.746c-.935-.53-2.12-.603-3.213-.493-1.18.12-2.37.461-3.287.811V2.828zm7.5-.141c.654-.689 1.782-.886 3.112-.752 1.234.124 2.503.523 3.388.893v9.923c-.918-.35-2.107-.692-3.287-.81-1.094-.111-2.278-.039-3.213.492V2.687zM8 1.783C7.015.936 5.587.81 4.287.94c-1.514.153-3.042.672-3.994 1.105A.5.5 0 0 0 0 2.5v11a.5.5 0 0 0 .707.455c.882-.4 2.303-.881 3.68-1.02 1.409-.142 2.59.087 3.223.877a.5.5 0 0 0 .78 0c.633-.79 1.814-1.019 3.222-.877 1.378.139 2.8.62 3.681 1.02A.5.5 0 0 0 16 13.5v-11a.5.5 0 0 0-.293-.455c-.952-.433-2.48-.952-3.994-1.105C10.413.81 8.985.936 8 1.783z"/>
+                    </svg>
+                    Library
+                </a>
+                <a class="nav-link" href="#" data-section="shop">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16" style="vertical-align: -0.125em; margin-right: 0.5rem;">
+                        <path d="M8 1a2.5 2.5 0 0 1 2.5 2.5V4h-5v-.5A2.5 2.5 0 0 1 8 1zm3.5 3v-.5a3.5 3.5 0 1 0-7 0V4H1v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V4h-3.5zM2 5h12v9a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V5z"/>
+                    </svg>
+                    Shop
+                </a>
+                <a class="nav-link" href="#" data-section="downloads">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16" style="vertical-align: -0.125em; margin-right: 0.5rem;">
+                        <path d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5z"/>
+                        <path d="M7.646 11.854a.5.5 0 0 0 .708 0l3-3a.5.5 0 0 0-.708-.708L8.5 10.293V1.5a.5.5 0 0 0-1 0v8.793L5.354 8.146a.5.5 0 1 0-.708.708l3 3z"/>
+                    </svg>
+                    Downloads
+                </a>
+            </nav>
+        </div>
+        
+        <!-- Main Content Area -->
+        <div class="col-md-9 col-lg-10">
+            <!-- Mobile menu button -->
+            <div class="d-md-none p-3 border-bottom">
+                <button class="btn btn-outline-secondary" type="button" id="sidebarToggleMobile" aria-label="Toggle sidebar">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" viewBox="0 0 16 16" style="vertical-align: -0.125em; margin-right: 0.5rem;">
+                        <path fill-rule="evenodd" d="M2.5 12a.5.5 0 0 1 .5-.5h10a.5.5 0 0 1 0 1H3a.5.5 0 0 1-.5-.5zm0-4a.5.5 0 0 1 .5-.5h10a.5.5 0 0 1 0 1H3a.5.5 0 0 1-.5-.5zm0-4a.5.5 0 0 1 .5-.5h10a.5.5 0 0 1 0 1H3a.5.5 0 0 1-.5-.5z"/>
+                    </svg>
+                    Menu
+                </button>
+            </div>
+            <div class="settings-container container-fluid mt-3">
 
                 <!-- <h1>Settings</h1> -->
 
@@ -55,8 +98,55 @@
                     <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
                 </div>
 
-                <hr>
+                <!-- Alerts (shown on all sections) -->
+                {% if admin_account_created == false %}
+                <div class="alert alert-danger" role="alert">
+                    <h4 class="alert-heading">Missing admin account!</h4>
+                    <p>Ownfoil requires an admin account to enable authentication. Until an account with admin rights is
+                        created, <strong>authentication is disabled, anyone can access and change the configuration of
+                            your shop!</strong>
+                        <br>
+                        Add an admin account <a href="/users" class="alert-link">on the Users page</a>.
+                    </p>
+                </div>
+                {% endif %}
 
+                {% if valid_keys == false %}
+                <div id="missingKeysAlert" class="alert alert-warning alert-dismissible fade show" role="alert">
+                    <h4 class="alert-heading">Missing console keys!</h4>
+                    Console keys are required to decrypt any Nintendo content, including
+                    backups. Ownfoil uses this to identify files, regardless of the filename.</br>
+                    <strong>Titles will be missed or misidentified if you don't fill in your keys!</strong>
+                    See <a target="_blank" href="https://gitlab.com/easyhacking/switch/-/wikis/home/getting-started/dump-keys" class="alert-link">this guide</a> on
+                    how to extract the
+                    keys from your console, and upload them <a href="/settings#consoleKeysInput" class="alert-link">here
+                        in Ownfoil.</a>
+                    <hr>
+                    If keys are missing, all files <strong>must follow the format "Title Name
+                        [TITLEID][vVERSION]"</strong>, else the file won't be recognized.
+                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                </div>
+                {% endif %}
+
+                <div id="missingShopHostAlert" class="alert alert-warning alert-dismissible fade show" role="alert" style="display: none;">
+                    <h4 class="alert-heading">Missing shop Host!</h4>
+                    Host verification from outside the local network is disabled if the shop <code>Host</code> is
+                    missing, configure it <a href="/settings#shopHostInput" class="alert-link">here
+                        in Ownfoil</a> to prevent someone else stealing from your shop.
+                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                </div>
+
+                <div id="missingShopHauthAlert" class="alert alert-warning alert-dismissible fade show" role="alert" style="display: none;">
+                    <h4 class="alert-heading">Missing shop Hauth!</h4>
+                    <a href="https://blawar.github.io/tinfoil/network/#host-signature" class="alert-link"
+                        target="_blank">Host signature</a> verification from outside the local network is disabled if
+                    the shop <code>Hauth</code> is missing. Connect to the shop from Tinfoil with an admin account to
+                    set it.
+                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                </div>
+
+                <!-- Library Section -->
+                <div class="settings-section" id="section-library" data-section="library">
                 <h2 class="pb-3">Library</h2>
 
                 <label class="form-label">Library paths:</label>
@@ -123,9 +213,10 @@
                     </div>
                 </div>
 
-                <hr>
-                <h2 class="pb-3">Titles</h2>
-                <p>Titles identification configuration.</p>
+                <hr class="my-4">
+
+                <h3 class="pb-3">Title Identification</h3>
+                <p class="text-muted">Titles identification configuration.</p>
                 <div class="row mb-3">
                     <div class="col">
                         <label for="selectRegion" class="form-label">Library Region:</label>
@@ -171,8 +262,10 @@
                     <span id="refreshMediaCacheStatus" class="text-muted small"></span>
                 </div>
                 </form>
-                <hr>
+                </div>
 
+                <!-- Shop Section -->
+                <div class="settings-section d-none" id="section-shop" data-section="shop">
                 <h2 class="pb-3">Shop</h2>
                 <!-- Shop URL -->
                 <div class="mb-3">
@@ -209,9 +302,28 @@
                 </div>
 
                 <div class="mb-3">
-                    <label for="shopPublicKeyInput" class="form-label">Public Key:</label>
-                    <textarea class="form-control font-monospace" id="shopPublicKeyInput" rows="7"
-                        aria-describedby="shopPublicKeyHelp" placeholder="-----BEGIN PUBLIC KEY-----"></textarea>
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <label for="shopPublicKeyInput" class="form-label mb-0">Public Key:</label>
+                        <div class="btn-group" role="group">
+                            <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="collapse" data-bs-target="#shopPublicKeyCollapse" aria-expanded="false" aria-controls="shopPublicKeyCollapse">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16" style="vertical-align: -0.125em;">
+                                    <path fill-rule="evenodd" d="M1.646 4.646a.5.5 0 0 1 .708 0L8 10.293l5.646-5.647a.5.5 0 0 1 .708.708l-6 6a.5.5 0 0 1-.708 0l-6-6a.5.5 0 0 1 0-.708z"/>
+                                </svg>
+                                Show
+                            </button>
+                            <button type="button" class="btn btn-sm btn-outline-secondary" id="copyPublicKeyBtn" onclick="copyPublicKey()">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16" style="vertical-align: -0.125em;">
+                                    <path d="M4 1.5H3a2 2 0 0 0-2 2V14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V3.5a2 2 0 0 0-2-2h-1v1h1a1 1 0 0 1 1 1V14a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1h1v-1z"/>
+                                    <path d="M9.5 1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-3a.5.5 0 0 1-.5-.5v-1a.5.5 0 0 1 .5-.5h3zm-3-1A1.5 1.5 0 0 0 5 1.5v1A1.5 1.5 0 0 0 6.5 4h3A1.5 1.5 0 0 0 11 2.5v-1A1.5 1.5 0 0 0 9.5 0h-3z"/>
+                                </svg>
+                                Copy
+                            </button>
+                        </div>
+                    </div>
+                    <div class="collapse" id="shopPublicKeyCollapse">
+                        <textarea class="form-control font-monospace" id="shopPublicKeyInput" rows="7"
+                            aria-describedby="shopPublicKeyHelp" placeholder="-----BEGIN PUBLIC KEY-----"></textarea>
+                    </div>
                     <div id="shopPublicKeyHelp" class="form-text">Public key used to encrypt the shop payload for Tinfoil clients.
                         Changing this will break encrypted shop access unless clients have the matching private key.</div>
                 </div>
@@ -227,109 +339,136 @@
                     <button type="button" id="submitShopSettingsBtn" class="btn btn-primary"
                         onClick='submitShopSettings()'>Submit</button>
                 </div>
-
-                <hr>
-                <h2 class="pb-3">Downloads</h2>
-                <p>Configure Prowlarr and your torrent client to automatically fetch missing updates.</p>
-
-                <div class="mb-3 form-check">
-                    <input type="checkbox" class="form-check-input" id="downloadsEnabledCheck">
-                    <label class="form-check-label" for="downloadsEnabledCheck">Enable automatic downloads</label>
                 </div>
 
-                <div class="row g-3 mb-3">
-                    <div class="col-md-4">
-                        <label for="downloadsIntervalInput" class="form-label">Search interval (minutes)</label>
-                        <input type="number" min="5" class="form-control" id="downloadsIntervalInput">
-                    </div>
-                    <div class="col-md-4">
-                        <label for="downloadsMinSeedersInput" class="form-label">Minimum seeders</label>
-                        <input type="number" min="0" class="form-control" id="downloadsMinSeedersInput">
-                    </div>
-                    <div class="col-md-4">
-                        <label for="downloadsCategoryInput" class="form-label">Torrent category/tag</label>
-                        <input type="text" class="form-control" id="downloadsCategoryInput" placeholder="ownfoil">
+                <!-- Downloads Section -->
+                <div class="settings-section d-none" id="section-downloads" data-section="downloads">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h2 class="mb-0">Downloads</h2>
+                    <div class="form-check">
+                        <input type="checkbox" class="form-check-input" id="downloadsEnabledCheck">
+                        <label class="form-check-label" for="downloadsEnabledCheck">Enable automatic downloads</label>
                     </div>
                 </div>
 
-                <div class="row g-3 mb-3">
-                    <div class="col-md-6">
-                        <label for="downloadsRequiredTermsInput" class="form-label">Required terms (comma separated)</label>
-                        <input type="text" class="form-control" id="downloadsRequiredTermsInput">
+                <!-- Tab navigation -->
+                <ul class="nav nav-tabs mb-3" id="downloadsTabs" role="tablist">
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link active" id="general-tab" data-bs-toggle="tab" data-bs-target="#general" type="button" role="tab" aria-controls="general" aria-selected="true">General</button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="prowlarr-tab" data-bs-toggle="tab" data-bs-target="#prowlarr" type="button" role="tab" aria-controls="prowlarr" aria-selected="false">Prowlarr</button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="torrent-tab" data-bs-toggle="tab" data-bs-target="#torrent" type="button" role="tab" aria-controls="torrent" aria-selected="false">Torrent Client</button>
+                    </li>
+                </ul>
+
+                <!-- Tab content -->
+                <div class="tab-content" id="downloadsTabContent">
+                    <!-- General tab -->
+                    <div class="tab-pane fade show active" id="general" role="tabpanel" aria-labelledby="general-tab">
+                        <div class="row g-3 mb-3">
+                            <div class="col-md-4">
+                                <label for="downloadsIntervalInput" class="form-label">Search interval (minutes)</label>
+                                <input type="number" min="5" class="form-control" id="downloadsIntervalInput">
+                            </div>
+                            <div class="col-md-4">
+                                <label for="downloadsMinSeedersInput" class="form-label">Minimum seeders</label>
+                                <input type="number" min="0" class="form-control" id="downloadsMinSeedersInput">
+                            </div>
+                            <div class="col-md-4">
+                                <label for="downloadsCategoryInput" class="form-label">Torrent category/tag</label>
+                                <input type="text" class="form-control" id="downloadsCategoryInput" placeholder="ownfoil">
+                            </div>
+                        </div>
+                        <div class="row g-3 mb-3">
+                            <div class="col-md-6">
+                                <label for="downloadsRequiredTermsInput" class="form-label">Required terms (comma separated)</label>
+                                <input type="text" class="form-control" id="downloadsRequiredTermsInput">
+                            </div>
+                            <div class="col-md-6">
+                                <label for="downloadsBlacklistTermsInput" class="form-label">Blacklist terms (comma separated)</label>
+                                <input type="text" class="form-control" id="downloadsBlacklistTermsInput">
+                            </div>
+                        </div>
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label for="downloadsSearchPrefixInput" class="form-label">Search prefix</label>
+                                <input type="text" class="form-control" id="downloadsSearchPrefixInput">
+                            </div>
+                            <div class="col-md-6">
+                                <label for="downloadsSearchSuffixInput" class="form-label">Search suffix</label>
+                                <input type="text" class="form-control" id="downloadsSearchSuffixInput">
+                            </div>
+                        </div>
                     </div>
-                    <div class="col-md-6">
-                        <label for="downloadsBlacklistTermsInput" class="form-label">Blacklist terms (comma separated)</label>
-                        <input type="text" class="form-control" id="downloadsBlacklistTermsInput">
+
+                    <!-- Prowlarr tab -->
+                    <div class="tab-pane fade" id="prowlarr" role="tabpanel" aria-labelledby="prowlarr-tab">
+                        <div class="row g-3 mb-3">
+                            <div class="col-md-6">
+                                <label for="prowlarrUrlInput" class="form-label">Prowlarr URL</label>
+                                <input type="text" class="form-control" id="prowlarrUrlInput" placeholder="http://localhost:9696">
+                            </div>
+                            <div class="col-md-6">
+                                <label for="prowlarrApiKeyInput" class="form-label">API Key</label>
+                                <input type="password" class="form-control" id="prowlarrApiKeyInput">
+                            </div>
+                        </div>
+                        <div class="mb-3">
+                            <label for="prowlarrIndexerIdsInput" class="form-label">Indexer IDs (comma separated)</label>
+                            <input type="text" class="form-control" id="prowlarrIndexerIdsInput" placeholder="1,2,3">
+                        </div>
+                        <div class="d-flex align-items-center gap-3">
+                            <button type="button" id="testProwlarrBtn" class="btn btn-outline-secondary"
+                                onClick='testProwlarrSettings()'>Test Prowlarr</button>
+                            <span id="prowlarrTestResult" class="text-muted small"></span>
+                        </div>
                     </div>
-                </div>
-                <div class="row g-3 mb-3">
-                    <div class="col-md-6">
-                        <label for="downloadsSearchPrefixInput" class="form-label">Search prefix</label>
-                        <input type="text" class="form-control" id="downloadsSearchPrefixInput">
-                    </div>
-                    <div class="col-md-6">
-                        <label for="downloadsSearchSuffixInput" class="form-label">Search suffix</label>
-                        <input type="text" class="form-control" id="downloadsSearchSuffixInput">
+
+                    <!-- Torrent Client tab -->
+                    <div class="tab-pane fade" id="torrent" role="tabpanel" aria-labelledby="torrent-tab">
+                        <div class="row g-3 mb-3">
+                            <div class="col-md-4">
+                                <label for="torrentClientTypeSelect" class="form-label">Client</label>
+                                <select class="form-select" id="torrentClientTypeSelect">
+                                    <option value="qbittorrent">qBittorrent</option>
+                                    <option value="transmission">Transmission</option>
+                                </select>
+                            </div>
+                            <div class="col-md-8">
+                                <label for="torrentClientUrlInput" class="form-label">Client URL</label>
+                                <input type="text" class="form-control" id="torrentClientUrlInput" placeholder="http://localhost:8080">
+                            </div>
+                        </div>
+                        <div class="row g-3 mb-3">
+                            <div class="col-md-6">
+                                <label for="torrentClientUserInput" class="form-label">Username</label>
+                                <input type="text" class="form-control" id="torrentClientUserInput">
+                            </div>
+                            <div class="col-md-6">
+                                <label for="torrentClientPasswordInput" class="form-label">Password</label>
+                                <input type="password" class="form-control" id="torrentClientPasswordInput">
+                            </div>
+                        </div>
+                        <div class="mb-3">
+                            <label for="torrentClientPathInput" class="form-label">Download path (optional)</label>
+                            <input type="text" class="form-control" id="torrentClientPathInput" placeholder="D:\\Downloads\\Switch">
+                        </div>
+                        <div class="d-flex align-items-center gap-3">
+                            <button type="button" id="testTorrentClientBtn" class="btn btn-outline-secondary"
+                                onClick='testTorrentClientSettings()'>Test torrent client</button>
+                            <span id="torrentClientTestResult" class="text-muted small"></span>
+                        </div>
                     </div>
                 </div>
 
-                <h4 class="mt-4">Prowlarr</h4>
-                <div class="row g-3 mb-3">
-                    <div class="col-md-6">
-                        <label for="prowlarrUrlInput" class="form-label">Prowlarr URL</label>
-                        <input type="text" class="form-control" id="prowlarrUrlInput" placeholder="http://localhost:9696">
-                    </div>
-                    <div class="col-md-6">
-                        <label for="prowlarrApiKeyInput" class="form-label">API Key</label>
-                        <input type="password" class="form-control" id="prowlarrApiKeyInput">
-                    </div>
-                </div>
-                <div class="mb-3">
-                    <label for="prowlarrIndexerIdsInput" class="form-label">Indexer IDs (comma separated)</label>
-                    <input type="text" class="form-control" id="prowlarrIndexerIdsInput" placeholder="1,2,3">
-                </div>
-                <div class="mb-3 d-flex align-items-center gap-3">
-                    <button type="button" id="testProwlarrBtn" class="btn btn-outline-secondary"
-                        onClick='testProwlarrSettings()'>Test Prowlarr</button>
-                    <span id="prowlarrTestResult" class="text-muted small"></span>
-                </div>
-
-                <h4 class="mt-4">Torrent Client</h4>
-                <div class="row g-3 mb-3">
-                    <div class="col-md-4">
-                        <label for="torrentClientTypeSelect" class="form-label">Client</label>
-                        <select class="form-select" id="torrentClientTypeSelect">
-                            <option value="qbittorrent">qBittorrent</option>
-                            <option value="transmission">Transmission</option>
-                        </select>
-                    </div>
-                    <div class="col-md-8">
-                        <label for="torrentClientUrlInput" class="form-label">Client URL</label>
-                        <input type="text" class="form-control" id="torrentClientUrlInput" placeholder="http://localhost:8080">
-                    </div>
-                </div>
-                <div class="row g-3 mb-3">
-                    <div class="col-md-6">
-                        <label for="torrentClientUserInput" class="form-label">Username</label>
-                        <input type="text" class="form-control" id="torrentClientUserInput">
-                    </div>
-                    <div class="col-md-6">
-                        <label for="torrentClientPasswordInput" class="form-label">Password</label>
-                        <input type="password" class="form-control" id="torrentClientPasswordInput">
-                    </div>
-                </div>
-                <div class="mb-3">
-                    <label for="torrentClientPathInput" class="form-label">Download path (optional)</label>
-                    <input type="text" class="form-control" id="torrentClientPathInput" placeholder="D:\\Downloads\\Switch">
-                </div>
-                <div class="mb-3 d-flex align-items-center gap-3">
-                    <button type="button" id="testTorrentClientBtn" class="btn btn-outline-secondary"
-                        onClick='testTorrentClientSettings()'>Test torrent client</button>
-                    <span id="torrentClientTestResult" class="text-muted small"></span>
-                </div>
-                <div class="mb-3">
+                <!-- Submit button -->
+                <div class="mt-3">
                     <button type="button" id="submitDownloadSettingsBtn" class="btn btn-primary"
-                        onClick='submitDownloadSettings()'>Submit</button>
+                        onClick='submitDownloadSettings()'>Save Settings</button>
+                </div>
                 </div>
 
             </div>
@@ -698,6 +837,32 @@
         return value.split(',').map(item => parseInt(item.trim(), 10)).filter(id => !isNaN(id));
     }
 
+    function copyPublicKey() {
+        const publicKeyInput = document.getElementById('shopPublicKeyInput');
+        const publicKey = publicKeyInput.value;
+        
+        if (!publicKey) {
+            alert('No public key to copy.');
+            return;
+        }
+        
+        navigator.clipboard.writeText(publicKey).then(function() {
+            const btn = document.getElementById('copyPublicKeyBtn');
+            const originalText = btn.innerHTML;
+            btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16" style="vertical-align: -0.125em;"><path d="M13.854 3.646a.5.5 0 0 1 0 .708l-7 7a.5.5 0 0 1-.708 0l-3.5-3.5a.5.5 0 1 1 .708-.708L6.5 10.293l6.646-6.647a.5.5 0 0 1 .708 0z"/></svg> Copied';
+            btn.classList.add('btn-success');
+            btn.classList.remove('btn-outline-secondary');
+            setTimeout(function() {
+                btn.innerHTML = originalText;
+                btn.classList.remove('btn-success');
+                btn.classList.add('btn-outline-secondary');
+            }, 2000);
+        }).catch(function(err) {
+            console.error('Failed to copy: ', err);
+            alert('Failed to copy to clipboard.');
+        });
+    }
+
     function submitDownloadSettings() {
         $('#submitDownloadSettingsBtn').prop('disabled', true);
         data = {
@@ -803,10 +968,86 @@
         });
     }
 
+    // Settings navigation
+    function showSettingsSection(sectionName) {
+        // Hide all sections
+        $('.settings-section').addClass('d-none');
+        
+        // Show selected section
+        $(`#section-${sectionName}`).removeClass('d-none');
+        
+        // Update nav links
+        $('#settingsNav .nav-link').removeClass('active');
+        $(`#settingsNav .nav-link[data-section="${sectionName}"]`).addClass('active');
+        
+        // Update URL hash
+        window.location.hash = sectionName;
+        
+        // Close sidebar on mobile after selection
+        if (window.innerWidth < 768) {
+            $('#settingsSidebar').removeClass('show');
+            $('body').removeClass('sidebar-open');
+        }
+    }
+    
+    // Handle navigation clicks
+    $('#settingsNav .nav-link').on('click', function(e) {
+        e.preventDefault();
+        const section = $(this).data('section');
+        showSettingsSection(section);
+    });
+    
+    // Handle sidebar toggle on mobile
+    $('#sidebarToggle, #sidebarToggleMobile').on('click', function(e) {
+        e.stopPropagation();
+        $('#settingsSidebar').toggleClass('show');
+        $('body').toggleClass('sidebar-open');
+    });
+    
+    // Close sidebar when clicking outside on mobile
+    $(document).on('click', function(e) {
+        if ($(window).width() < 768 && $('#settingsSidebar').hasClass('show')) {
+            if (!$(e.target).closest('#settingsSidebar').length && 
+                !$(e.target).is('#sidebarToggle') && 
+                !$(e.target).is('#sidebarToggleMobile') &&
+                !$(e.target).closest('#sidebarToggleMobile').length) {
+                $('#settingsSidebar').removeClass('show');
+                $('body').removeClass('sidebar-open');
+            }
+        }
+    });
+    
+    // Handle URL hash for direct navigation
+    function handleHashNavigation() {
+        const hash = window.location.hash.substring(1);
+        if (['library', 'shop', 'downloads'].includes(hash)) {
+            showSettingsSection(hash);
+        } else {
+            // Default to library if no hash
+            showSettingsSection('library');
+        }
+    }
+    
+    // Handle browser back/forward
+    $(window).on('hashchange', handleHashNavigation);
+
     $(document).ready(function () {
+        // Initialize settings navigation
+        handleHashNavigation();
+        
         fillLibraryTable();
 
         initTooltips();
+        
+        // Update collapse button text when toggled
+        $('#shopPublicKeyCollapse').on('show.bs.collapse', function () {
+            const btn = $(this).closest('.mb-3').find('[data-bs-toggle="collapse"]');
+            btn.html('<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16" style="vertical-align: -0.125em;"><path fill-rule="evenodd" d="M7.646 4.646a.5.5 0 0 1 .708 0l6 6a.5.5 0 0 1-.708.708L8 5.707l-5.646 5.647a.5.5 0 0 1-.708-.708l6-6z"/></svg> Hide');
+        });
+        $('#shopPublicKeyCollapse').on('hide.bs.collapse', function () {
+            const btn = $(this).closest('.mb-3').find('[data-bs-toggle="collapse"]');
+            btn.html('<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16" style="vertical-align: -0.125em;"><path fill-rule="evenodd" d="M1.646 4.646a.5.5 0 0 1 .708 0L8 10.293l5.646-5.647a.5.5 0 0 1 .708.708l-6 6a.5.5 0 0 1-.708 0l-6-6a.5.5 0 0 1 0-.708z"/></svg> Show');
+        });
 
         $.getJSON("/api/settings", function (result) {
             Object.keys(languages).forEach(function (key) {
