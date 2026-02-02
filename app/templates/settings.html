@@ -272,6 +272,21 @@
                 </div>
 
                 <hr class="hr-settings">
+
+                <h2 class="pb-2">Scheduler</h2>
+                <p>Configure the automatic scan and update job.</p>
+                <div class="mb-3">
+                    <label for="scanIntervalInput" class="form-label">Scan interval:</label>
+                    <input type="text" class="form-control" id="scanIntervalInput" aria-describedby="scanIntervalHelp" placeholder="2h">
+                    <div id="scanIntervalHelp" class="form-text">How often to automatically update TitleDB and scan the library. Format: number + unit (e.g., "2h", "30m", "1d"). Units: s (seconds), m (minutes), h (hours), d (days). Set to "0" to disable. Default is "2h".</div>
+                </div>
+
+                <div class="mb-3">
+                    <button type="button" id="submitSchedulerSettingsBtn" class="btn btn-primary"
+                        onClick='submitSchedulerSettings()'>Submit</button>
+                </div>
+
+                <hr class="hr-settings">
                 <h2 class="pb-2">Titles</h2>
                 <p>Titles identification configuration.</p>
                 <div class="row mb-4">
@@ -986,6 +1001,33 @@
         });
     }
 
+    function submitSchedulerSettings() {
+        $('#submitSchedulerSettingsBtn').prop('disabled', true);
+        data = {
+            scan_interval: getInputVal("scanIntervalInput").trim()
+        }
+
+        $.ajax({
+            url: "/api/settings/scheduler",
+            type: 'POST',
+            data: JSON.stringify(data),
+            contentType: "application/json",
+            success: function (result) {
+                if (!result['success']) {
+                    console.log('Not Success!');
+                    if (result['errors']) {
+                        result['errors'].forEach(error => {
+                            console.log('Error:', error['error']);
+                        });
+                    }
+                } else {
+                    console.log('Scheduler settings updated successfully!');
+                }
+                $('#submitSchedulerSettingsBtn').prop('disabled', false);
+            }
+        });
+    }
+
     $(document).ready(function () {
         fillUserTable();
         fillLibraryTable();
@@ -1049,6 +1091,12 @@
             setInputVal("selectRegion", titlesSettings['region']);
             $('#selectRegion').trigger('change');
             setInputVal("selectLanguage", titlesSettings['language']);
+
+            // Scheduler settings
+            schedulerSettings = result['scheduler'];
+            if (schedulerSettings && schedulerSettings['scan_interval'] !== undefined) {
+                setInputVal("scanIntervalInput", schedulerSettings['scan_interval']);
+            }
 
             // Shop settings
             shopSettings = result['shop'];
