@@ -36,25 +36,26 @@ _versions_db = None
 _versions_txt_db = None
 
 
-def _ensure_titledb_descriptions_file():
+def _ensure_titledb_descriptions_file(app_settings):
     """Ensure the descriptions index file exists locally."""
     try:
-        desc_path = os.path.join(TITLEDB_DIR, TITLEDB_DESCRIPTIONS_FILE)
+        desc_url, desc_filename = titledb.get_descriptions_url(app_settings)
+        desc_path = os.path.join(TITLEDB_DIR, desc_filename)
         if os.path.isfile(desc_path):
-            return True
+            return desc_path
 
         os.makedirs(TITLEDB_DIR, exist_ok=True)
         tmp_path = desc_path + '.tmp'
         try:
-            logger.info(f"Downloading {TITLEDB_DESCRIPTIONS_FILE} from {TITLEDB_DESCRIPTIONS_URL}...")
-            r = requests.get(TITLEDB_DESCRIPTIONS_URL, stream=True, timeout=120)
+            logger.info(f"Downloading {desc_filename} from {desc_url}...")
+            r = requests.get(desc_url, stream=True, timeout=120)
             r.raise_for_status()
             with open(tmp_path, 'wb') as fp:
                 for chunk in r.iter_content(chunk_size=1024 * 1024):
                     if chunk:
                         fp.write(chunk)
             os.replace(tmp_path, desc_path)
-            return True
+            return desc_path
         finally:
             try:
                 if os.path.isfile(tmp_path):
@@ -62,8 +63,8 @@ def _ensure_titledb_descriptions_file():
             except Exception:
                 pass
     except Exception as e:
-        logger.warning(f"Failed to ensure {TITLEDB_DESCRIPTIONS_FILE}: {e}")
-        return False
+        logger.warning(f"Failed to ensure TitleDB descriptions: {e}")
+        return None
 
 def getDirsAndFiles(path):
     entries = os.listdir(path)
@@ -222,10 +223,11 @@ def load_titledb():
             _titles_desc_by_title_id = None
             _titles_images_by_title_id = None
             try:
-                desc_path = os.path.join(TITLEDB_DIR, TITLEDB_DESCRIPTIONS_FILE)
+                desc_url, desc_filename = titledb.get_descriptions_url(app_settings)
+                desc_path = os.path.join(TITLEDB_DIR, desc_filename)
                 if not os.path.isfile(desc_path):
-                    _ensure_titledb_descriptions_file()
-                if os.path.isfile(desc_path):
+                    desc_path = _ensure_titledb_descriptions_file(app_settings)
+                if desc_path and os.path.isfile(desc_path):
                     with open(desc_path, encoding="utf-8") as f:
                         _titles_desc_db = json.load(f)
 
@@ -253,7 +255,7 @@ def load_titledb():
                     _titles_desc_by_title_id = by_id
                     _titles_images_by_title_id = images_by_id
             except Exception as e:
-                logger.warning(f"Failed to load {TITLEDB_DESCRIPTIONS_FILE}: {e}")
+                logger.warning(f"Failed to load TitleDB descriptions: {e}")
 
             with open(versions_file, encoding="utf-8") as f:
                 _versions_db = json.load(f)

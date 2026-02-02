@@ -17,8 +17,8 @@ ALEMBIC_CONF = os.path.join(ALEMBIC_DIR, 'alembic.ini')
 TITLEDB_DIR = os.path.join(DATA_DIR, 'titledb')
 TITLEDB_URL = 'https://github.com/blawar/titledb.git'
 TITLEDB_ARTEFACTS_URL = 'https://nightly.link/luketanti/ownfoil/workflows/region_titles/master/titledb.zip'
-TITLEDB_DESCRIPTIONS_URL = 'https://github.com/blawar/titledb/raw/refs/heads/master/US.en.json'
-TITLEDB_DESCRIPTIONS_FILE = 'US.en.json'
+TITLEDB_DESCRIPTIONS_BASE_URL = 'https://raw.githubusercontent.com/blawar/titledb/master'
+TITLEDB_DESCRIPTIONS_DEFAULT_FILE = 'US.en.json'
 TITLEDB_DEFAULT_FILES = [
     'cnmts.json',
     'versions.json',
