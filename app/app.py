@@ -20,6 +20,7 @@ from utils import *
 from library import *
 import titledb
 import os
+from clients import TinfoilClient
 
 def init():
     global watcher
@@ -142,70 +143,55 @@ def create_app():
 # Create app
 app = create_app()
 
+# List of supported client classes
+SUPPORTED_CLIENTS = [TinfoilClient]
 
-def tinfoil_error(error):
-    return jsonify({
-        'error': error
-    })
 
-def tinfoil_access(f):
+def get_client_for_request(request):
+    """Identify and return the appropriate client for the request, or None if no client matches."""
+    reload_conf()
+    for client_class in SUPPORTED_CLIENTS:
+        if client_class.identify_client(request):
+            return client_class(app_settings, db)
+    return None
+
+
+def client_access(f):
+    """Decorator for client-specific endpoints with authentication."""
     @wraps(f)
-    def _tinfoil_access(*args, **kwargs):
-        reload_conf()
-        hauth_success = None
-        auth_success = None
-        request.verified_host = None
-        # Host verification to prevent hotlinking
-        #Tinfoil doesn't send Hauth for file grabs, only directories, so ignore get_game endpoints.
-        host_verification = "/api/get_game" not in request.path and (request.is_secure or request.headers.get("X-Forwarded-Proto") == "https")
-        if host_verification:
-            request_host = request.host
-            request_hauth = request.headers.get('Hauth')
-            logger.info(f"Secure Tinfoil request from remote host {request_host}, proceeding with host verification.")
-            shop_host = app_settings["shop"].get("host")
-            shop_hauth = app_settings["shop"].get("hauth")
-            if not shop_host:
-                logger.error("Missing shop host configuration, Host verification is disabled.")
-
-            elif request_host != shop_host:
-                logger.warning(f"Incorrect URL referrer detected: {request_host}.")
-                error = f"Incorrect URL `{request_host}`."
-                hauth_success = False
-
-            elif not shop_hauth:
-                # Try authentication, if an admin user is logging in then set the hauth
-                auth_success, auth_error, auth_is_admin =  basic_auth(request)
-                if auth_success and auth_is_admin:
-                    shop_settings = app_settings['shop']
-                    shop_settings['hauth'] = request_hauth
-                    set_shop_settings(shop_settings)
-                    logger.info(f"Successfully set Hauth value for host {request_host}.")
-                    hauth_success = True
-                else:
-                    logger.warning(f"Hauth value not set for host {request_host}, Host verification is disabled. Connect to the shop from Tinfoil with an admin account to set it.")
-
-            elif request_hauth != shop_hauth:
-                logger.warning(f"Incorrect Hauth detected for host: {request_host}.")
-                error = f"Incorrect Hauth for URL `{request_host}`."
-                hauth_success = False
-
-            else:
-                hauth_success = True
-                request.verified_host = shop_host
-
-            if hauth_success is False:
-                return tinfoil_error(error)
+    def _client_access(*args, **kwargs):
+        client = get_client_for_request(request)
+        if client is None:
+            return jsonify({'error': 'Unsupported client'}), 400
         
-        # Now checking auth if shop is private
-        if not app_settings['shop']['public']:
-            # Shop is private
-            if auth_success is None:
-                auth_success, auth_error, _ = basic_auth(request)
-            if not auth_success:
-                return tinfoil_error(auth_error)
-        # Auth success
+        # Authenticate the request
+        auth_success, error_message, verified_host = client.authenticate(request)
+        if not auth_success:
+            return client.error_response(error_message)
+        
+        # Store client and verified_host in request for use by the route
+        request.client = client
+        request.verified_host = verified_host
+        
         return f(*args, **kwargs)
-    return _tinfoil_access
+    return _client_access
+
+
+def file_access(f):
+    """Decorator for file serving endpoints with basic authentication (no client identification required)."""
+    @wraps(f)
+    def _file_access(*args, **kwargs):
+        reload_conf()
+        
+        # Check if shop is private
+        if not app_settings['shop']['public']:
+            # Shop is private, require authentication
+            auth_success, auth_error, _ = basic_auth(request)
+            if not auth_success:
+                return jsonify({'error': auth_error}), 401
+        
+        return f(*args, **kwargs)
+    return _file_access
 
 def access_shop():
     return render_template('index.html', title='Library', admin_account_created=admin_account_created())
@@ -216,29 +202,23 @@ def access_shop_auth():
 
 @app.route('/')
 def index():
-
-    @tinfoil_access
-    def access_tinfoil_shop():
-        shop = {
-            "success": app_settings['shop']['motd']
-        }
+    """Main shop endpoint routing to either client-specific shop or web browser UI."""
+    # Check if this is a client request
+    client = get_client_for_request(request)
+    
+    if client:
+        # Handle client request
+        logger.info(f"{client.CLIENT_NAME} connection from {request.remote_addr}")
         
-        if request.verified_host is not None:
-            # enforce client side host verification
-            shop["referrer"] = f"https://{request.verified_host}"
-            
-        shop["files"] = gen_shop_files(db)
-
-        if app_settings['shop']['encrypt']:
-            return Response(encrypt_shop(shop), mimetype='application/octet-stream')
-
-        return jsonify(shop)
+        # Authenticate the request
+        auth_success, error_message, verified_host = client.authenticate(request)
+        if not auth_success:
+            return client.error_response(error_message)
+        
+        # Serve the shop
+        return client.serve_shop(request, verified_host)
     
-    if all(header in request.headers for header in TINFOIL_HEADERS):
-    # if True:
-        logger.info(f"Tinfoil connection from {request.remote_addr}")
-        return access_tinfoil_shop()
-    
+    # Browser request - serve web UI
     if not app_settings['shop']['public']:
         return access_shop_auth()
     return access_shop()
@@ -437,9 +417,10 @@ def get_all_titles_api():
     })
 
 @app.route('/api/get_game/<int:id>')
-@tinfoil_access
+@file_access
 def serve_game(id):
-    # TODO add download count increment
+    """Serve a game file to authenticated clients."""
+    # TODO: add download count increment
     filepath = db.session.query(Files.filepath).filter_by(id=id).first()[0]
     filedir, filename = os.path.split(filepath)
     return send_from_directory(filedir, filename)
