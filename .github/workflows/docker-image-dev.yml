@@ -1,9 +1,12 @@
-name: Build and Push Docker Image (master)
+name: Build and Push Docker Image (dev)
 
 on:
   push:
-    branches:
-      - dev
+    branches: [dev]
+
+concurrency:
+  group: docker-dev
+  cancel-in-progress: true
 
 jobs:
   build-and-push:
@@ -13,6 +16,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -25,15 +31,17 @@ jobs:
 
       - name: Compute tags
         id: meta
-        run: |
-          echo "sha_tag=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+        run: echo "sha_tag=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
 
-      - name: Build and push
+      - name: Build and push (multi-arch)
         uses: docker/build-push-action@v6
         with:
           context: .
           file: Dockerfile
           push: true
+          platforms: linux/amd64,linux/arm64
           tags: |
             luketanti/ownfoil:dev
             luketanti/ownfoil:sha-${{ steps.meta.outputs.sha_tag }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
