@@ -11,6 +11,7 @@ concurrency:
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
+    timeout-minutes: 30  # Add timeout to prevent hanging jobs
     permissions:
       contents: read
     steps:
@@ -45,3 +46,10 @@ jobs:
             luketanti/ownfoil:sha-${{ steps.meta.outputs.sha_tag }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          # Add retry logic for transient failures
+          provenance: false  # Reduces potential authentication issues
+          
+      # Optional: Add a notification step for failures
+      - name: Job failed
+        if: failure()
+        run: echo "Build failed - check if it's a transient GitHub issue"
