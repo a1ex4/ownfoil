@@ -1,16 +1,18 @@
-name: Build and Push Docker Image (master)
+name: Build and Push Docker Image (Release)
 
 on:
   push:
-    branches: [master]
+    tags:
+      - 'v*.*.*'  # Only trigger on version tags like v1.0.0, v2.1.3, etc.
 
 concurrency:
-  group: docker-master
+  group: docker-release-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: read
     steps:
@@ -29,9 +31,21 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Compute tags
+      - name: Compute tags and metadata
         id: meta
-        run: echo "sha_tag=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+        run: |
+          # Extract version from tag (removes 'v' prefix)
+          VERSION=${GITHUB_REF#refs/tags/v}
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          
+          # Extract major and minor versions for additional tags
+          MAJOR=$(echo $VERSION | cut -d. -f1)
+          MINOR=$(echo $VERSION | cut -d. -f1-2)
+          echo "major=$MAJOR" >> "$GITHUB_OUTPUT"
+          echo "minor=$MINOR" >> "$GITHUB_OUTPUT"
+          
+          # SHA tag
+          echo "sha_tag=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
 
       - name: Build and push (multi-arch)
         uses: docker/build-push-action@v6
@@ -42,6 +56,57 @@ jobs:
           platforms: linux/amd64,linux/arm64
           tags: |
             luketanti/ownfoil:latest
+            luketanti/ownfoil:${{ steps.meta.outputs.version }}
+            luketanti/ownfoil:${{ steps.meta.outputs.major }}
+            luketanti/ownfoil:${{ steps.meta.outputs.minor }}
             luketanti/ownfoil:sha-${{ steps.meta.outputs.sha_tag }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          provenance: false
+
+      - name: Build Summary
+        if: success()
+        run: |
+          echo "## ✅ Docker Release Build Successful! 🚀" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🎉 Release Version: \`v${{ steps.meta.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📦 Published Images:" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Tag | Image |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Latest | \`luketanti/ownfoil:latest\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Full Version | \`luketanti/ownfoil:${{ steps.meta.outputs.version }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Major Version | \`luketanti/ownfoil:${{ steps.meta.outputs.major }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Minor Version | \`luketanti/ownfoil:${{ steps.meta.outputs.minor }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| SHA | \`luketanti/ownfoil:sha-${{ steps.meta.outputs.sha_tag }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🏗️ Build Details:" >> $GITHUB_STEP_SUMMARY
+          echo "- **Platforms**: linux/amd64, linux/arm64" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit**: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Released by**: @${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "### 📥 Pull Commands:" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+          echo "# Pull latest" >> $GITHUB_STEP_SUMMARY
+          echo "docker pull luketanti/ownfoil:latest" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "# Pull specific version" >> $GITHUB_STEP_SUMMARY
+          echo "docker pull luketanti/ownfoil:${{ steps.meta.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+
+      - name: Build Failed Notification
+        if: failure()
+        run: |
+          echo "## ❌ Docker Release Build Failed" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Release**: \`v${{ steps.meta.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "The build failed. Please check the logs above for details." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Common issues:**" >> $GITHUB_STEP_SUMMARY
+          echo "- Docker Hub credentials expired or incorrect" >> $GITHUB_STEP_SUMMARY
+          echo "- Dockerfile syntax errors" >> $GITHUB_STEP_SUMMARY
+          echo "- Build failures in the application code" >> $GITHUB_STEP_SUMMARY
+          echo "- GitHub Actions runner issues (try re-running)" >> $GITHUB_STEP_SUMMARY
