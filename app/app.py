@@ -2908,6 +2908,43 @@ def get_all_titles_api():
     })
 
 
+@app.get('/api/title-details')
+@access_required('shop')
+def get_title_details_api():
+    app_id = (request.args.get('app_id') or '').strip()
+    app_type = (request.args.get('app_type') or '').strip()
+    title_id = (request.args.get('title_id') or '').strip()
+
+    if not app_id and not title_id:
+        return jsonify({'success': False, 'error': 'missing_identifier'}), 400
+
+    titles_library = generate_library()
+
+    def _match_game(game):
+        if not isinstance(game, dict):
+            return False
+        if app_id and app_type:
+            return (
+                str(game.get('app_id') or '').upper() == app_id.upper()
+                and str(game.get('app_type') or '').upper() == app_type.upper()
+            )
+        if app_id:
+            return str(game.get('app_id') or '').upper() == app_id.upper()
+        if title_id:
+            return str(game.get('title_id') or '').upper() == title_id.upper()
+        return False
+
+    game = next((g for g in titles_library if _match_game(g)), None)
+    if not game and title_id:
+        tid = title_id.upper()
+        game = next((g for g in titles_library if str(g.get('title_id') or '').upper() == tid), None)
+
+    return jsonify({
+        'success': bool(game),
+        'game': game,
+    })
+
+
 @app.get('/api/title-info/<title_id>')
 @access_required('shop')
 def get_title_info_api(title_id):

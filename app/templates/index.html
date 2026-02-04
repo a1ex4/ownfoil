@@ -1388,6 +1388,39 @@
         return games.find(game => game.app_id === appId && game.app_type === appType) || null;
     }
 
+    const gameDetailsCache = new Map();
+
+    function buildGameKey(appId, appType) {
+        const id = String(appId || '').toUpperCase();
+        const type = String(appType || '').toUpperCase();
+        return `${id}|${type}`;
+    }
+
+    function fetchGameDetails(appId, appType) {
+        const key = buildGameKey(appId, appType);
+        if (gameDetailsCache.has(key)) {
+            return Promise.resolve(gameDetailsCache.get(key));
+        }
+
+        const local = findGameByKey(appId, appType);
+        if (local && Array.isArray(local.version) && local.version.length) {
+            gameDetailsCache.set(key, local);
+            return Promise.resolve(local);
+        }
+
+        return new Promise(resolve => {
+            $.getJSON(`/api/title-details?app_id=${encodeURIComponent(appId || '')}&app_type=${encodeURIComponent(appType || '')}`, function (data) {
+                const game = data && data.game ? data.game : null;
+                if (game) {
+                    gameDetailsCache.set(key, game);
+                }
+                resolve(game || local || null);
+            }).fail(function () {
+                resolve(local || null);
+            });
+        });
+    }
+
     function renderDetails(game) {
         if (!game) {
             $('#detailsTitle').text('Content not found');
@@ -1479,14 +1512,29 @@
         $('#detailsDownloadStatus').text('');
     }
 
+    function showDetailsLoading() {
+        $('#detailsTitle').text('Loading...');
+        $('#detailsSubtitle').text('');
+        $('#detailsMeta').empty();
+        $('#detailsVersions').html('<div class="text-muted">Loading details...</div>');
+        $('#detailsDownloadStatus').text('');
+    }
+
     const detailsModal = document.getElementById('detailsModal');
     if (detailsModal) {
         detailsModal.addEventListener('show.bs.modal', event => {
             const button = event.relatedTarget;
             const appId = button.getAttribute('data-bs-app-id');
             const appType = button.getAttribute('data-bs-app-type');
-            const game = findGameByKey(appId, appType);
-            renderDetails(game);
+            const initial = findGameByKey(appId, appType);
+            if (initial) {
+                renderDetails(initial);
+            } else {
+                showDetailsLoading();
+            }
+            fetchGameDetails(appId, appType)
+                .then(game => renderDetails(game))
+                .catch(() => renderDetails(null));
         });
     }
 

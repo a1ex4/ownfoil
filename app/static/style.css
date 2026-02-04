@@ -193,6 +193,15 @@ p.game-description {
         padding: 12px;
     }
 
+    .discover-columns {
+        flex-direction: column;
+        gap: 1.5rem;
+    }
+
+    .discover-separator {
+        display: none;
+    }
+
     /* Force 1 column in card view on phones to prevent overlay collisions */
     #gameGrid.row .game-col {
         flex: 0 0 100%;
@@ -203,6 +212,13 @@ p.game-description {
         right: 0;
         width: 100%;
         padding: 8px;
+        height: auto;
+        top: auto;
+        bottom: 0;
+        display: flex;
+        flex-direction: column;
+        justify-content: flex-end;
+        gap: 6px;
     }
 
     .game-title {
@@ -217,7 +233,7 @@ p.game-description {
     /* Place tags below text (avoid overlapping title/description) */
     .tags-container {
         position: static;
-        margin-top: 8px;
+        margin-top: auto;
         display: flex;
         flex-wrap: wrap;
         gap: 6px;
