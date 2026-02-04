@@ -6,9 +6,14 @@ import json
 import os
 import tempfile
 import time
+import logging
+import subprocess
 
 # Global lock for all JSON writes in this process
 _json_write_lock = threading.Lock()
+_version_cache = None
+_version_cache_time = 0
+_version_cache_ttl = 30
 
 # Custom logging formatter to support colors
 class ColoredFormatter(logging.Formatter):
@@ -118,3 +123,41 @@ def safe_write_json(path, data, **dump_kwargs):
             os.fsync(tmp.fileno())  # flush to disk
         # Atomically replace target file
         os.replace(tmp_path, path)
+
+def get_app_version(fallback=None):
+    global _version_cache, _version_cache_time
+    now = time.time()
+    if _version_cache and (now - _version_cache_time) < _version_cache_ttl:
+        return _version_cache
+
+    env_version = os.environ.get('OWNFOIL_VERSION') or os.environ.get('APP_VERSION')
+    if env_version:
+        _version_cache = env_version.strip()
+        _version_cache_time = now
+        return _version_cache
+
+    version = None
+    try:
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        result = subprocess.run(
+            ['git', 'describe', '--tags', '--dirty', '--always'],
+            cwd=repo_root,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            timeout=2,
+            check=False,
+        )
+        if result.returncode == 0:
+            version = result.stdout.strip()
+    except Exception:
+        version = None
+
+    if version and version.endswith('-dirty'):
+        version = f"{version[:-6]} (dirty)"
+    if not version:
+        version = (fallback or '').strip() or 'dev'
+
+    _version_cache = version
+    _version_cache_time = now
+    return version

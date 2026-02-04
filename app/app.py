@@ -1494,7 +1494,8 @@ def settings_page():
         languages_from_titledb=languages,
         admin_account_created=admin_account_created(),
         valid_keys=app_settings['titles']['valid_keys'],
-        identification_disabled=not app_settings['titles']['valid_keys'])
+        identification_disabled=not app_settings['titles']['valid_keys'],
+        app_version=get_app_version(APP_VERSION))
 
 @app.route('/manage')
 @access_required('admin')
