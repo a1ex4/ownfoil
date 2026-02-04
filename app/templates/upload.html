@@ -3,50 +3,52 @@
 {% include 'nav.html' %}
 
 <div class="container-fluid setting-body">
-    <div class="row justify-content-center">
-        <div class="col-12 col-lg-9 col-xl-7">
+    <div class="row">
+        <div class="col">
             <div class="settings-container container mt-3">
-                <div class="text-center mb-4">
-                    <h2 class="pb-2">Upload</h2>
-                    <p class="text-muted mb-0">Upload NSP/NSZ/XCI/XCZ files directly into the library.</p>
-                </div>
+                <h2 class="pb-2">Upload</h2>
+                <p class="text-muted">Upload NSP/NSZ/XCI/XCZ files directly into the library.</p>
 
-                <div class="upload-panel">
-                    <div class="mb-3">
-                        <label for="uploadLibrarySelect" class="form-label">Library</label>
-                        <select class="form-select" id="uploadLibrarySelect"></select>
-                        <div class="form-text">Choose where to place your uploaded files.</div>
-                    </div>
-
-                    <div class="mb-3">
-                        <label for="uploadFilesInput" class="form-label">Files</label>
-                        <div class="upload-dropzone" id="uploadDropzone">
-                            <div class="upload-dropzone-body">
-                                <i class="bi bi-cloud-arrow-up"></i>
-                                <div class="upload-dropzone-title">Drag & drop files here</div>
-                                <div class="upload-dropzone-subtitle">or click to browse</div>
+                <div class="card mb-3">
+                    <div class="card-body">
+                        <div class="upload-panel">
+                            <div class="mb-3">
+                                <label for="uploadLibrarySelect" class="form-label">Library</label>
+                                <select class="form-select" id="uploadLibrarySelect"></select>
+                                <div class="form-text">Choose where to place your uploaded files.</div>
                             </div>
-                            <input class="form-control" type="file" id="uploadFilesInput" multiple
-                                accept=".nsp,.nsz,.xci,.xcz">
-                        </div>
-                        <div class="form-text">Allowed: NSP, NSZ, XCI, XCZ. Large uploads may take a while.</div>
-                        <div id="uploadFileMeta" class="upload-file-meta mt-2 d-none">
-                            <span id="uploadFileSummary"></span>
-                            <button type="button" class="btn btn-sm btn-outline-secondary" id="uploadClearBtn">Clear list</button>
-                        </div>
-                        <div id="uploadFileList" class="upload-file-list mt-2 d-none"></div>
-                    </div>
 
-                    <div class="d-flex flex-wrap gap-2">
-                        <button type="button" id="uploadSubmitBtn" class="btn btn-primary" onClick="uploadFiles()" disabled>Upload</button>
-                        <button type="button" id="uploadResetBtn" class="btn btn-outline-secondary" onClick="resetUploadForm()">Reset</button>
-                    </div>
+                            <div class="mb-3">
+                                <label for="uploadFilesInput" class="form-label">Files</label>
+                                <div class="upload-dropzone" id="uploadDropzone">
+                                    <div class="upload-dropzone-body">
+                                        <i class="bi bi-cloud-arrow-up"></i>
+                                        <div class="upload-dropzone-title">Drag & drop files here</div>
+                                        <div class="upload-dropzone-subtitle">or click to browse</div>
+                                    </div>
+                                    <input class="form-control" type="file" id="uploadFilesInput" multiple
+                                        accept=".nsp,.nsz,.xci,.xcz">
+                                </div>
+                                <div class="form-text">Allowed: NSP, NSZ, XCI, XCZ. Large uploads may take a while.</div>
+                                <div id="uploadFileMeta" class="upload-file-meta mt-2 d-none">
+                                    <span id="uploadFileSummary"></span>
+                                    <button type="button" class="btn btn-sm btn-outline-secondary" id="uploadClearBtn">Clear list</button>
+                                </div>
+                                <div id="uploadFileList" class="upload-file-list mt-2 d-none"></div>
+                            </div>
 
-                    <div class="mt-3">
-                        <div class="progress d-none" id="uploadProgressWrap" role="progressbar" aria-label="Upload progress">
-                            <div class="progress-bar" id="uploadProgressBar" style="width: 0%">0%</div>
+                            <div class="d-flex flex-wrap gap-2">
+                                <button type="button" id="uploadSubmitBtn" class="btn btn-primary" onClick="uploadFiles()" disabled>Upload</button>
+                                <button type="button" id="uploadResetBtn" class="btn btn-outline-secondary" onClick="resetUploadForm()">Reset</button>
+                            </div>
+
+                            <div class="mt-3">
+                                <div class="progress d-none" id="uploadProgressWrap" role="progressbar" aria-label="Upload progress">
+                                    <div class="progress-bar" id="uploadProgressBar" style="width: 0%">0%</div>
+                                </div>
+                                <div id="uploadStatus" class="text-muted small mt-2"></div>
+                            </div>
                         </div>
-                        <div id="uploadStatus" class="text-muted small mt-2"></div>
                     </div>
                 </div>
             </div>

@@ -29,6 +29,7 @@ import titledb
 from title_requests import create_title_request, list_requests
 import requests
 import os
+import re
 import threading
 import time
 import uuid
@@ -2748,6 +2749,143 @@ def get_all_titles_api():
     start_ts = time.time()
     titles_library = generate_library()
 
+    def _game_title(game):
+        return (game.get('title_id_name') or game.get('name') or game.get('title_id') or game.get('app_id') or '')
+
+    def _split_genres(raw):
+        parts = []
+        for s in str(raw or '').split(','):
+            # Normalize stray brackets/quotes from source data (e.g. "['Action']" -> "Action").
+            cleaned = re.sub(r'^[\s\[\]\'"`]+|[\s\[\]\'"`]+$', '', str(s or '').strip()).strip()
+            if cleaned:
+                parts.append(cleaned)
+        seen = set()
+        out = []
+        for p in parts:
+            key = p.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(p)
+        return out
+
+    def _build_genre_list(games):
+        seen = {}
+        for g in games or []:
+            for genre in _split_genres(g.get('genre') or g.get('category') or ''):
+                key = genre.lower()
+                if key not in seen:
+                    seen[key] = genre
+        return sorted(seen.values(), key=lambda s: str(s).lower())
+
+    def _lite_game(game):
+        if not isinstance(game, dict):
+            return game
+        slim = dict(game)
+        slim.pop('version', None)
+        slim.pop('description', None)
+        slim.pop('screenshots', None)
+        return slim
+
+    def _sort_games(games, sort_key):
+        if sort_key == 'title_desc':
+            return sorted(games, key=lambda g: _game_title(g).lower(), reverse=True)
+        if sort_key == 'newest':
+            return sorted(
+                games,
+                key=lambda g: int(g.get('title_db_id') or 0),
+                reverse=True
+            )
+        return sorted(games, key=lambda g: _game_title(g).lower())
+
+    def _filter_games(games, search=None, types=None, owned=None, updates=None, completion=None, genre=None):
+        out = games
+        if search:
+            q = str(search).strip().lower()
+            if q:
+                out = [
+                    g for g in out
+                    if q in str(g.get('app_id') or '').lower()
+                    or q in str(g.get('title_id') or '').lower()
+                    or q in str(g.get('name') or '').lower()
+                    or q in str(g.get('title_id_name') or '').lower()
+                ]
+        if types:
+            allowed = {t.strip().upper() for t in str(types).split(',') if t.strip()}
+            if allowed:
+                out = [g for g in out if str(g.get('app_type') or '').upper() in allowed]
+        if owned == 'owned':
+            out = [g for g in out if g.get('owned') is True]
+        elif owned == 'missing':
+            out = [g for g in out if g.get('owned') is False]
+        if updates == 'up_to_date':
+            out = [g for g in out if g.get('has_latest_version') is True]
+        elif updates == 'outdated':
+            out = [g for g in out if g.get('has_latest_version') is False]
+        if completion == 'complete':
+            out = [g for g in out if g.get('has_all_dlcs') is True]
+        elif completion == 'missing_dlc':
+            out = [g for g in out if g.get('has_all_dlcs') is False]
+        if genre:
+            wanted = str(genre).strip().lower()
+            if wanted:
+                out = [
+                    g for g in out
+                    if any(gr.lower() == wanted for gr in _split_genres(g.get('genre') or g.get('category') or ''))
+                ]
+        return out
+
+    # Query params
+    page = request.args.get('page', 1, type=int)
+    per_page = request.args.get('per_page', 50, type=int)
+    page = max(1, page)
+    per_page = max(1, min(per_page, 200))
+    lite = str(request.args.get('lite', '')).lower() in ('1', 'true', 'yes')
+    sort_key = str(request.args.get('sort') or 'title_asc').strip()
+    search = request.args.get('search')
+    types = request.args.get('types')
+    owned = request.args.get('owned')
+    updates = request.args.get('updates')
+    completion = request.args.get('completion')
+    genre = request.args.get('genre')
+
+    # Build discovery sections from the full list (unfiltered).
+    base_games = [g for g in titles_library if g.get('app_type') == 'BASE']
+    newest = sorted(base_games, key=lambda g: int(g.get('title_db_id') or 0), reverse=True)[:12]
+    day_key = time.strftime('%Y-%m-%d')
+    seed = f"ownfoil-reco-{day_key}"
+    def _hash32(s):
+        h = 0x811c9dc5
+        for ch in str(s):
+            h ^= ord(ch)
+            h = (h * 0x01000193) & 0xffffffff
+        return h
+    candidates = [g for g in base_games if g.get('owned') is True]
+    recommended = sorted(
+        candidates,
+        key=lambda g: _hash32(f"{seed}-{g.get('title_id') or g.get('app_id')}")
+    )[:12]
+
+    filtered = _filter_games(
+        titles_library,
+        search=search,
+        types=types,
+        owned=owned,
+        updates=updates,
+        completion=completion,
+        genre=genre
+    )
+    filtered = _sort_games(filtered, sort_key)
+    total = len(filtered)
+    start = (page - 1) * per_page
+    end = start + per_page
+    page_games = filtered[start:end]
+
+    if lite:
+        page_games = [_lite_game(g) for g in page_games]
+        newest = [_lite_game(g) for g in newest]
+        recommended = [_lite_game(g) for g in recommended]
+
     if _is_cyberfoil_request():
         _log_access(
             kind='shop_titles',
@@ -2758,8 +2896,38 @@ def get_all_titles_api():
         )
 
     return jsonify({
-        'total': len(titles_library),
-        'games': titles_library
+        'total': total,
+        'page': page,
+        'per_page': per_page,
+        'games': page_games,
+        'genres': _build_genre_list(titles_library),
+        'discovery': {
+            'newest': newest,
+            'recommended': recommended,
+        }
+    })
+
+
+@app.get('/api/title-info/<title_id>')
+@access_required('shop')
+def get_title_info_api(title_id):
+    title_id = (title_id or '').strip().upper()
+    if not title_id:
+        return jsonify({'success': False, 'error': 'missing_title_id'}), 400
+
+    titles.load_titledb()
+    try:
+        info = titles.get_game_info(title_id) or {}
+    finally:
+        titles.identification_in_progress_count -= 1
+        titles.unload_titledb()
+
+    return jsonify({
+        'success': True,
+        'title_id': title_id,
+        'name': info.get('name'),
+        'description': info.get('description'),
+        'screenshots': info.get('screenshots') or []
     })
 
 @app.get('/api/library/size')

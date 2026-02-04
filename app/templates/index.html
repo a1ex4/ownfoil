@@ -4,8 +4,53 @@
 {% block content %}
 {% include 'nav.html' %}
 <div id="content" class="container-fluid mt-3">
+    <div class="grid-container mt-2 mb-3 discover-collapsed" id="discoverSection">
+        <div class="d-flex gap-3 align-items-stretch mt-2 py-3 discover-columns">
+            <div class="flex-fill">
+                <div class="mb-3">
+                    <div class="fw-semibold">Newly added</div>
+                    <div class="text-muted small">Latest titles found in your library.</div>
+                </div>
+                <div class="discover-row-wrapper position-relative">
+                    <button class="discover-scroll-btn discover-scroll-left" aria-label="Scroll left">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="currentColor" viewBox="0 0 16 16">
+                            <path fill-rule="evenodd" d="M11.354 1.646a.5.5 0 0 1 0 .708L5.707 8l5.647 5.646a.5.5 0 0 1-.708.708l-6-6a.5.5 0 0 1 0-.708l6-6a.5.5 0 0 1 .708 0z"/>
+                        </svg>
+                    </button>
+                    <div class="discover-row" id="newlyAddedRow"></div>
+                    <button class="discover-scroll-btn discover-scroll-right" aria-label="Scroll right">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="currentColor" viewBox="0 0 16 16">
+                            <path fill-rule="evenodd" d="M4.646 1.646a.5.5 0 0 1 .708 0l6 6a.5.5 0 0 1 0 .708l-6 6a.5.5 0 0 1-.708-.708L10.293 8 4.646 2.354a.5.5 0 0 1 0-.708z"/>
+                        </svg>
+                    </button>
+                </div>
+            </div>
 
-    <div class="row gy-2 gx-3 align-items-center justify-content-md-center">
+            <div class="discover-separator" style="width: 1px; background-color: rgba(255, 255, 255, 0.1); align-self: stretch;"></div>
+
+            <div class="flex-fill">
+                <div class="mb-3">
+                    <div class="fw-semibold">Recommended</div>
+                    <div class="text-muted small">A rotating selection from your library.</div>
+                </div>
+                <div class="discover-row-wrapper position-relative">
+                    <button class="discover-scroll-btn discover-scroll-left" aria-label="Scroll left">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="currentColor" viewBox="0 0 16 16">
+                            <path fill-rule="evenodd" d="M11.354 1.646a.5.5 0 0 1 0 .708L5.707 8l5.647 5.646a.5.5 0 0 1-.708.708l-6-6a.5.5 0 0 1 0-.708l6-6a.5.5 0 0 1 .708 0z"/>
+                        </svg>
+                    </button>
+                    <div class="discover-row" id="recommendedRow"></div>
+                    <button class="discover-scroll-btn discover-scroll-right" aria-label="Scroll right">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="currentColor" viewBox="0 0 16 16">
+                            <path fill-rule="evenodd" d="M4.646 1.646a.5.5 0 0 1 .708 0l6 6a.5.5 0 0 1 0 .708l-6 6a.5.5 0 0 1-.708-.708L10.293 8 4.646 2.354a.5.5 0 0 1 0-.708z"/>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row gy-2 gx-3 align-items-center justify-content-md-center mb-3">
 
         <div class="col-auto">
             <div class="btn-group dropdown-center" role="group">
@@ -154,52 +199,6 @@
         </div>
     </div>
 
-    <div class="px-3 mt-3 d-none" id="discoverSection">
-        <div class="d-flex gap-3 align-items-stretch mt-3 py-4 discover-columns">
-            <div class="flex-fill">
-                <div class="mb-3">
-                    <div class="fw-semibold">Newly added</div>
-                    <div class="text-muted small">Latest titles found in your library.</div>
-                </div>
-                <div class="discover-row-wrapper position-relative">
-                    <button class="discover-scroll-btn discover-scroll-left" aria-label="Scroll left">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="currentColor" viewBox="0 0 16 16">
-                            <path fill-rule="evenodd" d="M11.354 1.646a.5.5 0 0 1 0 .708L5.707 8l5.647 5.646a.5.5 0 0 1-.708.708l-6-6a.5.5 0 0 1 0-.708l6-6a.5.5 0 0 1 .708 0z"/>
-                        </svg>
-                    </button>
-                    <div class="discover-row" id="newlyAddedRow"></div>
-                    <button class="discover-scroll-btn discover-scroll-right" aria-label="Scroll right">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="currentColor" viewBox="0 0 16 16">
-                            <path fill-rule="evenodd" d="M4.646 1.646a.5.5 0 0 1 .708 0l6 6a.5.5 0 0 1 0 .708l-6 6a.5.5 0 0 1-.708-.708L10.293 8 4.646 2.354a.5.5 0 0 1 0-.708z"/>
-                        </svg>
-                    </button>
-                </div>
-            </div>
-
-            <div class="discover-separator" style="width: 1px; background-color: rgba(255, 255, 255, 0.1); align-self: stretch;"></div>
-
-            <div class="flex-fill">
-                <div class="mb-3">
-                    <div class="fw-semibold">Recommended</div>
-                    <div class="text-muted small">A rotating selection from your library.</div>
-                </div>
-                <div class="discover-row-wrapper position-relative">
-                    <button class="discover-scroll-btn discover-scroll-left" aria-label="Scroll left">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="currentColor" viewBox="0 0 16 16">
-                            <path fill-rule="evenodd" d="M11.354 1.646a.5.5 0 0 1 0 .708L5.707 8l5.647 5.646a.5.5 0 0 1-.708.708l-6-6a.5.5 0 0 1 0-.708l6-6a.5.5 0 0 1 .708 0z"/>
-                        </svg>
-                    </button>
-                    <div class="discover-row" id="recommendedRow"></div>
-                    <button class="discover-scroll-btn discover-scroll-right" aria-label="Scroll right">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="currentColor" viewBox="0 0 16 16">
-                            <path fill-rule="evenodd" d="M4.646 1.646a.5.5 0 0 1 .708 0l6 6a.5.5 0 0 1 0 .708l-6 6a.5.5 0 0 1-.708-.708L10.293 8 4.646 2.354a.5.5 0 0 1 0-.708z"/>
-                        </svg>
-                    </button>
-                </div>
-            </div>
-        </div>
-    </div>
-
     <div class="grid-container" id="gridContainer">
         <div class="row g-4" id="gameGrid"></div>
         <!-- <div class="row row-cols-1 row-cols-md-3 g-4" id="gameGrid"></div> -->
@@ -303,6 +302,8 @@
 <script>
     let games;
     let filteredGames;
+    let availableGenres = [];
+    let discoverySections = null;
     let itemsPerPage = 12;
     let currentPage = 1;
     let totalGames = 0;
@@ -312,18 +313,142 @@
     let selectedGenre = '';
     const canManageDownloads = {{ 'true' if current_user.is_admin or admin_account_created == false else 'false' }};
 
+    function buildTitlesQuery() {
+        const params = new URLSearchParams();
+        params.set('page', String(currentPage));
+        params.set('per_page', String(itemsPerPage));
+        params.set('lite', '1');
+        params.set('sort', currentSort);
+
+        const searchText = ($('#textFilter').val() || '').trim();
+        if (searchText) {
+            params.set('search', searchText);
+        }
+        if (selectedGenre) {
+            params.set('genre', selectedGenre);
+        }
+        if (activeTypeFilters.size > 0) {
+            params.set('types', Array.from(activeTypeFilters).join(','));
+        } else if (currentView === 'icon') {
+            // Icon view defaults to base titles so pagination matches visible items.
+            params.set('types', 'BASE');
+        }
+        if (activeOwnershipFilters.size === 1) {
+            params.set('owned', activeOwnershipFilters.has('Owned') ? 'owned' : 'missing');
+        }
+        if (activeUpdateFilters.size === 1) {
+            params.set('updates', activeUpdateFilters.has('Up to date') ? 'up_to_date' : 'outdated');
+        }
+        if (activeCompletionFilters.size === 1) {
+            params.set('completion', activeCompletionFilters.has('Complete') ? 'complete' : 'missing_dlc');
+        }
+        return params.toString();
+    }
+
     function fetchGames() {
         return new Promise((resolve, reject) => {
-            $.get(`/api/titles`, function (data) {
-                totalGames = data.total;
-                games = data.games;
+            $.get(`/api/titles?${buildTitlesQuery()}`, function (data) {
+                totalGames = data.total || 0;
+                games = data.games || [];
                 filteredGames = games;
-                applySort();
+                availableGenres = data.genres || [];
+                discoverySections = data.discovery || null;
                 resolve();
             }).fail(function() {
                 reject();
             });
         });
+    }
+
+    function refreshGames(resetPage = false) {
+        if (resetPage) {
+            currentPage = 1;
+        }
+        showLoadingPlaceholders();
+        return fetchGames()
+            .then(() => {
+                populateGenreDropdown();
+                renderGames();
+                updatePaginationControls(totalGames);
+            })
+            .catch(() => {});
+    }
+
+    function showLoadingPlaceholders() {
+        const gameGrid = $('#gameGrid');
+        gameGrid.empty();
+
+        const count = Math.max(parseInt(itemsPerPage || 0, 10), 1);
+
+        if (currentView === 'list') {
+            const table = $(`
+                <table class="table table-dark table-hover align-middle">
+                    <thead>
+                        <tr>
+                            <th scope="col">Title</th>
+                            <th scope="col">Genres</th>
+                            <th scope="col">Type</th>
+                            <th scope="col">Version</th>
+                            <th scope="col">Status</th>
+                            <th scope="col">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            `);
+            const tbody = table.find('tbody');
+            for (let i = 0; i < count; i++) {
+                tbody.append(`
+                    <tr class="placeholder-row">
+                        <td><div class="skeleton skeleton-text"></div></td>
+                        <td><div class="skeleton skeleton-text"></div></td>
+                        <td><div class="skeleton skeleton-text"></div></td>
+                        <td><div class="skeleton skeleton-text"></div></td>
+                        <td><div class="skeleton skeleton-text"></div></td>
+                        <td><div class="skeleton skeleton-text"></div></td>
+                    </tr>
+                `);
+            }
+            const wrapper = $('<div class="table-responsive"></div>');
+            wrapper.append(table);
+            gameGrid.append(wrapper);
+            return;
+        }
+
+        if (currentView === 'icon') {
+            gameGrid.removeClass('row g-4').addClass('icon-grid');
+            for (let i = 0; i < count; i++) {
+                const item = $(`
+                    <div class="library-icon-item placeholder-tile">
+                        <div class="discover-tile-body">
+                            <div class="skeleton skeleton-image"></div>
+                            <div class="skeleton skeleton-title"></div>
+                            <div class="skeleton skeleton-subtitle"></div>
+                        </div>
+                    </div>
+                `);
+                gameGrid.append(item);
+            }
+            return;
+        }
+
+        // Card view (default)
+        gameGrid.removeClass('icon-grid').addClass('row g-4');
+        for (let i = 0; i < count; i++) {
+            const gameCol = $('<div class="col game-col"></div>').addClass(`col-${12 / getColumnsForCardSize(cardSize)}`);
+            const card = $(`
+                <div class="card text-bg-dark game-card placeholder-card">
+                    <div class="skeleton skeleton-banner"></div>
+                    <div class="card-img-overlay game-info">
+                        <div class="skeleton skeleton-title"></div>
+                        <div class="skeleton skeleton-text"></div>
+                        <div class="skeleton skeleton-text short"></div>
+                    </div>
+                </div>
+            `);
+            gameCol.append(card);
+            gameGrid.append(gameCol);
+        }
     }
 
     function formatBytes(bytes) {
@@ -375,7 +500,8 @@
         // Some titles come back with comma-separated genres.
         const parts = String(raw || '')
             .split(',')
-            .map(s => String(s).trim())
+            // Normalize stray brackets/quotes from source data (e.g. "['Action']" -> "Action").
+            .map(s => String(s).trim().replace(/^[\s\[\]'"`]+|[\s\[\]'"`]+$/g, '').trim())
             .filter(Boolean);
 
         // De-dupe (case-insensitive), preserve casing of first occurrence.
@@ -400,35 +526,7 @@
     }
 
     function applySort() {
-        if (!Array.isArray(filteredGames)) {
-            filteredGames = [];
-            return;
-        }
-
-        const withIndex = filteredGames.map((g, i) => ({ g, i }));
-        withIndex.sort((x, y) => {
-            const a = x.g;
-            const b = y.g;
-
-            if (currentSort === 'title_desc') {
-                const c = compareText(getGameTitle(b), getGameTitle(a));
-                return c || (x.i - y.i);
-            }
-
-            if (currentSort === 'newest') {
-                const aId = parseInt(a && a.title_db_id, 10) || 0;
-                const bId = parseInt(b && b.title_db_id, 10) || 0;
-                if (aId !== bId) return bId - aId;
-                const c = compareText(getGameTitle(a), getGameTitle(b));
-                return c || (x.i - y.i);
-            }
-
-            // Default: title asc
-            const c = compareText(getGameTitle(a), getGameTitle(b));
-            return c || (x.i - y.i);
-        });
-
-        filteredGames = withIndex.map(x => x.g);
+        // Sorting is handled server-side via /api/titles.
     }
 
     function shouldShowDiscovery() {
@@ -502,34 +600,17 @@
         const wrapper = document.getElementById('discoverSection');
         if (!wrapper) return;
 
-        if (!Array.isArray(games) || !shouldShowDiscovery()) {
-            wrapper.classList.add('d-none');
+        if (!shouldShowDiscovery() || !discoverySections) {
+            wrapper.classList.add('discover-collapsed');
             return;
         }
+        wrapper.classList.remove('discover-collapsed');
+        const newest = discoverySections.newest || [];
+        const recommended = discoverySections.recommended || [];
 
-        const baseGames = games.filter(g => g && g.app_type === 'BASE');
-
-        const newest = baseGames
-            .slice()
-            .sort((a, b) => (parseInt(b.title_db_id, 10) || 0) - (parseInt(a.title_db_id, 10) || 0))
-            .slice(0, 12);
-
-        const candidates = baseGames.filter(g => g && g.owned === true);
-        const dayKey = new Date().toISOString().slice(0, 10);
-        const seed = `ownfoil-reco-${dayKey}`;
-        const recommended = candidates
-            .slice()
-            .sort((a, b) => {
-                const ha = hashStringToInt32(`${seed}-${a.title_id || a.app_id}`);
-                const hb = hashStringToInt32(`${seed}-${b.title_id || b.app_id}`);
-                return ha - hb;
-            })
-            .slice(0, 12);
-
-        wrapper.classList.remove('d-none');
         renderDiscoverRow('newlyAddedRow', newest);
         renderDiscoverRow('recommendedRow', recommended);
-        
+
         // Initialize scroll buttons
         initDiscoverScrollButtons('newlyAddedRow');
         initDiscoverScrollButtons('recommendedRow');
@@ -582,10 +663,8 @@
         gameGrid.removeClass('icon-grid').addClass('row g-4');
         gameGrid.empty(); // Clear existing games
 
-        // Get games for the current page
-        start = (currentPage - 1) * itemsPerPage
-        end = start + itemsPerPage
-        paginatedGames = filteredGames.slice(start, end);
+        // Current page games already provided by the server.
+        paginatedGames = Array.isArray(filteredGames) ? filteredGames : [];
 
         paginatedGames.forEach(function (game) {
             const gameCol = $('<div class="col game-col"></div>').addClass(`col-${12 / getColumnsForCardSize(cardSize)}`);
@@ -704,7 +783,7 @@
             gameGrid.append(gameCol);
         });
         // Update pagination
-        updatePaginationControls(filteredGames.length)
+        updatePaginationControls(totalGames)
 
     }
 
@@ -713,11 +792,7 @@
         const gameGrid = $('#gameGrid');
         gameGrid.removeClass('row g-4').addClass('icon-grid');
         gameGrid.empty(); // Clear existing games
-        // Get games for the current page
-        start = (currentPage - 1) * itemsPerPage
-        end = start + itemsPerPage
-        baseGames = filteredGames.filter(game => game.app_type === 'BASE');
-        paginatedGames = baseGames.slice(start, end);
+        paginatedGames = Array.isArray(filteredGames) ? filteredGames : [];
 
         paginatedGames.forEach(game => {
             const iconBtn = $('<button type="button" class="btn btn-link p-0 game-icon-btn library-icon-tile text-start"></button>')
@@ -764,7 +839,7 @@
         // Adjust icon sizes based on the slider value
         adjustIconSizes(cardSize);
         // Update pagination
-        updatePaginationControls(baseGames.length)
+        updatePaginationControls(totalGames)
     }
 
     function fetchLibrarySize() {
@@ -800,9 +875,7 @@
         gameGrid.removeClass('row g-4 icon-grid').addClass('list-view');
         gameGrid.empty();
 
-        start = (currentPage - 1) * itemsPerPage
-        end = start + itemsPerPage
-        paginatedGames = filteredGames.slice(start, end);
+        paginatedGames = Array.isArray(filteredGames) ? filteredGames : [];
 
         const table = $(`
             <table class="table table-dark table-hover align-middle">
@@ -877,7 +950,7 @@
         const wrapper = $('<div class="table-responsive"></div>');
         wrapper.append(table);
         gameGrid.append(wrapper);
-        updatePaginationControls(filteredGames.length);
+        updatePaginationControls(totalGames);
     }
 
     function getColumnsForCardSize(size) {
@@ -950,12 +1023,12 @@
         // This prevents a blank grid when currentPage is out of range.
         if (currentPage > totalPages) {
             currentPage = totalPages;
-            renderGames();
+            refreshGames(false);
             return;
         }
         if (currentPage < 1) {
             currentPage = 1;
-            renderGames();
+            refreshGames(false);
             return;
         }
 
@@ -968,7 +1041,7 @@
             e.preventDefault();
             if (currentPage > 1) {
                 currentPage--;
-                renderGames();
+                refreshGames(false);
             }
         });
         paginationControls.append(prevButton);
@@ -979,7 +1052,7 @@
             pageButton.click(function (e) {
                 e.preventDefault();
                 currentPage = i;
-                renderGames();
+                refreshGames(false);
             });
             paginationControls.append(pageButton);
         }
@@ -993,7 +1066,7 @@
             e.preventDefault();
             if (currentPage < totalPages) {
                 currentPage++;
-                renderGames();
+                refreshGames(false);
             }
         });
         paginationControls.append(nextButton);
@@ -1066,18 +1139,7 @@
         allLi.append(allBtn);
         menu.append(allLi);
 
-        const seen = new Map();
-        (games || []).forEach(g => {
-            const raw = getGameGenre(g);
-            splitGenres(raw).forEach(cleaned => {
-                const key = cleaned.toLowerCase();
-                if (!seen.has(key)) {
-                    seen.set(key, cleaned);
-                }
-            });
-        });
-
-        const genres = Array.from(seen.values());
+        const genres = Array.isArray(availableGenres) ? availableGenres.slice() : [];
         genres.sort((a, b) => String(a).localeCompare(String(b), undefined, { sensitivity: 'base' }));
         genres.forEach(genre => {
             const li = $('<li></li>');
@@ -1090,55 +1152,7 @@
     }
 
     function recomputeFilteredGames() {
-        let list = Array.isArray(games) ? games.slice() : [];
-
-        const searchText = ($('#textFilter').val() || '').trim().toLowerCase();
-        if (searchText) {
-            list = list.filter(game =>
-                game.app_id?.toLowerCase().includes(searchText) ||
-                game.title_id?.toLowerCase().includes(searchText) ||
-                game.name?.toLowerCase().includes(searchText) ||
-                game.title_id_name?.toLowerCase().includes(searchText)
-            );
-        }
-
-        if (activeTypeFilters.size > 0) {
-            list = list.filter(game => activeTypeFilters.has(game.app_type));
-        }
-
-        if (activeOwnershipFilters.size === 1) {
-            if (activeOwnershipFilters.has('Owned')) {
-                list = list.filter(game => game.owned === true);
-            } else if (activeOwnershipFilters.has('Missing')) {
-                list = list.filter(game => game.owned === false);
-            }
-        }
-
-        if (activeUpdateFilters.size === 1) {
-            if (activeUpdateFilters.has('Up to date')) {
-                list = list.filter(game => game.has_latest_version === true);
-            } else if (activeUpdateFilters.has('Outdated')) {
-                list = list.filter(game => game.has_latest_version === false);
-            }
-        }
-
-        if (activeCompletionFilters.size === 1) {
-            if (activeCompletionFilters.has('Complete')) {
-                list = list.filter(game => game.has_all_dlcs === true);
-            } else if (activeCompletionFilters.has('Missing DLC')) {
-                list = list.filter(game => game.has_all_dlcs === false);
-            }
-        }
-
-        if (selectedGenre) {
-            const wanted = String(selectedGenre).trim().toLowerCase();
-            list = list.filter(game => splitGenres(getGameGenre(game)).some(g => g.toLowerCase() === wanted));
-        }
-
-        filteredGames = list;
-        currentPage = 1;
-        applySort();
-        renderGames();
+        refreshGames(true);
     }
 
     function loadFiltersFromStorage() {
@@ -1154,15 +1168,11 @@
             $('#filterCheckMissingDlc').prop('checked', filters.completion?.includes('Missing DLC') || false);
 
             updateFilter();
-            recomputeFilteredGames();
         }
 
         const savedSearch = localStorage.getItem('searchTerm');
         if (savedSearch) {
             $('#textFilter').val(savedSearch);
-            recomputeFilteredGames();
-        } else {
-            recomputeFilteredGames();
         }
     }
 
@@ -1198,13 +1208,10 @@
 
         loadGenreFromStorage();
 
+        loadFiltersFromStorage();
+
         // Fetch initial set of games and render
-        fetchGames()
-            .then(() => {
-                populateGenreDropdown();
-                loadFiltersFromStorage();
-            })
-            .catch(() => {})
+        refreshGames(true)
             .then(() => {
                 fetchLibrarySize();
                 fetchLibraryStatus();
@@ -1214,9 +1221,7 @@
         $('.sort-option').click(function () {
             currentSort = $(this).data('sort');
             localStorage.setItem('sortMethod', currentSort);
-            currentPage = 1;
-            applySort();
-            renderGames();
+            refreshGames(true);
         });
 
         $('#genreDropdownMenu').on('click', '.genre-option', function () {
@@ -1230,8 +1235,7 @@
         $('.items-per-page').click(function () {
             itemsPerPage = $(this).data('value');
             localStorage.setItem('itemsPerPage', itemsPerPage);
-            currentPage = 1; // Reset to first page
-            renderGames();
+            refreshGames(true);
         });
 
         $('#applyCustomItemsPerPage').click(function () {
@@ -1239,8 +1243,7 @@
             if (customValue && customValue > 0) {
                 itemsPerPage = parseInt(customValue);
                 localStorage.setItem('itemsPerPage', itemsPerPage);
-                currentPage = 1; // Reset to first page
-                renderGames();
+                refreshGames(true);
             }
         });
 
@@ -1522,6 +1525,48 @@
                 grid.append(img);
             });
             body.append(grid);
+        }
+
+        if (!desc && !shots.length && titleId) {
+            $('#gameInfoStatus')
+                .text('Loading TitleDB info...')
+                .removeClass('text-danger')
+                .addClass('text-muted');
+            $.getJSON(`/api/title-info/${encodeURIComponent(titleId)}`, function (result) {
+                if (!result || result['success'] !== true) {
+                    $('#gameInfoStatus')
+                        .text('No description available in TitleDB for this title.')
+                        .removeClass('text-danger')
+                        .addClass('text-muted');
+                    return;
+                }
+                const newDesc = (result['description'] || '').trim();
+                const newShots = Array.isArray(result['screenshots']) ? result['screenshots'] : [];
+                body.empty();
+                if (newDesc) {
+                    body.append($('<div class="game-info-description"></div>').text(newDesc));
+                    $('#gameInfoStatus').text('').removeClass('text-danger').addClass('text-muted');
+                } else {
+                    $('#gameInfoStatus')
+                        .text('No description available in TitleDB for this title.')
+                        .removeClass('text-danger')
+                        .addClass('text-muted');
+                }
+                if (newShots.length) {
+                    const grid = $('<div class="game-info-image-grid"></div>');
+                    newShots.slice(0, 12).forEach(u => {
+                        const img = $('<img class="game-info-image" alt="">').attr('src', u);
+                        img.on('error', function () { $(this).remove(); });
+                        grid.append(img);
+                    });
+                    body.append(grid);
+                }
+            }).fail(function () {
+                $('#gameInfoStatus')
+                    .text('No description available in TitleDB for this title.')
+                    .removeClass('text-danger')
+                    .addClass('text-muted');
+            });
         }
     }
 
