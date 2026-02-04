@@ -1,5 +1,8 @@
-from flask import Flask, render_template, request, redirect, url_for, jsonify, send_from_directory, Response
+from flask import Flask, render_template, request, redirect, url_for, jsonify, send_from_directory, Response, has_app_context, has_request_context, g
 from flask_login import LoginManager
+from werkzeug.utils import secure_filename
+from sqlalchemy import func
+from sqlalchemy.orm import joinedload
 from scheduler import init_scheduler
 from functools import wraps
 from file_watcher import Watcher
@@ -8,18 +11,170 @@ import logging
 import sys
 import copy
 import flask.cli
-from datetime import timedelta
+from datetime import timedelta, datetime
 flask.cli.show_server_banner = lambda *args: None
 from constants import *
 from settings import *
+from downloads import ProwlarrClient, test_torrent_client, run_downloads_job, manual_search_update, queue_download_url, search_update_options, check_completed_downloads, get_downloads_state
+from library import organize_library, delete_older_updates
 from db import *
 from shop import *
 from auth import *
+from auth import _effective_client_ip
 import titles
 from utils import *
 from library import *
+from library import _get_nsz_exe, _ensure_unique_path
 import titledb
+from title_requests import create_title_request, list_requests
+import requests
 import os
+import re
+import threading
+import time
+import uuid
+import re
+import secrets
+
+from db import add_access_event, get_access_events
+
+try:
+    from PIL import Image, ImageOps
+except Exception:
+    Image = None
+    ImageOps = None
+
+# In-process media cache index.
+# Avoids repeated os.listdir() and TitleDB lookups for icons/banners that are already cached.
+_media_cache_lock = threading.Lock()
+_media_cache_index = {
+    'icon': {},   # title_id -> filename
+    'banner': {}, # title_id -> filename
+}
+_media_cache_last_reset = 0
+
+_media_resize_lock = threading.Lock()
+
+_ICON_SIZE = (300, 300)
+_BANNER_SIZE = (920, 520)
+_WEB_ICON_SIZE = (300, 300)
+_WEB_BANNER_SIZE = (640, 360)
+
+def _media_variant_dirname(media_kind, size_override=None):
+    if media_kind == 'icon':
+        size = size_override or _ICON_SIZE
+        return f"icons_{size[0]}x{size[1]}"
+    size = size_override or _BANNER_SIZE
+    return f"banners_{size[0]}x{size[1]}"
+
+def _is_jpeg_name(filename):
+    return str(filename).lower().endswith(('.jpg', '.jpeg'))
+
+def _resize_image_to_path(src_path, dest_path, size, quality=85):
+    if not Image or not ImageOps:
+        return False
+
+    try:
+        with Image.open(src_path) as im:
+            # Normalize orientation if EXIF is present.
+            im = ImageOps.exif_transpose(im)
+            fitted = ImageOps.fit(im, size, method=Image.Resampling.LANCZOS)
+
+            os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+
+            if _is_jpeg_name(dest_path):
+                if fitted.mode not in ('RGB',):
+                    fitted = fitted.convert('RGB')
+                fitted.save(dest_path, format='JPEG', quality=quality, optimize=True, progressive=True)
+            else:
+                # PNG etc.
+                fitted.save(dest_path, optimize=True)
+        return True
+    except Exception as e:
+        logger.error(f"Failed to resize image from {src_path} to {dest_path}: {e}")
+        return False
+
+def _get_variant_path(cache_dir, cached_name, media_kind, size_override=None):
+    if not cached_name:
+        return None
+    size = size_override or (_ICON_SIZE if media_kind == 'icon' else _BANNER_SIZE)
+    variant_dir = os.path.join(CACHE_DIR, _media_variant_dirname(media_kind, size_override=size_override))
+    variant_path = os.path.join(variant_dir, cached_name)
+    return size, variant_dir, variant_path
+
+def _get_web_media_size(media_kind):
+    size_key = (request.args.get('size') or '').lower().strip()
+    if size_key not in ('web', 'small'):
+        return None
+    return _WEB_ICON_SIZE if media_kind == 'icon' else _WEB_BANNER_SIZE
+
+def _maybe_expire_media_cache_index(now=None):
+    if MEDIA_INDEX_TTL_S <= 0:
+        with _media_cache_lock:
+            _media_cache_index['icon'].clear()
+            _media_cache_index['banner'].clear()
+        return
+    now = now or time.time()
+    global _media_cache_last_reset
+    with _media_cache_lock:
+        if _media_cache_last_reset and (now - _media_cache_last_reset) < MEDIA_INDEX_TTL_S:
+            return
+        _media_cache_index['icon'].clear()
+        _media_cache_index['banner'].clear()
+        _media_cache_last_reset = now
+
+def _get_cached_media_filename(cache_dir, title_id, media_kind='icon'):
+    """Return cached filename for title_id if present on disk."""
+    _maybe_expire_media_cache_index()
+    title_id = (title_id or '').upper()
+    if not title_id:
+        return None
+    if MEDIA_INDEX_TTL_S > 0:
+        with _media_cache_lock:
+            cached_name = _media_cache_index.get(media_kind, {}).get(title_id)
+        if cached_name:
+            path = os.path.join(cache_dir, cached_name)
+            if os.path.exists(path):
+                return cached_name
+            with _media_cache_lock:
+                _media_cache_index.get(media_kind, {}).pop(title_id, None)
+
+    try:
+        for name in os.listdir(cache_dir):
+            if name.startswith(f"{title_id}."):
+                if MEDIA_INDEX_TTL_S > 0:
+                    with _media_cache_lock:
+                        _media_cache_index.setdefault(media_kind, {})[title_id] = name
+                return name
+    except Exception:
+        return None
+    return None
+
+def _remember_cached_media_filename(title_id, filename, media_kind='icon'):
+    title_id = (title_id or '').upper()
+    if not title_id or not filename:
+        return
+    _maybe_expire_media_cache_index()
+    if MEDIA_INDEX_TTL_S <= 0:
+        return
+    with _media_cache_lock:
+        _media_cache_index.setdefault(media_kind, {})[title_id] = filename
+
+def _ensure_cached_media_file(cache_dir, title_id, remote_url):
+    """Compute local cache name/path from remote_url."""
+    if not remote_url:
+        return None, None
+    url = remote_url
+    if url.startswith('//'):
+        url = 'https:' + url
+    clean_url = url.split('?', 1)[0]
+    _, ext = os.path.splitext(clean_url)
+    if not ext:
+        ext = '.jpg'
+    cache_name = f"{title_id.upper()}{ext}"
+    cache_path = os.path.join(cache_dir, cache_name)
+    return cache_name, cache_path
+import json
 
 def init():
     global watcher
@@ -39,9 +194,30 @@ def init():
     library_paths = app_settings['library']['paths']
     init_libraries(app, watcher, library_paths)
 
-     # Initialize job scheduler
+    # Initialize job scheduler
     logger.info('Initializing Scheduler...')
     init_scheduler(app)
+
+    def downloads_job():
+        run_downloads_job(scan_cb=scan_library, post_cb=post_library_change)
+
+    def maintenance_job():
+        run_library_maintenance()
+
+    # Automatic update downloader job
+    app.scheduler.add_job(
+        job_id='downloads_update_job',
+        func=downloads_job,
+        interval=timedelta(minutes=5)
+    )
+
+    maintenance_interval_minutes = _get_maintenance_interval_minutes(app_settings)
+    app.scheduler.add_job(
+        job_id=LIBRARY_MAINTENANCE_JOB_ID,
+        func=maintenance_job,
+        interval=timedelta(minutes=maintenance_interval_minutes),
+        run_first=True
+    )
     
     # Define update_titledb_job
     def update_titledb_job():
@@ -108,6 +284,67 @@ def init():
 os.makedirs(CONFIG_DIR, exist_ok=True)
 os.makedirs(DATA_DIR, exist_ok=True)
 
+LIBRARY_MAINTENANCE_JOB_ID = 'library_maintenance_job'
+
+def _get_maintenance_interval_minutes(settings):
+    interval = settings.get('library', {}).get('maintenance_interval_minutes', 720)
+    try:
+        interval = int(interval)
+    except Exception:
+        interval = 720
+    return max(30, interval)
+
+def run_library_maintenance():
+    try:
+        current_settings = load_settings()
+        library_cfg = current_settings.get('library', {})
+        if not library_cfg.get('auto_maintenance', False):
+            return
+        logger.info("Starting scheduled library maintenance job...")
+        results = organize_library(dry_run=False, verbose=False)
+        if library_cfg.get('maintenance_delete_updates', True):
+            delete_results = delete_older_updates(dry_run=False, verbose=False)
+            if not delete_results.get('success'):
+                logger.warning("Delete updates reported errors: %s", delete_results.get('errors'))
+        if results.get('success'):
+            post_library_change()
+            logger.info("Library maintenance completed.")
+        else:
+            logger.warning("Library maintenance reported errors: %s", results.get('errors'))
+    except Exception as e:
+        logger.error("Error during library maintenance job: %s", e)
+
+def _reschedule_library_maintenance(app):
+    try:
+        interval_minutes = _get_maintenance_interval_minutes(app_settings)
+        interval = timedelta(minutes=interval_minutes)
+        import datetime as dt
+        scheduler = getattr(app, 'scheduler', None)
+        if not scheduler:
+            return False
+        lock = getattr(scheduler, '_lock', None)
+        jobs = getattr(scheduler, 'scheduled_jobs', None)
+        if lock is None or jobs is None:
+            return False
+        with lock:
+            job = jobs.get(LIBRARY_MAINTENANCE_JOB_ID)
+            if job:
+                job['interval'] = interval
+                job['cron'] = None
+                job['run_once'] = False
+                job['next_run'] = dt.datetime.now().replace(microsecond=0) + interval
+                return True
+        scheduler.add_job(
+            job_id=LIBRARY_MAINTENANCE_JOB_ID,
+            func=run_library_maintenance,
+            interval=interval,
+            run_first=False
+        )
+        return True
+    except Exception as e:
+        logger.warning("Failed to reschedule maintenance job: %s", e)
+        return False
+
 ## Global variables
 app_settings = {}
 # Create a global variable and lock for scan_in_progress
@@ -116,8 +353,199 @@ scan_lock = threading.Lock()
 # Global flag for titledb update status
 is_titledb_update_running = False
 titledb_update_lock = threading.Lock()
+conversion_jobs = {}
+conversion_jobs_lock = threading.Lock()
+conversion_job_limit = 50
+library_rebuild_status = {
+    'in_progress': False,
+    'started_at': 0,
+    'updated_at': 0
+}
+library_rebuild_lock = threading.Lock()
+shop_sections_cache = {
+    'limit': None,
+    'timestamp': 0,
+    'payload': None
+}
+shop_sections_cache_lock = threading.Lock()
+shop_sections_refresh_lock = threading.Lock()
+shop_sections_refresh_running = False
+
+# ===== CACHE TTLs (seconds) =====
+# Make these short if you want the Web UI caches to free memory frequently.
+# Set to 0 to disable in-memory caching entirely.
+SHOP_SECTIONS_CACHE_TTL_S = 60
+MEDIA_INDEX_TTL_S = 120
+# ===============================
+
+def _load_shop_sections_cache_from_disk():
+    cache_path = SHOP_SECTIONS_CACHE_FILE
+    if not os.path.exists(cache_path):
+        return None
+    try:
+        with open(cache_path, 'r', encoding='utf-8') as handle:
+            data = json.load(handle)
+    except Exception:
+        return None
+    if not isinstance(data, dict):
+        return None
+    if 'payload' not in data or 'timestamp' not in data or 'limit' not in data:
+        return None
+    return data
+
+def _save_shop_sections_cache_to_disk(payload, limit, timestamp):
+    cache_path = SHOP_SECTIONS_CACHE_FILE
+    os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+    data = {
+        'payload': payload,
+        'limit': limit,
+        'timestamp': timestamp
+    }
+    try:
+        with open(cache_path, 'w', encoding='utf-8') as handle:
+            json.dump(data, handle)
+    except Exception:
+        pass
+
+def _build_shop_sections_payload(limit):
+    titles.load_titledb()
+    try:
+        apps = Apps.query.options(
+            joinedload(Apps.files),
+            joinedload(Apps.title)
+        ).filter_by(owned=True).all()
+
+        def _safe_int(value, default=0):
+            try:
+                return int(value)
+            except (TypeError, ValueError):
+                return default
+
+        def _select_file(app):
+            if not app.files:
+                return None
+            return max(app.files, key=lambda f: f.size or 0)
+
+        def _build_item(app):
+            file_obj = _select_file(app)
+            if not file_obj:
+                return None
+            title_id = app.title.title_id if app.title else None
+            base_info = titles.get_game_info(title_id) if title_id else None
+            app_info = None
+            if app.app_type == APP_TYPE_DLC:
+                app_info = titles.get_game_info(app.app_id)
+            name = (app_info or base_info or {}).get('name') or app.app_id
+            title_name = (base_info or {}).get('name') or name
+            icon_url = f'/api/shop/icon/{title_id}' if title_id else ''
+            return {
+                'name': name,
+                'title_name': title_name,
+                'title_id': title_id,
+                'app_id': app.app_id,
+                'app_version': app.app_version,
+                'app_type': app.app_type,
+                'category': (base_info or {}).get('category', ''),
+                'icon_url': icon_url,
+                'url': f'/api/get_game/{file_obj.id}#{file_obj.filename}',
+                'size': file_obj.size or 0,
+                'file_id': file_obj.id,
+                'filename': file_obj.filename,
+                'download_count': file_obj.download_count or 0
+            }
+
+        base_apps = [app for app in apps if app.app_type == APP_TYPE_BASE]
+        update_apps = [app for app in apps if app.app_type == APP_TYPE_UPD]
+        dlc_apps = [app for app in apps if app.app_type == APP_TYPE_DLC]
+
+        base_items = [item for item in (_build_item(app) for app in base_apps) if item]
+        base_items.sort(key=lambda item: item['file_id'], reverse=True)
+        new_items = base_items[:limit]
+
+        recommended_items = sorted(base_items, key=lambda item: item['download_count'], reverse=True)[:limit]
+        if not any(item['download_count'] for item in recommended_items):
+            recommended_items = new_items[:limit]
+
+        latest_available_update_by_title = {}
+        for app in update_apps:
+            title_id = app.title.title_id if app.title else None
+            if not title_id:
+                continue
+            version = _safe_int(app.app_version)
+            current_available = latest_available_update_by_title.get(title_id)
+            if not current_available or version > current_available['version']:
+                latest_available_update_by_title[title_id] = {'version': version, 'app': app}
+
+        update_items_full = []
+        for title_id, available in latest_available_update_by_title.items():
+            item = _build_item(available['app'])
+            if item:
+                update_items_full.append(item)
+        update_items_full.sort(key=lambda item: _safe_int(item['app_version']), reverse=True)
+        update_items = update_items_full
+
+        dlc_by_id = {}
+        for app in dlc_apps:
+            version = _safe_int(app.app_version)
+            current = dlc_by_id.get(app.app_id)
+            if not current or version > current['version']:
+                dlc_by_id[app.app_id] = {'version': version, 'app': app}
+        dlc_items_full = [item for item in (_build_item(entry['app']) for entry in dlc_by_id.values()) if item]
+        dlc_items_full.sort(key=lambda item: _safe_int(item['app_version']), reverse=True)
+        dlc_items = dlc_items_full[:limit]
+
+        all_items = sorted(base_items + update_items_full + dlc_items_full, key=lambda item: item['name'].lower())
+
+        return {
+            'sections': [
+                {'id': 'new', 'title': 'New', 'items': new_items},
+                {'id': 'recommended', 'title': 'Recommended', 'items': recommended_items},
+                {'id': 'updates', 'title': 'Updates', 'items': update_items},
+                {'id': 'dlc', 'title': 'DLC', 'items': dlc_items},
+                {'id': 'all', 'title': 'All', 'items': all_items}
+            ]
+        }
+    finally:
+        titles.identification_in_progress_count -= 1
+        titles.unload_titledb()
+
+def _refresh_shop_sections_cache(limit):
+    global shop_sections_refresh_running
+    with shop_sections_refresh_lock:
+        if shop_sections_refresh_running:
+            return
+        shop_sections_refresh_running = True
+
+    def _run():
+        global shop_sections_refresh_running
+        try:
+            with app.app_context():
+                now = time.time()
+                payload = _build_shop_sections_payload(limit)
+                with shop_sections_cache_lock:
+                    shop_sections_cache['payload'] = payload
+                    shop_sections_cache['limit'] = limit
+                    shop_sections_cache['timestamp'] = now
+                _save_shop_sections_cache_to_disk(payload, limit, now)
+        finally:
+            with shop_sections_refresh_lock:
+                shop_sections_refresh_running = False
+
+    thread = threading.Thread(target=_run, daemon=True)
+    thread.start()
 
 # Configure logging
+# Get log level from environment variable, default to INFO
+log_level_str = os.environ.get('LOG_LEVEL', 'INFO').upper()
+log_level_map = {
+    'DEBUG': logging.DEBUG,
+    'INFO': logging.INFO,
+    'WARNING': logging.WARNING,
+    'ERROR': logging.ERROR,
+    'CRITICAL': logging.CRITICAL,
+}
+log_level = log_level_map.get(log_level_str, logging.INFO)
+
 formatter = ColoredFormatter(
     '[%(asctime)s.%(msecs)03d] %(levelname)s (%(module)s) %(message)s',
     datefmt='%Y-%m-%d %H:%M:%S',
@@ -126,19 +554,68 @@ handler = logging.StreamHandler(sys.stdout)
 handler.setFormatter(formatter)
 
 logging.basicConfig(
-    level=logging.INFO,
+    level=log_level,
     handlers=[handler]
 )
 
 # Create main logger
 logger = logging.getLogger('main')
-logger.setLevel(logging.DEBUG)
+logger.setLevel(log_level)
 
 # Apply filter to hide date from http access logs
 logging.getLogger('werkzeug').addFilter(FilterRemoveDateFromWerkzeugLogs())
 
 # Suppress specific Alembic INFO logs
 logging.getLogger('alembic.runtime.migration').setLevel(logging.WARNING)
+
+# API response helper functions for consistent error handling
+def api_error(message, status_code=400, error_code=None):
+    """Return a standardized error response."""
+    response = {'success': False, 'message': message}
+    if error_code:
+        response['error_code'] = error_code
+    return jsonify(response), status_code
+
+def api_success(data=None, message=None):
+    """Return a standardized success response."""
+    response = {'success': True}
+    if data:
+        response.update(data)
+    if message:
+        response['message'] = message
+    return jsonify(response)
+
+# Input validation constants and helpers
+MAX_UPLOAD_SIZE = 100 * 1024 * 1024  # 100MB for keys.txt files
+MAX_LIBRARY_UPLOAD_SIZE = 64 * 1024 * 1024 * 1024  # 64GB for game files
+MAX_TITLE_ID_LENGTH = 16
+
+def validate_title_id(title_id):
+    """Validate title_id format (should be 16 hex characters)."""
+    if not title_id:
+        return False, "Title ID is required"
+    title_id = title_id.strip().upper()
+    if len(title_id) != MAX_TITLE_ID_LENGTH:
+        return False, f"Title ID must be {MAX_TITLE_ID_LENGTH} characters"
+    if not all(c in '0123456789ABCDEF' for c in title_id):
+        return False, "Title ID must contain only hexadecimal characters"
+    return True, title_id
+
+def validate_file_size(file_size):
+    """Validate file size against maximum upload limit (for keys.txt files)."""
+    if file_size is None:
+        return False, "File size is unknown"
+    if file_size > MAX_UPLOAD_SIZE:
+        return False, f"File size exceeds maximum limit of {MAX_UPLOAD_SIZE // (1024*1024)}MB"
+    return True, None
+
+def validate_library_file_size(file_size):
+    """Validate file size against maximum library upload limit (for game files)."""
+    if file_size is None:
+        return False, "File size is unknown"
+    if file_size > MAX_LIBRARY_UPLOAD_SIZE:
+        return False, f"File size exceeds maximum limit of {MAX_LIBRARY_UPLOAD_SIZE // (1024*1024*1024)}GB"
+    return True, None
 
 @login_manager.user_loader
 def load_user(user_id):
@@ -158,6 +635,10 @@ def on_library_change(events):
 
         for event in modified_events:
             if event.type == 'moved':
+                moved_outside_library = not event.dest_path or not event.dest_path.startswith(event.directory)
+                if moved_outside_library:
+                    delete_file_by_filepath(event.src_path)
+                    continue
                 if file_exists_in_db(event.src_path):
                     # update the path
                     update_file_path(event.directory, event.src_path, event.dest_path)
@@ -185,8 +666,12 @@ def on_library_change(events):
 def create_app():
     app = Flask(__name__)
     app.config["SQLALCHEMY_DATABASE_URI"] = OWNFOIL_DB
-    # TODO: generate random secret_key
-    app.config['SECRET_KEY'] = '8accb915665f11dfa15c2db1a4e8026905f57716'
+    # Generate secret key from environment variable or create random one
+    secret_key = os.getenv('OWNFOIL_SECRET_KEY')
+    if not secret_key:
+        secret_key = secrets.token_hex(32)
+        logger.warning('SECRET_KEY not set in environment. Generated random key. Set OWNFOIL_SECRET_KEY for production.')
+    app.config['SECRET_KEY'] = secret_key
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
     db.init_app(app)
@@ -197,14 +682,563 @@ def create_app():
 
     return app
 
+
 # Create app
 app = create_app()
+
+
+@app.before_request
+def _block_frozen_web_ui():
+    """Frozen accounts should only see the MOTD page in the web UI."""
+    try:
+        # Let Tinfoil/Cyberfoil flows be handled by tinfoil_access.
+        if all(header in request.headers for header in TINFOIL_HEADERS):
+            return None
+
+        if not current_user.is_authenticated:
+            return None
+
+        if not bool(getattr(current_user, 'frozen', False)):
+            return None
+
+        path = request.path or '/'
+        if path.startswith('/static/'):
+            return None
+        if path in ('/login', '/logout'):
+            return None
+
+        message = (getattr(current_user, 'frozen_message', None) or '').strip() or 'Account is frozen.'
+        if path.startswith('/api/'):
+            return jsonify({'success': False, 'error': message}), 403
+        return render_template('frozen.html', title='Library', message=message)
+    except Exception:
+        return None
+
+
+_active_transfers_lock = threading.Lock()
+_active_transfers = {}
+
+_connected_clients_lock = threading.Lock()
+_connected_clients = {}
+
+_recent_access_lock = threading.Lock()
+_recent_access = {}
+
+_transfer_sessions_lock = threading.Lock()
+_transfer_sessions = {}
+
+_transfer_finalize_timers_lock = threading.Lock()
+_transfer_finalize_timers = {}
+
+_TRANSFER_FINALIZE_GRACE_S = 30
+
+
+def _get_request_user():
+    try:
+        if current_user.is_authenticated:
+            return current_user.user
+    except Exception:
+        return None
+    auth = request.authorization
+    if auth and auth.username:
+        return auth.username
+    return None
+
+
+def _effective_remote_addr():
+    # Use trusted proxy config to resolve the true client IP.
+    # Cache in `g` so multiple log calls per request are consistent and cheap.
+    try:
+        if has_request_context() and hasattr(g, '_ownfoil_effective_remote_addr'):
+            return g._ownfoil_effective_remote_addr
+    except Exception:
+        pass
+
+    try:
+        settings = load_settings()
+    except Exception:
+        settings = {}
+
+    try:
+        remote = _effective_client_ip(settings)
+    except Exception:
+        remote = (request.remote_addr or '').strip()
+
+    remote = (remote or (request.remote_addr or '-') or '-').strip()
+    try:
+        if has_request_context():
+            g._ownfoil_effective_remote_addr = remote
+    except Exception:
+        pass
+    return remote
+
+
+def _client_key():
+    user = _get_request_user() or '-'
+    remote = _effective_remote_addr() or '-'
+    ua = request.headers.get('User-Agent') or '-'
+    return f"{user}|{remote}|{ua}"[:512]
+
+
+def _touch_client():
+    path = request.path or '/'
+    if path.startswith('/static/'):
+        return
+    if path in ('/favicon.ico',):
+        return
+
+    now = time.time()
+    remote = _effective_remote_addr()
+    meta = {
+        'last_seen_at': now,
+        'user': _get_request_user(),
+        'remote_addr': remote,
+        'user_agent': request.headers.get('User-Agent'),
+    }
+    key = _client_key()
+    with _connected_clients_lock:
+        existing = _connected_clients.get(key) or {}
+        existing.update(meta)
+        _connected_clients[key] = existing
+
+    # Persist a low-noise log of connected clients for auditing.
+    # Use dedupe so polling/static bursts don't spam the database.
+    try:
+        _log_access_dedup(
+            kind='client_seen',
+            dedupe_key=key,
+            window_s=300,
+            user=meta.get('user'),
+            remote_addr=meta.get('remote_addr'),
+            user_agent=meta.get('user_agent'),
+            ok=True,
+            status_code=200,
+        )
+    except Exception:
+        pass
+
+
+def _is_cyberfoil_request():
+    ua = request.headers.get('User-Agent') or ''
+    return 'Cyberfoil' in ua
+
+
+def _log_access(
+    kind,
+    title_id=None,
+    file_id=None,
+    filename=None,
+    ok=True,
+    status_code=200,
+    duration_ms=None,
+    bytes_sent=None,
+    user=None,
+    remote_addr=None,
+    user_agent=None,
+):
+    if has_request_context():
+        if user is None:
+            user = _get_request_user()
+        if remote_addr is None:
+            remote_addr = _effective_remote_addr()
+        if user_agent is None:
+            user_agent = request.headers.get('User-Agent')
+
+    def _do_write():
+        add_access_event(
+            kind=kind,
+            user=user,
+            remote_addr=remote_addr,
+            user_agent=user_agent,
+            title_id=title_id,
+            file_id=file_id,
+            filename=filename,
+            bytes_sent=bytes_sent,
+            ok=ok,
+            status_code=status_code,
+            duration_ms=duration_ms,
+        )
+
+    try:
+        if has_app_context():
+            _do_write()
+        else:
+            # Streaming responses may call this outside request/app context.
+            with app.app_context():
+                _do_write()
+    except Exception:
+        try:
+            logger.exception('Failed to log access event')
+        except Exception:
+            pass
+
+
+def _log_access_dedup(kind, dedupe_key, window_s=15, **kwargs):
+    now = time.time()
+    key = f"{kind}|{dedupe_key}"[:512]
+
+    with _recent_access_lock:
+        last = _recent_access.get(key) or 0
+        if now - last < float(window_s):
+            return False
+        _recent_access[key] = now
+        if len(_recent_access) > 5000:
+            ordered = sorted(_recent_access.items(), key=lambda kv: kv[1], reverse=True)
+            _recent_access.clear()
+            for k, ts in ordered[:2000]:
+                _recent_access[k] = ts
+
+    _log_access(kind=kind, **kwargs)
+    return True
+
+
+def _dedupe_history(items, window_s=3):
+    out = []
+    last_seen = {}
+    for item in (items or []):
+        at = item.get('at') or 0
+        key = (
+            item.get('kind'),
+            item.get('user'),
+            item.get('remote_addr'),
+            item.get('title_id'),
+            item.get('file_id'),
+            item.get('filename'),
+        )
+        prev = last_seen.get(key)
+        if prev is not None and abs(prev - at) <= window_s:
+            continue
+        last_seen[key] = at
+        out.append(item)
+    return out
+
+
+def _transfer_session_key(user, remote_addr, user_agent, file_id):
+    user = user or '-'
+    remote = remote_addr or '-'
+    ua = user_agent or '-'
+    return f"{user}|{remote}|{ua}|{file_id}"[:512]
+
+
+def _transfer_session_start(user, remote_addr, user_agent, title_id, file_id, filename, resp_status_code=None):
+    now = time.time()
+    key = _transfer_session_key(user, remote_addr, user_agent, file_id)
+    created = False
+
+    # If we had a pending finalize timer for this session, cancel it (resume / next range request).
+    with _transfer_finalize_timers_lock:
+        t = _transfer_finalize_timers.pop(key, None)
+        if t:
+            try:
+                t.cancel()
+            except Exception:
+                pass
+
+    with _transfer_sessions_lock:
+        sess = _transfer_sessions.get(key)
+        if not sess:
+            sess = {
+                'started_at': now,
+                'last_seen_at': now,
+                'open_streams': 0,
+                'bytes_sent': 0,
+                'bytes_sent_total': 0,
+                'bytes_total': 0,
+                'ok': True,
+                'status_code': None,
+                'user': user,
+                'remote_addr': remote_addr,
+                'user_agent': user_agent,
+                'title_id': title_id,
+                'file_id': file_id,
+                'filename': filename,
+            }
+            _transfer_sessions[key] = sess
+            created = True
+
+        sess['last_seen_at'] = now
+        sess['open_streams'] = int(sess.get('open_streams') or 0) + 1
+        if title_id and not sess.get('title_id'):
+            sess['title_id'] = title_id
+        if filename and not sess.get('filename'):
+            sess['filename'] = filename
+
+        # Bound memory.
+        if len(_transfer_sessions) > 2000:
+            ordered = sorted(_transfer_sessions.items(), key=lambda kv: (kv[1] or {}).get('last_seen_at', 0), reverse=True)
+            _transfer_sessions.clear()
+            for k, v in ordered[:1000]:
+                _transfer_sessions[k] = v
+
+    if created:
+        _log_access(
+            kind='transfer_start',
+            title_id=title_id,
+            file_id=file_id,
+            filename=filename,
+            bytes_sent=0,
+            ok=True,
+            status_code=int(resp_status_code) if resp_status_code is not None else 200,
+            duration_ms=0,
+            user=user,
+            remote_addr=remote_addr,
+            user_agent=user_agent,
+        )
+
+    return key
+
+
+def _transfer_session_progress(key, bytes_sent):
+    now = time.time()
+    with _transfer_sessions_lock:
+        sess = _transfer_sessions.get(key)
+        if not sess:
+            return
+        sess['last_seen_at'] = now
+        if bytes_sent is not None:
+            try:
+                sess['bytes_sent'] = max(int(sess.get('bytes_sent') or 0), int(bytes_sent))
+            except Exception:
+                pass
+
+
+def _transfer_session_finalize(key):
+    # Timer callback; only finalize if no streams reopened during grace.
+    sess = None
+    with _transfer_sessions_lock:
+        sess = _transfer_sessions.get(key)
+        if not sess or int(sess.get('open_streams') or 0) != 0:
+            return
+        sess = _transfer_sessions.pop(key, sess)
+
+    if not sess:
+        return
+
+    started_at = float(sess.get('started_at') or time.time())
+    duration_ms = int((time.time() - started_at) * 1000)
+    code = sess.get('status_code')
+    try:
+        code = int(code) if code is not None else None
+    except Exception:
+        code = None
+
+    bytes_total = sess.get('bytes_sent_total')
+    if bytes_total is None:
+        bytes_total = sess.get('bytes_sent')
+    try:
+        bytes_total = int(bytes_total) if bytes_total is not None else None
+    except Exception:
+        bytes_total = None
+
+    ok = bool(sess.get('ok'))
+    _log_access(
+        kind='transfer',
+        title_id=sess.get('title_id'),
+        file_id=sess.get('file_id'),
+        filename=sess.get('filename'),
+        bytes_sent=bytes_total,
+        ok=ok if code is None else (ok and code < 400),
+        status_code=code if code is not None else 0,
+        duration_ms=duration_ms,
+        user=sess.get('user'),
+        remote_addr=sess.get('remote_addr'),
+        user_agent=sess.get('user_agent'),
+    )
+
+
+def _transfer_session_finish(key, ok, status_code, bytes_sent):
+    now = time.time()
+    with _transfer_sessions_lock:
+        sess = _transfer_sessions.get(key)
+        if not sess:
+            return
+        sess['last_seen_at'] = now
+
+        try:
+            if bytes_sent is not None:
+                bs = int(bytes_sent)
+                # Sum response body sizes across sequential range requests.
+                sess['bytes_sent_total'] = int(sess.get('bytes_sent_total') or 0) + bs
+                # Keep per-response max for debugging / safety.
+                sess['bytes_sent'] = max(int(sess.get('bytes_sent') or 0), bs)
+        except Exception:
+            pass
+
+        try:
+            sess['ok'] = bool(sess.get('ok')) and bool(ok)
+        except Exception:
+            pass
+
+        if status_code is not None:
+            try:
+                sess['status_code'] = int(status_code)
+            except Exception:
+                pass
+
+        sess['open_streams'] = max(0, int(sess.get('open_streams') or 0) - 1)
+        if sess['open_streams'] != 0:
+            return
+
+    # Schedule finalize after grace to merge sequential range requests.
+    timer = threading.Timer(_TRANSFER_FINALIZE_GRACE_S, _transfer_session_finalize, args=(key,))
+    timer.daemon = True
+    with _transfer_finalize_timers_lock:
+        prev = _transfer_finalize_timers.pop(key, None)
+        if prev:
+            try:
+                prev.cancel()
+            except Exception:
+                pass
+        _transfer_finalize_timers[key] = timer
+    timer.start()
+
+
+@app.before_request
+def _activity_before_request():
+    # Track recent clients in-memory for the admin activity page.
+    try:
+        _touch_client()
+    except Exception:
+        pass
 
 
 def tinfoil_error(error):
     return jsonify({
         'error': error
     })
+
+def _create_job(kind, total=0):
+    job_id = uuid.uuid4().hex
+    job = {
+        'id': job_id,
+        'kind': kind,
+        'status': 'running',
+        'cancelled': False,
+        'created_at': time.time(),
+        'updated_at': time.time(),
+        'progress': {
+            'done': 0,
+            'total': total,
+            'percent': 0,
+            'message': ''
+        },
+        'logs': [],
+        'errors': [],
+        'summary': None
+    }
+    with conversion_jobs_lock:
+        conversion_jobs[job_id] = job
+    return job_id
+
+def _job_log(job_id, message):
+    if message is None:
+        return
+    message = _fix_mojibake(str(message)).strip()
+    if not message:
+        return
+    with conversion_jobs_lock:
+        job = conversion_jobs.get(job_id)
+        if not job:
+            return
+        percent_match = re.search(r'Compressed\s+([0-9.]+)%', message)
+        numeric_match = re.fullmatch(r'\d{1,3}', message)
+        convert_match = re.search(r'^\[CONVERT\]\s+(.+?)\s+->\s+(.+)$', message)
+        verify_match = re.search(r'^\[VERIFY\]\s+(.+)$', message)
+
+        if numeric_match:
+            try:
+                percent_value = int(numeric_match.group(0))
+                if 0 <= percent_value <= 100:
+                    job['progress']['percent'] = float(percent_value)
+                    stage = job['progress'].get('stage') or 'converting'
+                    label = 'Verifying' if stage == 'verifying' else 'Converting'
+                    job['progress']['message'] = f"{label}: {percent_value}%"
+                    job['updated_at'] = time.time()
+                    return
+            except ValueError:
+                pass
+        if percent_match:
+            try:
+                job['progress']['percent'] = float(percent_match.group(1))
+                stage = job['progress'].get('stage') or 'converting'
+                label = 'Verifying' if stage == 'verifying' else 'Converting'
+                job['progress']['message'] = f"{label}: {job['progress']['percent']:.0f}%"
+                job['updated_at'] = time.time()
+                return
+            except ValueError:
+                pass
+
+        if convert_match:
+            input_path = convert_match.group(1)
+            display_name = os.path.basename(input_path)
+            message = f"Converting {display_name}..."
+            job['progress']['stage'] = 'converting'
+            job['progress']['file'] = display_name
+            job['progress']['message'] = message
+        elif verify_match:
+            input_path = verify_match.group(1)
+            display_name = os.path.basename(input_path)
+            message = f"Verifying {display_name}..."
+            job['progress']['stage'] = 'verifying'
+            job['progress']['file'] = display_name
+            job['progress']['message'] = message
+        elif message.startswith("Running:"):
+            message = "Starting converter..."
+            job['progress']['stage'] = 'converting'
+            job['progress']['message'] = message
+
+        if message:
+            job['logs'].append(message)
+        if len(job['logs']) > 500:
+            job['logs'] = job['logs'][-500:]
+        job['updated_at'] = time.time()
+
+def _fix_mojibake(text):
+    if not text:
+        return text
+    if "Ã" not in text and "â" not in text:
+        return text
+    try:
+        fixed = text.encode("latin-1").decode("utf-8")
+        return fixed if fixed else text
+    except (UnicodeEncodeError, UnicodeDecodeError):
+        return text
+
+def _job_progress(job_id, done, total):
+    with conversion_jobs_lock:
+        job = conversion_jobs.get(job_id)
+        if not job:
+            return
+        job['progress']['done'] = done
+        job['progress']['total'] = total
+        job['updated_at'] = time.time()
+
+def _job_finish(job_id, results):
+    with conversion_jobs_lock:
+        job = conversion_jobs.get(job_id)
+        if not job:
+            return
+        if job.get('cancelled'):
+            job['status'] = 'cancelled'
+        else:
+            job['status'] = 'failed' if results.get('errors') else 'success'
+        job['errors'] = results.get('errors', [])
+        job['summary'] = {
+            'converted': results.get('converted', 0),
+            'skipped': results.get('skipped', 0),
+            'deleted': results.get('deleted', 0),
+            'moved': results.get('moved', 0)
+        }
+        job['updated_at'] = time.time()
+        if len(conversion_jobs) > conversion_job_limit:
+            oldest = sorted(conversion_jobs.values(), key=lambda item: item['created_at'])[:len(conversion_jobs) - conversion_job_limit]
+            for item in oldest:
+                conversion_jobs.pop(item['id'], None)
+
+def _job_is_cancelled(job_id):
+    with conversion_jobs_lock:
+        job = conversion_jobs.get(job_id)
+        return bool(job and job.get('cancelled'))
 
 def tinfoil_access(f):
     @wraps(f)
@@ -213,9 +1247,14 @@ def tinfoil_access(f):
         hauth_success = None
         auth_success = None
         request.verified_host = None
+        is_tinfoil_client = all(header in request.headers for header in TINFOIL_HEADERS)
         # Host verification to prevent hotlinking
         #Tinfoil doesn't send Hauth for file grabs, only directories, so ignore get_game endpoints.
-        host_verification = "/api/get_game" not in request.path and (request.is_secure or request.headers.get("X-Forwarded-Proto") == "https")
+        host_verification = (
+            is_tinfoil_client
+            and "/api/get_game" not in request.path
+            and (request.is_secure or request.headers.get("X-Forwarded-Proto") == "https")
+        )
         if host_verification:
             request_host = request.host
             request_hauth = request.headers.get('Hauth')
@@ -258,15 +1297,127 @@ def tinfoil_access(f):
         if not app_settings['shop']['public']:
             # Shop is private
             if auth_success is None:
-                auth_success, auth_error, _ = basic_auth(request)
+                if current_user.is_authenticated and current_user.has_access('shop'):
+                    auth_success = True
+                else:
+                    auth_success, auth_error, _ = basic_auth(request)
             if not auth_success:
+                # If the account is frozen, return safe empty responses so clients can display the MOTD.
+                try:
+                    if is_tinfoil_client and request.path in ('/', '/api/shop/sections', '/api/frozen/notice'):
+                        username = _get_request_user()
+                        frozen_user = User.query.filter_by(user=username).first() if username else None
+                        if frozen_user is not None and bool(getattr(frozen_user, 'frozen', False)):
+                            message = (getattr(frozen_user, 'frozen_message', None) or '').strip() or 'Account is frozen.'
+                            if request.path == '/api/shop/sections':
+                                placeholder_item = {
+                                    'name': 'Account frozen',
+                                    'title_name': 'Account frozen',
+                                    'title_id': '0000000000000000',
+                                    'app_id': '0000000000000000',
+                                    'app_version': '0',
+                                    'app_type': APP_TYPE_BASE,
+                                    'category': '',
+                                    'icon_url': '',
+                                    'url': '/api/frozen/notice#frozen.txt',
+                                    'size': 1,
+                                    'file_id': 0,
+                                    'filename': 'frozen.txt',
+                                    'download_count': 0,
+                                }
+                                empty_sections = {
+                                    'sections': [
+                                        {'id': 'new', 'title': 'New', 'items': [placeholder_item]},
+                                        {'id': 'recommended', 'title': 'Recommended', 'items': [placeholder_item]},
+                                        {'id': 'updates', 'title': 'Updates', 'items': [placeholder_item]},
+                                        {'id': 'dlc', 'title': 'DLC', 'items': [placeholder_item]},
+                                        {'id': 'all', 'title': 'All', 'items': [placeholder_item]},
+                                    ]
+                                }
+                                return jsonify(empty_sections)
+
+                            placeholder = {"url": "/api/frozen/notice#frozen.txt", "size": 1}
+                            shop = {"success": message, "files": [placeholder]}
+                            if request.verified_host is not None:
+                                shop["referrer"] = f"https://{request.verified_host}"
+                            if app_settings['shop']['encrypt']:
+                                return Response(encrypt_shop(shop, app_settings['shop'].get('public_key')), mimetype='application/octet-stream')
+                            return jsonify(shop)
+                except Exception:
+                    pass
                 return tinfoil_error(auth_error)
+
+        # Auth success: block frozen accounts from accessing the library.
+        try:
+            frozen_user = None
+            if current_user.is_authenticated:
+                frozen_user = current_user
+            else:
+                username = _get_request_user()
+                frozen_user = User.query.filter_by(user=username).first() if username else None
+            if frozen_user is not None and bool(getattr(frozen_user, 'frozen', False)):
+                message = (getattr(frozen_user, 'frozen_message', None) or '').strip() or 'Account is frozen.'
+
+                # Allow safe empty responses for the shop root + sections.
+                if is_tinfoil_client and request.path in ('/', '/api/shop/sections', '/api/frozen/notice'):
+                    if request.path == '/api/shop/sections':
+                        placeholder_item = {
+                            'name': 'Account frozen',
+                            'title_name': 'Account frozen',
+                            'title_id': '0000000000000000',
+                            'app_id': '0000000000000000',
+                            'app_version': '0',
+                            'app_type': APP_TYPE_BASE,
+                            'category': '',
+                            'icon_url': '',
+                            'url': '/api/frozen/notice#frozen.txt',
+                            'size': 1,
+                            'file_id': 0,
+                            'filename': 'frozen.txt',
+                            'download_count': 0,
+                        }
+                        empty_sections = {
+                            'sections': [
+                                {'id': 'new', 'title': 'New', 'items': [placeholder_item]},
+                                {'id': 'recommended', 'title': 'Recommended', 'items': [placeholder_item]},
+                                {'id': 'updates', 'title': 'Updates', 'items': [placeholder_item]},
+                                {'id': 'dlc', 'title': 'DLC', 'items': [placeholder_item]},
+                                {'id': 'all', 'title': 'All', 'items': [placeholder_item]},
+                            ]
+                        }
+                        return jsonify(empty_sections)
+
+                    placeholder = {"url": "/api/frozen/notice#frozen.txt", "size": 1}
+                    shop = {"success": message, "files": [placeholder]}
+                    if request.verified_host is not None:
+                        shop["referrer"] = f"https://{request.verified_host}"
+                    if app_settings['shop']['encrypt']:
+                        return Response(encrypt_shop(shop, app_settings['shop'].get('public_key')), mimetype='application/octet-stream')
+                    return jsonify(shop)
+
+                return tinfoil_error(message)
+        except Exception:
+            pass
+
         # Auth success
         return f(*args, **kwargs)
     return _tinfoil_access
 
+
+@app.get('/api/frozen/notice')
+def frozen_notice_api():
+    # Minimal endpoint used to provide a harmless placeholder file
+    # for frozen accounts so clients don't reject an empty shop.
+    return Response(b' ', mimetype='application/octet-stream')
+
 def access_shop():
-    return render_template('index.html', title='Library', admin_account_created=admin_account_created(), valid_keys=app_settings['titles']['valid_keys'])
+    return render_template(
+        'index.html',
+        title='Library',
+        admin_account_created=admin_account_created(),
+        valid_keys=app_settings['titles']['valid_keys'],
+        identification_disabled=not app_settings['titles']['valid_keys'],
+    )
 
 @access_required('shop')
 def access_shop_auth():
@@ -277,6 +1428,7 @@ def index():
 
     @tinfoil_access
     def access_tinfoil_shop():
+        start_ts = time.time()
         shop = {
             "success": app_settings['shop']['motd']
         }
@@ -287,8 +1439,17 @@ def index():
             
         shop["files"] = gen_shop_files(db)
 
+        if _is_cyberfoil_request():
+            _log_access(
+                kind='shop',
+                filename=request.full_path if request.query_string else request.path,
+                ok=True,
+                status_code=200,
+                duration_ms=int((time.time() - start_ts) * 1000),
+            )
+
         if app_settings['shop']['encrypt']:
-            return Response(encrypt_shop(shop), mimetype='application/octet-stream')
+            return Response(encrypt_shop(shop, app_settings['shop'].get('public_key')), mimetype='application/octet-stream')
 
         return jsonify(shop)
     
@@ -296,7 +1457,23 @@ def index():
     # if True:
         logger.info(f"Tinfoil connection from {request.remote_addr}")
         return access_tinfoil_shop()
-    
+
+    # Frozen accounts: web UI should only show the MOTD message.
+    try:
+        frozen_user = None
+        if current_user.is_authenticated:
+            frozen_user = current_user
+        else:
+            auth = request.authorization
+            username = auth.username if auth and auth.username else None
+            frozen_user = User.query.filter_by(user=username).first() if username else None
+
+        if frozen_user is not None and bool(getattr(frozen_user, 'frozen', False)):
+            message = (getattr(frozen_user, 'frozen_message', None) or '').strip() or 'Account is frozen.'
+            return render_template('frozen.html', title='Library', message=message)
+    except Exception:
+        pass
+     
     if not app_settings['shop']['public']:
         return access_shop_auth()
     return access_shop()
@@ -304,25 +1481,469 @@ def index():
 @app.route('/settings')
 @access_required('admin')
 def settings_page():
-    with open(os.path.join(TITLEDB_DIR, 'languages.json')) as f:
-        languages = json.load(f)
-        languages = dict(sorted(languages.items()))
+    languages_file = os.path.join(TITLEDB_DIR, 'languages.json')
+    if os.path.exists(languages_file):
+        with open(languages_file) as f:
+            languages = json.load(f)
+            languages = dict(sorted(languages.items()))
+    else:
+        languages = {}
     return render_template(
         'settings.html',
         title='Settings',
         languages_from_titledb=languages,
         admin_account_created=admin_account_created(),
-        valid_keys=app_settings['titles']['valid_keys'])
+        valid_keys=app_settings['titles']['valid_keys'],
+        identification_disabled=not app_settings['titles']['valid_keys'],
+        app_version=get_app_version(APP_VERSION))
+
+@app.route('/manage')
+@access_required('admin')
+def manage_page():
+    return render_template(
+        'manage.html',
+        title='Manage',
+        admin_account_created=admin_account_created())
+
+@app.route('/upload')
+@access_required('admin')
+def upload_page():
+    return render_template(
+        'upload.html',
+        title='Upload',
+        admin_account_created=admin_account_created())
+
+
+@app.route('/activity')
+@access_required('admin')
+def activity_page():
+    return render_template(
+        'activity.html',
+        title='Activity',
+        admin_account_created=admin_account_created())
+
+
+@app.route('/users')
+@access_required('admin')
+def users_page():
+    return render_template(
+        'users.html',
+        title='Users',
+        admin_account_created=admin_account_created())
+
+
+@app.route('/requests')
+@access_required('shop')
+def requests_page():
+    return render_template(
+        'requests.html',
+        title='Requests',
+        admin_account_created=admin_account_created())
+
+
+@app.post('/api/requests')
+@access_required('shop')
+def create_title_request_api():
+    data = request.json or {}
+    title_id_raw = data.get('title_id', '').strip()
+    title_name = (data.get('title_name') or '').strip() or None
+
+    # Validate title_id format
+    is_valid, title_id_result = validate_title_id(title_id_raw)
+    if not is_valid:
+        return api_error(title_id_result, 400)
+    
+    title_id = title_id_result
+    ok, message, req = create_title_request(current_user.id, title_id, title_name=title_name)
+    if ok:
+        return jsonify({'success': True, 'message': message, 'request_id': req.id if req else None})
+    return jsonify({'success': False, 'message': message})
+
+
+@app.get('/api/requests')
+@access_required('shop')
+def list_requests_api():
+    include_all = request.args.get('all', '0') == '1'
+    if include_all:
+        if not current_user.is_admin:
+            return jsonify({'success': False, 'message': 'Forbidden'}), 403
+
+    items = list_requests(user_id=current_user.id, include_all=include_all, limit=500)
+
+    # Auto-close open requests whose titles are now in the library.
+    # This keeps the requests list actionable without requiring manual admin cleanup.
+    try:
+        open_ids = [r.id for r in (items or []) if getattr(r, 'status', None) == 'open' and getattr(r, 'title_id', None)]
+        if open_ids:
+            reqs = TitleRequests.query.filter(TitleRequests.id.in_(open_ids)).all()
+            changed = 0
+            for r in (reqs or []):
+                try:
+                    title_id = (r.title_id or '').strip().upper()
+                    if not title_id:
+                        continue
+                    if Titles.query.filter_by(title_id=title_id).first() is not None:
+                        r.status = 'closed'
+                        changed += 1
+                except Exception:
+                    continue
+            if changed:
+                db.session.commit()
+    except Exception:
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
+
+    out = []
+    for r in items:
+        out.append({
+            'id': r.id,
+            'created_at': int(r.created_at.timestamp()) if r.created_at else None,
+            'status': r.status,
+            'title_id': r.title_id,
+            'title_name': r.title_name,
+            'user': {
+                'id': r.user.id if r.user else None,
+                'user': r.user.user if r.user else None,
+            } if include_all else None,
+        })
+    return jsonify({'success': True, 'requests': out})
+
+
+@app.get('/api/requests/unseen-count')
+@access_required('admin')
+def admin_unseen_requests_count_api():
+    try:
+        count = (
+            db.session.query(TitleRequests)
+            .outerjoin(
+                TitleRequestViews,
+                (TitleRequestViews.request_id == TitleRequests.id)
+                & (TitleRequestViews.user_id == current_user.id),
+            )
+            .filter(TitleRequests.status == 'open')
+            .filter(TitleRequestViews.id.is_(None))
+            .count()
+        )
+        return jsonify({'success': True, 'count': int(count)})
+    except Exception as e:
+        logger.error(f"Error in title request endpoint: {e}")
+        return api_error('An error occurred processing the request', 500)
+
+
+@app.post('/api/requests/mark-seen')
+@access_required('admin')
+def admin_mark_requests_seen_api():
+    data = request.json or {}
+    ids = data.get('request_ids')
+
+    # Default: mark all open requests as seen.
+    if not ids:
+        try:
+            ids = [r[0] for r in db.session.query(TitleRequests.id).filter(TitleRequests.status == 'open').all()]
+        except Exception:
+            ids = []
+
+    try:
+        ids = [int(x) for x in (ids or [])]
+    except Exception:
+        return api_error('Invalid request_ids.', 400)
+
+    ids = list(dict.fromkeys([x for x in ids if x > 0]))
+    if not ids:
+        return jsonify({'success': True, 'message': 'Nothing to mark.', 'marked': 0})
+
+    now = None
+    try:
+        now = datetime.utcnow()
+    except Exception:
+        now = None
+
+    try:
+        marked = 0
+        for req_id in ids:
+            exists = TitleRequestViews.query.filter_by(user_id=current_user.id, request_id=req_id).first()
+            if exists is not None:
+                continue
+            view = TitleRequestViews(user_id=current_user.id, request_id=req_id)
+            if now is not None:
+                view.viewed_at = now
+            db.session.add(view)
+            marked += 1
+        db.session.commit()
+        return jsonify({'success': True, 'message': 'Marked seen.', 'marked': int(marked)})
+    except Exception as e:
+        db.session.rollback()
+        return api_error(str(e), 500)
+
+
+@app.post('/api/requests/delete')
+@access_required('admin')
+def admin_delete_request_api():
+    data = request.json or {}
+    try:
+        req_id = int(data.get('request_id'))
+    except Exception:
+        return api_error('Invalid request_id.', 400)
+
+    try:
+        req = TitleRequests.query.filter_by(id=req_id).first()
+        if req is None:
+            return api_error('Request not found.', 404)
+
+        # Clean up per-admin view markers for this request.
+        try:
+            TitleRequestViews.query.filter_by(request_id=req_id).delete(synchronize_session=False)
+        except Exception:
+            pass
+
+        db.session.delete(req)
+        db.session.commit()
+        return jsonify({'success': True})
+    except Exception as e:
+        db.session.rollback()
+        return api_error(str(e), 500)
+
+
+@app.get('/api/requests/search')
+@access_required('admin')
+def request_prowlarr_search_api():
+    title_id = (request.args.get('title_id') or '').strip().upper()
+    title_name = (request.args.get('title_name') or '').strip()
+    if not title_id and not title_name:
+        return api_error('Missing title_id or title_name.', 400)
+
+    settings = load_settings()
+    downloads = settings.get('downloads', {})
+    prowlarr_cfg = downloads.get('prowlarr', {})
+    if not prowlarr_cfg.get('url') or not prowlarr_cfg.get('api_key'):
+        return jsonify({'success': False, 'message': 'Prowlarr is not configured.', 'results': []})
+
+    # Prefer TitleDB name if we can resolve it.
+    resolved_name = title_name
+    if title_id:
+        titles.load_titledb()
+        try:
+            info = titles.get_game_info(title_id) or {}
+            resolved_name = (info.get('name') or '').strip() or resolved_name
+        finally:
+            titles.identification_in_progress_count -= 1
+            titles.unload_titledb()
+
+    base_query = resolved_name or title_id
+    prefix = (downloads.get('search_prefix') or '').strip()
+    full_query = base_query
+    if prefix and not full_query.lower().startswith(prefix.lower()):
+        full_query = f"{prefix} {full_query}".strip()
+
+    try:
+        client = ProwlarrClient(prowlarr_cfg['url'], prowlarr_cfg['api_key'])
+        results = client.search(full_query, indexer_ids=prowlarr_cfg.get('indexer_ids') or [])
+        trimmed = [
+            {
+                'title': r.get('title'),
+                'size': r.get('size'),
+                'seeders': r.get('seeders'),
+                'leechers': r.get('leechers'),
+                'download_url': r.get('download_url'),
+            }
+            for r in (results or [])[:50]
+        ]
+        return jsonify({'success': True, 'results': trimmed})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e), 'results': []})
+
+
+@app.get('/api/admin/activity')
+@access_required('admin')
+def admin_activity_api():
+    limit = request.args.get('limit', 100)
+    try:
+        limit = int(limit)
+    except Exception:
+        limit = 100
+    limit = max(1, min(limit, 1000))
+
+    # Snapshot active transfers.
+    with _active_transfers_lock:
+        live = list(_active_transfers.values())
+
+    # Snapshot connected clients (last 2 minutes).
+    cutoff = time.time() - 120
+    with _connected_clients_lock:
+        clients = [v for v in _connected_clients.values() if (v or {}).get('last_seen_at', 0) >= cutoff]
+
+        # Bound memory: drop oldest if we grow too much.
+        if len(_connected_clients) > 2000:
+            ordered = sorted(_connected_clients.items(), key=lambda kv: (kv[1] or {}).get('last_seen_at', 0), reverse=True)
+            _connected_clients.clear()
+            for k, v in ordered[:1000]:
+                _connected_clients[k] = v
+
+    clients = sorted(clients, key=lambda item: item.get('last_seen_at', 0), reverse=True)[:250]
+
+    # Recent access events.
+    history_error = None
+    try:
+        history = get_access_events(limit=limit)
+    except Exception as e:
+        history = []
+        history_error = str(e)
+
+    include_starts = request.args.get('include_starts', '1') != '0'
+    if not include_starts:
+        history = [h for h in history if h.get('kind') != 'transfer_start']
+
+    include_clients = request.args.get('include_clients', '0') != '0'
+    if not include_clients:
+        history = [h for h in history if h.get('kind') != 'client_seen']
+    history = _dedupe_history(history)
+
+    # Hydrate title_name where possible.
+    title_ids = set()
+    for item in live:
+        if item.get('title_id'):
+            title_ids.add(item['title_id'])
+    for item in history:
+        if item.get('title_id'):
+            title_ids.add(item['title_id'])
+
+    title_names = {}
+    for tid in title_ids:
+        try:
+            info = titles.get_game_info(tid)
+            if info and info.get('name'):
+                title_names[tid] = info.get('name')
+        except Exception:
+            pass
+
+    for item in live:
+        tid = item.get('title_id')
+        if tid and tid in title_names:
+            item['title_name'] = title_names[tid]
+    for item in history:
+        tid = item.get('title_id')
+        if tid and tid in title_names:
+            item['title_name'] = title_names[tid]
+
+    return jsonify({
+        'success': True,
+        'live_transfers': live,
+        'connected_clients': clients,
+        'access_history': history,
+        'access_history_error': history_error,
+    })
+
+
+@app.get('/api/admin/clients-history')
+@access_required('admin')
+def admin_clients_history_api():
+    limit = request.args.get('limit', 250)
+    try:
+        limit = int(limit)
+    except Exception:
+        limit = 250
+    limit = max(1, min(limit, 2000))
+    try:
+        history = get_access_events(limit=limit, kinds=['client_seen'])
+        return jsonify({'success': True, 'history': history})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e), 'history': []}), 500
+
+
+@app.get('/api/admin/clients-history.csv')
+@access_required('admin')
+def admin_clients_history_csv_api():
+    limit = request.args.get('limit', 2000)
+    try:
+        limit = int(limit)
+    except Exception:
+        limit = 2000
+    limit = max(1, min(limit, 10000))
+
+    try:
+        items = get_access_events(limit=limit, kinds=['client_seen'])
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+    import csv
+    import io
+    from datetime import datetime
+
+    buf = io.StringIO()
+    writer = csv.writer(buf, lineterminator='\n')
+    writer.writerow(['at', 'user', 'remote_addr', 'user_agent'])
+    for item in (items or []):
+        at = item.get('at')
+        at_iso = ''
+        try:
+            if at:
+                at_iso = datetime.utcfromtimestamp(int(at)).isoformat() + 'Z'
+        except Exception:
+            at_iso = ''
+        writer.writerow([
+            at_iso,
+            item.get('user') or '',
+            item.get('remote_addr') or '',
+            item.get('user_agent') or '',
+        ])
+
+    csv_text = buf.getvalue()
+    resp = Response(csv_text, mimetype='text/csv')
+    resp.headers['Content-Disposition'] = 'attachment; filename="clients_history.csv"'
+    return resp
+
+
+@app.post('/api/admin/clients-history/clear')
+@access_required('admin')
+def admin_clients_history_clear_api():
+    try:
+        ok = delete_access_events(kinds=['client_seen'])
+        if not ok:
+            return jsonify({'success': False, 'error': 'Failed to clear client history.'}), 500
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.post('/api/admin/access-history/clear')
+@access_required('admin')
+def admin_access_history_clear_api():
+    data = request.json or {}
+    include_clients = bool(data.get('include_clients', False))
+    try:
+        if include_clients:
+            ok = delete_access_events()
+        else:
+            ok = delete_access_events_excluding(kinds=['client_seen'])
+
+        if not ok:
+            return jsonify({'success': False, 'error': 'Failed to clear access history.'}), 500
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.get('/api/settings')
 @access_required('admin')
 def get_settings_api():
     reload_conf()
     settings = copy.deepcopy(app_settings)
-    if settings['shop'].get('hauth'):
-        settings['shop']['hauth'] = True
-    else:
-        settings['shop']['hauth'] = False
+    hauth_value = settings['shop'].get('hauth')
+    settings['shop']['hauth_value'] = hauth_value or ''
+    settings['shop']['hauth'] = bool(hauth_value)
+
+    # Surface the effective public key in the UI even if it isn't in settings.yaml yet.
+    settings['shop']['public_key'] = settings['shop'].get('public_key') or TINFOIL_PUBLIC_KEY
+    try:
+        scheduler = getattr(app, 'scheduler', None)
+        if scheduler:
+            job = scheduler.scheduled_jobs.get(LIBRARY_MAINTENANCE_JOB_ID)
+            last_run = job.get('last_run') if job else None
+            settings.setdefault('library', {})
+            settings['library']['maintenance_last_run'] = last_run.isoformat() if last_run else None
+    except Exception:
+        pass
     return jsonify(settings)
 
 @app.post('/api/settings/titles')
@@ -331,9 +1952,20 @@ def set_titles_settings_api():
     settings = request.json
     region = settings['region']
     language = settings['language']
-    with open(os.path.join(TITLEDB_DIR, 'languages.json')) as f:
-        languages = json.load(f)
-        languages = dict(sorted(languages.items()))
+    languages_file = os.path.join(TITLEDB_DIR, 'languages.json')
+    if os.path.exists(languages_file):
+        with open(languages_file) as f:
+            languages = json.load(f)
+            languages = dict(sorted(languages.items()))
+    else:
+        resp = {
+            'success': False,
+            'errors': [{
+                    'path': 'titles',
+                    'error': "TitleDB has not been initialized yet. Please wait for the initial update to complete or trigger it manually."
+                }]
+        }
+        return jsonify(resp)
 
     if region not in languages or language not in languages[region]:
         resp = {
@@ -356,6 +1988,7 @@ def set_titles_settings_api():
     return jsonify(resp)
 
 @app.post('/api/settings/shop')
+@access_required('admin')
 def set_shop_settings_api():
     data = request.json
     set_shop_settings(data)
@@ -365,6 +1998,586 @@ def set_shop_settings_api():
         'errors': []
     } 
     return jsonify(resp)
+
+@app.post('/api/settings/downloads')
+@access_required('admin')
+def set_download_settings_api():
+    data = request.json or {}
+    set_download_settings(data)
+    reload_conf()
+    resp = {
+        'success': True,
+        'errors': []
+    }
+    return jsonify(resp)
+
+@app.post('/api/settings/library')
+@access_required('admin')
+def set_library_settings_api():
+    data = request.json or {}
+    set_library_settings(data)
+    reload_conf()
+    _reschedule_library_maintenance(app)
+    resp = {
+        'success': True,
+        'errors': []
+    }
+    return jsonify(resp)
+
+
+@app.post('/api/settings/media-cache/refresh')
+@access_required('admin')
+def refresh_media_cache_api():
+    data = request.json or {}
+    refresh_icons = data.get('icons', True)
+    refresh_banners = data.get('banners', True)
+
+    def _clear_cache_dir(dirname):
+        cache_dir = os.path.join(CACHE_DIR, dirname)
+        if not os.path.isdir(cache_dir):
+            return 0
+        removed = 0
+        for filename in os.listdir(cache_dir):
+            path = os.path.join(cache_dir, filename)
+            if os.path.isfile(path):
+                try:
+                    os.remove(path)
+                    removed += 1
+                except Exception:
+                    continue
+        return removed
+
+    removed_icons = _clear_cache_dir('icons') if refresh_icons else 0
+    removed_banners = _clear_cache_dir('banners') if refresh_banners else 0
+
+    return jsonify({
+        'success': True,
+        'removed_icons': removed_icons,
+        'removed_banners': removed_banners
+    })
+
+
+@app.post('/api/settings/media-cache/prefetch-icons')
+@access_required('admin')
+def prefetch_media_icons_api():
+    titles_library = generate_library()
+    cache_dir = os.path.join(CACHE_DIR, 'icons')
+    os.makedirs(cache_dir, exist_ok=True)
+
+    fetched = 0
+    skipped = 0
+    missing = 0
+    failed = 0
+    failures = []
+    headers = {'User-Agent': 'Ownfoil/1.0'}
+
+    titles.load_titledb()
+    try:
+        for entry in titles_library:
+            title_id = (entry.get('title_id') or entry.get('id') or '').upper()
+            if not title_id:
+                missing += 1
+                continue
+            info = titles.get_game_info(title_id)
+            icon_url = (info or {}).get('iconUrl') or ''
+            if not icon_url:
+                missing += 1
+                continue
+            if icon_url.startswith('//'):
+                icon_url = 'https:' + icon_url
+            clean_url = icon_url.split('?', 1)[0]
+            _, ext = os.path.splitext(clean_url)
+            if not ext:
+                ext = '.jpg'
+            cache_name = f"{title_id}{ext}"
+            cache_path = os.path.join(cache_dir, cache_name)
+            if os.path.exists(cache_path):
+                skipped += 1
+                continue
+            try:
+                response = requests.get(icon_url, timeout=10, headers=headers)
+                if response.status_code == 200:
+                    with open(cache_path, 'wb') as handle:
+                        handle.write(response.content)
+                    # Generate a smaller variant for faster web UI loads.
+                    size, variant_dir, variant_path = _get_variant_path(cache_dir, cache_name, media_kind='icon')
+                    if variant_path:
+                        with _media_resize_lock:
+                            _resize_image_to_path(cache_path, variant_path, size=size)
+                    fetched += 1
+                else:
+                    failed += 1
+                    if len(failures) < 5:
+                        failures.append({
+                            'title_id': title_id,
+                            'status': response.status_code,
+                            'url': icon_url
+                        })
+            except Exception as e:
+                failed += 1
+                if len(failures) < 5:
+                    failures.append({
+                        'title_id': title_id,
+                        'status': 'error',
+                        'url': icon_url,
+                        'message': str(e)
+                    })
+    finally:
+        titles.identification_in_progress_count -= 1
+        titles.unload_titledb()
+
+    return jsonify({
+        'success': True,
+        'fetched': fetched,
+        'skipped': skipped,
+        'missing': missing,
+        'failed': failed,
+        'failures': failures
+    })
+
+
+@app.post('/api/settings/media-cache/prefetch-banners')
+@access_required('admin')
+def prefetch_media_banners_api():
+    titles_library = generate_library()
+    cache_dir = os.path.join(CACHE_DIR, 'banners')
+    os.makedirs(cache_dir, exist_ok=True)
+
+    fetched = 0
+    skipped = 0
+    missing = 0
+    failed = 0
+    failures = []
+    headers = {'User-Agent': 'Ownfoil/1.0'}
+
+    titles.load_titledb()
+    try:
+        for entry in titles_library:
+            title_id = (entry.get('title_id') or entry.get('id') or '').upper()
+            if not title_id:
+                missing += 1
+                continue
+            info = titles.get_game_info(title_id)
+            banner_url = (info or {}).get('bannerUrl') or ''
+            if not banner_url:
+                missing += 1
+                continue
+            if banner_url.startswith('//'):
+                banner_url = 'https:' + banner_url
+            clean_url = banner_url.split('?', 1)[0]
+            _, ext = os.path.splitext(clean_url)
+            if not ext:
+                ext = '.jpg'
+            cache_name = f"{title_id}{ext}"
+            cache_path = os.path.join(cache_dir, cache_name)
+            if os.path.exists(cache_path):
+                skipped += 1
+                continue
+            try:
+                response = requests.get(banner_url, timeout=10, headers=headers)
+                if response.status_code == 200:
+                    with open(cache_path, 'wb') as handle:
+                        handle.write(response.content)
+                    # Generate a smaller variant for faster web UI loads.
+                    size, variant_dir, variant_path = _get_variant_path(cache_dir, cache_name, media_kind='banner')
+                    if variant_path:
+                        with _media_resize_lock:
+                            _resize_image_to_path(cache_path, variant_path, size=size)
+                    fetched += 1
+                else:
+                    failed += 1
+                    if len(failures) < 5:
+                        failures.append({
+                            'title_id': title_id,
+                            'status': response.status_code,
+                            'url': banner_url
+                        })
+            except Exception as e:
+                failed += 1
+                if len(failures) < 5:
+                    failures.append({
+                        'title_id': title_id,
+                        'status': 'error',
+                        'url': banner_url,
+                        'message': str(e)
+                    })
+    finally:
+        titles.identification_in_progress_count -= 1
+        titles.unload_titledb()
+
+    return jsonify({
+        'success': True,
+        'fetched': fetched,
+        'skipped': skipped,
+        'missing': missing,
+        'failed': failed,
+        'failures': failures
+    })
+
+@app.post('/api/settings/downloads/test-prowlarr')
+@access_required('admin')
+def test_downloads_prowlarr_api():
+    data = request.json or {}
+    url = data.get('url', '')
+    api_key = data.get('api_key', '')
+    try:
+        client = ProwlarrClient(url, api_key)
+        status = client.system_status()
+        indexer_ids = data.get('indexer_ids') or []
+        warning = None
+        if indexer_ids:
+            indexers = client.list_indexers()
+            available_ids = {item.get('id') for item in (indexers or [])}
+            missing = [idx for idx in indexer_ids if idx not in available_ids]
+            if missing:
+                warning = f"Missing indexer IDs: {', '.join(str(x) for x in missing)}"
+        return jsonify({
+            'success': True,
+            'message': f"Prowlarr OK ({status.get('version', 'unknown')})",
+            'warning': warning
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)})
+
+@app.post('/api/settings/downloads/test-client')
+@access_required('admin')
+def test_downloads_client_api():
+    data = request.json or {}
+    ok, message = test_torrent_client(
+        client_type=data.get('type', ''),
+        url=data.get('url', ''),
+        username=data.get('username', ''),
+        password=data.get('password', '')
+    )
+    download_path = (data.get('download_path') or '').strip()
+    warning = None
+    if ok and download_path:
+        if not os.path.isdir(download_path):
+            warning = f"Download path not found: {download_path}"
+        elif not os.access(download_path, os.W_OK):
+            warning = f"Download path not writable: {download_path}"
+    return jsonify({'success': ok, 'message': message, 'warning': warning})
+
+@app.post('/api/downloads/manual')
+@access_required('admin')
+def manual_download_update():
+    data = request.json or {}
+    title_id = data.get('title_id')
+    version = data.get('version')
+    if not title_id or version is None:
+        return jsonify({'success': False, 'message': 'Missing title ID or version.'})
+    try:
+        ok, message = manual_search_update(title_id=title_id, version=version)
+        return jsonify({'success': ok, 'message': message})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)})
+
+@app.post('/api/downloads/manual-search')
+@access_required('admin')
+def manual_search_update_options():
+    data = request.json or {}
+    title_id = data.get('title_id')
+    version = data.get('version')
+    if not title_id or version is None:
+        return jsonify({'success': False, 'message': 'Missing title ID or version.', 'results': []})
+    try:
+        ok, message, results = search_update_options(title_id=title_id, version=version)
+        return jsonify({'success': ok, 'message': message, 'results': results})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e), 'results': []})
+
+@app.get('/api/downloads/search')
+@access_required('admin')
+def downloads_search():
+    query = request.args.get('query', '').strip()
+    apply_settings = request.args.get('apply_settings', '').strip() in ('1', 'true', 'yes')
+    if not query:
+        return jsonify({'success': False, 'message': 'Missing query.'})
+    settings = load_settings()
+    downloads = settings.get('downloads', {})
+    prowlarr_cfg = downloads.get('prowlarr', {})
+    if not prowlarr_cfg.get('url') or not prowlarr_cfg.get('api_key'):
+        return jsonify({'success': False, 'message': 'Prowlarr is not configured.'})
+    try:
+        full_query = query
+        if apply_settings:
+            prefix = (downloads.get('search_prefix') or '').strip()
+            suffix = (downloads.get('search_suffix') or '').strip()
+            if prefix and not full_query.lower().startswith(prefix.lower()):
+                full_query = f"{prefix} {full_query}".strip()
+            if suffix and not full_query.lower().endswith(suffix.lower()):
+                full_query = f"{full_query} {suffix}".strip()
+        client = ProwlarrClient(prowlarr_cfg['url'], prowlarr_cfg['api_key'])
+        results = client.search(full_query, indexer_ids=prowlarr_cfg.get('indexer_ids') or [])
+        if apply_settings:
+            required_terms = [t.lower() for t in (downloads.get('required_terms') or []) if t]
+            blacklist_terms = [t.lower() for t in (downloads.get('blacklist_terms') or []) if t]
+            min_seeders = int(downloads.get('min_seeders') or 0)
+            filtered = []
+            for item in results or []:
+                title = (item.get('title') or '').lower()
+                seeders = item.get('seeders') or 0
+                if min_seeders and seeders < min_seeders:
+                    continue
+                if required_terms and not all(term in title for term in required_terms):
+                    continue
+                if blacklist_terms and any(term in title for term in blacklist_terms):
+                    continue
+                filtered.append(item)
+            results = filtered
+        trimmed = [
+            {
+                'title': r.get('title'),
+                'size': r.get('size'),
+                'seeders': r.get('seeders'),
+                'leechers': r.get('leechers'),
+                'download_url': r.get('download_url')
+            }
+            for r in (results or [])[:50]
+        ]
+        return jsonify({'success': True, 'results': trimmed})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)})
+
+@app.post('/api/downloads/queue')
+@access_required('admin')
+def downloads_queue():
+    data = request.json or {}
+    download_url = data.get('download_url')
+    expected_name = data.get('title')
+    update_only = bool(data.get('update_only', False))
+    expected_version = data.get('expected_version')
+    if not download_url:
+        return jsonify({'success': False, 'message': 'Missing download URL.'})
+    ok, message = queue_download_url(
+        download_url,
+        expected_name=expected_name,
+        update_only=update_only,
+        expected_version=expected_version
+    )
+    return jsonify({'success': ok, 'message': message})
+
+@app.post('/api/manage/organize')
+@access_required('admin')
+def manage_organize_library():
+    data = request.json or {}
+    dry_run = bool(data.get('dry_run', False))
+    verbose = bool(data.get('verbose', False))
+    results = organize_library(dry_run=dry_run, verbose=verbose)
+    if results.get('success') and not dry_run:
+        post_library_change()
+    return jsonify(results)
+
+@app.post('/api/manage/delete-updates')
+@access_required('admin')
+def manage_delete_updates():
+    data = request.json or {}
+    dry_run = bool(data.get('dry_run', False))
+    verbose = bool(data.get('verbose', False))
+    results = delete_older_updates(dry_run=dry_run, verbose=verbose)
+    if results.get('success') and not dry_run:
+        post_library_change()
+    return jsonify(results)
+
+@app.post('/api/manage/check-downloads')
+@access_required('admin')
+def manage_check_downloads():
+    ok, message = check_completed_downloads(scan_cb=scan_library, post_cb=post_library_change)
+    return jsonify({'success': ok, 'message': message})
+
+
+@app.get('/api/manage/downloads-queue')
+@access_required('admin')
+def manage_downloads_queue():
+    state = get_downloads_state()
+    return jsonify({'success': True, 'state': state})
+
+@app.post('/api/manage/convert')
+@access_required('admin')
+def manage_convert_nsz():
+    data = request.json or {}
+    dry_run = bool(data.get('dry_run', False))
+    delete_original = bool(data.get('delete_original', True))
+    verbose = bool(data.get('verbose', False))
+    threads = data.get('threads')
+    command = data.get('command')
+    results = convert_to_nsz(
+        command_template=command,
+        delete_original=delete_original,
+        dry_run=dry_run,
+        verbose=verbose,
+        threads=threads
+    )
+    if results.get('success') and not dry_run:
+        post_library_change()
+    return jsonify(results)
+
+@app.get('/api/manage/convertibles')
+@access_required('admin')
+def manage_convertible_files():
+    library_id = request.args.get('library_id')
+    files = list_convertible_files(library_id=int(library_id)) if library_id else list_convertible_files()
+    return jsonify({'success': True, 'files': files})
+
+@app.post('/api/manage/convert-single')
+@access_required('admin')
+def manage_convert_single():
+    data = request.json or {}
+    file_id = data.get('file_id')
+    dry_run = bool(data.get('dry_run', False))
+    delete_original = bool(data.get('delete_original', True))
+    verbose = bool(data.get('verbose', False))
+    threads = data.get('threads')
+    command = data.get('command')
+    if not file_id:
+        return jsonify({'success': False, 'errors': ['Missing file id.'], 'converted': 0, 'skipped': 0, 'details': []})
+    results = convert_single_to_nsz(
+        file_id=int(file_id),
+        command_template=command,
+        delete_original=delete_original,
+        dry_run=dry_run,
+        verbose=verbose,
+        threads=threads
+    )
+    if results.get('success') and not dry_run:
+        post_library_change()
+    return jsonify(results)
+
+@app.post('/api/manage/convert-job')
+@access_required('admin')
+def manage_convert_job():
+    data = request.json or {}
+    dry_run = bool(data.get('dry_run', False))
+    delete_original = bool(data.get('delete_original', True))
+    verbose = bool(data.get('verbose', False))
+    threads = data.get('threads')
+    library_id = data.get('library_id')
+    timeout_seconds = data.get('timeout_seconds')
+    command = data.get('command')
+
+    job_id = _create_job('convert')
+
+    def _run_job():
+        with app.app_context():
+            results = convert_to_nsz(
+                command_template=command,
+                delete_original=delete_original,
+                dry_run=dry_run,
+                verbose=verbose,
+                log_cb=lambda msg: _job_log(job_id, msg),
+                progress_cb=lambda done, total: _job_progress(job_id, done, total),
+                stream_output=True,
+                threads=threads,
+                library_id=library_id,
+                cancel_cb=lambda: _job_is_cancelled(job_id),
+                timeout_seconds=timeout_seconds,
+                min_size_bytes=200 * 1024 * 1024
+            )
+            if results.get('success') and not dry_run:
+                post_library_change()
+            _job_finish(job_id, results)
+
+    thread = threading.Thread(target=_run_job, daemon=True)
+    thread.start()
+    return jsonify({'success': True, 'job_id': job_id})
+
+@app.post('/api/manage/convert-single-job')
+@access_required('admin')
+def manage_convert_single_job():
+    data = request.json or {}
+    file_id = data.get('file_id')
+    dry_run = bool(data.get('dry_run', False))
+    delete_original = bool(data.get('delete_original', True))
+    verbose = bool(data.get('verbose', False))
+    threads = data.get('threads')
+    timeout_seconds = data.get('timeout_seconds')
+    command = data.get('command')
+    if not file_id:
+        return jsonify({'success': False, 'errors': ['Missing file id.']})
+
+    job_id = _create_job('convert-single', total=1)
+
+    def _run_job():
+        with app.app_context():
+            results = convert_single_to_nsz(
+                file_id=int(file_id),
+                command_template=command,
+                delete_original=delete_original,
+                dry_run=dry_run,
+                verbose=verbose,
+                log_cb=lambda msg: _job_log(job_id, msg),
+                progress_cb=lambda done, total: _job_progress(job_id, done, total),
+                stream_output=True,
+                threads=threads,
+                cancel_cb=lambda: _job_is_cancelled(job_id),
+                timeout_seconds=timeout_seconds
+            )
+            if results.get('success') and not dry_run:
+                post_library_change()
+            _job_finish(job_id, results)
+
+    thread = threading.Thread(target=_run_job, daemon=True)
+    thread.start()
+    return jsonify({'success': True, 'job_id': job_id})
+
+@app.get('/api/manage/convert-job/<job_id>')
+@access_required('admin')
+def manage_convert_job_status(job_id):
+    with conversion_jobs_lock:
+        job = conversion_jobs.get(job_id)
+        if not job:
+            return jsonify({'success': False, 'error': 'Job not found.'}), 404
+        return jsonify({'success': True, 'job': job})
+
+@app.post('/api/manage/convert-job/<job_id>/cancel')
+@access_required('admin')
+def manage_convert_job_cancel(job_id):
+    with conversion_jobs_lock:
+        job = conversion_jobs.get(job_id)
+        if not job:
+            return jsonify({'success': False, 'error': 'Job not found.'}), 404
+        job['cancelled'] = True
+        job['status'] = 'cancelled'
+        job['updated_at'] = time.time()
+    return jsonify({'success': True})
+
+@app.get('/api/manage/jobs')
+@access_required('admin')
+def manage_jobs_list():
+    limit = request.args.get('limit', 20)
+    try:
+        limit = int(limit)
+    except ValueError:
+        limit = 20
+    with conversion_jobs_lock:
+        jobs = sorted(conversion_jobs.values(), key=lambda item: item['created_at'], reverse=True)[:limit]
+        return jsonify({'success': True, 'jobs': jobs})
+
+@app.get('/api/manage/health')
+@access_required('admin')
+def manage_health():
+    nsz_path = None
+    try:
+        nsz_path = _get_nsz_exe()
+    except NameError:
+        nsz_path = None
+    keys_file = KEYS_FILE
+    keys_ok = os.path.exists(KEYS_FILE)
+    return jsonify({
+        'success': True,
+        'nsz_exe': nsz_path,
+        'keys_file': keys_file,
+        'keys_present': keys_ok
+    })
+
+@app.get('/api/manage/libraries')
+@access_required('admin')
+def manage_libraries_list():
+    libraries = get_libraries()
+    return jsonify({
+        'success': True,
+        'libraries': [{'id': lib.id, 'path': lib.path} for lib in libraries]
+    })
 
 @app.route('/api/settings/library/paths', methods=['GET', 'POST', 'DELETE'])
 @access_required('admin')
@@ -399,13 +2612,50 @@ def library_paths_api():
         }
     return jsonify(resp)
 
+
+@app.get('/api/titledb/search')
+@access_required('shop')
+def titledb_search_api():
+    query = request.args.get('q', '').strip()
+    limit = request.args.get('limit', 20)
+    try:
+        limit = int(limit)
+    except Exception:
+        limit = 20
+
+    if not query:
+        return jsonify({'success': True, 'results': []})
+
+    titles.load_titledb()
+    try:
+        results = titles.search_titles(query, limit=limit)
+        # mark items already in library
+        existing = set((t.title_id or '').upper() for t in Titles.query.with_entities(Titles.title_id).all())
+        for r in results:
+            r['in_library'] = (r.get('id') or '').upper() in existing
+        return jsonify({'success': True, 'results': results})
+    finally:
+        titles.identification_in_progress_count -= 1
+        titles.unload_titledb()
+
 @app.post('/api/upload')
 @access_required('admin')
 def upload_file():
     errors = []
     success = False
 
+    if 'file' not in request.files:
+        return api_error('No file provided', 400)
+    
     file = request.files['file']
+    
+    # Validate file size
+    file.seek(0, os.SEEK_END)
+    file_size = file.tell()
+    file.seek(0)
+    is_valid_size, size_error = validate_file_size(file_size)
+    if not is_valid_size:
+        return api_error(size_error, 400)
     if file and allowed_file(file.filename):
         # filename = secure_filename(file.filename)
         file.save(KEYS_FILE + '.tmp')
@@ -428,39 +2678,850 @@ def upload_file():
     return jsonify(resp)
 
 
+@app.post('/api/upload/library')
+@access_required('admin')
+def upload_library_files():
+    files = request.files.getlist('files')
+    if not files:
+        return jsonify({'success': False, 'message': 'No files uploaded.', 'uploaded': 0, 'skipped': 0, 'errors': []})
+
+    library_id = request.form.get('library_id')
+    library_path = None
+    if library_id:
+        library_path = get_library_path(library_id)
+    if not library_path:
+        library_paths = get_libraries_path()
+        library_path = library_paths[0] if library_paths else None
+
+    if not library_path:
+        return jsonify({'success': False, 'message': 'No library path configured.', 'uploaded': 0, 'skipped': 0, 'errors': []})
+
+    os.makedirs(library_path, exist_ok=True)
+    allowed_exts = {'nsp', 'nsz', 'xci', 'xcz'}
+    uploaded = 0
+    skipped = 0
+    errors = []
+    saved_paths = []
+
+    for file in files:
+        filename = secure_filename(file.filename or '')
+        if not filename:
+            skipped += 1
+            continue
+        
+        # Validate file size (use library limit for game files)
+        file.seek(0, os.SEEK_END)
+        file_size = file.tell()
+        file.seek(0)
+        is_valid_size, size_error = validate_library_file_size(file_size)
+        if not is_valid_size:
+            errors.append(f"{filename}: {size_error}")
+            skipped += 1
+            continue
+        
+        ext = filename.rsplit('.', 1)[-1].lower() if '.' in filename else ''
+        if ext not in allowed_exts:
+            skipped += 1
+            continue
+        dest_path = _ensure_unique_path(os.path.join(library_path, filename))
+        try:
+            file.save(dest_path)
+            uploaded += 1
+            saved_paths.append(dest_path)
+        except Exception as e:
+            errors.append(str(e))
+
+    if uploaded:
+        scan_library_path(library_path)
+        enqueue_organize_paths(saved_paths)
+        post_library_change()
+
+    return jsonify({
+        'success': uploaded > 0,
+        'uploaded': uploaded,
+        'skipped': skipped,
+        'errors': errors
+    })
+
+
 @app.route('/api/titles', methods=['GET'])
 @access_required('shop')
 def get_all_titles_api():
+    start_ts = time.time()
     titles_library = generate_library()
 
+    def _game_title(game):
+        return (game.get('title_id_name') or game.get('name') or game.get('title_id') or game.get('app_id') or '')
+
+    def _split_genres(raw):
+        parts = []
+        for s in str(raw or '').split(','):
+            # Normalize stray brackets/quotes from source data (e.g. "['Action']" -> "Action").
+            cleaned = re.sub(r'^[\s\[\]\'"`]+|[\s\[\]\'"`]+$', '', str(s or '').strip()).strip()
+            if cleaned:
+                parts.append(cleaned)
+        seen = set()
+        out = []
+        for p in parts:
+            key = p.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(p)
+        return out
+
+    def _build_genre_list(games):
+        seen = {}
+        for g in games or []:
+            for genre in _split_genres(g.get('genre') or g.get('category') or ''):
+                key = genre.lower()
+                if key not in seen:
+                    seen[key] = genre
+        return sorted(seen.values(), key=lambda s: str(s).lower())
+
+    def _lite_game(game):
+        if not isinstance(game, dict):
+            return game
+        slim = dict(game)
+        slim.pop('version', None)
+        slim.pop('description', None)
+        slim.pop('screenshots', None)
+        return slim
+
+    def _sort_games(games, sort_key):
+        if sort_key == 'title_desc':
+            return sorted(games, key=lambda g: _game_title(g).lower(), reverse=True)
+        if sort_key == 'newest':
+            return sorted(
+                games,
+                key=lambda g: int(g.get('title_db_id') or 0),
+                reverse=True
+            )
+        return sorted(games, key=lambda g: _game_title(g).lower())
+
+    def _filter_games(games, search=None, types=None, owned=None, updates=None, completion=None, genre=None):
+        out = games
+        if search:
+            q = str(search).strip().lower()
+            if q:
+                out = [
+                    g for g in out
+                    if q in str(g.get('app_id') or '').lower()
+                    or q in str(g.get('title_id') or '').lower()
+                    or q in str(g.get('name') or '').lower()
+                    or q in str(g.get('title_id_name') or '').lower()
+                ]
+        if types:
+            allowed = {t.strip().upper() for t in str(types).split(',') if t.strip()}
+            if allowed:
+                out = [g for g in out if str(g.get('app_type') or '').upper() in allowed]
+        if owned == 'owned':
+            out = [g for g in out if g.get('owned') is True]
+        elif owned == 'missing':
+            out = [g for g in out if g.get('owned') is False]
+        if updates == 'up_to_date':
+            out = [g for g in out if g.get('has_latest_version') is True]
+        elif updates == 'outdated':
+            out = [g for g in out if g.get('has_latest_version') is False]
+        if completion == 'complete':
+            out = [g for g in out if g.get('has_all_dlcs') is True]
+        elif completion == 'missing_dlc':
+            out = [g for g in out if g.get('has_all_dlcs') is False]
+        if genre:
+            wanted = str(genre).strip().lower()
+            if wanted:
+                out = [
+                    g for g in out
+                    if any(gr.lower() == wanted for gr in _split_genres(g.get('genre') or g.get('category') or ''))
+                ]
+        return out
+
+    # Query params
+    page = request.args.get('page', 1, type=int)
+    per_page = request.args.get('per_page', 50, type=int)
+    page = max(1, page)
+    per_page = max(1, min(per_page, 200))
+    lite = str(request.args.get('lite', '')).lower() in ('1', 'true', 'yes')
+    sort_key = str(request.args.get('sort') or 'title_asc').strip()
+    search = request.args.get('search')
+    types = request.args.get('types')
+    owned = request.args.get('owned')
+    updates = request.args.get('updates')
+    completion = request.args.get('completion')
+    genre = request.args.get('genre')
+
+    # Build discovery sections from the full list (unfiltered).
+    base_games = [g for g in titles_library if g.get('app_type') == 'BASE']
+    newest = sorted(base_games, key=lambda g: int(g.get('title_db_id') or 0), reverse=True)[:12]
+    day_key = time.strftime('%Y-%m-%d')
+    seed = f"ownfoil-reco-{day_key}"
+    def _hash32(s):
+        h = 0x811c9dc5
+        for ch in str(s):
+            h ^= ord(ch)
+            h = (h * 0x01000193) & 0xffffffff
+        return h
+    candidates = [g for g in base_games if g.get('owned') is True]
+    recommended = sorted(
+        candidates,
+        key=lambda g: _hash32(f"{seed}-{g.get('title_id') or g.get('app_id')}")
+    )[:12]
+
+    filtered = _filter_games(
+        titles_library,
+        search=search,
+        types=types,
+        owned=owned,
+        updates=updates,
+        completion=completion,
+        genre=genre
+    )
+    filtered = _sort_games(filtered, sort_key)
+    total = len(filtered)
+    start = (page - 1) * per_page
+    end = start + per_page
+    page_games = filtered[start:end]
+
+    if lite:
+        page_games = [_lite_game(g) for g in page_games]
+        newest = [_lite_game(g) for g in newest]
+        recommended = [_lite_game(g) for g in recommended]
+
+    if _is_cyberfoil_request():
+        _log_access(
+            kind='shop_titles',
+            filename=request.full_path if request.query_string else request.path,
+            ok=True,
+            status_code=200,
+            duration_ms=int((time.time() - start_ts) * 1000),
+        )
+
     return jsonify({
-        'total': len(titles_library),
-        'games': titles_library
+        'total': total,
+        'page': page,
+        'per_page': per_page,
+        'games': page_games,
+        'genres': _build_genre_list(titles_library),
+        'discovery': {
+            'newest': newest,
+            'recommended': recommended,
+        }
     })
+
+
+@app.get('/api/title-details')
+@access_required('shop')
+def get_title_details_api():
+    app_id = (request.args.get('app_id') or '').strip()
+    app_type = (request.args.get('app_type') or '').strip()
+    title_id = (request.args.get('title_id') or '').strip()
+
+    if not app_id and not title_id:
+        return jsonify({'success': False, 'error': 'missing_identifier'}), 400
+
+    titles_library = generate_library()
+
+    def _match_game(game):
+        if not isinstance(game, dict):
+            return False
+        if app_id and app_type:
+            return (
+                str(game.get('app_id') or '').upper() == app_id.upper()
+                and str(game.get('app_type') or '').upper() == app_type.upper()
+            )
+        if app_id:
+            return str(game.get('app_id') or '').upper() == app_id.upper()
+        if title_id:
+            return str(game.get('title_id') or '').upper() == title_id.upper()
+        return False
+
+    game = next((g for g in titles_library if _match_game(g)), None)
+    if not game and title_id:
+        tid = title_id.upper()
+        game = next((g for g in titles_library if str(g.get('title_id') or '').upper() == tid), None)
+
+    return jsonify({
+        'success': bool(game),
+        'game': game,
+    })
+
+
+@app.get('/api/title-info/<title_id>')
+@access_required('shop')
+def get_title_info_api(title_id):
+    title_id = (title_id or '').strip().upper()
+    if not title_id:
+        return jsonify({'success': False, 'error': 'missing_title_id'}), 400
+
+    titles.load_titledb()
+    try:
+        info = titles.get_game_info(title_id) or {}
+    finally:
+        titles.identification_in_progress_count -= 1
+        titles.unload_titledb()
+
+    return jsonify({
+        'success': True,
+        'title_id': title_id,
+        'name': info.get('name'),
+        'description': info.get('description'),
+        'screenshots': info.get('screenshots') or []
+    })
+
+@app.get('/api/library/size')
+@access_required('shop')
+def get_library_size_api():
+    total = db.session.query(func.sum(Files.size)).scalar() or 0
+    return jsonify({'success': True, 'total_bytes': int(total)})
+
+@app.get('/api/library/status')
+@access_required('shop')
+def get_library_status_api():
+    with library_rebuild_lock:
+        status = dict(library_rebuild_status)
+    with scan_lock:
+        scan_active = bool(scan_in_progress)
+    with titledb_update_lock:
+        titledb_active = bool(is_titledb_update_running)
+    status.update({
+        'scan_in_progress': scan_active,
+        'titledb_updating': titledb_active
+    })
+    return jsonify({'success': True, 'status': status})
 
 @app.route('/api/get_game/<int:id>')
 @tinfoil_access
 def serve_game(id):
-    # TODO add download count increment
-    filepath = db.session.query(Files.filepath).filter_by(id=id).first()[0]
+    start_ts = time.time()
+    remote_addr = _effective_remote_addr()
+    user_agent = request.headers.get('User-Agent')
+    username = _get_request_user()
+
+    try:
+        Files.query.filter_by(id=id).update({Files.download_count: Files.download_count + 1})
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Failed to increment download count for file id {id}: {e}")
+    file_result = db.session.query(Files.filepath).filter_by(id=id).first()
+    if not file_result:
+        return Response(status=404)
+    filepath = file_result[0]
     filedir, filename = os.path.split(filepath)
-    return send_from_directory(filedir, filename)
+
+    title_id = None
+    try:
+        file_obj = Files.query.filter_by(id=id).first()
+        if file_obj and getattr(file_obj, 'apps', None):
+            app_obj = file_obj.apps[0] if file_obj.apps else None
+            if app_obj and getattr(app_obj, 'title', None):
+                title_id = app_obj.title.title_id
+    except Exception as e:
+        logger.error(f"Failed to get title_id for file id {id}: {e}")
+        title_id = None
+
+    transfer_id = uuid.uuid4().hex
+    meta = {
+        'id': transfer_id,
+        'started_at': start_ts,
+        'user': username,
+        'remote_addr': remote_addr,
+        'user_agent': user_agent,
+        'file_id': id,
+        'filename': filename,
+        'title_id': title_id,
+        'bytes_sent': 0,
+    }
+
+    with _active_transfers_lock:
+        _active_transfers[transfer_id] = meta
+
+    resp = send_from_directory(filedir, filename, conditional=True)
+
+    session_key = _transfer_session_start(
+        user=username,
+        remote_addr=remote_addr,
+        user_agent=user_agent,
+        title_id=title_id,
+        file_id=id,
+        filename=filename,
+        resp_status_code=getattr(resp, 'status_code', 200),
+    )
+
+    # Wrap response iterable to track bytes sent while preserving Range support.
+    original_iterable = resp.response
+    status_code = getattr(resp, 'status_code', None)
+
+    state = {
+        'sent': 0,
+        'ok': True,
+        'finished': False,
+    }
+
+    _finish_lock = threading.Lock()
+
+    def _finish_once():
+        with _finish_lock:
+            if state.get('finished'):
+                return
+            state['finished'] = True
+
+        code = getattr(resp, 'status_code', None) or status_code
+        try:
+            _transfer_session_finish(
+                session_key,
+                ok=bool(state.get('ok')),
+                status_code=int(code) if code is not None else None,
+                bytes_sent=int(state.get('sent') or 0),
+            )
+        except Exception:
+            try:
+                logger.exception('Failed to finalize transfer session')
+            except Exception:
+                pass
+
+    def _on_close():
+        _finish_once()
+
+    resp.call_on_close(_on_close)
+
+    def _generate_wrapped():
+        try:
+            for chunk in original_iterable:
+                try:
+                    state['sent'] = int(state.get('sent') or 0) + len(chunk)
+                    if state['sent'] % (1024 * 1024) < len(chunk):
+                        _transfer_session_progress(session_key, state['sent'])
+                        with _active_transfers_lock:
+                            if transfer_id in _active_transfers:
+                                _active_transfers[transfer_id]['bytes_sent'] = state['sent']
+                except Exception:
+                    pass
+                yield chunk
+        except Exception:
+            state['ok'] = False
+            raise
+        finally:
+            # Ensure we close the session even if call_on_close doesn't fire.
+            _finish_once()
+            with _active_transfers_lock:
+                _active_transfers.pop(transfer_id, None)
+
+    resp.response = _generate_wrapped()
+    resp.direct_passthrough = False
+    return resp
+
+
+@app.get('/api/shop/sections')
+@tinfoil_access
+def shop_sections_api():
+    start_ts = time.time()
+    limit = request.args.get('limit', 50)
+    try:
+        limit = int(limit)
+    except ValueError:
+        limit = 50
+
+    now = time.time()
+    payload = None
+    with shop_sections_cache_lock:
+        cache_enabled = SHOP_SECTIONS_CACHE_TTL_S > 0
+        cache_hit = (
+            cache_enabled
+            and shop_sections_cache['payload'] is not None
+            and shop_sections_cache['limit'] == limit
+            and (now - float(shop_sections_cache.get('timestamp') or 0)) <= SHOP_SECTIONS_CACHE_TTL_S
+        )
+        if cache_hit:
+            payload = shop_sections_cache['payload']
+        elif not cache_enabled or shop_sections_cache.get('payload') is not None:
+            # Expired in-memory cache.
+            shop_sections_cache['payload'] = None
+            shop_sections_cache['limit'] = None
+            shop_sections_cache['timestamp'] = 0
+
+    if payload is None:
+        if SHOP_SECTIONS_CACHE_TTL_S > 0:
+            disk_cache = _load_shop_sections_cache_from_disk()
+            if disk_cache and disk_cache.get('limit') == limit:
+                disk_payload = disk_cache.get('payload')
+                disk_ts = float(disk_cache.get('timestamp') or 0)
+                disk_ok = (now - disk_ts) <= SHOP_SECTIONS_CACHE_TTL_S
+                if disk_payload and disk_ok:
+                    payload = disk_payload
+                    with shop_sections_cache_lock:
+                        shop_sections_cache['payload'] = payload
+                        shop_sections_cache['limit'] = limit
+                        shop_sections_cache['timestamp'] = disk_ts
+
+    if payload is None:
+        payload = _build_shop_sections_payload(limit)
+        if SHOP_SECTIONS_CACHE_TTL_S > 0:
+            with shop_sections_cache_lock:
+                shop_sections_cache['payload'] = payload
+                shop_sections_cache['limit'] = limit
+                shop_sections_cache['timestamp'] = now
+            _save_shop_sections_cache_to_disk(payload, limit, now)
+
+    if _is_cyberfoil_request():
+        _log_access(
+            kind='shop_sections',
+            filename=request.full_path if request.query_string else request.path,
+            ok=True,
+            status_code=200,
+            duration_ms=int((time.time() - start_ts) * 1000),
+        )
+
+    return jsonify(payload)
+
+
+@app.get('/api/shop/icon/<title_id>')
+@tinfoil_access
+def shop_icon_api(title_id):
+    start_ts = time.time()
+    title_id = (title_id or '').upper()
+    if not title_id:
+        return Response(status=404)
+
+    cache_dir = os.path.join(CACHE_DIR, 'icons')
+    os.makedirs(cache_dir, exist_ok=True)
+
+    # Fast path: serve cached file without TitleDB lookup.
+    size_override = _get_web_media_size('icon')
+    cached_name = _get_cached_media_filename(cache_dir, title_id, media_kind='icon')
+    if cached_name:
+        src_path = os.path.join(cache_dir, cached_name)
+        size, variant_dir, variant_path = _get_variant_path(cache_dir, cached_name, media_kind='icon', size_override=size_override)
+        if variant_path and os.path.exists(variant_path) and os.path.getmtime(variant_path) >= os.path.getmtime(src_path):
+            response = send_from_directory(variant_dir, cached_name)
+            response.headers['Cache-Control'] = 'public, max-age=604800, immutable'
+            if _is_cyberfoil_request():
+                _log_access(
+                    kind='shop_media',
+                    title_id=title_id,
+                    filename=f"icon:{cached_name}",
+                    ok=True,
+                    status_code=getattr(response, 'status_code', 200),
+                    duration_ms=int((time.time() - start_ts) * 1000),
+                )
+            return response
+        if variant_path and os.path.exists(src_path):
+            with _media_resize_lock:
+                if os.path.exists(src_path) and (not os.path.exists(variant_path) or os.path.getmtime(variant_path) < os.path.getmtime(src_path)):
+                    _resize_image_to_path(src_path, variant_path, size=size)
+            if os.path.exists(variant_path):
+                response = send_from_directory(variant_dir, cached_name)
+                response.headers['Cache-Control'] = 'public, max-age=604800, immutable'
+                if _is_cyberfoil_request():
+                    _log_access(
+                        kind='shop_media',
+                        title_id=title_id,
+                        filename=f"icon:{cached_name}",
+                        ok=True,
+                        status_code=getattr(response, 'status_code', 200),
+                        duration_ms=int((time.time() - start_ts) * 1000),
+                    )
+                return response
+        response = send_from_directory(cache_dir, cached_name)
+        response.headers['Cache-Control'] = 'public, max-age=604800, immutable'
+        if _is_cyberfoil_request():
+            _log_access(
+                kind='shop_media',
+                title_id=title_id,
+                filename=f"icon:{cached_name}",
+                ok=True,
+                status_code=getattr(response, 'status_code', 200),
+                duration_ms=int((time.time() - start_ts) * 1000),
+            )
+        return response
+
+    titles.load_titledb()
+    try:
+        info = titles.get_game_info(title_id)
+    finally:
+        titles.identification_in_progress_count -= 1
+        titles.unload_titledb()
+    icon_url = info.get('iconUrl') if info else ''
+    if not icon_url:
+        response = send_from_directory(app.static_folder, 'placeholder-icon.svg')
+        response.headers['Cache-Control'] = 'public, max-age=3600'
+        if _is_cyberfoil_request():
+            _log_access(
+                kind='shop_media',
+                title_id=title_id,
+                filename='icon:placeholder',
+                ok=True,
+                status_code=getattr(response, 'status_code', 200),
+                duration_ms=int((time.time() - start_ts) * 1000),
+            )
+        return response
+
+    cache_name, cache_path = _ensure_cached_media_file(cache_dir, title_id, icon_url)
+    if not cache_path:
+        response = send_from_directory(app.static_folder, 'placeholder-icon.svg')
+        response.headers['Cache-Control'] = 'public, max-age=3600'
+        if _is_cyberfoil_request():
+            _log_access(
+                kind='shop_media',
+                title_id=title_id,
+                filename='icon:placeholder',
+                ok=True,
+                status_code=getattr(response, 'status_code', 200),
+                duration_ms=int((time.time() - start_ts) * 1000),
+            )
+        return response
+
+    if not os.path.exists(cache_path):
+        try:
+            resp = requests.get(icon_url, timeout=10)
+            if resp.status_code == 200:
+                with open(cache_path, 'wb') as handle:
+                    handle.write(resp.content)
+        except Exception:
+            cache_path = None
+
+    if cache_path and os.path.exists(cache_path):
+        _remember_cached_media_filename(title_id, cache_name, media_kind='icon')
+        size, variant_dir, variant_path = _get_variant_path(cache_dir, cache_name, media_kind='icon', size_override=size_override)
+        if variant_path:
+            with _media_resize_lock:
+                if not os.path.exists(variant_path) or os.path.getmtime(variant_path) < os.path.getmtime(cache_path):
+                    _resize_image_to_path(cache_path, variant_path, size=size)
+            if os.path.exists(variant_path):
+                response = send_from_directory(variant_dir, cache_name)
+                response.headers['Cache-Control'] = 'public, max-age=604800, immutable'
+                if _is_cyberfoil_request():
+                    _log_access(
+                        kind='shop_media',
+                        title_id=title_id,
+                        filename=f"icon:{cache_name}",
+                        ok=True,
+                        status_code=getattr(response, 'status_code', 200),
+                        duration_ms=int((time.time() - start_ts) * 1000),
+                    )
+                return response
+
+        response = send_from_directory(cache_dir, cache_name)
+        response.headers['Cache-Control'] = 'public, max-age=604800, immutable'
+        if _is_cyberfoil_request():
+            _log_access(
+                kind='shop_media',
+                title_id=title_id,
+                filename=f"icon:{cache_name}",
+                ok=True,
+                status_code=getattr(response, 'status_code', 200),
+                duration_ms=int((time.time() - start_ts) * 1000),
+            )
+        return response
+
+    response = send_from_directory(app.static_folder, 'placeholder-icon.svg')
+    response.headers['Cache-Control'] = 'public, max-age=3600'
+    if _is_cyberfoil_request():
+        _log_access(
+            kind='shop_media',
+            title_id=title_id,
+            filename='icon:placeholder',
+            ok=True,
+            status_code=getattr(response, 'status_code', 200),
+            duration_ms=int((time.time() - start_ts) * 1000),
+        )
+    return response
+
+
+@app.get('/api/shop/banner/<title_id>')
+@tinfoil_access
+def shop_banner_api(title_id):
+    start_ts = time.time()
+    title_id = (title_id or '').upper()
+    if not title_id:
+        return Response(status=404)
+
+    cache_dir = os.path.join(CACHE_DIR, 'banners')
+    os.makedirs(cache_dir, exist_ok=True)
+
+    # Fast path: serve cached file without TitleDB lookup.
+    size_override = _get_web_media_size('banner')
+    cached_name = _get_cached_media_filename(cache_dir, title_id, media_kind='banner')
+    if cached_name:
+        src_path = os.path.join(cache_dir, cached_name)
+        size, variant_dir, variant_path = _get_variant_path(cache_dir, cached_name, media_kind='banner', size_override=size_override)
+        if variant_path and os.path.exists(variant_path) and os.path.getmtime(variant_path) >= os.path.getmtime(src_path):
+            response = send_from_directory(variant_dir, cached_name)
+            response.headers['Cache-Control'] = 'public, max-age=604800, immutable'
+            if _is_cyberfoil_request():
+                _log_access(
+                    kind='shop_media',
+                    title_id=title_id,
+                    filename=f"banner:{cached_name}",
+                    ok=True,
+                    status_code=getattr(response, 'status_code', 200),
+                    duration_ms=int((time.time() - start_ts) * 1000),
+                )
+            return response
+        if variant_path and os.path.exists(src_path):
+            with _media_resize_lock:
+                if os.path.exists(src_path) and (not os.path.exists(variant_path) or os.path.getmtime(variant_path) < os.path.getmtime(src_path)):
+                    _resize_image_to_path(src_path, variant_path, size=size)
+            if os.path.exists(variant_path):
+                response = send_from_directory(variant_dir, cached_name)
+                response.headers['Cache-Control'] = 'public, max-age=604800, immutable'
+                if _is_cyberfoil_request():
+                    _log_access(
+                        kind='shop_media',
+                        title_id=title_id,
+                        filename=f"banner:{cached_name}",
+                        ok=True,
+                        status_code=getattr(response, 'status_code', 200),
+                        duration_ms=int((time.time() - start_ts) * 1000),
+                    )
+                return response
+        response = send_from_directory(cache_dir, cached_name)
+        response.headers['Cache-Control'] = 'public, max-age=604800, immutable'
+        if _is_cyberfoil_request():
+            _log_access(
+                kind='shop_media',
+                title_id=title_id,
+                filename=f"banner:{cached_name}",
+                ok=True,
+                status_code=getattr(response, 'status_code', 200),
+                duration_ms=int((time.time() - start_ts) * 1000),
+            )
+        return response
+
+    titles.load_titledb()
+    try:
+        info = titles.get_game_info(title_id)
+    finally:
+        titles.identification_in_progress_count -= 1
+        titles.unload_titledb()
+    banner_url = info.get('bannerUrl') if info else ''
+    if not banner_url:
+        response = send_from_directory(app.static_folder, 'placeholder-banner.svg')
+        response.headers['Cache-Control'] = 'public, max-age=3600'
+        if _is_cyberfoil_request():
+            _log_access(
+                kind='shop_media',
+                title_id=title_id,
+                filename='banner:placeholder',
+                ok=True,
+                status_code=getattr(response, 'status_code', 200),
+                duration_ms=int((time.time() - start_ts) * 1000),
+            )
+        return response
+
+    cache_name, cache_path = _ensure_cached_media_file(cache_dir, title_id, banner_url)
+    if not cache_path:
+        response = send_from_directory(app.static_folder, 'placeholder-banner.svg')
+        response.headers['Cache-Control'] = 'public, max-age=3600'
+        if _is_cyberfoil_request():
+            _log_access(
+                kind='shop_media',
+                title_id=title_id,
+                filename='banner:placeholder',
+                ok=True,
+                status_code=getattr(response, 'status_code', 200),
+                duration_ms=int((time.time() - start_ts) * 1000),
+            )
+        return response
+
+    if not os.path.exists(cache_path):
+        try:
+            resp = requests.get(banner_url, timeout=10)
+            if resp.status_code == 200:
+                with open(cache_path, 'wb') as handle:
+                    handle.write(resp.content)
+        except Exception:
+            cache_path = None
+
+    if cache_path and os.path.exists(cache_path):
+        _remember_cached_media_filename(title_id, cache_name, media_kind='banner')
+        size, variant_dir, variant_path = _get_variant_path(cache_dir, cache_name, media_kind='banner', size_override=size_override)
+        if variant_path:
+            with _media_resize_lock:
+                if not os.path.exists(variant_path) or os.path.getmtime(variant_path) < os.path.getmtime(cache_path):
+                    _resize_image_to_path(cache_path, variant_path, size=size)
+            if os.path.exists(variant_path):
+                response = send_from_directory(variant_dir, cache_name)
+                response.headers['Cache-Control'] = 'public, max-age=604800, immutable'
+                if _is_cyberfoil_request():
+                    _log_access(
+                        kind='shop_media',
+                        title_id=title_id,
+                        filename=f"banner:{cache_name}",
+                        ok=True,
+                        status_code=getattr(response, 'status_code', 200),
+                        duration_ms=int((time.time() - start_ts) * 1000),
+                    )
+                return response
+
+        response = send_from_directory(cache_dir, cache_name)
+        response.headers['Cache-Control'] = 'public, max-age=604800, immutable'
+        if _is_cyberfoil_request():
+            _log_access(
+                kind='shop_media',
+                title_id=title_id,
+                filename=f"banner:{cache_name}",
+                ok=True,
+                status_code=getattr(response, 'status_code', 200),
+                duration_ms=int((time.time() - start_ts) * 1000),
+            )
+        return response
+
+    response = send_from_directory(app.static_folder, 'placeholder-banner.svg')
+    response.headers['Cache-Control'] = 'public, max-age=3600'
+    if _is_cyberfoil_request():
+        _log_access(
+            kind='shop_media',
+            title_id=title_id,
+            filename='banner:placeholder',
+            ok=True,
+            status_code=getattr(response, 'status_code', 200),
+            duration_ms=int((time.time() - start_ts) * 1000),
+        )
+    return response
 
 
 @debounce(10)
 def post_library_change():
+    with library_rebuild_lock:
+        if not library_rebuild_status['in_progress']:
+            library_rebuild_status['started_at'] = time.time()
+        library_rebuild_status['in_progress'] = True
+        library_rebuild_status['updated_at'] = time.time()
     with app.app_context():
-        titles.load_titledb()
-        process_library_identification(app)
-        add_missing_apps_to_db()
-        update_titles() # Ensure titles are updated after identification
-        # remove missing files
-        remove_missing_files_from_db()
-        # The process_library_identification already handles updating titles and generating library
-        # So, we just need to ensure titles_library is updated from the generated library
-        generate_library()
-        titles.identification_in_progress_count -= 1
-        titles.unload_titledb()
+        try:
+            titles.load_titledb()
+            process_library_identification(app)
+            add_missing_apps_to_db()
+            update_titles() # Ensure titles are updated after identification
+            # remove missing files
+            remove_missing_files_from_db()
+            organize_pending_downloads()
+            # The process_library_identification already handles updating titles and generating library
+            # So, we just need to ensure titles_library is updated from the generated library
+            generate_library()
+            with shop_sections_cache_lock:
+                shop_sections_cache['payload'] = None
+                shop_sections_cache['timestamp'] = 0
+                shop_sections_cache['limit'] = None
+
+            # Media cache index can be repopulated on demand.
+            with _media_cache_lock:
+                _media_cache_index['icon'].clear()
+                _media_cache_index['banner'].clear()
+            now = time.time()
+            payload = _build_shop_sections_payload(50)
+            with shop_sections_cache_lock:
+                shop_sections_cache['payload'] = payload
+                shop_sections_cache['limit'] = 50
+                shop_sections_cache['timestamp'] = now
+            _save_shop_sections_cache_to_disk(payload, 50, now)
+        finally:
+            titles.identification_in_progress_count -= 1
+            titles.unload_titledb()
+            with library_rebuild_lock:
+                library_rebuild_status['in_progress'] = False
+                library_rebuild_status['updated_at'] = time.time()
 
 @app.post('/api/library/scan')
 @access_required('admin')
@@ -510,7 +3571,8 @@ if __name__ == '__main__':
     init_users(app)
     init()
     logger.info('Initialization steps done, starting server...')
-    app.run(debug=False, use_reloader=False, host="0.0.0.0", port=8465)
+    # Enable threading so admin activity polling keeps working during transfers.
+    app.run(debug=False, use_reloader=False, host="0.0.0.0", port=8465, threaded=True)
     # Shutdown server
     logger.info('Shutting down server...')
     watcher.stop()

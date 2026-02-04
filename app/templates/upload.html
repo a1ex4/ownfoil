@@ -1,0 +1,232 @@
+{% extends "base.html" %}
+{% block content %}
+{% include 'nav.html' %}
+
+<div class="container-fluid setting-body">
+    <div class="row">
+        <div class="col">
+            <div class="settings-container container mt-3">
+                <h2 class="pb-2">Upload</h2>
+                <p class="text-muted">Upload NSP/NSZ/XCI/XCZ files directly into the library.</p>
+
+                <div class="card mb-3">
+                    <div class="card-body">
+                        <div class="upload-panel">
+                            <div class="mb-3">
+                                <label for="uploadLibrarySelect" class="form-label">Library</label>
+                                <select class="form-select" id="uploadLibrarySelect"></select>
+                                <div class="form-text">Choose where to place your uploaded files.</div>
+                            </div>
+
+                            <div class="mb-3">
+                                <label for="uploadFilesInput" class="form-label">Files</label>
+                                <div class="upload-dropzone" id="uploadDropzone">
+                                    <div class="upload-dropzone-body">
+                                        <i class="bi bi-cloud-arrow-up"></i>
+                                        <div class="upload-dropzone-title">Drag & drop files here</div>
+                                        <div class="upload-dropzone-subtitle">or click to browse</div>
+                                    </div>
+                                    <input class="form-control" type="file" id="uploadFilesInput" multiple
+                                        accept=".nsp,.nsz,.xci,.xcz">
+                                </div>
+                                <div class="form-text">Allowed: NSP, NSZ, XCI, XCZ. Large uploads may take a while.</div>
+                                <div id="uploadFileMeta" class="upload-file-meta mt-2 d-none">
+                                    <span id="uploadFileSummary"></span>
+                                    <button type="button" class="btn btn-sm btn-outline-secondary" id="uploadClearBtn">Clear list</button>
+                                </div>
+                                <div id="uploadFileList" class="upload-file-list mt-2 d-none"></div>
+                            </div>
+
+                            <div class="d-flex flex-wrap gap-2">
+                                <button type="button" id="uploadSubmitBtn" class="btn btn-primary" onClick="uploadFiles()" disabled>Upload</button>
+                                <button type="button" id="uploadResetBtn" class="btn btn-outline-secondary" onClick="resetUploadForm()">Reset</button>
+                            </div>
+
+                            <div class="mt-3">
+                                <div class="progress d-none" id="uploadProgressWrap" role="progressbar" aria-label="Upload progress">
+                                    <div class="progress-bar" id="uploadProgressBar" style="width: 0%">0%</div>
+                                </div>
+                                <div id="uploadStatus" class="text-muted small mt-2"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    function loadUploadLibraries() {
+        $.getJSON("/api/manage/libraries", function (result) {
+            const select = $('#uploadLibrarySelect');
+            if (!result || !result['success']) {
+                select.empty().append('<option value="">No libraries found</option>');
+                return;
+            }
+            const libraries = result['libraries'] || [];
+            if (!libraries.length) {
+                select.empty().append('<option value="">No libraries found</option>');
+                return;
+            }
+            select.empty();
+            libraries.forEach(lib => {
+                select.append(`<option value="${lib.id}">${lib.path}</option>`);
+            });
+            if (libraries.length === 1) {
+                select.prop('selectedIndex', 0);
+            }
+        });
+    }
+
+    function renderUploadList(files) {
+        const list = $('#uploadFileList');
+        if (!files || !files.length) {
+            list.empty().addClass('d-none');
+            $('#uploadFileMeta').addClass('d-none');
+            $('#uploadFileSummary').text('');
+            return;
+        }
+        list.removeClass('d-none');
+        const items = Array.from(files).map(file => {
+            return `<div class="upload-file-item"><span>${file.name}</span><span class="text-muted">${formatBytes(file.size)}</span></div>`;
+        });
+        list.html(items.join(''));
+        const totalBytes = Array.from(files).reduce((sum, file) => sum + file.size, 0);
+        const summary = `${files.length} file${files.length === 1 ? '' : 's'} \u2022 ${formatBytes(totalBytes)}`;
+        $('#uploadFileSummary').text(summary);
+        $('#uploadFileMeta').removeClass('d-none');
+    }
+
+    function formatBytes(bytes) {
+        if (!bytes) {
+            return '0 B';
+        }
+        const units = ['B', 'KB', 'MB', 'GB'];
+        let size = bytes;
+        let index = 0;
+        while (size >= 1024 && index < units.length - 1) {
+            size /= 1024;
+            index += 1;
+        }
+        return `${size.toFixed(size >= 10 || index === 0 ? 0 : 1)} ${units[index]}`;
+    }
+
+    function updateUploadActions() {
+        const hasFiles = ($('#uploadFilesInput').prop('files') || []).length > 0;
+        $('#uploadSubmitBtn').prop('disabled', !hasFiles);
+    }
+
+    function setInputFiles(files) {
+        const dataTransfer = new DataTransfer();
+        Array.from(files || []).forEach(file => dataTransfer.items.add(file));
+        $('#uploadFilesInput').prop('files', dataTransfer.files);
+        return dataTransfer.files;
+    }
+
+    function addFilesToInput(newFiles, replace = false) {
+        const existing = replace ? [] : Array.from($('#uploadFilesInput').prop('files') || []);
+        const combined = existing.concat(Array.from(newFiles || []));
+        const files = setInputFiles(combined);
+        renderUploadList(files);
+        updateUploadActions();
+    }
+
+    function resetUploadForm() {
+        $('#uploadFilesInput').val('');
+        $('#uploadStatus').text('');
+        $('#uploadProgressWrap').addClass('d-none');
+        $('#uploadProgressBar').css('width', '0%').text('0%');
+        renderUploadList([]);
+        updateUploadActions();
+    }
+
+    function uploadFiles() {
+        const files = $('#uploadFilesInput').prop('files') || [];
+        if (!files.length) {
+            $('#uploadStatus').text('Select at least one file.');
+            return;
+        }
+        const libraryId = $('#uploadLibrarySelect').val();
+        const formData = new FormData();
+        formData.append('library_id', libraryId);
+        for (const file of files) {
+            formData.append('files', file);
+        }
+
+        $('#uploadSubmitBtn').prop('disabled', true);
+        $('#uploadStatus').text('Uploading... 0%');
+        $('#uploadProgressWrap').removeClass('d-none');
+        $('#uploadProgressBar').css('width', '0%').text('0%');
+
+        $.ajax({
+            url: "/api/upload/library",
+            type: 'POST',
+            data: formData,
+            cache: false,
+            contentType: false,
+            processData: false,
+            xhr: function () {
+                const xhr = new window.XMLHttpRequest();
+                xhr.upload.addEventListener('progress', function (evt) {
+                    if (evt.lengthComputable) {
+                        const percent = Math.round((evt.loaded / evt.total) * 100);
+                        $('#uploadStatus').text(`Uploading... ${percent}%`);
+                        $('#uploadProgressBar').css('width', `${percent}%`).text(`${percent}%`);
+                    }
+                }, false);
+                return xhr;
+            },
+            success: function (result) {
+                if (result && result['success']) {
+                    const uploaded = result['uploaded'] || 0;
+                    const skipped = result['skipped'] || 0;
+                    $('#uploadStatus').text(`Uploaded ${uploaded} files. Skipped ${skipped}.`);
+                    $('#uploadFilesInput').val('');
+                    renderUploadList([]);
+                    updateUploadActions();
+                } else {
+                    $('#uploadStatus').text(result['message'] || 'Upload failed.');
+                }
+            },
+            error: function () {
+                $('#uploadStatus').text('Upload failed.');
+            },
+            complete: function () {
+                updateUploadActions();
+            }
+        });
+    }
+
+    $(document).ready(function () {
+        loadUploadLibraries();
+        updateUploadActions();
+        $('#uploadFilesInput').on('change', function () {
+            addFilesToInput(this.files, true);
+        });
+        $('#uploadDropzone').on('click', function () {
+            $('#uploadFilesInput').trigger('click');
+        });
+        $('#uploadClearBtn').on('click', function () {
+            resetUploadForm();
+        });
+        $('#uploadDropzone').on('dragenter dragover', function (event) {
+            event.preventDefault();
+            event.stopPropagation();
+            $(this).addClass('is-dragover');
+        });
+        $('#uploadDropzone').on('dragleave dragend drop', function (event) {
+            event.preventDefault();
+            event.stopPropagation();
+            $(this).removeClass('is-dragover');
+        });
+        $('#uploadDropzone').on('drop', function (event) {
+            const files = event.originalEvent.dataTransfer?.files;
+            if (files && files.length) {
+                addFilesToInput(files, false);
+            }
+        });
+    });
+</script>
+
+{% endblock %}

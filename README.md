@@ -1,10 +1,12 @@
 # Ownfoil
-[![Latest Release](https://img.shields.io/docker/v/a1ex4/ownfoil?sort=semver)](https://github.com/a1ex4/ownfoil/releases/latest)
-[![Docker Pulls](https://img.shields.io/docker/pulls/a1ex4/ownfoil)](https://hub.docker.com/r/a1ex4/ownfoil)
-[![Docker Image Size (latest semver)](https://img.shields.io/docker/image-size/a1ex4/ownfoil?sort=date&arch=amd64)](https://hub.docker.com/r/a1ex4/ownfoil/tags)  
-![Static Badge](https://img.shields.io/badge/platforms-amd64%20%7C%20%20arm64%2Fv8%20%7C%20arm%2Fv7%20%7C%20arm%2Fv6-8A2BE2)
 
-Ownfoil is a Nintendo Switch library manager, that will also turn your library into a fully customizable and self-hosted Tinfoil Shop. The goal of this project is to manage your library, identify any missing content (DLCs or updates) and provide a user friendly way to browse your content. Some of the features include:
+[![Latest Release](https://img.shields.io/docker/v/luketanti/ownfoil?sort=semver)](https://github.com/luketanti/ownfoil/releases/latest)
+[![Docker Pulls](https://img.shields.io/docker/pulls/luketanti/ownfoil)](https://hub.docker.com/r/luketanti/ownfoil)
+[![Docker Image Size](https://img.shields.io/docker/image-size/luketanti/ownfoil/latest?arch=amd64)](https://hub.docker.com/r/luketanti/ownfoil/tags)
+![Platforms](https://img.shields.io/badge/platforms-amd64%20%7C%20arm64-8A2BE2)
+
+
+Ownfoil is a Nintendo Switch library manager that turns your library into a fully customizable, self-hosted Tinfoil Shop. The goal of this project is to manage your library, identify any missing content (DLCs or updates) and provide a user friendly way to browse your content. Some of the features include:
 
  - multi user authentication
  - web interface for configuration
@@ -15,18 +17,22 @@ Ownfoil is a Nintendo Switch library manager, that will also turn your library i
 The project is still in development, expect things to break or change without notice.
 
 # Table of Contents
-- [Installation](#nstallation)
+- [Installation](#installation)
 - [Usage](#usage)
 - [Roadmap](#roadmap)
-- [Similar Projects](#similar-projects)
 
 # Installation
 ## Using Docker
 ### Docker run
 
-Running this command will start the shop on port `8465` with the library in `/your/game/directory` :
+Running this command will start the shop on port `8465` with the library in `/your/game/directory`:
 
-    docker run -d -p 8465:8465 -v /your/game/directory:/games -v /your/config/directory:/app/config --name ownfoil a1ex4/ownfoil
+    docker run -d -p 8465:8465 \
+      -v /your/game/directory:/games \
+      -v /your/config/directory:/app/config \
+      -v /your/data/directory:/app/data \
+      --name ownfoil \
+      luketanti/ownfoil:latest
 
 The shop is now accessible with your computer/server IP and port, i.e. `http://localhost:8465` from the same computer or `http://192.168.1.100:8465` from a device in your network.
 
@@ -38,7 +44,7 @@ version: "3"
 services:
   ownfoil:
     container_name: ownfoil
-    image: a1ex4/ownfoil
+    image: luketanti/ownfoil:latest
    # environment:
    #   # For write permission in config directory
    #   - PUID=1000
@@ -52,6 +58,7 @@ services:
     volumes:
       - /your/game/directory:/games
       - ./config:/app/config
+      - ./data:/app/data
     ports:
       - "8465:8465"
 ```
@@ -67,20 +74,18 @@ This is usefull if you don't want to remember the `docker run` command and have 
 ## Using Python
 Clone the repository using `git`, install the dependencies and you're good to go:
 ```
-$ git clone https://github.com/a1ex4/ownfoil
+$ git clone https://github.com/luketanti/ownfoil
 $ cd ownfoil
 $ pip install -r requirements.txt
 $ python app/app.py
 ```
 To update the app you will need to pull the latest commits.
 
-## Tinfoil setup
-In Tinfoil, add a shop with the following settings:
- - Protocol: `http` (or `https` if using a SSL enabled reverse proxy)
- - Host: server/computer IP, i.e. `192.168.1.100`
- - Port: host port of the container, i.e. `8000`
- - Username: username as created in Ownfoil settings (if the shop is set to Private)
- - Password: password as created in Ownfoil settings (if the shop is set to Private)
+## CyberFoil setup
+In CyberFoil, set the Ownfoil eShop URL in Settings:
+ - URL: `http://<server-ip>:8465` (or `https://` if using an SSL-enabled reverse proxy)
+ - Username: username as created in Ownfoil settings (if the shop is Private)
+ - Password: password as created in Ownfoil settings (if the shop is Private)
 
 # Usage
 Once Ownfoil is running you can access the Shop Web UI by navigating to the `http://<computer/server IP>:8465`.
@@ -92,6 +97,54 @@ Ownfoil requires an `admin` user to be created to enable Authentication for your
 In the `Settings` page under the `Library` section, you can add directories containing your content. You can then manually trigger the library scan: Ownfoil will scan the content of the directories and try to identify every supported file (currently `nsp`, `nsz`, `xci`, `xcz`).
 There is watchdog in place for all your added directories: files moved, renamed, added or removed will be reflected directly in your library.
 
+## Library management
+In the `Manage` page, you can organize your library structure, delete older update files, and convert `nsp`/`xci` to `nsz`.
+
+## Library browser UI
+- Card view: the Base/Update/DLC status icons are displayed above the action buttons.
+- Icon view: the `Game info` button is shown as an overlay on the game tile.
+
+## Game info (TitleDB)
+The `Game info` modal uses TitleDB metadata (not Nintendo website scraping):
+- `description`: shown as the game summary.
+- `screenshots`: displayed in a grid; click a screenshot to open it larger.
+
+Ownfoil will download the TitleDB descriptions/screenshot dataset on demand to `./data/titledb/US.en.json` (Docker path: `/app/data/titledb/US.en.json`).
+
+Conversion details:
+- Uses the bundled `nsz` tool from the `./nsz` directory (with progress output).
+- Uses the same `keys.txt` uploaded in the `Settings` page.
+- Shows live status, per-file progress, and the current filename.
+- Filters out files smaller than 50 MB from the manual conversion dropdown.
+- The `Verbose` checkbox shows detailed task output; otherwise the task output stays clean.
+
+## Automatic update downloads (Prowlarr + Torrent Client)
+Ownfoil can automatically search for missing updates using Prowlarr, send matches to a torrent client (qBittorrent or Transmission), and ingest completed downloads back into the library. The UI is modeled after apps like Sonarr/Radarr with explicit connection tests.
+
+### Setup
+1. Open the `Settings` page and scroll to the **Downloads** section.
+2. Enable **Automatic downloads** and configure:
+   - **Search interval (minutes)**: how often Ownfoil will look for missing updates.
+   - **Minimum seeders**: skip low‑availability results.
+   - **Required terms / Blacklist terms**: fine‑tune search matches (comma separated).
+   - **Torrent category/tag**: used to tag downloads in the client (default `ownfoil`).
+3. Configure **Prowlarr**:
+   - **Prowlarr URL** (e.g. `http://localhost:9696`)
+   - **API Key**
+   - **Indexer IDs** (optional, comma separated). If set, Ownfoil will limit searches to these indexers.
+   - Use **Test Prowlarr** to validate connectivity and indexer IDs (missing IDs show as warnings).
+4. Configure **Torrent Client**:
+   - **Client**: qBittorrent or Transmission.
+   - **Client URL** and credentials.
+   - **Download path** (optional): if set, Ownfoil will warn if it doesn't exist or isn't writable.
+   - Use **Test torrent client** to validate connectivity.
+
+### Notes
+- Prowlarr is used for searching and ranking results; the torrent client handles the actual downloads.
+- Warnings do not block tests; they highlight misconfigurations (e.g. missing indexer IDs or invalid download paths).
+- The downloader runs on a schedule and respects the configured interval, skipping runs if the interval has not elapsed.
+- Completed downloads are detected by category/tag and trigger a library scan + refresh.
+
 ## Titles configuration
 In the `Settings` page under the `Titles` section is where you specify the language of your Shop (currently the same for all users).
 
@@ -99,34 +152,51 @@ This is where you can also upload your `console keys` file to enable content ide
 
 ## Shop customization
 In the `Settings` page under the `Shop` section is where you customize your Shop, like the message displayed when successfully accessing the shop from Tinfoil or if the shop is private or public.
+The `Encrypt shop` option only affects the Tinfoil payload; the web interface and admin UI remain accessible as normal.
+Encryption uses the Tinfoil public key and AES, and requires the `pycryptodome` dependency.
+
+# Deployment notes
+- Recommended volumes: `/games`, `/app/config`, and `/app/data`.
+- Map port `8465` from the container to any host port you prefer.
+- To bootstrap an admin account, set `USER_ADMIN_NAME` and `USER_ADMIN_PASSWORD` when starting the container.
+- Update the container with `docker pull luketanti/ownfoil:latest` and restart it.
+
+## Reverse proxy: real client IP (Activity page)
+If you run Ownfoil behind a reverse proxy (e.g. Nginx Proxy Manager), Ownfoil will only trust `X-Forwarded-For` when explicitly configured.
+
+In `config/settings.json`:
+```json
+{
+  "security": {
+    "trust_proxy_headers": true,
+    "trusted_proxies": ["172.16.0.0/12", "192.168.0.0/16"]
+  }
+}
+```
+
+Set `trusted_proxies` to your proxy IP(s) and/or your Docker network subnet so the Activity page shows the WAN/client IP instead of the proxy's LAN IP.
+
+## TitleDB sources and downloads
+- TitleDB artifacts are downloaded separately from the metadata dataset.
+- The descriptions/screenshot dataset (`US.en.json`) is downloaded to `/app/data/titledb/US.en.json` and is not part of the TitleDB artifacts zip.
+- The TitleDB artifacts zip may be very large (multi-GB) depending on the upstream workflow output.
 
 # Roadmap
 Planned feature, in no particular order.
  - Library browser:
-    - [ ] Add "details" view for every content, to display versions etc
+    - [x] Add "details" view for every content, to display versions etc
  - Library management:
-    - [ ] Rename and organize library after content identification
-    - [ ] Delete older updates
-    - [ ] Automatic nsp/xci -> nsz conversion
+    - [x] Rename and organize library after content identification
+    - [x] Delete older updates
+    - [x] Automatic nsp/xci -> nsz conversion
  - Shop customization:
-    - [ ] Encrypt shop
+    - [x] Encrypt shop
  - Support emulator Roms
     - [ ] Scrape box arts
     - [ ] Automatically create NSP forwarders
  - Saves manager:
-    - [ ] Automatically discover Swicth device based on Tinfoil connection
+    - [ ] Automatically discover Switch device based on Tinfoil connection
     - [ ] Only backup and serve saves based on the user/Switch
  - External services:
-    - [ ] Integrate torrent indexer Jackett to download updates automatically
-
-# Similar Projects
-If you want to create your personal NSP Shop then check out these other similar projects:
-- [eXhumer/pyTinGen](https://github.com/eXhumer/pyTinGen)
-- [JackInTheShop/FT-SCEP](https://github.com/JackInTheShop/FT-SCEP)
-- [gianemi2/tinson-node](https://github.com/gianemi2/tinson-node)
-- [BigBrainAFK/tinfoil_gdrive_generator](https://github.com/BigBrainAFK/tinfoil_gdrive_generator)
-- [ibnux/php-tinfoil-server](https://github.com/ibnux/php-tinfoil-server)
-- [ramdock/nut-server](https://github.com/ramdock/nut-server)
-- [Myster-Tee/TinfoilWebServer](https://github.com/Myster-Tee/TinfoilWebServer)
-- [DevYukine/rustfoil](https://github.com/DevYukine/rustfoil)
-- [Orygin/gofoil](https://github.com/Orygin/gofoil)
+    - [x] Prowlarr integration for automatic update downloads (via torrent client)
+    - [x] Automated update downloader pipeline (search -> download -> ingest)

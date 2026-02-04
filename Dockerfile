@@ -10,11 +10,15 @@ RUN apk update && apk add --no-cache bash sudo \
 RUN mkdir /app
 
 COPY ./app /app
+COPY ./nsz /nsz
 COPY ./docker/run.sh /app/run.sh
 
 COPY requirements.txt /tmp/
 
 RUN pip install --no-cache-dir --requirement /tmp/requirements.txt && rm /tmp/requirements.txt
+
+# Normalize CRLF to LF and ensure entrypoint is executable across platforms
+RUN sed -i 's/\r$//' /app/run.sh && chmod +x /app/run.sh
 
 RUN if [ "$TARGETPLATFORM" = "linux/arm/v6" ] || [ "$TARGETPLATFORM" = "linux/arm/v7" ]; then \
         apk del build-base gcc musl-dev jpeg-dev zlib-dev libffi-dev cairo-dev pango-dev gdk-pixbuf-dev; \

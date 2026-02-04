@@ -1,0 +1,560 @@
+{% extends 'base.html' %}
+
+{% block content %}
+{% include 'nav.html' %}
+
+<style>
+    .activity-scroll {
+        max-height: 260px;
+        overflow-y: auto;
+    }
+
+    th.sortable {
+        cursor: pointer;
+        user-select: none;
+    }
+</style>
+
+<div class="container-fluid mt-3">
+    <div class="d-flex align-items-center justify-content-between mb-2">
+        <div>
+            <h2 class="mb-0">Activity</h2>
+            <div class="text-muted small">Live transfers, connected clients, and access history</div>
+        </div>
+        <div class="d-flex gap-2">
+            <button type="button" class="btn btn-outline-secondary btn-sm" id="refreshNowBtn">
+                <i class="bi bi-arrow-clockwise"></i> Refresh
+            </button>
+        </div>
+    </div>
+
+    <div id="activityAlert" class="alert alert-danger d-none" role="alert"></div>
+
+    <div class="row g-3">
+        <div class="col-xl-6">
+            <div class="card">
+                <div class="card-body">
+                    <div class="d-flex align-items-center justify-content-between">
+                        <h5 class="card-title mb-0">Live transfers</h5>
+                        <span class="badge text-bg-secondary" id="liveTransfersCount">0</span>
+                    </div>
+                    <div class="table-responsive mt-3 activity-scroll">
+                        <table class="table table-sm table-striped align-middle mb-0">
+                            <thead>
+                                <tr>
+                                    <th scope="col">Started</th>
+                                    <th scope="col">User</th>
+                                    <th scope="col">Remote</th>
+                                    <th scope="col">Title</th>
+                                    <th scope="col">File</th>
+                                    <th scope="col">Sent</th>
+                                </tr>
+                            </thead>
+                            <tbody id="liveTransfersBody">
+                                <tr><td colspan="6" class="text-muted">Loading...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-xl-6">
+            <div class="card">
+                <div class="card-body">
+                    <div class="d-flex align-items-center justify-content-between">
+                        <h5 class="card-title mb-0">Connected clients</h5>
+                        <span class="badge text-bg-secondary" id="connectedClientsCount">0</span>
+                    </div>
+                    <div class="table-responsive mt-3 activity-scroll">
+                        <table class="table table-sm table-striped align-middle mb-0">
+                            <thead>
+                                <tr>
+                                    <th scope="col">Last seen</th>
+                                    <th scope="col">User</th>
+                                    <th scope="col">Remote</th>
+                                    <th scope="col">User-Agent</th>
+                                </tr>
+                            </thead>
+                            <tbody id="connectedClientsBody">
+                                <tr><td colspan="4" class="text-muted">Loading...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-12">
+            <div class="card">
+                <div class="card-body">
+                    <div class="d-flex align-items-center justify-content-between">
+                        <div>
+                            <h5 class="card-title mb-0">Access history</h5>
+                            <div class="text-muted small">Recent transfers and shop activity</div>
+                        </div>
+                        <div class="d-flex align-items-center gap-2">
+                            <button type="button" class="btn btn-outline-danger btn-sm" id="clearAccessHistoryBtn">
+                                <i class="bi bi-trash"></i> Clear log
+                            </button>
+                            <button type="button" class="btn btn-outline-secondary btn-sm" id="exportAccessHistoryBtn">
+                                <i class="bi bi-download"></i> Export CSV
+                            </button>
+                            <input
+                                id="accessSearch"
+                                class="form-control form-control-sm"
+                                style="width: 260px;"
+                                placeholder="Search (user, title, file, ip, kind)"
+                                autocomplete="off"
+                            />
+                            <label class="text-muted small" for="activityLimit">Rows</label>
+                            <select id="activityLimit" class="form-select form-select-sm" style="width: 90px;">
+                                <option value="50">50</option>
+                                <option value="100" selected>100</option>
+                                <option value="250">250</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="table-responsive mt-3">
+                        <table class="table table-sm table-striped align-middle mb-0">
+                            <thead>
+                                <tr>
+                                    <th scope="col" class="sortable" data-sort-key="at">When</th>
+                                    <th scope="col" class="sortable" data-sort-key="kind">Kind</th>
+                                    <th scope="col" class="sortable" data-sort-key="user">User</th>
+                                    <th scope="col" class="sortable" data-sort-key="remote_addr">Remote</th>
+                                    <th scope="col" class="sortable" data-sort-key="title_id">Title</th>
+                                    <th scope="col" class="sortable" data-sort-key="filename">File</th>
+                                    <th scope="col" class="sortable" data-sort-key="bytes_sent">Bytes</th>
+                                    <th scope="col" class="sortable" data-sort-key="ok">Status</th>
+                                </tr>
+                            </thead>
+                            <tbody id="accessHistoryBody">
+                                <tr><td colspan="8" class="text-muted">Loading...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-12">
+            <div class="card">
+                <div class="card-body">
+                    <div class="d-flex align-items-center justify-content-between">
+                        <div>
+                            <h5 class="card-title mb-0">Client history</h5>
+                            <div class="text-muted small">Persisted log of connected clients</div>
+                        </div>
+                        <div class="d-flex align-items-center gap-2">
+                            <button type="button" class="btn btn-outline-danger btn-sm" id="clearClientsHistoryBtn">
+                                <i class="bi bi-trash"></i> Clear log
+                            </button>
+                            <button type="button" class="btn btn-outline-secondary btn-sm" id="exportClientsHistoryBtn">
+                                <i class="bi bi-download"></i> Export CSV
+                            </button>
+                            <label class="text-muted small" for="clientsHistoryLimit">Rows</label>
+                            <select id="clientsHistoryLimit" class="form-select form-select-sm" style="width: 90px;">
+                                <option value="100">100</option>
+                                <option value="250" selected>250</option>
+                                <option value="500">500</option>
+                                <option value="2000">2000</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="table-responsive mt-3 activity-scroll">
+                        <table class="table table-sm table-striped align-middle mb-0">
+                            <thead>
+                                <tr>
+                                    <th scope="col">When</th>
+                                    <th scope="col">User</th>
+                                    <th scope="col">Remote</th>
+                                    <th scope="col">User-Agent</th>
+                                </tr>
+                            </thead>
+                            <tbody id="clientsHistoryBody">
+                                <tr><td colspan="4" class="text-muted">Loading...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    function formatTime(tsSeconds) {
+        if (!tsSeconds) {
+            return '-';
+        }
+        try {
+            const d = new Date(tsSeconds * 1000);
+            return d.toLocaleString();
+        } catch (e) {
+            return '-';
+        }
+    }
+
+    function formatBytes(bytes) {
+        if (bytes === null || bytes === undefined) {
+            return '-';
+        }
+        const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+        let size = Number(bytes);
+        if (!Number.isFinite(size)) {
+            return '-';
+        }
+        let unitIndex = 0;
+        while (size >= 1024 && unitIndex < units.length - 1) {
+            size /= 1024;
+            unitIndex += 1;
+        }
+        return `${size.toFixed(size >= 10 ? 0 : 1)} ${units[unitIndex]}`;
+    }
+
+    function escapeHtml(s) {
+        return String(s ?? '')
+            .replaceAll('&', '&amp;')
+            .replaceAll('<', '&lt;')
+            .replaceAll('>', '&gt;')
+            .replaceAll('"', '&quot;')
+            .replaceAll("'", '&#39;');
+    }
+
+    function showError(message) {
+        const el = $('#activityAlert');
+        el.text(message || 'Failed to load activity.').removeClass('d-none');
+    }
+
+    function hideError() {
+        $('#activityAlert').addClass('d-none').text('');
+    }
+
+    function renderLiveTransfers(items) {
+        const body = $('#liveTransfersBody');
+        const list = Array.isArray(items) ? items : [];
+        $('#liveTransfersCount').text(list.length);
+
+        if (!list.length) {
+            body.html('<tr><td colspan="6" class="text-muted">No active transfers.</td></tr>');
+            return;
+        }
+
+        body.empty();
+        list.forEach(item => {
+            const row = $(
+                `<tr>
+                    <td>${escapeHtml(formatTime(item.started_at))}</td>
+                    <td>${escapeHtml(item.user || '-')}</td>
+                    <td>${escapeHtml(item.remote_addr || '-')}</td>
+                    <td>${escapeHtml(item.title_id || '-')}${item.title_name ? ` <span class="text-muted">(${escapeHtml(item.title_name)})</span>` : ''}</td>
+                    <td class="text-truncate" style="max-width: 280px;">${escapeHtml(item.filename || '-') }</td>
+                    <td>${escapeHtml(formatBytes(item.bytes_sent))}</td>
+                </tr>`
+            );
+            body.append(row);
+        });
+    }
+
+    let accessHistoryAll = [];
+    let accessHistoryRendered = [];
+    let accessHistorySortKey = 'at';
+    let accessHistorySortDir = 'desc';
+    let accessHistoryQuery = '';
+
+    function formatIsoTime(tsSeconds) {
+        if (!tsSeconds) {
+            return '';
+        }
+        try {
+            return new Date(tsSeconds * 1000).toISOString();
+        } catch (e) {
+            return '';
+        }
+    }
+
+    function getSortValue(item, key) {
+        if (!item) {
+            return '';
+        }
+        if (key === 'ok') {
+            return item.ok === true ? 2 : (item.ok === false ? 1 : 0);
+        }
+        const value = item[key];
+        if (value === null || value === undefined) {
+            return '';
+        }
+        return value;
+    }
+
+    function applyAccessHistoryView() {
+        const q = (accessHistoryQuery || '').trim().toLowerCase();
+        let list = Array.isArray(accessHistoryAll) ? accessHistoryAll.slice() : [];
+
+        if (q) {
+            list = list.filter(item => {
+                const hay = [
+                    item.at,
+                    item.kind,
+                    item.user,
+                    item.remote_addr,
+                    item.title_id,
+                    item.title_name,
+                    item.filename,
+                    item.bytes_sent,
+                    item.status_code,
+                ].map(v => String(v ?? '')).join(' ').toLowerCase();
+                return hay.includes(q);
+            });
+        }
+
+        const dir = accessHistorySortDir === 'asc' ? 1 : -1;
+        const key = accessHistorySortKey;
+        list.sort((a, b) => {
+            const av = getSortValue(a, key);
+            const bv = getSortValue(b, key);
+            if (typeof av === 'number' && typeof bv === 'number') {
+                return dir * (av - bv);
+            }
+            if (key === 'at' || key === 'bytes_sent') {
+                const an = Number(av) || 0;
+                const bn = Number(bv) || 0;
+                return dir * (an - bn);
+            }
+            return dir * String(av).localeCompare(String(bv));
+        });
+
+        accessHistoryRendered = list;
+        renderAccessHistory(list);
+    }
+
+    function exportAccessHistoryCsv() {
+        const list = Array.isArray(accessHistoryRendered) ? accessHistoryRendered : [];
+        const rows = [];
+        rows.push(['at', 'kind', 'user', 'remote_addr', 'title_id', 'title_name', 'filename', 'bytes_sent', 'ok', 'status_code', 'duration_ms']);
+        list.forEach(item => {
+            rows.push([
+                formatIsoTime(item.at),
+                item.kind ?? '',
+                item.user ?? '',
+                item.remote_addr ?? '',
+                item.title_id ?? '',
+                item.title_name ?? '',
+                item.filename ?? '',
+                item.bytes_sent ?? '',
+                item.ok ?? '',
+                item.status_code ?? '',
+                item.duration_ms ?? '',
+            ]);
+        });
+
+        function csvEscape(value) {
+            const s = String(value ?? '');
+            if (/[\r\n\",]/.test(s)) {
+                return '"' + s.replaceAll('"', '""') + '"';
+            }
+            return s;
+        }
+
+        const csv = rows.map(r => r.map(csvEscape).join(',')).join('\n') + '\n';
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'access_history.csv';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }
+
+    function renderConnectedClients(items) {
+        const body = $('#connectedClientsBody');
+        const list = Array.isArray(items) ? items : [];
+        $('#connectedClientsCount').text(list.length);
+
+        if (!list.length) {
+            body.html('<tr><td colspan="4" class="text-muted">No recent clients.</td></tr>');
+            return;
+        }
+
+        body.empty();
+        list.forEach(item => {
+            const row = $(
+                `<tr>
+                    <td>${escapeHtml(formatTime(item.last_seen_at))}</td>
+                    <td>${escapeHtml(item.user || '-')}</td>
+                    <td>${escapeHtml(item.remote_addr || '-')}</td>
+                    <td class="text-truncate" style="max-width: 520px;">${escapeHtml(item.user_agent || '-')}</td>
+                </tr>`
+            );
+            body.append(row);
+        });
+    }
+
+    function renderAccessHistory(items) {
+        const body = $('#accessHistoryBody');
+        const list = Array.isArray(items) ? items : [];
+        if (!list.length) {
+            body.html('<tr><td colspan="8" class="text-muted">No history yet.</td></tr>');
+            return;
+        }
+        body.empty();
+        list.forEach(item => {
+            const statusBadge = item.ok === true
+                ? '<span class="badge text-bg-success">OK</span>'
+                : (item.ok === false ? '<span class="badge text-bg-danger">Fail</span>' : '<span class="badge text-bg-secondary">-</span>');
+
+            const bytesLabel = item.kind === 'transfer'
+                ? formatBytes(item.bytes_sent)
+                : '-';
+            const row = $(
+                `<tr>
+                    <td>${escapeHtml(formatTime(item.at))}</td>
+                    <td>${escapeHtml(item.kind || '-')}</td>
+                    <td>${escapeHtml(item.user || '-')}</td>
+                    <td>${escapeHtml(item.remote_addr || '-')}</td>
+                    <td>${escapeHtml(item.title_id || '-')}${item.title_name ? ` <span class="text-muted">(${escapeHtml(item.title_name)})</span>` : ''}</td>
+                    <td class="text-truncate" style="max-width: 420px;">${escapeHtml(item.filename || '-') }</td>
+                    <td>${escapeHtml(bytesLabel)}</td>
+                    <td>${statusBadge}</td>
+                </tr>`
+            );
+            body.append(row);
+        });
+    }
+
+    function renderClientsHistory(items) {
+        const body = $('#clientsHistoryBody');
+        const list = Array.isArray(items) ? items : [];
+        if (!list.length) {
+            body.html('<tr><td colspan="4" class="text-muted">No client history yet.</td></tr>');
+            return;
+        }
+
+        body.empty();
+        list.forEach(item => {
+            const row = $(
+                `<tr>
+                    <td>${escapeHtml(formatTime(item.at))}</td>
+                    <td>${escapeHtml(item.user || '-')}</td>
+                    <td>${escapeHtml(item.remote_addr || '-')}</td>
+                    <td class="text-truncate" style="max-width: 520px;">${escapeHtml(item.user_agent || '-')}</td>
+                </tr>`
+            );
+            body.append(row);
+        });
+    }
+
+    function loadClientsHistory() {
+        const limit = parseInt($('#clientsHistoryLimit').val() || '250');
+        $.getJSON(`/api/admin/clients-history?limit=${encodeURIComponent(limit)}`, function (result) {
+            if (!result || result.success !== true) {
+                renderClientsHistory([]);
+                return;
+            }
+            renderClientsHistory(result.history);
+        }).fail(function () {
+            renderClientsHistory([]);
+        });
+    }
+
+    function loadActivity() {
+        hideError();
+        const limit = parseInt($('#activityLimit').val() || '100');
+        $.getJSON(`/api/admin/activity?limit=${encodeURIComponent(limit)}`, function (result) {
+            if (!result || result.success !== true) {
+                showError(result?.message || 'Failed to load activity.');
+                return;
+            }
+            if (result.access_history_error) {
+                showError(`Access history unavailable: ${result.access_history_error}`);
+            }
+            renderLiveTransfers(result.live_transfers);
+            renderConnectedClients(result.connected_clients);
+            accessHistoryAll = Array.isArray(result.access_history) ? result.access_history : [];
+            applyAccessHistoryView();
+        }).fail(function () {
+            showError('Failed to load activity.');
+        });
+    }
+
+    $(document).ready(function () {
+        $('#refreshNowBtn').on('click', function () {
+            loadActivity();
+            loadClientsHistory();
+        });
+        $('#activityLimit').on('change', loadActivity);
+        $('#clientsHistoryLimit').on('change', loadClientsHistory);
+
+        $('#clearClientsHistoryBtn').on('click', function () {
+            if (!confirm('Clear the persisted client history log?')) {
+                return;
+            }
+            $('#clearClientsHistoryBtn').prop('disabled', true);
+            $.ajax({
+                url: '/api/admin/clients-history/clear',
+                type: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify({}),
+                complete: function () {
+                    $('#clearClientsHistoryBtn').prop('disabled', false);
+                    loadClientsHistory();
+                }
+            });
+        });
+
+        $('#exportClientsHistoryBtn').on('click', function () {
+            const limit = parseInt($('#clientsHistoryLimit').val() || '250');
+            window.location.href = `/api/admin/clients-history.csv?limit=${encodeURIComponent(limit)}`;
+        });
+
+        $('#accessSearch').on('input', function () {
+            accessHistoryQuery = String($(this).val() ?? '');
+            applyAccessHistoryView();
+        });
+
+        $('#exportAccessHistoryBtn').on('click', function () {
+            exportAccessHistoryCsv();
+        });
+
+        $('#clearAccessHistoryBtn').on('click', function () {
+            if (!confirm('Clear the persisted access history log?')) {
+                return;
+            }
+            $('#clearAccessHistoryBtn').prop('disabled', true);
+            $.ajax({
+                url: '/api/admin/access-history/clear',
+                type: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify({ include_clients: false }),
+                complete: function () {
+                    $('#clearAccessHistoryBtn').prop('disabled', false);
+                    loadActivity();
+                }
+            });
+        });
+
+        $('th.sortable').on('click', function () {
+            const key = $(this).data('sort-key');
+            if (!key) {
+                return;
+            }
+            if (accessHistorySortKey === key) {
+                accessHistorySortDir = accessHistorySortDir === 'asc' ? 'desc' : 'asc';
+            } else {
+                accessHistorySortKey = key;
+                accessHistorySortDir = key === 'at' ? 'desc' : 'asc';
+            }
+            applyAccessHistoryView();
+        });
+
+        loadActivity();
+        loadClientsHistory();
+        setInterval(loadActivity, 2500);
+        setInterval(loadClientsHistory, 15000);
+    });
+</script>
+
+{% endblock %}

@@ -1,6 +1,7 @@
 from constants import *
 import yaml
 import os, sys
+import time
 
 from nstools.nut import Keys
 
@@ -8,6 +9,11 @@ import logging
 
 # Retrieve main logger
 logger = logging.getLogger('main')
+
+# Cache for settings
+_settings_cache = None
+_settings_cache_time = 0
+_settings_cache_ttl = 5  # Cache for 5 seconds
 
 def load_keys(key_file=KEYS_FILE):
     valid = False
@@ -22,11 +28,43 @@ def load_keys(key_file=KEYS_FILE):
         logger.error(f'Provided keys file {key_file} is invalid.')
     return valid
 
-def load_settings():
+def load_settings(force_reload=False):
+    global _settings_cache, _settings_cache_time
+    
+    current_time = time.time()
+    
+    # Return cached settings if still valid and not forcing reload
+    if not force_reload and _settings_cache is not None and (current_time - _settings_cache_time) < _settings_cache_ttl:
+        return _settings_cache
+    
     if os.path.exists(CONFIG_FILE):
         logger.debug('Reading configuration file.')
         with open(CONFIG_FILE, 'r') as yaml_file:
             settings = yaml.safe_load(yaml_file)
+
+        if 'security' not in settings:
+            settings['security'] = DEFAULT_SETTINGS.get('security', {})
+        else:
+            defaults = DEFAULT_SETTINGS.get('security', {})
+            merged = defaults.copy()
+            merged.update(settings.get('security', {}))
+            settings['security'] = merged
+
+        if 'downloads' not in settings:
+            settings['downloads'] = DEFAULT_SETTINGS.get('downloads', {})
+        else:
+            defaults = DEFAULT_SETTINGS.get('downloads', {})
+            merged = defaults.copy()
+            merged.update(settings.get('downloads', {}))
+            settings['downloads'] = merged
+
+        if 'library' not in settings:
+            settings['library'] = DEFAULT_SETTINGS.get('library', {})
+        else:
+            defaults = DEFAULT_SETTINGS.get('library', {})
+            merged = defaults.copy()
+            merged.update(settings.get('library', {}))
+            settings['library'] = merged
 
         valid_keys = load_keys()
         settings['titles']['valid_keys'] = valid_keys
@@ -35,7 +73,23 @@ def load_settings():
         settings = DEFAULT_SETTINGS
         with open(CONFIG_FILE, 'w') as yaml_file:
             yaml.dump(settings, yaml_file)
+    
+    # Update cache
+    _settings_cache = settings
+    _settings_cache_time = current_time
+    
     return settings
+
+
+def set_security_settings(data):
+    settings = load_settings(force_reload=True)
+    settings.setdefault('security', {})
+    settings['security'].update(data or {})
+    with open(CONFIG_FILE, 'w') as yaml_file:
+        yaml.dump(settings, yaml_file)
+    # Invalidate cache
+    global _settings_cache
+    _settings_cache = None
 
 def verify_settings(section, data):
     success = True
@@ -63,7 +117,7 @@ def add_library_path_to_settings(path):
         })
         return success, errors
 
-    settings = load_settings()
+    settings = load_settings(force_reload=True)
     library_paths = settings['library']['paths']
     if library_paths:
         if path in library_paths:
@@ -79,12 +133,15 @@ def add_library_path_to_settings(path):
     settings['library']['paths'] = library_paths
     with open(CONFIG_FILE, 'w') as yaml_file:
         yaml.dump(settings, yaml_file)
+    # Invalidate cache
+    global _settings_cache
+    _settings_cache = None
     return success, errors
 
 def delete_library_path_from_settings(path):
     success = True
     errors = []
-    settings = load_settings()
+    settings = load_settings(force_reload=True)
     library_paths = settings['library']['paths']
     if library_paths:
         if path in library_paths:
@@ -92,6 +149,9 @@ def delete_library_path_from_settings(path):
             settings['library']['paths'] = library_paths
             with open(CONFIG_FILE, 'w') as yaml_file:
                 yaml.dump(settings, yaml_file)
+            # Invalidate cache
+            global _settings_cache
+            _settings_cache = None
         else:
             success = False
             errors.append({
@@ -101,17 +161,42 @@ def delete_library_path_from_settings(path):
     return success, errors
 
 def set_titles_settings(region, language):
-    settings = load_settings()
+    settings = load_settings(force_reload=True)
     settings['titles']['region'] = region
     settings['titles']['language'] = language
     with open(CONFIG_FILE, 'w') as yaml_file:
         yaml.dump(settings, yaml_file)
+    # Invalidate cache
+    global _settings_cache
+    _settings_cache = None
 
 def set_shop_settings(data):
-    settings = load_settings()
+    settings = load_settings(force_reload=True)
     shop_host = data['host']
     if '://' in shop_host:
         data['host'] = shop_host.split('://')[-1]
     settings['shop'].update(data)
     with open(CONFIG_FILE, 'w') as yaml_file:
         yaml.dump(settings, yaml_file)
+    # Invalidate cache
+    global _settings_cache
+    _settings_cache = None
+
+def set_download_settings(data):
+    settings = load_settings(force_reload=True)
+    settings.setdefault('downloads', {})
+    settings['downloads'].update(data)
+    with open(CONFIG_FILE, 'w') as yaml_file:
+        yaml.dump(settings, yaml_file)
+    # Invalidate cache
+    global _settings_cache
+    _settings_cache = None
+
+def set_library_settings(data):
+    settings = load_settings(force_reload=True)
+    settings.setdefault('library', {})
+    settings['library'].update(data)
+    with open(CONFIG_FILE, 'w') as yaml_file:
+        yaml.dump(settings, yaml_file)
+    global _settings_cache
+    _settings_cache = None

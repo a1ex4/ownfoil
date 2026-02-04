@@ -11,6 +11,12 @@ data
 /pyvenv.cfg
 /share
 /Scripts
+/app/roms
+/ProdKeys
 
 # pyenv
 .python-version
+
+# Local docker compose overrides
+docker-compose.dev.local.yml
+docker-compose.local.yml

@@ -2,10 +2,57 @@
 {% block content %}
 {% include 'nav.html' %}
 
-<div class="container-fluid setting-body">
-    <div class="row">
-        <div class="col">
-            <div class="settings-container container mt-3">
+<div class="setting-body">
+    <div class="row g-0">
+        <!-- Sidebar Navigation -->
+        <div class="col-md-3 col-lg-2 border-end" id="settingsSidebar">
+            <div class="d-flex align-items-center justify-content-between p-3 border-bottom">
+                <h5 class="mb-0">Settings</h5>
+                <button class="btn btn-sm d-md-none" type="button" id="sidebarToggle" aria-label="Toggle sidebar">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" viewBox="0 0 16 16">
+                        <path fill-rule="evenodd" d="M2.5 12a.5.5 0 0 1 .5-.5h10a.5.5 0 0 1 0 1H3a.5.5 0 0 1-.5-.5zm0-4a.5.5 0 0 1 .5-.5h10a.5.5 0 0 1 0 1H3a.5.5 0 0 1-.5-.5zm0-4a.5.5 0 0 1 .5-.5h10a.5.5 0 0 1 0 1H3a.5.5 0 0 1-.5-.5z"/>
+                    </svg>
+                </button>
+            </div>
+            <nav class="nav flex-column p-2" id="settingsNav">
+                <a class="nav-link active" href="#" data-section="library">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16" style="vertical-align: -0.125em; margin-right: 0.5rem;">
+                        <path d="M1 2.828c.885-.37 2.154-.769 3.388-.893 1.33-.134 2.458.063 3.112.752v9.746c-.935-.53-2.12-.603-3.213-.493-1.18.12-2.37.461-3.287.811V2.828zm7.5-.141c.654-.689 1.782-.886 3.112-.752 1.234.124 2.503.523 3.388.893v9.923c-.918-.35-2.107-.692-3.287-.81-1.094-.111-2.278-.039-3.213.492V2.687zM8 1.783C7.015.936 5.587.81 4.287.94c-1.514.153-3.042.672-3.994 1.105A.5.5 0 0 0 0 2.5v11a.5.5 0 0 0 .707.455c.882-.4 2.303-.881 3.68-1.02 1.409-.142 2.59.087 3.223.877a.5.5 0 0 0 .78 0c.633-.79 1.814-1.019 3.222-.877 1.378.139 2.8.62 3.681 1.02A.5.5 0 0 0 16 13.5v-11a.5.5 0 0 0-.293-.455c-.952-.433-2.48-.952-3.994-1.105C10.413.81 8.985.936 8 1.783z"/>
+                    </svg>
+                    Library
+                </a>
+                <a class="nav-link" href="#" data-section="shop">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16" style="vertical-align: -0.125em; margin-right: 0.5rem;">
+                        <path d="M8 1a2.5 2.5 0 0 1 2.5 2.5V4h-5v-.5A2.5 2.5 0 0 1 8 1zm3.5 3v-.5a3.5 3.5 0 1 0-7 0V4H1v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V4h-3.5zM2 5h12v9a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V5z"/>
+                    </svg>
+                    Shop
+                </a>
+                <a class="nav-link" href="#" data-section="downloads">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16" style="vertical-align: -0.125em; margin-right: 0.5rem;">
+                        <path d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5z"/>
+                        <path d="M7.646 11.854a.5.5 0 0 0 .708 0l3-3a.5.5 0 0 0-.708-.708L8.5 10.293V1.5a.5.5 0 0 0-1 0v8.793L5.354 8.146a.5.5 0 1 0-.708.708l3 3z"/>
+                    </svg>
+                    Downloads
+                </a>
+            </nav>
+        </div>
+        
+        <!-- Main Content Area -->
+        <div class="col-md-9 col-lg-10">
+            <!-- Mobile menu button -->
+            <div class="d-md-none p-3 border-bottom">
+                <button class="btn btn-outline-secondary" type="button" id="sidebarToggleMobile" aria-label="Toggle sidebar">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" viewBox="0 0 16 16" style="vertical-align: -0.125em; margin-right: 0.5rem;">
+                        <path fill-rule="evenodd" d="M2.5 12a.5.5 0 0 1 .5-.5h10a.5.5 0 0 1 0 1H3a.5.5 0 0 1-.5-.5zm0-4a.5.5 0 0 1 .5-.5h10a.5.5 0 0 1 0 1H3a.5.5 0 0 1-.5-.5zm0-4a.5.5 0 0 1 .5-.5h10a.5.5 0 0 1 0 1H3a.5.5 0 0 1-.5-.5z"/>
+                    </svg>
+                    Menu
+                </button>
+            </div>
+            <div class="settings-container container-fluid mt-3">
+
+                <div class="d-flex justify-content-end">
+                    <div class="text-muted small">Version {{ app_version }}</div>
+                </div>
 
                 <!-- <h1>Settings</h1> -->
 
@@ -16,8 +63,7 @@
                         created, <strong>authentication is disabled, anyone can access and change the configuration of
                             your shop!</strong>
                         <br>
-                        Add an admin account <a href="/settings#Authentication" class="alert-link">here under
-                            Authentication</a>.
+                        Add an admin account <a href="/users" class="alert-link">on the Users page</a>.
                     </p>
                 </div>
                 {% endif %}
@@ -56,89 +102,82 @@
                     <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
                 </div>
 
-                <h2 id="Authentication" class="pb-3">Authentication</h2>
+                <!-- Alerts (shown on all sections) -->
+                {% if admin_account_created == false %}
+                <div class="alert alert-danger" role="alert">
+                    <h4 class="alert-heading">Missing admin account!</h4>
+                    <p>Ownfoil requires an admin account to enable authentication. Until an account with admin rights is
+                        created, <strong>authentication is disabled, anyone can access and change the configuration of
+                            your shop!</strong>
+                        <br>
+                        Add an admin account <a href="/users" class="alert-link">on the Users page</a>.
+                    </p>
+                </div>
+                {% endif %}
 
-                <table class="table table-hover caption-top" id="userTable">
-                    <caption>List of users:</caption>
-                    <thead>
-                        <tr>
-                            <th scope="col">User</th>
-                            <th scope="col">Permissions</th>
-                            <th scope="col">Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                    </tbody>
-                </table>
+                {% if valid_keys == false %}
+                <div id="missingKeysAlert" class="alert alert-warning alert-dismissible fade show" role="alert">
+                    <h4 class="alert-heading">Missing console keys!</h4>
+                    Console keys are required to decrypt any Nintendo content, including
+                    backups. Ownfoil uses this to identify files, regardless of the filename.</br>
+                    <strong>Titles will be missed or misidentified if you don't fill in your keys!</strong>
+                    See <a target="_blank" href="https://gitlab.com/easyhacking/switch/-/wikis/home/getting-started/dump-keys" class="alert-link">this guide</a> on
+                    how to extract the
+                    keys from your console, and upload them <a href="/settings#consoleKeysInput" class="alert-link">here
+                        in Ownfoil.</a>
+                    <hr>
+                    If keys are missing, all files <strong>must follow the format "Title Name
+                        [TITLEID][vVERSION]"</strong>, else the file won't be recognized.
+                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                </div>
+                {% endif %}
 
-                <p class="d-inline-flex gap-1">
-                    <button class="btn btn-primary" type="button" data-bs-toggle="collapse"
-                        data-bs-target="#collapseNewUser" aria-expanded="false" aria-controls="collapseNewUser">
-                        Add new user
-                    </button>
-                </p>
-                <div class="collapse" id="collapseNewUser">
-                    <div class="card card-body">
-                        <label class="form-label">Add a new user:</label>
-                        <form class="row g-3">
-                            <div class="col-auto">
-                                <label for="inputNewUser" class="visually-hidden">Email</label>
-                                <input type="text" class="form-control" id="inputNewUser" placeholder="Username">
-                            </div>
-                            <div class="col-auto">
-                                <label for="inputNewUserPassword" class="visually-hidden">Password</label>
-                                <input type="password" class="form-control" id="inputNewUserPassword"
-                                    placeholder="Password">
-                            </div>
-                            <div class="col-auto p-2">
-                                <div class="form-check form-check-inline">
-                                    <input class="form-check-input" type="checkbox" id="checkboxNewUserShopAccess"
-                                        checked>
-                                    <label class="form-check-label" for="checkboxNewUserShopAccess">Shop Access</label>
-                                </div>
-                                <div class="form-check form-check-inline">
-                                    <input class="form-check-input" type="checkbox" id="checkboxNewUserBackupAccess">
-                                    <label class="form-check-label" for="checkboxNewUserBackupAccess">Backup
-                                        Access</label>
-                                </div>
-                                <div class="form-check form-check-inline">
-                                    <input class="form-check-input" type="checkbox" id="checkboxNewUserAdminAccess">
-                                    <label class="form-check-label" for="checkboxNewUserAdminAccess">Admin
-                                        Access</label>
-                                </div>
-                            </div>
-                            <div class="col-auto">
-                                <button type="button" class="btn btn-primary mb-3"
-                                    onClick='submitNewUser()'>Submit</button>
-                            </div>
-                        </form>
-                    </div>
+                <div id="missingShopHostAlert" class="alert alert-warning alert-dismissible fade show" role="alert" style="display: none;">
+                    <h4 class="alert-heading">Missing shop Host!</h4>
+                    Host verification from outside the local network is disabled if the shop <code>Host</code> is
+                    missing, configure it <a href="/settings#shopHostInput" class="alert-link">here
+                        in Ownfoil</a> to prevent someone else stealing from your shop.
+                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
                 </div>
 
-                <!-- Delete User Modal -->
-                <div class="modal fade" id="deleteUserModal" tabindex="-1" aria-labelledby="deleteUserModalLabel"
-                    aria-hidden="true">
-                    <div class="modal-dialog modal-dialog-centered">
-                        <div class="modal-content">
-                            <div class="modal-header">
-                                <h1 class="modal-title fs-5" id="deleteUserModalLabel">Delete user</h1>
-                                <button type="button" class="btn-close" data-bs-dismiss="modal"
-                                    aria-label="Close"></button>
-                            </div>
-                            <div class="modal-body">
-                                ...
-                            </div>
-                            <div class="modal-footer">
-                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                                <button type="button" class="btn btn-danger" data-bs-dismiss="modal">Delete</button>
-                            </div>
+                <div id="missingShopHauthAlert" class="alert alert-warning alert-dismissible fade show" role="alert" style="display: none;">
+                    <h4 class="alert-heading">Missing shop Hauth!</h4>
+                    <a href="https://blawar.github.io/tinfoil/network/#host-signature" class="alert-link"
+                        target="_blank">Host signature</a> verification from outside the local network is disabled if
+                    the shop <code>Hauth</code> is missing. Connect to the shop from Tinfoil with an admin account to
+                    set it.
+                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                </div>
+
+                <!-- Library Section -->
+                <div class="settings-section" id="section-library" data-section="library">
+                <h2 class="pb-3">Library</h2>
+
+                <div class="form-check form-switch mb-3">
+                    <input class="form-check-input" type="checkbox" id="libraryAutoMaintenanceCheck" onChange="submitLibrarySettings()">
+                    <label class="form-check-label" for="libraryAutoMaintenanceCheck">Auto-maintain library</label>
+                    <div class="form-text">Runs library organization and removes empty folders on a schedule.</div>
+                </div>
+
+                <div class="row g-3 mb-3">
+                    <div class="col-md-4">
+                        <label for="libraryMaintenanceIntervalInput" class="form-label">Maintenance interval (minutes)</label>
+                        <input type="number" min="30" class="form-control" id="libraryMaintenanceIntervalInput" onChange="submitLibrarySettings()">
+                        <div class="form-text">Minimum 30 minutes. Values below 30 are clamped.</div>
+                    </div>
+                    <div class="col-md-5 d-flex align-items-end">
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="libraryMaintenanceDeleteUpdatesCheck" onChange="submitLibrarySettings()">
+                            <label class="form-check-label" for="libraryMaintenanceDeleteUpdatesCheck">Delete older updates during maintenance</label>
+                        </div>
+                    </div>
+                    <div class="col-md-3 d-flex align-items-end">
+                        <div>
+                            <div class="form-text">Last maintenance run</div>
+                            <div id="libraryMaintenanceLastRun" class="small text-muted">Never</div>
                         </div>
                     </div>
                 </div>
-
-                <hr>
-
-                <h2 class="pb-3">Library</h2>
 
                 <label class="form-label">Library paths:</label>
                 <div id="libraryPathHelp" class="form-text">Path of directory containing your games.</div>
@@ -204,9 +243,10 @@
                     </div>
                 </div>
 
-                <hr>
-                <h2 class="pb-3">Titles</h2>
-                <p>Titles identification configuration.</p>
+                <hr class="my-4">
+
+                <h3 class="pb-3">Title Identification</h3>
+                <p class="text-muted">Titles identification configuration.</p>
                 <div class="row mb-3">
                     <div class="col">
                         <label for="selectRegion" class="form-label">Library Region:</label>
@@ -242,9 +282,20 @@
                     <button type="button" id="submitTitlesSettingsBtn" class="btn btn-primary"
                         onClick='submitTitlesSettings()'>Submit</button>
                 </div>
+                <div class="mb-3 d-flex align-items-center gap-3">
+                    <button type="button" id="refreshMediaCacheBtn" class="btn btn-outline-secondary"
+                        onClick='refreshMediaCache()'>Refresh icons and banners</button>
+                    <button type="button" id="prefetchIconsBtn" class="btn btn-outline-secondary"
+                        onClick='prefetchAllIcons()'>Prefetch all icons</button>
+                    <button type="button" id="prefetchBannersBtn" class="btn btn-outline-secondary"
+                        onClick='prefetchAllBanners()'>Prefetch all banners</button>
+                    <span id="refreshMediaCacheStatus" class="text-muted small"></span>
+                </div>
                 </form>
-                <hr>
+                </div>
 
+                <!-- Shop Section -->
+                <div class="settings-section d-none" id="section-shop" data-section="shop">
                 <h2 class="pb-3">Shop</h2>
                 <!-- Shop URL -->
                 <div class="mb-3">
@@ -257,6 +308,12 @@
                         connections (or upgrades them to use SSL) and correctly sets the <code>X-Forwarded-Proto</code>
                         header.
                     </div>
+                </div>
+                <div class="mb-3">
+                    <label for="shopHauthInput" class="form-label">Shop Hauth:</label>
+                    <input class="form-control" id="shopHauthInput" aria-describedby="shopHauthHelp"
+                        placeholder="Hauth value">
+                    <div id="shopHauthHelp" class="form-text">Override the host signature (Hauth) used for Tinfoil verification.</div>
                 </div>
                 <div class="mb-3 form-check">
                     <input type="checkbox" class="form-check-input" id="publicShopCheck"
@@ -275,6 +332,33 @@
                 </div>
 
                 <div class="mb-3">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <label for="shopPublicKeyInput" class="form-label mb-0">Public Key:</label>
+                        <div class="btn-group" role="group">
+                            <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="collapse" data-bs-target="#shopPublicKeyCollapse" aria-expanded="false" aria-controls="shopPublicKeyCollapse">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16" style="vertical-align: -0.125em;">
+                                    <path fill-rule="evenodd" d="M1.646 4.646a.5.5 0 0 1 .708 0L8 10.293l5.646-5.647a.5.5 0 0 1 .708.708l-6 6a.5.5 0 0 1-.708 0l-6-6a.5.5 0 0 1 0-.708z"/>
+                                </svg>
+                                Show
+                            </button>
+                            <button type="button" class="btn btn-sm btn-outline-secondary" id="copyPublicKeyBtn" onclick="copyPublicKey()">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16" style="vertical-align: -0.125em;">
+                                    <path d="M4 1.5H3a2 2 0 0 0-2 2V14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V3.5a2 2 0 0 0-2-2h-1v1h1a1 1 0 0 1 1 1V14a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1h1v-1z"/>
+                                    <path d="M9.5 1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-3a.5.5 0 0 1-.5-.5v-1a.5.5 0 0 1 .5-.5h3zm-3-1A1.5 1.5 0 0 0 5 1.5v1A1.5 1.5 0 0 0 6.5 4h3A1.5 1.5 0 0 0 11 2.5v-1A1.5 1.5 0 0 0 9.5 0h-3z"/>
+                                </svg>
+                                Copy
+                            </button>
+                        </div>
+                    </div>
+                    <div class="collapse" id="shopPublicKeyCollapse">
+                        <textarea class="form-control font-monospace" id="shopPublicKeyInput" rows="7"
+                            aria-describedby="shopPublicKeyHelp" placeholder="-----BEGIN PUBLIC KEY-----"></textarea>
+                    </div>
+                    <div id="shopPublicKeyHelp" class="form-text">Public key used to encrypt the shop payload for Tinfoil clients.
+                        Changing this will break encrypted shop access unless clients have the matching private key.</div>
+                </div>
+
+                <div class="mb-3">
                     <label for="motdTextArea" class="form-label">Message of the day:</label>
                     <textarea class="form-control" id="motdTextArea" rows="3"></textarea>
                     <div id="motdTextAreaHelp" class="form-text">Message presented when opening Tinfoil after
@@ -284,6 +368,138 @@
                 <div class="mb-3">
                     <button type="button" id="submitShopSettingsBtn" class="btn btn-primary"
                         onClick='submitShopSettings()'>Submit</button>
+                </div>
+                </div>
+
+                <!-- Downloads Section -->
+                <div class="settings-section d-none" id="section-downloads" data-section="downloads">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h2 class="mb-0">Downloads</h2>
+                    <div class="form-check">
+                        <input type="checkbox" class="form-check-input" id="downloadsEnabledCheck">
+                        <label class="form-check-label" for="downloadsEnabledCheck">Enable automatic downloads</label>
+                    </div>
+                </div>
+
+                <!-- Tab navigation -->
+                <ul class="nav nav-tabs mb-3" id="downloadsTabs" role="tablist">
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link active" id="general-tab" data-bs-toggle="tab" data-bs-target="#general" type="button" role="tab" aria-controls="general" aria-selected="true">General</button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="prowlarr-tab" data-bs-toggle="tab" data-bs-target="#prowlarr" type="button" role="tab" aria-controls="prowlarr" aria-selected="false">Prowlarr</button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="torrent-tab" data-bs-toggle="tab" data-bs-target="#torrent" type="button" role="tab" aria-controls="torrent" aria-selected="false">Torrent Client</button>
+                    </li>
+                </ul>
+
+                <!-- Tab content -->
+                <div class="tab-content" id="downloadsTabContent">
+                    <!-- General tab -->
+                    <div class="tab-pane fade show active" id="general" role="tabpanel" aria-labelledby="general-tab">
+                        <div class="row g-3 mb-3">
+                            <div class="col-md-4">
+                                <label for="downloadsIntervalInput" class="form-label">Search interval (minutes)</label>
+                                <input type="number" min="5" class="form-control" id="downloadsIntervalInput">
+                            </div>
+                            <div class="col-md-4">
+                                <label for="downloadsMinSeedersInput" class="form-label">Minimum seeders</label>
+                                <input type="number" min="0" class="form-control" id="downloadsMinSeedersInput">
+                            </div>
+                            <div class="col-md-4">
+                                <label for="downloadsCategoryInput" class="form-label">Torrent category/tag</label>
+                                <input type="text" class="form-control" id="downloadsCategoryInput" placeholder="ownfoil">
+                            </div>
+                        </div>
+                        <div class="row g-3 mb-3">
+                            <div class="col-md-6">
+                                <label for="downloadsRequiredTermsInput" class="form-label">Required terms (comma separated)</label>
+                                <input type="text" class="form-control" id="downloadsRequiredTermsInput">
+                            </div>
+                            <div class="col-md-6">
+                                <label for="downloadsBlacklistTermsInput" class="form-label">Blacklist terms (comma separated)</label>
+                                <input type="text" class="form-control" id="downloadsBlacklistTermsInput">
+                            </div>
+                        </div>
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label for="downloadsSearchPrefixInput" class="form-label">Search prefix</label>
+                                <input type="text" class="form-control" id="downloadsSearchPrefixInput">
+                            </div>
+                            <div class="col-md-6">
+                                <label for="downloadsSearchSuffixInput" class="form-label">Search suffix</label>
+                                <input type="text" class="form-control" id="downloadsSearchSuffixInput">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Prowlarr tab -->
+                    <div class="tab-pane fade" id="prowlarr" role="tabpanel" aria-labelledby="prowlarr-tab">
+                        <div class="row g-3 mb-3">
+                            <div class="col-md-6">
+                                <label for="prowlarrUrlInput" class="form-label">Prowlarr URL</label>
+                                <input type="text" class="form-control" id="prowlarrUrlInput" placeholder="http://localhost:9696">
+                            </div>
+                            <div class="col-md-6">
+                                <label for="prowlarrApiKeyInput" class="form-label">API Key</label>
+                                <input type="password" class="form-control" id="prowlarrApiKeyInput">
+                            </div>
+                        </div>
+                        <div class="mb-3">
+                            <label for="prowlarrIndexerIdsInput" class="form-label">Indexer IDs (comma separated)</label>
+                            <input type="text" class="form-control" id="prowlarrIndexerIdsInput" placeholder="1,2,3">
+                        </div>
+                        <div class="d-flex align-items-center gap-3">
+                            <button type="button" id="testProwlarrBtn" class="btn btn-outline-secondary"
+                                onClick='testProwlarrSettings()'>Test Prowlarr</button>
+                            <span id="prowlarrTestResult" class="text-muted small"></span>
+                        </div>
+                    </div>
+
+                    <!-- Torrent Client tab -->
+                    <div class="tab-pane fade" id="torrent" role="tabpanel" aria-labelledby="torrent-tab">
+                        <div class="row g-3 mb-3">
+                            <div class="col-md-4">
+                                <label for="torrentClientTypeSelect" class="form-label">Client</label>
+                                <select class="form-select" id="torrentClientTypeSelect">
+                                    <option value="qbittorrent">qBittorrent</option>
+                                    <option value="transmission">Transmission</option>
+                                    <option value="deluge">Deluge</option>
+                                </select>
+                            </div>
+                            <div class="col-md-8">
+                                <label for="torrentClientUrlInput" class="form-label">Client URL</label>
+                                <input type="text" class="form-control" id="torrentClientUrlInput" placeholder="http://localhost:8080">
+                            </div>
+                        </div>
+                        <div class="row g-3 mb-3">
+                            <div class="col-md-6">
+                                <label for="torrentClientUserInput" class="form-label">Username</label>
+                                <input type="text" class="form-control" id="torrentClientUserInput">
+                            </div>
+                            <div class="col-md-6">
+                                <label for="torrentClientPasswordInput" class="form-label">Password</label>
+                                <input type="password" class="form-control" id="torrentClientPasswordInput">
+                            </div>
+                        </div>
+                        <div class="mb-3">
+                            <label for="torrentClientPathInput" class="form-label">Download path (optional)</label>
+                            <input type="text" class="form-control" id="torrentClientPathInput" placeholder="D:\\Downloads\\Switch">
+                        </div>
+                        <div class="d-flex align-items-center gap-3">
+                            <button type="button" id="testTorrentClientBtn" class="btn btn-outline-secondary"
+                                onClick='testTorrentClientSettings()'>Test torrent client</button>
+                            <span id="torrentClientTestResult" class="text-muted small"></span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Submit button -->
+                <div class="mt-3">
+                    <button type="button" id="submitDownloadSettingsBtn" class="btn btn-primary"
+                        onClick='submitDownloadSettings()'>Save Settings</button>
+                </div>
                 </div>
 
             </div>
@@ -365,58 +581,15 @@
 
     }
 
-    function fillUserTable() {
-        $('#userTable tbody').empty();
-        $.getJSON("/api/users", function (result) {
-            if (!result['success']) {
-                if (result['status_code'] == '302') {
-                    window.location.href = result['location']
-                    return
-                }
+    function initTooltips() {
+        const tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-title]'));
+        tooltipTriggerList.forEach(function (tooltipTriggerEl) {
+            const existing = bootstrap.Tooltip.getInstance(tooltipTriggerEl);
+            if (existing) {
+                existing.dispose();
             }
-            allUsers = result;
-            allUsernames = [];
-            if (!result.length) {
-                $('#userTable tbody').append(
-                    '<tr><td>-</td><td>-</td><td>-</td></tr>');
-            }
-            result.forEach(user => {
-                allUsernames.push(user['user']);
-                base_input = '<input class="form-check-input" type="checkbox" onclick="return false" checked>';
-                shop_input = base_input;
-                backup_input = base_input;
-                admin_input = base_input;
-                if (!user['shop_access']) {
-                    shop_input = shop_input.replace(' checked', '');
-                }
-                if (!user['backup_access']) {
-                    backup_input = backup_input.replace(' checked', '');
-                }
-                if (!user['admin_access']) {
-                    admin_input = shop_input.replace(' checked', '');
-                }
-                $('#userTable tbody').append(
-                    '<tr><td>' + user['user'] + '</td><td>'
-                    + `
-                        <div class="form-check form-check-inline">`
-                    + shop_input + `
-                            <label class="form-check-label">Shop</label>
-                        </div>
-                        <div class="form-check form-check-inline">`
-                    + backup_input + `
-                            <label class="form-check-label">Backup</label>
-                        </div>
-                        <div class="form-check form-check-inline">`
-                    + admin_input + `
-                            <label class="form-check-label">Admin</label>
-                        </div>`
-                    + '</td><td>' +
-                    '<button type="button" class="btn btn-outline-info btn-sm" disabled=""><i class="bi bi-pencil-square"></i></button> ' +
-                    '<button type="button" class="btn btn-outline-danger btn-sm" data-bs-toggle="modal" data-bs-target="#deleteUserModal" data-bs-id="' + user['id'] + '" data-bs-user="' + user['user'] + '"\'><i class="bi bi-x-circle"></i></button>' +
-                    '</td></tr>');
-            });
-        })
-
+            new bootstrap.Tooltip(tooltipTriggerEl);
+        });
     }
 
     const deletePathModal = $('#deletePathModal')
@@ -442,47 +615,6 @@
         })
     }
 
-    const deleteUserModal = $('#deleteUserModal')
-    if (deleteUserModal) {
-        deleteUserModal.on('show.bs.modal', event => {
-            // Button that triggered the modal
-            const button = event.relatedTarget
-            // Extract info from data-bs-* attributes
-            const user = button.getAttribute('data-bs-user')
-            const id = button.getAttribute('data-bs-id')
-            // If necessary, you could initiate an Ajax request here
-            // and then do the updating in a callback.
-
-            // Update the modal's content.
-            // const modalTitle = deleteUserModal.querySelector('.modal-title')
-            const modalBody = deleteUserModal.find('.modal-body')
-            const deleteBtn = deleteUserModal.find('.btn-danger')
-
-
-            deleteBtn.attr('onClick', 'deleteUser(' + id + ');');
-
-            // modalTitle.textContent = `New message to ${recipient}`
-            modalBody.text("Delete user " + user + " ?")
-        })
-    }
-
-    function deleteUser(userId) {
-        data = {
-            user_id: userId
-        }
-        $.ajax({
-            url: "/api/user",
-            type: 'DELETE',
-            data: JSON.stringify(data),
-            contentType: "application/json",
-            success: function (result) {
-                if (result['success']) {
-                    fillUserTable();
-                }
-            }
-        });
-    }
-
     function deleteLibraryPath(path) {
         data = {
             path: path
@@ -498,74 +630,6 @@
                 }
             }
         });
-    }
-
-    $('#checkboxNewUserAdminAccess').change(function () {
-        if (this.checked != false) {
-            $('#checkboxNewUserShopAccess').prop('checked', true).attr("disabled", true);
-            $('#checkboxNewUserBackupAccess').prop('checked', true).attr("disabled", true);
-
-        } else {
-            $('#checkboxNewUserShopAccess').attr("disabled", false);
-            $('#checkboxNewUserBackupAccess').attr("disabled", false);
-
-        }
-    });
-
-    function submitNewUser() {
-        formOk = true;
-        user = getInputVal("inputNewUser")
-        password = getInputVal("inputNewUserPassword")
-        shop_access = getCheckboxStatus("checkboxNewUserShopAccess")
-        backup_access = getCheckboxStatus("checkboxNewUserBackupAccess")
-        admin_access = getCheckboxStatus("checkboxNewUserAdminAccess")
-
-        if (user == '') {
-            $('#inputNewUser').addClass('is-invalid');
-            formOk = false;
-        } else if (allUsernames.includes(user)) {
-            $('#inputNewUser').addClass('is-invalid');
-            formOk = false;
-        } else {
-            $('#inputNewUser').removeClass('is-invalid');
-        }
-
-        if (password == '') {
-            $('#inputNewUserPassword').addClass('is-invalid');
-            formOk = false;
-        } else {
-            $('#inputNewUserPassword').removeClass('is-invalid');
-        }
-
-
-        if (formOk) {
-            data = {
-                user: user,
-                password: password,
-                shop_access: shop_access,
-                backup_access: backup_access,
-                admin_access: admin_access,
-            }
-
-            $.ajax({
-                url: "/api/user/signup",
-                type: 'POST',
-                data: JSON.stringify(data),
-                contentType: "application/json",
-                success: function (result) {
-                    if (result['success']) {
-                        if (result['status_code'] == '302') {
-                            window.location.href = result['location']
-                            return
-                        }
-                        console.log('Signup Success!');
-                        setInputVal("inputNewUser", "")
-                        setInputVal("inputNewUserPassword", "")
-                        fillUserTable();
-                    }
-                }
-            });
-        }
     }
 
     function submitNewLibraryPath() {
@@ -651,12 +715,119 @@
         });
     }
 
+    function refreshMediaCache() {
+        const statusEl = $('#refreshMediaCacheStatus');
+        statusEl.text('Refreshing cache...');
+        $('#refreshMediaCacheBtn').prop('disabled', true);
+        $('#prefetchIconsBtn').prop('disabled', true);
+        $('#prefetchBannersBtn').prop('disabled', true);
+        $.ajax({
+            url: "/api/settings/media-cache/refresh",
+            type: 'POST',
+            data: JSON.stringify({ icons: true, banners: true }),
+            contentType: "application/json",
+            success: function (result) {
+                if (result && result['success']) {
+                    const icons = result['removed_icons'] ?? 0;
+                    const banners = result['removed_banners'] ?? 0;
+                    statusEl.text(`Cleared ${icons} icons and ${banners} banners.`);
+                } else {
+                    statusEl.text('Refresh failed.');
+                }
+            },
+            error: function () {
+                statusEl.text('Refresh failed.');
+            },
+            complete: function () {
+                $('#refreshMediaCacheBtn').prop('disabled', false);
+                $('#prefetchIconsBtn').prop('disabled', false);
+                $('#prefetchBannersBtn').prop('disabled', false);
+            }
+        });
+    }
+
+    function prefetchAllIcons() {
+        const statusEl = $('#refreshMediaCacheStatus');
+        statusEl.text('Prefetching icons...');
+        $('#prefetchIconsBtn').prop('disabled', true);
+        $('#refreshMediaCacheBtn').prop('disabled', true);
+        $('#prefetchBannersBtn').prop('disabled', true);
+        $.ajax({
+            url: "/api/settings/media-cache/prefetch-icons",
+            type: 'POST',
+            contentType: "application/json",
+            success: function (result) {
+                if (result && result['success']) {
+                    const fetched = result['fetched'] ?? 0;
+                    const skipped = result['skipped'] ?? 0;
+                    const missing = result['missing'] ?? 0;
+                    const failed = result['failed'] ?? 0;
+                    const failures = result['failures'] || [];
+                    statusEl.text(`Prefetched ${fetched} icons. Skipped ${skipped}, missing ${missing}, failed ${failed}.`);
+                    if (failures.length) {
+                        console.warn('Icon prefetch failures:', failures);
+                        statusEl.text(`${statusEl.text()} See console for sample errors.`);
+                    }
+                } else {
+                    statusEl.text('Prefetch failed.');
+                }
+            },
+            error: function () {
+                statusEl.text('Prefetch failed.');
+            },
+            complete: function () {
+                $('#prefetchIconsBtn').prop('disabled', false);
+                $('#refreshMediaCacheBtn').prop('disabled', false);
+                $('#prefetchBannersBtn').prop('disabled', false);
+            }
+        });
+    }
+
+    function prefetchAllBanners() {
+        const statusEl = $('#refreshMediaCacheStatus');
+        statusEl.text('Prefetching banners...');
+        $('#prefetchBannersBtn').prop('disabled', true);
+        $('#refreshMediaCacheBtn').prop('disabled', true);
+        $('#prefetchIconsBtn').prop('disabled', true);
+        $.ajax({
+            url: "/api/settings/media-cache/prefetch-banners",
+            type: 'POST',
+            contentType: "application/json",
+            success: function (result) {
+                if (result && result['success']) {
+                    const fetched = result['fetched'] ?? 0;
+                    const skipped = result['skipped'] ?? 0;
+                    const missing = result['missing'] ?? 0;
+                    const failed = result['failed'] ?? 0;
+                    const failures = result['failures'] || [];
+                    statusEl.text(`Prefetched ${fetched} banners. Skipped ${skipped}, missing ${missing}, failed ${failed}.`);
+                    if (failures.length) {
+                        console.warn('Banner prefetch failures:', failures);
+                        statusEl.text(`${statusEl.text()} See console for sample errors.`);
+                    }
+                } else {
+                    statusEl.text('Prefetch failed.');
+                }
+            },
+            error: function () {
+                statusEl.text('Prefetch failed.');
+            },
+            complete: function () {
+                $('#prefetchBannersBtn').prop('disabled', false);
+                $('#refreshMediaCacheBtn').prop('disabled', false);
+                $('#prefetchIconsBtn').prop('disabled', false);
+            }
+        });
+    }
+
     function submitShopSettings() {
         $('#submitShopSettingsBtn').prop('disabled', true);
         data = {
             host: $('#shopHostInput').val(),
+            hauth: $('#shopHauthInput').val(),
             public: getCheckboxStatus("publicShopCheck"),
             encrypt: getCheckboxStatus("encryptShopCheck"),
+            public_key: getInputVal("shopPublicKeyInput"),
             motd: $('#motdTextArea').val(),
         }
 
@@ -683,9 +854,254 @@
         });
     }
 
+    function splitTerms(value) {
+        if (!value) {
+            return [];
+        }
+        return value.split(',').map(item => item.trim()).filter(Boolean);
+    }
+
+    function parseIndexerIds(value) {
+        if (!value) {
+            return [];
+        }
+        return value.split(',').map(item => parseInt(item.trim(), 10)).filter(id => !isNaN(id));
+    }
+
+    function copyPublicKey() {
+        const publicKeyInput = document.getElementById('shopPublicKeyInput');
+        const publicKey = publicKeyInput.value;
+        
+        if (!publicKey) {
+            alert('No public key to copy.');
+            return;
+        }
+        
+        navigator.clipboard.writeText(publicKey).then(function() {
+            const btn = document.getElementById('copyPublicKeyBtn');
+            const originalText = btn.innerHTML;
+            btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16" style="vertical-align: -0.125em;"><path d="M13.854 3.646a.5.5 0 0 1 0 .708l-7 7a.5.5 0 0 1-.708 0l-3.5-3.5a.5.5 0 1 1 .708-.708L6.5 10.293l6.646-6.647a.5.5 0 0 1 .708 0z"/></svg> Copied';
+            btn.classList.add('btn-success');
+            btn.classList.remove('btn-outline-secondary');
+            setTimeout(function() {
+                btn.innerHTML = originalText;
+                btn.classList.remove('btn-success');
+                btn.classList.add('btn-outline-secondary');
+            }, 2000);
+        }).catch(function(err) {
+            console.error('Failed to copy: ', err);
+            alert('Failed to copy to clipboard.');
+        });
+    }
+
+    function submitDownloadSettings() {
+        $('#submitDownloadSettingsBtn').prop('disabled', true);
+        data = {
+            enabled: getCheckboxStatus("downloadsEnabledCheck"),
+            interval_minutes: parseInt(getInputVal("downloadsIntervalInput"), 10),
+            min_seeders: parseInt(getInputVal("downloadsMinSeedersInput"), 10),
+            required_terms: splitTerms(getInputVal("downloadsRequiredTermsInput")),
+            blacklist_terms: splitTerms(getInputVal("downloadsBlacklistTermsInput")),
+            search_prefix: getInputVal("downloadsSearchPrefixInput"),
+            search_suffix: getInputVal("downloadsSearchSuffixInput"),
+            prowlarr: {
+                url: getInputVal("prowlarrUrlInput"),
+                api_key: getInputVal("prowlarrApiKeyInput"),
+                indexer_ids: parseIndexerIds(getInputVal("prowlarrIndexerIdsInput"))
+            },
+            torrent_client: {
+                type: getInputVal("torrentClientTypeSelect"),
+                url: getInputVal("torrentClientUrlInput"),
+                username: getInputVal("torrentClientUserInput"),
+                password: getInputVal("torrentClientPasswordInput"),
+                category: getInputVal("downloadsCategoryInput"),
+                download_path: getInputVal("torrentClientPathInput")
+            }
+        };
+
+        $.ajax({
+            url: "/api/settings/downloads",
+            type: 'POST',
+            data: JSON.stringify(data),
+            contentType: "application/json",
+            success: function (result) {
+                if (!result['success']) {
+                    console.log('Not Success!');
+                }
+            },
+            complete: function () {
+                $('#submitDownloadSettingsBtn').prop('disabled', false);
+            }
+        });
+    }
+
+    function submitLibrarySettings() {
+        let intervalVal = parseInt(getInputVal("libraryMaintenanceIntervalInput"), 10);
+        if (isNaN(intervalVal)) {
+            intervalVal = 720;
+        }
+        intervalVal = Math.max(30, intervalVal);
+        setInputVal("libraryMaintenanceIntervalInput", intervalVal);
+        const payload = {
+            auto_maintenance: getCheckboxStatus("libraryAutoMaintenanceCheck"),
+            maintenance_interval_minutes: intervalVal,
+            maintenance_delete_updates: getCheckboxStatus("libraryMaintenanceDeleteUpdatesCheck")
+        };
+        $.ajax({
+            url: "/api/settings/library",
+            type: "POST",
+            data: JSON.stringify(payload),
+            contentType: "application/json",
+            success: function () {
+                console.log("Library settings saved.");
+            }
+        });
+    }
+
+    function testProwlarrSettings() {
+        $('#testProwlarrBtn').prop('disabled', true);
+        $('#prowlarrTestResult').text('Testing...').removeClass('text-danger text-success').addClass('text-muted');
+        data = {
+            url: getInputVal("prowlarrUrlInput"),
+            api_key: getInputVal("prowlarrApiKeyInput"),
+            indexer_ids: parseIndexerIds(getInputVal("prowlarrIndexerIdsInput"))
+        };
+        $.ajax({
+            url: "/api/settings/downloads/test-prowlarr",
+            type: 'POST',
+            data: JSON.stringify(data),
+            contentType: "application/json",
+            success: function (result) {
+                const ok = result['success'];
+                const warning = result['warning'];
+                let text = result['message'] || (ok ? 'Prowlarr OK' : 'Prowlarr test failed');
+                if (warning) {
+                    text = `${text} (${warning})`;
+                }
+                $('#prowlarrTestResult')
+                    .text(text)
+                    .removeClass('text-muted text-danger text-success')
+                    .addClass(ok ? 'text-success' : 'text-danger');
+            },
+            complete: function () {
+                $('#testProwlarrBtn').prop('disabled', false);
+            }
+        });
+    }
+
+    function testTorrentClientSettings() {
+        $('#testTorrentClientBtn').prop('disabled', true);
+        $('#torrentClientTestResult').text('Testing...').removeClass('text-danger text-success').addClass('text-muted');
+        data = {
+            type: getInputVal("torrentClientTypeSelect"),
+            url: getInputVal("torrentClientUrlInput"),
+            username: getInputVal("torrentClientUserInput"),
+            password: getInputVal("torrentClientPasswordInput"),
+            download_path: getInputVal("torrentClientPathInput")
+        };
+        $.ajax({
+            url: "/api/settings/downloads/test-client",
+            type: 'POST',
+            data: JSON.stringify(data),
+            contentType: "application/json",
+            success: function (result) {
+                const ok = result['success'];
+                const warning = result['warning'];
+                let text = result['message'] || (ok ? 'Torrent client OK' : 'Torrent client test failed');
+                if (warning) {
+                    text = `${text} (${warning})`;
+                }
+                $('#torrentClientTestResult')
+                    .text(text)
+                    .removeClass('text-muted text-danger text-success')
+                    .addClass(ok ? 'text-success' : 'text-danger');
+            },
+            complete: function () {
+                $('#testTorrentClientBtn').prop('disabled', false);
+            }
+        });
+    }
+
+    // Settings navigation
+    function showSettingsSection(sectionName) {
+        // Hide all sections
+        $('.settings-section').addClass('d-none');
+        
+        // Show selected section
+        $(`#section-${sectionName}`).removeClass('d-none');
+        
+        // Update nav links
+        $('#settingsNav .nav-link').removeClass('active');
+        $(`#settingsNav .nav-link[data-section="${sectionName}"]`).addClass('active');
+        
+        // Update URL hash
+        window.location.hash = sectionName;
+        
+        // Close sidebar on mobile after selection
+        if (window.innerWidth < 768) {
+            $('#settingsSidebar').removeClass('show');
+            $('body').removeClass('sidebar-open');
+        }
+    }
+    
+    // Handle navigation clicks
+    $('#settingsNav .nav-link').on('click', function(e) {
+        e.preventDefault();
+        const section = $(this).data('section');
+        showSettingsSection(section);
+    });
+    
+    // Handle sidebar toggle on mobile
+    $('#sidebarToggle, #sidebarToggleMobile').on('click', function(e) {
+        e.stopPropagation();
+        $('#settingsSidebar').toggleClass('show');
+        $('body').toggleClass('sidebar-open');
+    });
+    
+    // Close sidebar when clicking outside on mobile
+    $(document).on('click', function(e) {
+        if ($(window).width() < 768 && $('#settingsSidebar').hasClass('show')) {
+            if (!$(e.target).closest('#settingsSidebar').length && 
+                !$(e.target).is('#sidebarToggle') && 
+                !$(e.target).is('#sidebarToggleMobile') &&
+                !$(e.target).closest('#sidebarToggleMobile').length) {
+                $('#settingsSidebar').removeClass('show');
+                $('body').removeClass('sidebar-open');
+            }
+        }
+    });
+    
+    // Handle URL hash for direct navigation
+    function handleHashNavigation() {
+        const hash = window.location.hash.substring(1);
+        if (['library', 'shop', 'downloads'].includes(hash)) {
+            showSettingsSection(hash);
+        } else {
+            // Default to library if no hash
+            showSettingsSection('library');
+        }
+    }
+    
+    // Handle browser back/forward
+    $(window).on('hashchange', handleHashNavigation);
+
     $(document).ready(function () {
-        fillUserTable();
+        // Initialize settings navigation
+        handleHashNavigation();
+        
         fillLibraryTable();
+
+        initTooltips();
+        
+        // Update collapse button text when toggled
+        $('#shopPublicKeyCollapse').on('show.bs.collapse', function () {
+            const btn = $(this).closest('.mb-3').find('[data-bs-toggle="collapse"]');
+            btn.html('<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16" style="vertical-align: -0.125em;"><path fill-rule="evenodd" d="M7.646 4.646a.5.5 0 0 1 .708 0l6 6a.5.5 0 0 1-.708.708L8 5.707l-5.646 5.647a.5.5 0 0 1-.708-.708l6-6z"/></svg> Hide');
+        });
+        $('#shopPublicKeyCollapse').on('hide.bs.collapse', function () {
+            const btn = $(this).closest('.mb-3').find('[data-bs-toggle="collapse"]');
+            btn.html('<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16" style="vertical-align: -0.125em;"><path fill-rule="evenodd" d="M1.646 4.646a.5.5 0 0 1 .708 0L8 10.293l5.646-5.647a.5.5 0 0 1 .708.708l-6 6a.5.5 0 0 1-.708 0l-6-6a.5.5 0 0 1 0-.708z"/></svg> Show');
+        });
 
         $.getJSON("/api/settings", function (result) {
             Object.keys(languages).forEach(function (key) {
@@ -704,6 +1120,20 @@
 
             // Library settings
             librarySettings = result['library'];
+            $("#libraryAutoMaintenanceCheck").prop("checked", !!librarySettings['auto_maintenance']);
+            setInputVal("libraryMaintenanceIntervalInput", librarySettings['maintenance_interval_minutes'] || 720);
+            $("#libraryMaintenanceDeleteUpdatesCheck").prop("checked", librarySettings['maintenance_delete_updates'] !== false);
+            const maintenanceLastRun = librarySettings['maintenance_last_run'];
+            if (maintenanceLastRun) {
+                try {
+                    const dt = new Date(maintenanceLastRun);
+                    $('#libraryMaintenanceLastRun').text(dt.toLocaleString());
+                } catch (e) {
+                    $('#libraryMaintenanceLastRun').text(maintenanceLastRun);
+                }
+            } else {
+                $('#libraryMaintenanceLastRun').text('Never');
+            }
             // Titles settings
             titlesSettings = result['titles'];
 
@@ -715,22 +1145,42 @@
             // Shop settings
             shopSettings = result['shop'];
             setInputVal("shopHostInput", shopSettings['host']);
+            setInputVal("shopHauthInput", shopSettings['hauth_value'] || '');
             setInputVal("motdTextArea", shopSettings['motd']);
             $("#publicShopCheck").prop("checked", shopSettings['public']);
             $("#encryptShopCheck").prop("checked", shopSettings['encrypt']);
+            setInputVal("shopPublicKeyInput", shopSettings['public_key'] || '');
             if (!shopSettings['host']) {
                 $("#missingShopHostAlert").css('display', '');
             } else if (!shopSettings['hauth']) {
                 $("#missingShopHauthAlert").css('display', '');
             }
+
+            // Downloads settings
+            downloadsSettings = result['downloads'] || {};
+            setInputVal("downloadsIntervalInput", downloadsSettings['interval_minutes']);
+            setInputVal("downloadsMinSeedersInput", downloadsSettings['min_seeders']);
+            setInputVal("downloadsRequiredTermsInput", (downloadsSettings['required_terms'] || []).join(', '));
+            setInputVal("downloadsBlacklistTermsInput", (downloadsSettings['blacklist_terms'] || []).join(', '));
+            setInputVal("downloadsSearchPrefixInput", downloadsSettings['search_prefix'] || '');
+            setInputVal("downloadsSearchSuffixInput", downloadsSettings['search_suffix'] || '');
+            $("#downloadsEnabledCheck").prop("checked", !!downloadsSettings['enabled']);
+            setInputVal("downloadsCategoryInput", downloadsSettings['torrent_client']?.['category'] || 'ownfoil');
+
+            prowlarrSettings = downloadsSettings['prowlarr'] || {};
+            setInputVal("prowlarrUrlInput", prowlarrSettings['url'] || '');
+            setInputVal("prowlarrApiKeyInput", prowlarrSettings['api_key'] || '');
+            setInputVal("prowlarrIndexerIdsInput", (prowlarrSettings['indexer_ids'] || []).join(', '));
+
+            torrentSettings = downloadsSettings['torrent_client'] || {};
+            setInputVal("torrentClientTypeSelect", torrentSettings['type'] || 'qbittorrent');
+            setInputVal("torrentClientUrlInput", torrentSettings['url'] || '');
+            setInputVal("torrentClientUserInput", torrentSettings['username'] || '');
+            setInputVal("torrentClientPasswordInput", torrentSettings['password'] || '');
+            setInputVal("torrentClientPathInput", torrentSettings['download_path'] || '');
         });
 
     });
-    {% if admin_account_created == false %}
-    $('#checkboxNewUserAdminAccess').prop('checked', true).attr("disabled", true);
-    $('#checkboxNewUserShopAccess').prop('checked', true).attr("disabled", true);
-    $('#checkboxNewUserBackupAccess').prop('checked', true).attr("disabled", true);
-    {% endif %}
     languages = {{ languages_from_titledb | tojson | safe }}
 </script>
 

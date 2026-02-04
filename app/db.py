@@ -83,6 +83,12 @@ class Files(db.Model):
 
     library = db.relationship('Libraries', backref=db.backref('files', lazy=True, cascade="all, delete-orphan"))
 
+    __table_args__ = (
+        db.Index('idx_files_library_id', 'library_id'),
+        db.Index('idx_files_filename', 'filename'),
+        db.Index('idx_files_identified', 'identified'),
+    )
+
 class Titles(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     title_id = db.Column(db.String, unique=True)
@@ -107,7 +113,11 @@ class Apps(db.Model):
     title = db.relationship('Titles', backref=db.backref('apps', lazy=True, cascade="all, delete-orphan"))
     files = db.relationship('Files', secondary=app_files, backref=db.backref('apps', lazy='select'))
 
-    __table_args__ = (db.UniqueConstraint('app_id', 'app_version', name='uq_apps_app_version'),)
+    __table_args__ = (
+        db.UniqueConstraint('app_id', 'app_version', name='uq_apps_app_version'),
+        db.Index('idx_apps_owned', 'owned'),
+        db.Index('idx_apps_app_id', 'app_id'),
+    )
 
 class User(UserMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -116,13 +126,15 @@ class User(UserMixin, db.Model):
     admin_access = db.Column(db.Boolean)
     shop_access = db.Column(db.Boolean)
     backup_access = db.Column(db.Boolean)
+    frozen = db.Column(db.Boolean, default=False)
+    frozen_message = db.Column(db.String)
 
     @property
     def is_admin(self):
         return self.admin_access
 
     def has_shop_access(self):
-        return self.shop_access
+        return bool(self.shop_access) and not bool(self.frozen)
 
     def has_backup_access(self):
         return self.backup_access
@@ -137,6 +149,160 @@ class User(UserMixin, db.Model):
             return self.has_shop_access()
         elif access == 'backup':
             return self.has_backup_access()
+
+
+class TitleRequests(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.datetime.utcnow)
+    status = db.Column(db.String, nullable=False, default='open')
+    title_id = db.Column(db.String, nullable=False)
+    title_name = db.Column(db.String)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id', ondelete='CASCADE'), nullable=False)
+
+    user = db.relationship('User', backref=db.backref('title_requests', lazy=True, cascade="all, delete-orphan"))
+
+
+class TitleRequestViews(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id', ondelete='CASCADE'), nullable=False)
+    request_id = db.Column(db.Integer, db.ForeignKey('title_requests.id', ondelete='CASCADE'), nullable=False)
+    viewed_at = db.Column(db.DateTime, nullable=False, default=datetime.datetime.utcnow)
+
+    __table_args__ = (db.UniqueConstraint('user_id', 'request_id', name='uq_title_request_views_user_request'),)
+
+    user = db.relationship('User', backref=db.backref('title_request_views', lazy=True, cascade="all, delete-orphan"))
+    request = db.relationship('TitleRequests', backref=db.backref('views', lazy=True, cascade="all, delete-orphan"))
+
+
+class AccessEvents(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    at = db.Column(db.DateTime, nullable=False, default=datetime.datetime.utcnow)
+    kind = db.Column(db.String, nullable=False)
+    user = db.Column(db.String)
+    remote_addr = db.Column(db.String)
+    user_agent = db.Column(db.String)
+    title_id = db.Column(db.String)
+    file_id = db.Column(db.Integer)
+    filename = db.Column(db.String)
+    bytes_sent = db.Column(db.Integer)
+    ok = db.Column(db.Boolean)
+    status_code = db.Column(db.Integer)
+    duration_ms = db.Column(db.Integer)
+
+
+def add_access_event(
+    kind,
+    user=None,
+    remote_addr=None,
+    user_agent=None,
+    title_id=None,
+    file_id=None,
+    filename=None,
+    bytes_sent=None,
+    ok=None,
+    status_code=None,
+    duration_ms=None,
+):
+    try:
+        evt = AccessEvents(
+            kind=kind,
+            user=user,
+            remote_addr=remote_addr,
+            user_agent=user_agent,
+            title_id=title_id,
+            file_id=file_id,
+            filename=filename,
+            bytes_sent=bytes_sent,
+            ok=ok,
+            status_code=int(status_code) if status_code is not None else None,
+            duration_ms=duration_ms,
+        )
+        db.session.add(evt)
+        db.session.commit()
+        return True
+    except Exception:
+        db.session.rollback()
+        return False
+
+
+def get_access_events(limit=100, kind=None, kinds=None):
+    try:
+        limit = int(limit)
+    except Exception:
+        limit = 100
+    limit = max(1, min(limit, 1000))
+
+    q = AccessEvents.query
+    if kinds:
+        try:
+            kinds = [str(k) for k in kinds if k is not None and str(k).strip()]
+        except Exception:
+            kinds = []
+        if kinds:
+            q = q.filter(AccessEvents.kind.in_(kinds))
+    elif kind:
+        q = q.filter_by(kind=str(kind))
+
+    events = q.order_by(AccessEvents.at.desc()).limit(limit).all()
+    out = []
+    for e in events:
+        out.append({
+            'id': e.id,
+            'at': int(e.at.timestamp()) if e.at else None,
+            'kind': e.kind,
+            'user': e.user,
+            'remote_addr': e.remote_addr,
+            'user_agent': e.user_agent,
+            'title_id': e.title_id,
+            'file_id': e.file_id,
+            'filename': e.filename,
+            'bytes_sent': e.bytes_sent,
+            'ok': e.ok,
+            'status_code': e.status_code,
+            'duration_ms': e.duration_ms,
+        })
+    return out
+
+
+def delete_access_events(kind=None, kinds=None):
+    try:
+        q = AccessEvents.query
+        if kinds:
+            try:
+                kinds = [str(k) for k in kinds if k is not None and str(k).strip()]
+            except Exception:
+                kinds = []
+            if kinds:
+                q = q.filter(AccessEvents.kind.in_(kinds))
+        elif kind:
+            q = q.filter_by(kind=str(kind))
+
+        q.delete(synchronize_session=False)
+        db.session.commit()
+        return True
+    except Exception:
+        db.session.rollback()
+        return False
+
+
+def delete_access_events_excluding(kinds=None):
+    """Delete access events excluding the provided kinds."""
+    try:
+        q = AccessEvents.query
+        if kinds:
+            try:
+                kinds = [str(k) for k in kinds if k is not None and str(k).strip()]
+            except Exception:
+                kinds = []
+            if kinds:
+                q = q.filter(~AccessEvents.kind.in_(kinds))
+
+        q.delete(synchronize_session=False)
+        db.session.commit()
+        return True
+    except Exception:
+        db.session.rollback()
+        return False
 
 def init_db(app):
     with app.app_context():
@@ -190,7 +356,7 @@ def update_file_path(library, old_path, new_path):
         # Commit the changes to the database
         db.session.commit()
 
-        logger.info(f"File path updated successfully from {old_path} to {new_path}.")
+        logger.debug(f"File path updated successfully from {old_path} to {new_path}.")
     
     except NoResultFound:
         logger.warning(f"No file entry found for the path: {old_path}.")
@@ -219,13 +385,15 @@ def get_all_apps():
     apps_list = [
         {
             "id": app.id,
+            "title_db_id": app.title.id,
             "title_id": app.title.title_id,  # Access the actual title_id from Titles
             "app_id": app.app_id,
             "app_version": app.app_version,
             "app_type": app.app_type,
-            "owned": app.owned
+            "owned": app.owned,
+            "size": sum((f.size or 0) for f in (getattr(app, 'files', None) or [])),
         }
-        for app in Apps.query.options(db.joinedload(Apps.title)).all()  # Optimized with joinedload
+        for app in Apps.query.options(db.joinedload(Apps.title), db.joinedload(Apps.files)).all()  # Optimized with joinedload
     ]
     return apps_list
 
@@ -236,31 +404,12 @@ def get_files_with_identification_from_library(library_id, identification_type):
     return Files.query.filter_by(library_id=library_id, identification_type=identification_type).all()
 
 def get_shop_files():
-    shop_files = []
-    results = Files.query.options(db.joinedload(Files.apps).joinedload(Apps.title)).all()
-
-    for file in results:
-        if file.identified:
-            # Get the first app associated with this file using the many-to-many relationship
-            app = file.apps[0] if file.apps else None
-
-            if app:
-                if file.multicontent or file.extension.startswith('x'):
-                    title_id = app.title.title_id
-                    final_filename = f"[{title_id}].{file.extension}"
-                else:
-                    final_filename = f"[{app.app_id}][v{app.app_version}].{file.extension}"
-            else:
-                final_filename = file.filename.replace(f'.{file.extension}', '') + ' (unidentified).' + file.extension
-        else:
-            final_filename = file.filename.replace(f'.{file.extension}', '') + ' (unidentified).' + file.extension
-
-        shop_files.append({
-            "id": file.id,
-            "filename": final_filename,
-            "size": file.size
-        })
-
+    results = Files.query.all()
+    shop_files = [{
+        "id": file.id,
+        "filename": file.filename,
+        "size": file.size
+    } for file in results]
     return shop_files
 
 def get_libraries():
@@ -326,8 +475,21 @@ def add_title_id_in_db(title_id):
         db.session.commit()
 
 def get_all_title_apps(title_id):
-    title = Titles.query.options(joinedload(Titles.apps)).filter_by(title_id=title_id).first()
-    return[to_dict(a)  for a in title.apps]
+    title = (
+        Titles.query
+        .options(joinedload(Titles.apps).joinedload(Apps.files))
+        .filter_by(title_id=title_id)
+        .first()
+    )
+    if not title:
+        return []
+
+    out = []
+    for a in title.apps:
+        d = to_dict(a)
+        d['size'] = sum((f.size or 0) for f in (getattr(a, 'files', None) or []))
+        out.append(d)
+    return out
 
 def get_app_by_id_and_version(app_id, app_version):
     """Get app entry for a specific app_id and version (unique due to constraint)"""

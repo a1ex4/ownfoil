@@ -1,0 +1,694 @@
+{% extends "base.html" %}
+{% block content %}
+{% include 'nav.html' %}
+
+<div class="container-fluid setting-body">
+    <div class="row">
+        <div class="col">
+            <div class="settings-container container mt-3">
+                <div class="d-flex flex-column flex-lg-row justify-content-between gap-2 align-items-lg-center mb-2">
+                    <div>
+                        <h2 class="pb-2">Manage</h2>
+                        <p class="text-muted mb-0">Library maintenance actions and converter jobs.</p>
+                    </div>
+                    <div class="d-flex align-items-center gap-2">
+                        <span class="badge text-bg-secondary" id="manageHealthBadge">Checking converter...</span>
+                    </div>
+                </div>
+
+                <div id="manageAlert" class="alert alert-info d-none mb-3" role="alert"></div>
+
+                <div class="row g-3">
+                    <div class="col-xl-8 col-lg-12">
+                        <div class="card mb-3">
+                            <div class="card-body">
+                                <div class="d-flex align-items-center justify-content-between mb-3">
+                                    <div>
+                                        <h5 class="card-title mb-1">Maintenance</h5>
+                                        <div class="text-muted small">Organize and clean up your libraries.</div>
+                                    </div>
+                                </div>
+                                <div class="vstack gap-3">
+                                    <div class="border rounded p-3">
+                                        <div class="fw-semibold">Library organization</div>
+                                        <div class="text-muted small mb-2">Rename and organize identified content into structured folders.</div>
+                                        <div class="d-flex flex-wrap gap-3 align-items-center">
+                                            <div class="form-check">
+                                                <input class="form-check-input" type="checkbox" id="organizeDryRun" checked>
+                                                <label class="form-check-label" for="organizeDryRun">Dry run</label>
+                                            </div>
+                                            <div class="form-check">
+                                                <input class="form-check-input" type="checkbox" id="organizeVerbose">
+                                                <label class="form-check-label" for="organizeVerbose">Verbose</label>
+                                            </div>
+                                            <button type="button" id="organizeLibraryBtn" class="btn btn-primary ms-auto"
+                                                onClick='organizeLibrary()'>Organize library</button>
+                                        </div>
+                                    </div>
+                                    <div class="border rounded p-3">
+                                        <div class="fw-semibold">Library scan</div>
+                                        <div class="text-muted small mb-2">Scan configured libraries for new files.</div>
+                                        <div class="d-flex flex-wrap gap-3 align-items-center">
+                                            <button type="button" id="scanLibraryBtn" class="btn btn-outline-primary ms-auto"
+                                                onClick='scanLibrary()'>Scan library</button>
+                                        </div>
+                                    </div>
+                                    <div class="border rounded p-3">
+                                        <div class="fw-semibold">Delete older updates</div>
+                                        <div class="text-muted small mb-2">Keep the latest owned update per title and remove older update files.</div>
+                                        <div class="d-flex flex-wrap gap-3 align-items-center">
+                                            <div class="form-check">
+                                                <input class="form-check-input" type="checkbox" id="deleteUpdatesDryRun" checked>
+                                                <label class="form-check-label" for="deleteUpdatesDryRun">Dry run</label>
+                                            </div>
+                                            <div class="form-check">
+                                                <input class="form-check-input" type="checkbox" id="deleteUpdatesVerbose">
+                                                <label class="form-check-label" for="deleteUpdatesVerbose">Verbose</label>
+                                            </div>
+                                            <button type="button" id="deleteUpdatesBtn" class="btn btn-danger ms-auto"
+                                                onClick='deleteOlderUpdates()'>Delete older updates</button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="card mb-3">
+                            <div class="card-body">
+                                <div class="d-flex align-items-center justify-content-between mb-3">
+                                    <div>
+                                        <h5 class="card-title mb-1">Downloads</h5>
+                                        <div class="text-muted small">Keep transfers organized without enabling downloads.</div>
+                                    </div>
+                                </div>
+                                <div class="vstack gap-3">
+                                    <div class="border rounded p-3">
+                                        <div class="fw-semibold">Completed downloads</div>
+                                        <div class="text-muted small mb-2">Move and organize completed torrents without enabling downloads.</div>
+                                        <div class="d-flex flex-wrap gap-3 align-items-center">
+                                            <button type="button" id="checkDownloadsBtn" class="btn btn-outline-primary ms-auto"
+                                                onClick='checkCompletedDownloads()'>Check completed downloads</button>
+                                        </div>
+                                    </div>
+                                    <div class="border rounded p-3">
+                                        <div class="fw-semibold">Download queue</div>
+                                        <div class="text-muted small mb-2">Pending downloads queued for auto-move.</div>
+                                        <div class="small text-muted" id="downloadsQueueStatus">Loading...</div>
+                                        <pre id="downloadsQueueList" class="mb-0" style="max-height: 200px; overflow: auto;"></pre>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="card mb-3">
+                            <div class="card-body">
+                                <div class="d-flex align-items-center justify-content-between mb-3">
+                                    <div>
+                                        <h5 class="card-title mb-1">Conversion</h5>
+                                        <div class="text-muted small">Convert NSP/XCI to NSZ using your configured tool.</div>
+                                    </div>
+                                </div>
+                                <div class="vstack gap-3">
+                                    <div class="border rounded p-3">
+                                        <label for="convertSingleSelect" class="form-label fw-semibold">Manual single-file conversion</label>
+                                        <div class="input-group">
+                                            <select class="form-select" id="convertSingleSelect">
+                                                <option value="">Loading files...</option>
+                                            </select>
+                                            <button class="btn btn-outline-secondary" type="button" id="refreshConvertiblesBtn"
+                                                onClick="loadConvertibleFiles()">Refresh</button>
+                                            <button class="btn btn-outline-warning" type="button" id="convertSingleBtn"
+                                                onClick="convertSingleFile()">Convert selected</button>
+                                        </div>
+                                        <div class="form-text">Only NSP/XCI files are listed.</div>
+                                    </div>
+                                    <div class="border rounded p-3">
+                                        <div class="fw-semibold mb-2">Batch conversion settings</div>
+                                        <div class="d-flex flex-wrap gap-3 align-items-center">
+                                            <div class="input-group" style="max-width: 220px;">
+                                                <span class="input-group-text">Library</span>
+                                                <select class="form-select" id="convertLibrarySelect"></select>
+                                            </div>
+                                            <div class="input-group" style="max-width: 180px;">
+                                                <span class="input-group-text">Threads</span>
+                                                <input type="number" min="1" class="form-control" id="convertThreadsInput" placeholder="Auto">
+                                            </div>
+                                            <div class="input-group" style="max-width: 200px;">
+                                                <span class="input-group-text">Timeout</span>
+                                                <input type="number" min="1" class="form-control" id="convertTimeoutInput" placeholder="sec">
+                                            </div>
+                                            <div class="form-check">
+                                                <input class="form-check-input" type="checkbox" id="convertDeleteOriginal" checked>
+                                                <label class="form-check-label" for="convertDeleteOriginal">Delete original</label>
+                                            </div>
+                                            <div class="form-check">
+                                                <input class="form-check-input" type="checkbox" id="convertDryRun" checked>
+                                                <label class="form-check-label" for="convertDryRun">Dry run</label>
+                                            </div>
+                                            <div class="form-check">
+                                                <input class="form-check-input" type="checkbox" id="convertVerbose">
+                                                <label class="form-check-label" for="convertVerbose">Verbose</label>
+                                            </div>
+                                            <button type="button" id="convertNszBtn" class="btn btn-warning ms-auto"
+                                                onClick='convertToNsz()'>Convert to NSZ</button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-xl-4 col-lg-12">
+                        <div class="card mb-3">
+                            <div class="card-body d-flex flex-column">
+                                <div class="d-flex align-items-center justify-content-between mb-2">
+                                    <h5 class="card-title mb-0">Task output</h5>
+                                    <div class="btn-group">
+                                        <button class="btn btn-outline-secondary btn-sm" type="button" onClick="showManageOutput([])">Clear</button>
+                                        <button class="btn btn-outline-danger btn-sm" type="button" id="cancelJobBtn" onClick="cancelActiveJob()" disabled>Cancel</button>
+                                    </div>
+                                </div>
+                                <div class="mb-2">
+                                    <div class="progress" style="height: 6px;">
+                                        <div id="manageProgressBar" class="progress-bar" role="progressbar" style="width: 0%;"></div>
+                                    </div>
+                                    <div id="manageProgressText" class="text-muted small mt-1"></div>
+                                    <div id="manageFileText" class="text-muted small"></div>
+                                    <div id="manageCompressionText" class="text-muted small"></div>
+                                </div>
+                                <pre id="manageOutput" class="mb-0 flex-grow-1"
+                                    style="max-height: 360px; overflow: auto;"></pre>
+                            </div>
+                        </div>
+                        <div class="card mb-3">
+                            <div class="card-body">
+                                <h5 class="card-title">Recent jobs</h5>
+                                <div id="manageJobHistory" class="small text-muted">No jobs yet.</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    function showManageAlert(message, type = 'info') {
+        const alertBox = $('#manageAlert');
+        alertBox.removeClass('d-none alert-info alert-success alert-warning alert-danger');
+        alertBox.addClass(`alert-${type}`);
+        alertBox.text(message);
+    }
+
+    function organizeLibrary() {
+        $('#organizeLibraryBtn').prop('disabled', true);
+        data = {
+            dry_run: $('#organizeDryRun').is(':checked'),
+            verbose: $('#organizeVerbose').is(':checked')
+        }
+        $.ajax({
+            url: "/api/manage/organize",
+            type: 'POST',
+            data: JSON.stringify(data),
+            contentType: "application/json",
+            success: function (result) {
+                if (result['success']) {
+                    const deletedFolders = result['folders_deleted'] != null ? result['folders_deleted'] : 0;
+                    const failedFolders = result['folders_failed'] != null ? result['folders_failed'] : 0;
+                    const folderNote = deletedFolders || failedFolders
+                        ? ` Deleted ${deletedFolders} empty folders${failedFolders ? ` (${failedFolders} failed)` : ''}.`
+                        : '';
+                    showManageAlert(`Organize complete. Moved ${result['moved']} items. Skipped ${result['skipped']}.${folderNote}`, 'success');
+                    showManageOutput(result['details']);
+                } else {
+                    showManageAlert(`Organize failed: ${result['errors'].join('; ')}`, 'danger');
+                    showManageOutput(result['details']);
+                }
+            },
+            complete: function () {
+                $('#organizeLibraryBtn').prop('disabled', false);
+            }
+        });
+    }
+
+    function scanLibrary() {
+        $('#scanLibraryBtn').prop('disabled', true);
+        $.ajax({
+            url: "/api/library/scan",
+            type: 'POST',
+            data: JSON.stringify({ path: null }),
+            contentType: "application/json",
+            success: function (result) {
+                if (result['success']) {
+                    showManageAlert('Library scan started.', 'success');
+                } else {
+                    showManageAlert('Library scan failed.', 'danger');
+                }
+            },
+            complete: function () {
+                $('#scanLibraryBtn').prop('disabled', false);
+            }
+        });
+    }
+
+    function checkCompletedDownloads() {
+        $('#checkDownloadsBtn').prop('disabled', true);
+        $.ajax({
+            url: "/api/manage/check-downloads",
+            type: 'POST',
+            success: function (result) {
+                if (result['success']) {
+                    showManageAlert(result['message'] || 'Checked completed downloads.', 'success');
+                } else {
+                    showManageAlert(result['message'] || 'Check failed.', 'danger');
+                }
+            },
+            complete: function () {
+                $('#checkDownloadsBtn').prop('disabled', false);
+            }
+        });
+    }
+
+    function loadDownloadsQueue() {
+        $.getJSON("/api/manage/downloads-queue", function (result) {
+            if (!result['success']) {
+                $('#downloadsQueueStatus').text('Failed to load queue.');
+                return;
+            }
+            const state = result['state'] || {};
+            const pending = state['pending'] || [];
+            const running = state['running'] ? 'running' : 'idle';
+            const lastRun = state['last_run'] ? new Date(state['last_run'] * 1000).toLocaleString() : 'never';
+            $('#downloadsQueueStatus').text(`Status: ${running}. Last check: ${lastRun}. Pending: ${pending.length}.`);
+            if (!pending.length) {
+                $('#downloadsQueueList').text('No queued downloads.');
+                return;
+            }
+            const lines = pending.map(item => {
+                const name = item['expected_name'] || item['title_id'] || 'Unknown';
+                const version = item['version'] != null ? `v${item['version']}` : '';
+                return `${name} ${version}`.trim();
+            });
+            $('#downloadsQueueList').text(lines.join('\n'));
+        });
+    }
+
+    function deleteOlderUpdates() {
+        $('#deleteUpdatesBtn').prop('disabled', true);
+        data = {
+            dry_run: $('#deleteUpdatesDryRun').is(':checked'),
+            verbose: $('#deleteUpdatesVerbose').is(':checked')
+        }
+        $.ajax({
+            url: "/api/manage/delete-updates",
+            type: 'POST',
+            data: JSON.stringify(data),
+            contentType: "application/json",
+            success: function (result) {
+                if (result['success']) {
+                    showManageAlert(`Delete updates complete. Deleted ${result['deleted']} files. Skipped ${result['skipped']}.`, 'success');
+                    showManageOutput(result['details']);
+                } else {
+                    showManageAlert(`Delete updates failed: ${result['errors'].join('; ')}`, 'danger');
+                    showManageOutput(result['details']);
+                }
+            },
+            complete: function () {
+                $('#deleteUpdatesBtn').prop('disabled', false);
+            }
+        });
+    }
+
+    function convertToNsz() {
+        $('#convertNszBtn').prop('disabled', true);
+        data = {
+            dry_run: $('#convertDryRun').is(':checked'),
+            delete_original: $('#convertDeleteOriginal').is(':checked'),
+            verbose: $('#convertVerbose').is(':checked'),
+            threads: getThreadsValue(),
+            library_id: getLibraryValue(),
+            timeout_seconds: getTimeoutValue()
+        }
+        $.ajax({
+            url: "/api/manage/convert-job",
+            type: 'POST',
+            data: JSON.stringify(data),
+            contentType: "application/json",
+            success: function (result) {
+                if (result['success']) {
+                    showVerboseOutput = $('#convertVerbose').is(':checked');
+                    startJobPolling(result['job_id'], 'Bulk conversion started...');
+                } else {
+                    showManageAlert(`Conversion failed: ${result['errors'].join('; ')}`, 'danger');
+                }
+            },
+            complete: function () {
+                $('#convertNszBtn').prop('disabled', false);
+            }
+        });
+    }
+
+    function loadConvertibleFiles() {
+        $('#convertSingleSelect').prop('disabled', true);
+        $('#convertSingleSelect').empty().append('<option value="">Loading files...</option>');
+        const libraryValue = getLibraryValue();
+        const url = libraryValue ? `/api/manage/convertibles?library_id=${libraryValue}` : "/api/manage/convertibles";
+        $.getJSON(url, function (result) {
+            if (!result['success']) {
+                $('#convertSingleSelect').empty().append('<option value="">Failed to load files</option>');
+                return;
+            }
+            const files = result['files'] || [];
+            if (!files.length) {
+                $('#convertSingleSelect').empty().append('<option value="">No NSP/XCI files found</option>');
+                return;
+            }
+            $('#convertSingleSelect').empty().append('<option value="">Select a file</option>');
+            files.forEach(file => {
+                const sizeLabel = formatFileSize(file.size || 0);
+                const label = `${file.filename} (${file.extension}) - ${sizeLabel}`;
+                $('#convertSingleSelect').append(`<option value="${file.id}">${label}</option>`);
+            });
+        }).always(function () {
+            $('#convertSingleSelect').prop('disabled', false);
+        });
+    }
+
+    function convertSingleFile() {
+        const fileId = $('#convertSingleSelect').val();
+        if (!fileId) {
+            showManageAlert('Select a file to convert.', 'warning');
+            return;
+        }
+        $('#convertSingleBtn').prop('disabled', true);
+        const selectedLabel = $('#convertSingleSelect option:selected').text();
+        data = {
+            file_id: fileId,
+            dry_run: $('#convertDryRun').is(':checked'),
+            delete_original: $('#convertDeleteOriginal').is(':checked'),
+            verbose: $('#convertVerbose').is(':checked'),
+            threads: getThreadsValue(),
+            timeout_seconds: getTimeoutValue()
+        }
+        $.ajax({
+            url: "/api/manage/convert-single-job",
+            type: 'POST',
+            data: JSON.stringify(data),
+            contentType: "application/json",
+            success: function (result) {
+                if (result['success']) {
+                    showVerboseOutput = $('#convertVerbose').is(':checked');
+                    startJobPolling(result['job_id'], `Single conversion started for ${selectedLabel}`);
+                } else {
+                    showManageAlert(`Single conversion failed: ${result['errors'].join('; ')}`, 'danger');
+                }
+            },
+            complete: function () {
+                $('#convertSingleBtn').prop('disabled', false);
+            }
+        });
+    }
+
+    function showManageOutput(details) {
+        if (!details || !details.length) {
+            $('#manageOutput').text('');
+            return;
+        }
+        $('#manageOutput').text(details.join('\n'));
+    }
+
+    function formatFileSize(bytes) {
+        const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+        let size = bytes;
+        let unitIndex = 0;
+        while (size >= 1024 && unitIndex < units.length - 1) {
+            size /= 1024;
+            unitIndex += 1;
+        }
+        return `${size.toFixed(size >= 10 ? 0 : 1)} ${units[unitIndex]}`;
+    }
+
+    let activeJobId = null;
+    let jobPollTimer = null;
+    let lastLogCount = 0;
+    let showVerboseOutput = false;
+    function getThreadsValue() {
+        const val = $('#convertThreadsInput').val();
+        return val ? parseInt(val, 10) : null;
+    }
+
+    function getTimeoutValue() {
+        const val = $('#convertTimeoutInput').val();
+        return val ? parseInt(val, 10) : null;
+    }
+
+    function getLibraryValue() {
+        const val = $('#convertLibrarySelect').val();
+        return val ? parseInt(val, 10) : null;
+    }
+
+    function startJobPolling(jobId, startMessage, resetOutput = true) {
+        activeJobId = jobId;
+        showManageAlert(startMessage, 'info');
+        lastLogCount = 0;
+        localStorage.setItem('ownfoilJobPolling', 'true');
+        if (showVerboseOutput && resetOutput) {
+            showManageOutput([startMessage]);
+        } else if (resetOutput) {
+            $('#manageOutput').text('');
+        }
+        updateProgressDisplay(0, 0, 0, '');
+        $('#cancelJobBtn').prop('disabled', false);
+        if (jobPollTimer) {
+            clearInterval(jobPollTimer);
+        }
+        jobPollTimer = setInterval(fetchJobStatus, 1000);
+    }
+
+    function resumeActiveJob(job) {
+        if (!job || job['status'] !== 'running') {
+            return;
+        }
+        showVerboseOutput = $('#convertVerbose').is(':checked');
+        activeJobId = job['id'];
+        lastLogCount = 0;
+        localStorage.setItem('ownfoilJobPolling', 'true');
+        const progress = job['progress'] || {};
+        updateProgressDisplay(
+            progress['done'] || 0,
+            progress['total'] || 0,
+            progress['percent'] || 0,
+            progress['message'] || '',
+            progress['file'] || ''
+        );
+        if (showVerboseOutput) {
+            const logs = job['logs'] || [];
+            if (logs.length) {
+                showManageOutput(logs);
+                lastLogCount = logs.length;
+            }
+        }
+        if (jobPollTimer) {
+            clearInterval(jobPollTimer);
+        }
+        jobPollTimer = setInterval(fetchJobStatus, 1000);
+        $('#cancelJobBtn').prop('disabled', false);
+    }
+
+    function fetchJobStatus() {
+        if (!activeJobId) {
+            return;
+        }
+        $.getJSON(`/api/manage/convert-job/${activeJobId}`, function (result) {
+            if (!result['success']) {
+                showManageAlert('Failed to fetch job status.', 'danger');
+                clearInterval(jobPollTimer);
+                jobPollTimer = null;
+                return;
+            }
+            const job = result['job'];
+            const progress = job['progress'] || {};
+            const done = progress['done'] || 0;
+            const total = progress['total'] || 0;
+            const percent = progress['percent'] || 0;
+            const file = progress['file'] || '';
+            const message = progress['message'] || '';
+            updateProgressDisplay(done, total, percent, message, file);
+            if (message && job['status'] === 'running') {
+                showManageAlert(message, 'info');
+            }
+            if (showVerboseOutput) {
+                const logs = job['logs'] || [];
+                if (logs.length > lastLogCount) {
+                    showManageOutput(logs);
+                    lastLogCount = logs.length;
+                }
+            }
+            if (job['status'] !== 'running') {
+                clearInterval(jobPollTimer);
+                jobPollTimer = null;
+                $('#cancelJobBtn').prop('disabled', true);
+                localStorage.removeItem('ownfoilJobPolling');
+                if (job['status'] === 'success') {
+                    showManageAlert('Conversion complete.', 'success');
+                } else {
+                    showManageAlert(`Conversion failed: ${job['errors'].join('; ')}`, 'danger');
+                }
+                loadConvertibleFiles();
+                loadJobHistory();
+            }
+        });
+    }
+
+    function updateProgressDisplay(done, total, percent, message, file) {
+        const progressPercent = total ? Math.round((done / total) * 100) : 0;
+        $('#manageProgressBar').css('width', `${progressPercent}%`);
+        $('#manageProgressText').text(`Progress: ${done}/${total} (${progressPercent}%)`);
+        if (file) {
+            $('#manageFileText').text(`File: ${file}`);
+        } else {
+            $('#manageFileText').text('');
+        }
+        if (percent) {
+            $('#manageCompressionText').text(`Converter progress: ${percent.toFixed(0)}%`);
+        } else {
+            $('#manageCompressionText').text('');
+        }
+        if (message) {
+            // Status is surfaced via the alert; avoid dumping raw converter output.
+        }
+    }
+
+    function cancelActiveJob() {
+        if (!activeJobId) {
+            return;
+        }
+        $.ajax({
+            url: `/api/manage/convert-job/${activeJobId}/cancel`,
+            type: 'POST',
+            success: function (result) {
+                if (result['success']) {
+                    showManageAlert('Job cancelled.', 'warning');
+                    $('#cancelJobBtn').prop('disabled', true);
+                    localStorage.removeItem('ownfoilJobPolling');
+                }
+            }
+        });
+    }
+
+    function loadJobHistory() {
+        $.getJSON("/api/manage/jobs?limit=10", function (result) {
+            if (!result['success']) {
+                return;
+            }
+            const jobs = result['jobs'] || [];
+            if (!jobs.length) {
+                $('#manageJobHistory').text('No jobs yet.');
+                return;
+            }
+            const lines = jobs.map(job => {
+                const status = job['status'];
+                const summary = job['summary'] || {};
+                const converted = summary['converted'] || 0;
+                const skipped = summary['skipped'] || 0;
+                return `${new Date(job['created_at'] * 1000).toLocaleString()} - ${status} (converted ${converted}, skipped ${skipped})`;
+            });
+            $('#manageJobHistory').text(lines.join('\n'));
+        });
+    }
+
+    let jobHistoryTimer = null;
+    function startJobHistoryPolling() {
+        if (jobHistoryTimer) {
+            return;
+        }
+        jobHistoryTimer = setInterval(loadJobHistory, 5000);
+    }
+
+    function stopJobHistoryPolling() {
+        if (jobHistoryTimer) {
+            clearInterval(jobHistoryTimer);
+            jobHistoryTimer = null;
+        }
+    }
+
+    function loadHealthStatus() {
+        $.getJSON("/api/manage/health", function (result) {
+            if (!result['success']) {
+                return;
+            }
+            const keysOk = result['keys_present'];
+            const nszOk = !!result['nsz_exe'];
+            let badgeClass = 'text-bg-success';
+            let text = 'Converter ready';
+            if (!keysOk || !nszOk) {
+                badgeClass = 'text-bg-warning';
+                text = 'Converter needs attention';
+            }
+            $('#manageHealthBadge').removeClass('text-bg-success text-bg-warning text-bg-secondary').addClass(badgeClass).text(text);
+        });
+    }
+
+    function loadLibraries() {
+        $.getJSON("/api/manage/libraries", function (result) {
+            if (!result['success']) {
+                return;
+            }
+            const libraries = result['libraries'] || [];
+            const select = $('#convertLibrarySelect');
+            select.empty().append('<option value="">All libraries</option>');
+            libraries.forEach(lib => {
+                select.append(`<option value="${lib.id}">${lib.path}</option>`);
+            });
+        });
+    }
+
+    $(document).ready(function () {
+        loadLibraries();
+        loadConvertibleFiles();
+        loadJobHistory();
+        loadHealthStatus();
+        loadDownloadsQueue();
+        startJobHistoryPolling();
+        setInterval(loadDownloadsQueue, 5000);
+        $('#convertLibrarySelect').on('change', loadConvertibleFiles);
+        $('#convertVerbose').on('change', function () {
+            showVerboseOutput = $(this).is(':checked');
+            if (showVerboseOutput && activeJobId) {
+                $.getJSON(`/api/manage/convert-job/${activeJobId}`, function (result) {
+                    if (!result['success']) {
+                        return;
+                    }
+                    const job = result['job'];
+                    const logs = job['logs'] || [];
+                    if (logs.length) {
+                        showManageOutput(logs);
+                        lastLogCount = logs.length;
+                    }
+                });
+            } else if (!showVerboseOutput) {
+                $('#manageOutput').text('');
+            }
+        });
+        $.getJSON("/api/manage/jobs?limit=1", function (result) {
+            if (!result['success']) {
+                return;
+            }
+            const jobs = result['jobs'] || [];
+            const job = jobs.length ? jobs[0] : null;
+            if (job && job['status'] === 'running' && (job['kind'] || '').startsWith('convert')) {
+                resumeActiveJob(job);
+            }
+        });
+        document.addEventListener('visibilitychange', function () {
+            if (document.hidden) {
+                stopJobHistoryPolling();
+            } else {
+                loadJobHistory();
+                startJobHistoryPolling();
+            }
+        });
+    });
+</script>
+
+{% endblock %}

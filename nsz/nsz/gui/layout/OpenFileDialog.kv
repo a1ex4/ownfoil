@@ -1,0 +1,51 @@
+<OpenFileDialog>:
+	BoxLayout:
+		size: root.size
+		pos: root.pos
+		orientation: "vertical"
+		drives_list: drives_list
+		
+		BoxLayout:
+			size_hint_y: None
+			height: 30
+			id: drives_list
+		
+		BoxLayout:
+			orientation: 'horizontal'
+			size_hint_y: None
+			height: 30
+			Button:
+				id: iconViewBtn
+				text: 'Icon View'
+				background_down: 'atlas://data/images/defaulttheme/button'
+				on_press:
+					filechooser.view_mode = 'icon'
+					iconViewBtn.background_color = [1.4, 1.4, 1.4, 1]
+					listViewBtn.background_color = [1, 1, 1, 1]
+				background_color: [1.4, 1.4, 1.4, 1]
+			Button:
+				id: listViewBtn
+				text: 'List View'
+				background_down: 'atlas://data/images/defaulttheme/button'
+				on_press:
+					filechooser.view_mode = 'list'
+					iconViewBtn.background_color = [1, 1, 1, 1]
+					listViewBtn.background_color = [1.4, 1.4, 1.4, 1]
+				background_color: [1, 1, 1, 1]
+		FileChooser:
+			id: filechooser
+			dirselect: True
+			multiselect: True
+			FileChooserIconLayout
+			FileChooserListLayout
+
+		BoxLayout:
+			size_hint_y: None
+			height: 30
+			Button:
+				text: "Cancel"
+				on_release: root.cancel()
+
+			Button:
+				text: "Load"
+				on_release: root.load(filechooser.path, filechooser.selection)

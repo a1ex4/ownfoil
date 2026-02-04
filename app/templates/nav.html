@@ -10,28 +10,73 @@
                 <li class="nav-item">
                     <a class="nav-link{% if title == 'Library' %} active" aria-current="page"{% else %}"{% endif %} href="/">Library</a>
                 </li>
+                {% if current_user.is_authenticated %}
+                <li class="nav-item">
+                    <a class="nav-link{% if title == 'Requests' %} active" aria-current="page"{% else %}"{% endif %}" href="/requests">
+                        {% if current_user.is_admin or admin_account_created == false %}
+                        Requests <span class="badge rounded-pill text-bg-warning ms-2 d-none" id="requestsNavBadge"></span>
+                        {% else %}
+                        Request
+                        {% endif %}
+                    </a>
+                </li>
+                {% endif %}
                 {% if current_user.is_admin or admin_account_created == false %}
                 <li class="nav-item">
                     <a class="nav-link{% if title == 'Settings' %} active" aria-current="page"{% else %}"{% endif %}" href="/settings">Settings</a>
                 </li>
                 {% endif %}
+                {% if current_user.is_admin or admin_account_created == false %}
                 <li class="nav-item">
-                    <a class="nav-link{% if title == 'Setup' %} active" aria-current="page"{% else %}"{% endif %}" href="#">Setup</a>
+                    <a class="nav-link{% if title == 'Users' %} active" aria-current="page"{% else %}"{% endif %}" href="/users">Users</a>
                 </li>
-            </ul>
-            {% if current_user.is_authenticated %}
-            <ul class="navbar-nav ms-auto">
+                {% endif %}
+                {% if current_user.is_admin or admin_account_created == false %}
                 <li class="nav-item">
-                    <a class="btn btn-outline-secondary me-2" href="/logout" role="button">Logout</a>
+                    <a class="nav-link{% if title == 'Manage' %} active" aria-current="page"{% else %}"{% endif %}" href="/manage">Manage</a>
                 </li>
-            </ul>
-            {% else %}
-            <ul class="navbar-nav ms-auto">
+                {% endif %}
+                {% if current_user.is_admin or admin_account_created == false %}
                 <li class="nav-item">
-                    <a class="btn btn-outline-secondary me-2" href="/login" role="button">Login</a>
+                    <a class="nav-link{% if title == 'Upload' %} active" aria-current="page"{% else %}"{% endif %}" href="/upload">Upload</a>
                 </li>
+                {% endif %}
+                {% if current_user.is_admin or admin_account_created == false %}
+                <li class="nav-item">
+                    <a class="nav-link{% if title == 'Activity' %} active" aria-current="page"{% else %}"{% endif %}" href="/activity">Activity</a>
+                </li>
+                {% endif %}
             </ul>
+            <div class="mx-auto d-flex align-items-center gap-3">
+                <div class="text-muted small d-none" id="librarySizeLabel">Library size: ...</div>
+                <div class="small text-muted d-flex align-items-center gap-2" id="libraryRebuildLabel">
+                    <span class="spinner-border spinner-border-sm text-warning d-none" id="libraryRebuildSpinner" role="status" aria-hidden="true"></span>
+                    <span id="libraryRebuildText">Library: Ready</span>
+                </div>
+            </div>
+            {% if identification_disabled %}
+            <div class="alert alert-warning py-1 px-2 mb-0 small" role="alert">
+                Keys are not loaded. Library identification is paused until a valid keys.txt is uploaded.
+            </div>
             {% endif %}
+            <div class="ms-auto d-flex align-items-center gap-3">
+                {% if current_user.is_admin or admin_account_created == false %}
+                <a id="globalJobStatus" class="navbar-text small text-warning d-none text-decoration-none" href="/manage"></a>
+                {% endif %}
+                {% if current_user.is_authenticated %}
+                <ul class="navbar-nav">
+                    <li class="nav-item">
+                        <a class="btn btn-outline-secondary me-2" href="/logout" role="button">Logout</a>
+                    </li>
+                </ul>
+                {% else %}
+                <ul class="navbar-nav">
+                    <li class="nav-item">
+                        <a class="btn btn-outline-secondary me-2" href="/login" role="button">Login</a>
+                    </li>
+                </ul>
+                {% endif %}
+            </div>
         </div>
     </div>
 </nav>

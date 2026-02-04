@@ -1,0 +1,27 @@
+services:
+  ownfoil:
+    container_name: ownfoil-dev
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    environment:
+      # For write permission in config directory
+      - PUID=1000
+      - PGID=1000
+      # Log level: DEBUG, INFO, WARNING, ERROR, CRITICAL (default: INFO)
+      - LOG_LEVEL=DEBUG
+      # to create/update an admin user at startup
+      - USER_ADMIN_NAME=admin
+      - USER_ADMIN_PASSWORD=admin
+      # to create/update a regular user at startup
+      # - USER_GUEST_NAME=guest
+      # - USER_GUEST_PASSWORD=oerze!@8981
+    volumes:
+      - /your/game/directory:/games
+      - ./config:/app/config
+      - ./data:/app/data
+      # Mount source code for live development
+      - ./app:/app
+      - ./nsz:/nsz
+    ports:
+      - "8465:8465"

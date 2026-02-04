@@ -19,11 +19,141 @@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
 
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link rel="icon" href="{{ url_for('static', filename='favicon.svg') }}" type="image/svg+xml">
 </head>
 
 <body>
     {% block content %}
     {% endblock %}
+    <script>
+        (function () {
+            const statusEl = document.getElementById('globalJobStatus');
+            if (!statusEl) {
+                return;
+            }
+            if (localStorage.getItem('ownfoilJobPolling') !== 'true') {
+                return;
+            }
+
+            function formatJobStatus(job) {
+                const progress = job['progress'] || {};
+                const message = progress['message'] || '';
+                const done = progress['done'] || 0;
+                const total = progress['total'] || 0;
+                const percent = progress['percent'] || 0;
+                const file = progress['file'] || '';
+                const parts = [];
+                if (message) {
+                    parts.push(message);
+                } else if (total) {
+                    parts.push(`Conversion: ${done}/${total}`);
+                } else {
+                    parts.push('Conversion running');
+                }
+                if (file) {
+                    parts.push(file);
+                }
+                if (percent) {
+                    parts.push(`${Math.round(percent)}%`);
+                }
+                return parts.join(' \u2022 ');
+            }
+
+            function pollStatus() {
+                $.getJSON("/api/manage/jobs?limit=1", function (result) {
+                    if (!result['success']) {
+                        return;
+                    }
+                    const jobs = result['jobs'] || [];
+                    const job = jobs.length ? jobs[0] : null;
+                    if (job && job['status'] === 'running' && (job['kind'] || '').startsWith('convert')) {
+                        statusEl.textContent = formatJobStatus(job);
+                        statusEl.classList.remove('d-none');
+                    } else {
+                        statusEl.classList.add('d-none');
+                        localStorage.removeItem('ownfoilJobPolling');
+                    }
+                });
+            }
+
+            pollStatus();
+            setInterval(pollStatus, 2000);
+        })();
+    </script>
+    <script>
+        (function () {
+            const badgeEl = document.getElementById('requestsNavBadge');
+            if (!badgeEl) {
+                return;
+            }
+
+            function setBadge(count) {
+                const n = Number(count || 0);
+                if (!Number.isFinite(n) || n <= 0) {
+                    badgeEl.textContent = '';
+                    badgeEl.classList.add('d-none');
+                    return;
+                }
+                badgeEl.textContent = String(n > 99 ? '99+' : n);
+                badgeEl.classList.remove('d-none');
+            }
+
+            function pollRequestsBadge() {
+                $.getJSON('/api/requests/unseen-count', function (result) {
+                    if (!result || result['success'] !== true) {
+                        setBadge(0);
+                        return;
+                    }
+                    setBadge(result['count'] || 0);
+                }).fail(function () {
+                    setBadge(0);
+                });
+            }
+
+            pollRequestsBadge();
+            setInterval(pollRequestsBadge, 15000);
+        })();
+    </script>
+    <script>
+        (function () {
+            const rebuildEl = document.getElementById('libraryRebuildLabel');
+            const rebuildTextEl = document.getElementById('libraryRebuildText');
+            const rebuildSpinnerEl = document.getElementById('libraryRebuildSpinner');
+            if (!rebuildEl || !rebuildTextEl || !rebuildSpinnerEl) {
+                return;
+            }
+
+            function pollLibraryStatus() {
+                $.getJSON("/api/library/status", function (result) {
+                    if (!result || result['success'] !== true) {
+                        return;
+                    }
+                    const status = result['status'] || {};
+                    const titledbUpdating = !!status['titledb_updating'];
+                    const scanActive = !!status['scan_in_progress'];
+                    const rebuildActive = !!status['in_progress'];
+
+                    rebuildEl.classList.remove('d-none');
+                    if (titledbUpdating) {
+                        rebuildTextEl.textContent = 'Library: Updating TitleDB';
+                        rebuildSpinnerEl.classList.remove('d-none');
+                    } else if (scanActive) {
+                        rebuildTextEl.textContent = 'Library: Scanning';
+                        rebuildSpinnerEl.classList.remove('d-none');
+                    } else if (rebuildActive) {
+                        rebuildTextEl.textContent = 'Library: Rebuilding';
+                        rebuildSpinnerEl.classList.remove('d-none');
+                    } else {
+                        rebuildTextEl.textContent = 'Library: Ready';
+                        rebuildSpinnerEl.classList.add('d-none');
+                    }
+                });
+            }
+
+            pollLibraryStatus();
+            setInterval(pollLibraryStatus, 4000);
+        })();
+    </script>
 </body>
 
 </html>
