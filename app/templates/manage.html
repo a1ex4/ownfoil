@@ -2,159 +2,190 @@
 {% block content %}
 {% include 'nav.html' %}
 
-<div class="container-fluid mt-3">
-    <div class="row g-3">
-        <div class="col-xl-8 col-lg-12">
-            <div class="d-flex align-items-center justify-content-between mb-2">
-                <h2 class="mb-0">Manage</h2>
-                <span class="text-muted small">Library maintenance actions</span>
-            </div>
-
-            <div id="manageAlert" class="alert alert-info d-none mb-3" role="alert"></div>
-
-            <div class="card mb-3">
-                <div class="card-body">
-                    <h5 class="card-title">Library organization</h5>
-                    <p class="card-text mb-3">Rename and organize identified content into structured folders.</p>
-                    <div class="d-flex flex-wrap gap-3 align-items-center">
-                        <div class="form-check">
-                            <input class="form-check-input" type="checkbox" id="organizeDryRun" checked>
-                            <label class="form-check-label" for="organizeDryRun">Dry run</label>
-                        </div>
-                        <div class="form-check">
-                            <input class="form-check-input" type="checkbox" id="organizeVerbose">
-                            <label class="form-check-label" for="organizeVerbose">Verbose</label>
-                        </div>
-                        <button type="button" id="organizeLibraryBtn" class="btn btn-primary ms-auto"
-                            onClick='organizeLibrary()'>Organize library</button>
+<div class="container-fluid setting-body">
+    <div class="row">
+        <div class="col">
+            <div class="settings-container container mt-3">
+                <div class="d-flex flex-column flex-lg-row justify-content-between gap-2 align-items-lg-center mb-2">
+                    <div>
+                        <h2 class="pb-2">Manage</h2>
+                        <p class="text-muted mb-0">Library maintenance actions and converter jobs.</p>
                     </div>
-                </div>
-            </div>
-            <div class="card mb-3">
-                <div class="card-body">
-                    <h5 class="card-title">Library scan</h5>
-                    <p class="card-text mb-3">Scan configured libraries for new files.</p>
-                    <div class="d-flex flex-wrap gap-3 align-items-center">
-                        <button type="button" id="scanLibraryBtn" class="btn btn-outline-primary ms-auto"
-                            onClick='scanLibrary()'>Scan library</button>
-                    </div>
-                </div>
-            </div>
-            <div class="card mb-3">
-                <div class="card-body">
-                    <h5 class="card-title">Completed downloads</h5>
-                    <p class="card-text mb-3">Move and organize completed torrents without enabling downloads.</p>
-                    <div class="d-flex flex-wrap gap-3 align-items-center">
-                        <button type="button" id="checkDownloadsBtn" class="btn btn-outline-primary ms-auto"
-                            onClick='checkCompletedDownloads()'>Check completed downloads</button>
-                    </div>
-                </div>
-            </div>
-            <div class="card mb-3">
-                <div class="card-body">
-                    <h5 class="card-title">Download queue</h5>
-                    <p class="card-text mb-3">Pending downloads queued for auto-move.</p>
-                    <div class="small text-muted" id="downloadsQueueStatus">Loading...</div>
-                    <pre id="downloadsQueueList" class="mb-0" style="max-height: 200px; overflow: auto;"></pre>
-                </div>
-            </div>
-
-            <div class="card mb-3">
-                <div class="card-body">
-                    <h5 class="card-title">Delete older updates</h5>
-                    <p class="card-text mb-3">Keep the latest owned update per title and remove older update files.</p>
-                    <div class="d-flex flex-wrap gap-3 align-items-center">
-                        <div class="form-check">
-                            <input class="form-check-input" type="checkbox" id="deleteUpdatesDryRun" checked>
-                            <label class="form-check-label" for="deleteUpdatesDryRun">Dry run</label>
-                        </div>
-                        <div class="form-check">
-                            <input class="form-check-input" type="checkbox" id="deleteUpdatesVerbose">
-                            <label class="form-check-label" for="deleteUpdatesVerbose">Verbose</label>
-                        </div>
-                        <button type="button" id="deleteUpdatesBtn" class="btn btn-danger ms-auto"
-                            onClick='deleteOlderUpdates()'>Delete older updates</button>
-                    </div>
-                </div>
-            </div>
-
-            <div class="card mb-3">
-                <div class="card-body">
-                    <h5 class="card-title">Convert NSP/XCI to NSZ</h5>
-                    <p class="card-text mb-3">Automatically convert NSP/XCI files to NSZ using a configured tool.</p>
-                    <div class="mb-3">
-                        <label for="convertSingleSelect" class="form-label">Manual single-file conversion</label>
-                        <div class="input-group">
-                            <select class="form-select" id="convertSingleSelect">
-                                <option value="">Loading files...</option>
-                            </select>
-                            <button class="btn btn-outline-secondary" type="button" id="refreshConvertiblesBtn"
-                                onClick="loadConvertibleFiles()">Refresh</button>
-                            <button class="btn btn-outline-warning" type="button" id="convertSingleBtn"
-                                onClick="convertSingleFile()">Convert selected</button>
-                        </div>
-                        <div class="form-text">Only NSP/XCI files are listed.</div>
-                    </div>
-                    <div class="d-flex flex-wrap gap-3 align-items-center">
-                        <div class="input-group" style="max-width: 220px;">
-                            <span class="input-group-text">Library</span>
-                            <select class="form-select" id="convertLibrarySelect"></select>
-                        </div>
-                        <div class="input-group" style="max-width: 180px;">
-                            <span class="input-group-text">Threads</span>
-                            <input type="number" min="1" class="form-control" id="convertThreadsInput" placeholder="Auto">
-                        </div>
-                        <div class="input-group" style="max-width: 200px;">
-                            <span class="input-group-text">Timeout</span>
-                            <input type="number" min="1" class="form-control" id="convertTimeoutInput" placeholder="sec">
-                        </div>
-                        <div class="form-check">
-                            <input class="form-check-input" type="checkbox" id="convertDeleteOriginal" checked>
-                            <label class="form-check-label" for="convertDeleteOriginal">Delete original</label>
-                        </div>
-                        <div class="form-check">
-                            <input class="form-check-input" type="checkbox" id="convertDryRun" checked>
-                            <label class="form-check-label" for="convertDryRun">Dry run</label>
-                        </div>
-                        <div class="form-check">
-                            <input class="form-check-input" type="checkbox" id="convertVerbose">
-                            <label class="form-check-label" for="convertVerbose">Verbose</label>
-                        </div>
-                        <button type="button" id="convertNszBtn" class="btn btn-warning ms-auto"
-                            onClick='convertToNsz()'>Convert to NSZ</button>
-                    </div>
-                </div>
-            </div>
-        </div>
-        <div class="col-xl-4 col-lg-12">
-            <div class="card mb-3 h-100">
-                <div class="card-body d-flex flex-column">
-                    <div class="d-flex align-items-center justify-content-between mb-2">
-                        <h5 class="card-title mb-0">Task output</h5>
-                        <div class="btn-group">
-                            <button class="btn btn-outline-secondary btn-sm" type="button" onClick="showManageOutput([])">Clear</button>
-                            <button class="btn btn-outline-danger btn-sm" type="button" id="cancelJobBtn" onClick="cancelActiveJob()" disabled>Cancel</button>
-                        </div>
-                    </div>
-                    <div class="mb-2">
-                        <div class="progress" style="height: 6px;">
-                            <div id="manageProgressBar" class="progress-bar" role="progressbar" style="width: 0%;"></div>
-                        </div>
-                        <div id="manageProgressText" class="text-muted small mt-1"></div>
-                        <div id="manageFileText" class="text-muted small"></div>
-                        <div id="manageCompressionText" class="text-muted small"></div>
-                    </div>
-                    <div class="mb-2">
+                    <div class="d-flex align-items-center gap-2">
                         <span class="badge text-bg-secondary" id="manageHealthBadge">Checking converter...</span>
                     </div>
-                    <pre id="manageOutput" class="mb-0 flex-grow-1"
-                        style="max-height: 540px; overflow: auto;"></pre>
                 </div>
-            </div>
-            <div class="card mb-3">
-                <div class="card-body">
-                    <h5 class="card-title">Recent jobs</h5>
-                    <div id="manageJobHistory" class="small text-muted">No jobs yet.</div>
+
+                <div id="manageAlert" class="alert alert-info d-none mb-3" role="alert"></div>
+
+                <div class="row g-3">
+                    <div class="col-xl-8 col-lg-12">
+                        <div class="card mb-3">
+                            <div class="card-body">
+                                <div class="d-flex align-items-center justify-content-between mb-3">
+                                    <div>
+                                        <h5 class="card-title mb-1">Maintenance</h5>
+                                        <div class="text-muted small">Organize and clean up your libraries.</div>
+                                    </div>
+                                </div>
+                                <div class="vstack gap-3">
+                                    <div class="border rounded p-3">
+                                        <div class="fw-semibold">Library organization</div>
+                                        <div class="text-muted small mb-2">Rename and organize identified content into structured folders.</div>
+                                        <div class="d-flex flex-wrap gap-3 align-items-center">
+                                            <div class="form-check">
+                                                <input class="form-check-input" type="checkbox" id="organizeDryRun" checked>
+                                                <label class="form-check-label" for="organizeDryRun">Dry run</label>
+                                            </div>
+                                            <div class="form-check">
+                                                <input class="form-check-input" type="checkbox" id="organizeVerbose">
+                                                <label class="form-check-label" for="organizeVerbose">Verbose</label>
+                                            </div>
+                                            <button type="button" id="organizeLibraryBtn" class="btn btn-primary ms-auto"
+                                                onClick='organizeLibrary()'>Organize library</button>
+                                        </div>
+                                    </div>
+                                    <div class="border rounded p-3">
+                                        <div class="fw-semibold">Library scan</div>
+                                        <div class="text-muted small mb-2">Scan configured libraries for new files.</div>
+                                        <div class="d-flex flex-wrap gap-3 align-items-center">
+                                            <button type="button" id="scanLibraryBtn" class="btn btn-outline-primary ms-auto"
+                                                onClick='scanLibrary()'>Scan library</button>
+                                        </div>
+                                    </div>
+                                    <div class="border rounded p-3">
+                                        <div class="fw-semibold">Delete older updates</div>
+                                        <div class="text-muted small mb-2">Keep the latest owned update per title and remove older update files.</div>
+                                        <div class="d-flex flex-wrap gap-3 align-items-center">
+                                            <div class="form-check">
+                                                <input class="form-check-input" type="checkbox" id="deleteUpdatesDryRun" checked>
+                                                <label class="form-check-label" for="deleteUpdatesDryRun">Dry run</label>
+                                            </div>
+                                            <div class="form-check">
+                                                <input class="form-check-input" type="checkbox" id="deleteUpdatesVerbose">
+                                                <label class="form-check-label" for="deleteUpdatesVerbose">Verbose</label>
+                                            </div>
+                                            <button type="button" id="deleteUpdatesBtn" class="btn btn-danger ms-auto"
+                                                onClick='deleteOlderUpdates()'>Delete older updates</button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="card mb-3">
+                            <div class="card-body">
+                                <div class="d-flex align-items-center justify-content-between mb-3">
+                                    <div>
+                                        <h5 class="card-title mb-1">Downloads</h5>
+                                        <div class="text-muted small">Keep transfers organized without enabling downloads.</div>
+                                    </div>
+                                </div>
+                                <div class="vstack gap-3">
+                                    <div class="border rounded p-3">
+                                        <div class="fw-semibold">Completed downloads</div>
+                                        <div class="text-muted small mb-2">Move and organize completed torrents without enabling downloads.</div>
+                                        <div class="d-flex flex-wrap gap-3 align-items-center">
+                                            <button type="button" id="checkDownloadsBtn" class="btn btn-outline-primary ms-auto"
+                                                onClick='checkCompletedDownloads()'>Check completed downloads</button>
+                                        </div>
+                                    </div>
+                                    <div class="border rounded p-3">
+                                        <div class="fw-semibold">Download queue</div>
+                                        <div class="text-muted small mb-2">Pending downloads queued for auto-move.</div>
+                                        <div class="small text-muted" id="downloadsQueueStatus">Loading...</div>
+                                        <pre id="downloadsQueueList" class="mb-0" style="max-height: 200px; overflow: auto;"></pre>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="card mb-3">
+                            <div class="card-body">
+                                <div class="d-flex align-items-center justify-content-between mb-3">
+                                    <div>
+                                        <h5 class="card-title mb-1">Conversion</h5>
+                                        <div class="text-muted small">Convert NSP/XCI to NSZ using your configured tool.</div>
+                                    </div>
+                                </div>
+                                <div class="vstack gap-3">
+                                    <div class="border rounded p-3">
+                                        <label for="convertSingleSelect" class="form-label fw-semibold">Manual single-file conversion</label>
+                                        <div class="input-group">
+                                            <select class="form-select" id="convertSingleSelect">
+                                                <option value="">Loading files...</option>
+                                            </select>
+                                            <button class="btn btn-outline-secondary" type="button" id="refreshConvertiblesBtn"
+                                                onClick="loadConvertibleFiles()">Refresh</button>
+                                            <button class="btn btn-outline-warning" type="button" id="convertSingleBtn"
+                                                onClick="convertSingleFile()">Convert selected</button>
+                                        </div>
+                                        <div class="form-text">Only NSP/XCI files are listed.</div>
+                                    </div>
+                                    <div class="border rounded p-3">
+                                        <div class="fw-semibold mb-2">Batch conversion settings</div>
+                                        <div class="d-flex flex-wrap gap-3 align-items-center">
+                                            <div class="input-group" style="max-width: 220px;">
+                                                <span class="input-group-text">Library</span>
+                                                <select class="form-select" id="convertLibrarySelect"></select>
+                                            </div>
+                                            <div class="input-group" style="max-width: 180px;">
+                                                <span class="input-group-text">Threads</span>
+                                                <input type="number" min="1" class="form-control" id="convertThreadsInput" placeholder="Auto">
+                                            </div>
+                                            <div class="input-group" style="max-width: 200px;">
+                                                <span class="input-group-text">Timeout</span>
+                                                <input type="number" min="1" class="form-control" id="convertTimeoutInput" placeholder="sec">
+                                            </div>
+                                            <div class="form-check">
+                                                <input class="form-check-input" type="checkbox" id="convertDeleteOriginal" checked>
+                                                <label class="form-check-label" for="convertDeleteOriginal">Delete original</label>
+                                            </div>
+                                            <div class="form-check">
+                                                <input class="form-check-input" type="checkbox" id="convertDryRun" checked>
+                                                <label class="form-check-label" for="convertDryRun">Dry run</label>
+                                            </div>
+                                            <div class="form-check">
+                                                <input class="form-check-input" type="checkbox" id="convertVerbose">
+                                                <label class="form-check-label" for="convertVerbose">Verbose</label>
+                                            </div>
+                                            <button type="button" id="convertNszBtn" class="btn btn-warning ms-auto"
+                                                onClick='convertToNsz()'>Convert to NSZ</button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-xl-4 col-lg-12">
+                        <div class="card mb-3">
+                            <div class="card-body d-flex flex-column">
+                                <div class="d-flex align-items-center justify-content-between mb-2">
+                                    <h5 class="card-title mb-0">Task output</h5>
+                                    <div class="btn-group">
+                                        <button class="btn btn-outline-secondary btn-sm" type="button" onClick="showManageOutput([])">Clear</button>
+                                        <button class="btn btn-outline-danger btn-sm" type="button" id="cancelJobBtn" onClick="cancelActiveJob()" disabled>Cancel</button>
+                                    </div>
+                                </div>
+                                <div class="mb-2">
+                                    <div class="progress" style="height: 6px;">
+                                        <div id="manageProgressBar" class="progress-bar" role="progressbar" style="width: 0%;"></div>
+                                    </div>
+                                    <div id="manageProgressText" class="text-muted small mt-1"></div>
+                                    <div id="manageFileText" class="text-muted small"></div>
+                                    <div id="manageCompressionText" class="text-muted small"></div>
+                                </div>
+                                <pre id="manageOutput" class="mb-0 flex-grow-1"
+                                    style="max-height: 360px; overflow: auto;"></pre>
+                            </div>
+                        </div>
+                        <div class="card mb-3">
+                            <div class="card-body">
+                                <h5 class="card-title">Recent jobs</h5>
+                                <div id="manageJobHistory" class="small text-muted">No jobs yet.</div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>

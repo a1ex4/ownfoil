@@ -34,10 +34,10 @@
                                     <option value="50">50 / page</option>
                                     <option value="100">100 / page</option>
                                 </select>
-                                <button type="button" class="btn btn-outline-secondary" id="refreshUsersBtn">
+                                <button type="button" class="btn btn-outline-secondary text-nowrap" id="refreshUsersBtn">
                                     <i class="bi bi-arrow-clockwise"></i> Refresh
                                 </button>
-                                <button class="btn btn-primary" type="button" data-bs-toggle="collapse" data-bs-target="#collapseNewUser"
+                                <button class="btn btn-primary text-nowrap" type="button" data-bs-toggle="collapse" data-bs-target="#collapseNewUser"
                                     aria-expanded="false" aria-controls="collapseNewUser">
                                     <i class="bi bi-person-plus"></i> Add user
                                 </button>
@@ -45,9 +45,6 @@
                         </div>
                         <div class="d-flex justify-content-between align-items-center mt-2">
                             <div class="text-muted small" id="usersCountLabel">Loading users...</div>
-                            <nav aria-label="Users pagination">
-                                <ul class="pagination pagination-sm mb-0" id="usersPagination"></ul>
-                            </nav>
                         </div>
                     </div>
                 </div>
@@ -96,12 +93,15 @@
                             <tr>
                                 <th scope="col" role="button" id="usersSortUser" data-sort="user">User <span class="text-muted" id="sortUserIcon"></span></th>
                                 <th scope="col" role="button" id="usersSortPerms" data-sort="perms">Permissions <span class="text-muted" id="sortPermsIcon"></span></th>
-                                <th scope="col">Actions</th>
+                                <th scope="col" class="text-end">Actions</th>
                             </tr>
                         </thead>
                         <tbody></tbody>
                     </table>
                 </div>
+                <nav aria-label="Users pagination" class="mt-3">
+                    <ul class="pagination justify-content-center" id="usersPagination"></ul>
+                </nav>
 
                 <!-- Delete User Modal -->
                 <div class="modal fade" id="deleteUserModal" tabindex="-1" aria-labelledby="deleteUserModalLabel" aria-hidden="true">
@@ -396,18 +396,20 @@
             tr.append(`<td><code>${username}</code></td>`);
             tr.append(`<td>${badges}</td>`);
             tr.append(
-                '<td>'
+                '<td class="text-end">'
+                + '<div class="d-inline-flex gap-1">'
                 + '<button type="button" class="btn btn-outline-info btn-sm" data-bs-toggle="modal" data-bs-target="#editUserModal" data-bs-title="Modify user" data-bs-placement="top"'
                 + ' data-bs-id="' + user['id'] + '" data-bs-user="' + _escapeHtml(user['user']) + '"'
-                + ' data-bs-admin="' + user['admin_access'] + '" data-bs-shop="' + user['shop_access'] + '" data-bs-backup="' + user['backup_access'] + '">' 
-                + '<i class="bi bi-pencil-square"></i></button> '
+                + ' data-bs-admin="' + user['admin_access'] + '" data-bs-shop="' + user['shop_access'] + '" data-bs-backup="' + user['backup_access'] + '">'
+                + '<i class="bi bi-pencil-square"></i></button>'
                 + '<button type="button" class="btn ' + (user['frozen'] ? 'btn-warning' : 'btn-outline-warning') + ' btn-sm" data-bs-toggle="modal" data-bs-target="#freezeUserModal" data-bs-title="Freeze account" data-bs-placement="top"'
-                + ' data-bs-id="' + user['id'] + '" data-bs-user="' + _escapeHtml(user['user']) + '" data-bs-frozen="' + (user['frozen'] ? 'true' : 'false') + '" data-bs-message="' + _escapeHtml(user['frozen_message'] || '') + '">' 
-                + '<i class="bi bi-snow"></i></button> '
+                + ' data-bs-id="' + user['id'] + '" data-bs-user="' + _escapeHtml(user['user']) + '" data-bs-frozen="' + (user['frozen'] ? 'true' : 'false') + '" data-bs-message="' + _escapeHtml(user['frozen_message'] || '') + '">'
+                + '<i class="bi bi-snow"></i></button>'
                 + '<button type="button" class="btn btn-outline-warning btn-sm" data-bs-toggle="modal" data-bs-target="#resetPasswordModal" data-bs-title="Reset password" data-bs-placement="top"'
-                + ' data-bs-id="' + user['id'] + '" data-bs-user="' + _escapeHtml(user['user']) + '"><i class="bi bi-key"></i></button> '
+                + ' data-bs-id="' + user['id'] + '" data-bs-user="' + _escapeHtml(user['user']) + '"><i class="bi bi-key"></i></button>'
                 + '<button type="button" class="btn btn-outline-danger btn-sm" data-bs-toggle="modal" data-bs-target="#deleteUserModal" data-bs-title="Delete user" data-bs-placement="top"'
                 + ' data-bs-id="' + user['id'] + '" data-bs-user="' + _escapeHtml(user['user']) + '"><i class="bi bi-x-circle"></i></button>'
+                + '</div>'
                 + '</td>'
             );
             $tbody.append(tr);

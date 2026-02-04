@@ -26,6 +26,8 @@ TITLEDB_DEFAULT_FILES = [
     'languages.json',
 ]
 
+APP_VERSION = os.environ.get('OWNFOIL_VERSION') or os.environ.get('APP_VERSION') or 'dev'
+
 OWNFOIL_DB = 'sqlite:///' + DB_FILE
 
 DEFAULT_SETTINGS = {

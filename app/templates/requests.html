@@ -2,49 +2,51 @@
 
 {% block content %}
 {% include 'nav.html' %}
-<div class="container mt-4">
-  <div class="d-flex align-items-center justify-content-between gap-3 flex-wrap">
-    <div>
-      {% if current_user.is_admin or admin_account_created == false %}
-      <h2 class="mb-1">Requests</h2>
-      <div class="text-muted">User title requests and torrent search.</div>
-      {% else %}
-      <h2 class="mb-1">Request A Title</h2>
-      <div class="text-muted">Search TitleDB and request content not yet in your library.</div>
-      {% endif %}
-    </div>
-    <div class="d-flex align-items-center gap-2">
-      {% if current_user.is_admin or admin_account_created == false %}
-      <button class="btn btn-outline-light btn-sm" id="refreshRequestsBtn"><i class="bi bi-arrow-clockwise"></i> Refresh</button>
-      {% endif %}
-    </div>
-  </div>
+<div class="container-fluid setting-body">
+  <div class="row">
+    <div class="col">
+      <div class="settings-container container mt-3">
 
-  <div class="card bg-dark text-light mt-3">
-    <div class="card-body">
+        <div class="d-flex align-items-center justify-content-between gap-3 flex-wrap">
+          <div>
+            {% if current_user.is_admin or admin_account_created == false %}
+            <h2 class="pb-2">Requests</h2>
+            <p class="text-muted">User title requests and torrent search.</p>
+            {% else %}
+            <h2 class="pb-2">Request A Title</h2>
+            <p class="text-muted">Search TitleDB and request content not yet in your library.</p>
+            {% endif %}
+          </div>
+          <div class="d-flex align-items-center gap-2">
+            {% if current_user.is_admin or admin_account_created == false %}
+            <button class="btn btn-outline-light btn-sm text-nowrap" id="refreshRequestsBtn"><i class="bi bi-arrow-clockwise"></i> Refresh</button>
+            {% endif %}
+          </div>
+        </div>
+
+        <div class="card bg-dark text-light mb-3">
+          <div class="card-body">
       {% if current_user.is_admin or admin_account_created == false %}
-      <div class="row g-2">
-        <div class="col-12 col-lg-6">
+      <div class="d-flex flex-column flex-lg-row gap-2 align-items-lg-center">
+        <div class="flex-grow-1">
           <input type="text" class="form-control" id="adminSearchBox" placeholder="Filter by title id, name, user...">
         </div>
-        <div class="col-12">
-          <div class="table-responsive">
-            <table class="table table-dark table-sm align-middle mb-0">
-              <thead>
-                <tr>
-                  <th>Requested</th>
-                  <th>Title</th>
-                  <th>User</th>
-                  <th>Status</th>
-                  <th class="text-end">Actions</th>
-                </tr>
-              </thead>
-              <tbody id="requestsTableBody"></tbody>
-            </table>
-          </div>
-          <div class="text-muted small mt-2" id="requestsStatus"></div>
-        </div>
       </div>
+      <div class="table-responsive mt-2">
+        <table class="table table-dark table-sm align-middle mb-0">
+          <thead>
+            <tr>
+              <th>Requested</th>
+              <th>Title</th>
+              <th>User</th>
+              <th>Status</th>
+              <th class="text-end">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="requestsTableBody"></tbody>
+        </table>
+      </div>
+      <div class="text-muted small mt-2" id="requestsStatus"></div>
       {% else %}
       <div class="row g-2">
         <div class="col-12 col-lg-8">
@@ -63,6 +65,9 @@
         </div>
       </div>
       {% endif %}
+    </div>
+  </div>
+      </div>
     </div>
   </div>
 
