@@ -50,6 +50,7 @@ _media_cache_index = {
     'icon': {},   # title_id -> filename
     'banner': {}, # title_id -> filename
 }
+_media_cache_last_reset = 0
 
 _media_resize_lock = threading.Lock()
 
@@ -106,26 +107,43 @@ def _get_web_media_size(media_kind):
         return None
     return _WEB_ICON_SIZE if media_kind == 'icon' else _WEB_BANNER_SIZE
 
+def _maybe_expire_media_cache_index(now=None):
+    if MEDIA_INDEX_TTL_S <= 0:
+        with _media_cache_lock:
+            _media_cache_index['icon'].clear()
+            _media_cache_index['banner'].clear()
+        return
+    now = now or time.time()
+    global _media_cache_last_reset
+    with _media_cache_lock:
+        if _media_cache_last_reset and (now - _media_cache_last_reset) < MEDIA_INDEX_TTL_S:
+            return
+        _media_cache_index['icon'].clear()
+        _media_cache_index['banner'].clear()
+        _media_cache_last_reset = now
+
 def _get_cached_media_filename(cache_dir, title_id, media_kind='icon'):
     """Return cached filename for title_id if present on disk."""
+    _maybe_expire_media_cache_index()
     title_id = (title_id or '').upper()
     if not title_id:
         return None
-
-    with _media_cache_lock:
-        cached_name = _media_cache_index.get(media_kind, {}).get(title_id)
-    if cached_name:
-        path = os.path.join(cache_dir, cached_name)
-        if os.path.exists(path):
-            return cached_name
+    if MEDIA_INDEX_TTL_S > 0:
         with _media_cache_lock:
-            _media_cache_index.get(media_kind, {}).pop(title_id, None)
+            cached_name = _media_cache_index.get(media_kind, {}).get(title_id)
+        if cached_name:
+            path = os.path.join(cache_dir, cached_name)
+            if os.path.exists(path):
+                return cached_name
+            with _media_cache_lock:
+                _media_cache_index.get(media_kind, {}).pop(title_id, None)
 
     try:
         for name in os.listdir(cache_dir):
             if name.startswith(f"{title_id}."):
-                with _media_cache_lock:
-                    _media_cache_index.setdefault(media_kind, {})[title_id] = name
+                if MEDIA_INDEX_TTL_S > 0:
+                    with _media_cache_lock:
+                        _media_cache_index.setdefault(media_kind, {})[title_id] = name
                 return name
     except Exception:
         return None
@@ -134,6 +152,9 @@ def _get_cached_media_filename(cache_dir, title_id, media_kind='icon'):
 def _remember_cached_media_filename(title_id, filename, media_kind='icon'):
     title_id = (title_id or '').upper()
     if not title_id or not filename:
+        return
+    _maybe_expire_media_cache_index()
+    if MEDIA_INDEX_TTL_S <= 0:
         return
     with _media_cache_lock:
         _media_cache_index.setdefault(media_kind, {})[title_id] = filename
@@ -348,6 +369,13 @@ shop_sections_cache = {
 shop_sections_cache_lock = threading.Lock()
 shop_sections_refresh_lock = threading.Lock()
 shop_sections_refresh_running = False
+
+# ===== CACHE TTLs (seconds) =====
+# Make these short if you want the Web UI caches to free memory frequently.
+# Set to 0 to disable in-memory caching entirely.
+SHOP_SECTIONS_CACHE_TTL_S = 60
+MEDIA_INDEX_TTL_S = 120
+# ===============================
 
 def _load_shop_sections_cache_from_disk():
     cache_path = SHOP_SECTIONS_CACHE_FILE
@@ -2891,31 +2919,43 @@ def shop_sections_api():
     now = time.time()
     payload = None
     with shop_sections_cache_lock:
+        cache_enabled = SHOP_SECTIONS_CACHE_TTL_S > 0
         cache_hit = (
-            shop_sections_cache['payload'] is not None
+            cache_enabled
+            and shop_sections_cache['payload'] is not None
             and shop_sections_cache['limit'] == limit
+            and (now - float(shop_sections_cache.get('timestamp') or 0)) <= SHOP_SECTIONS_CACHE_TTL_S
         )
         if cache_hit:
             payload = shop_sections_cache['payload']
+        elif not cache_enabled or shop_sections_cache.get('payload') is not None:
+            # Expired in-memory cache.
+            shop_sections_cache['payload'] = None
+            shop_sections_cache['limit'] = None
+            shop_sections_cache['timestamp'] = 0
 
     if payload is None:
-        disk_cache = _load_shop_sections_cache_from_disk()
-        if disk_cache and disk_cache.get('limit') == limit:
-            disk_payload = disk_cache.get('payload')
-            if disk_payload:
-                payload = disk_payload
-                with shop_sections_cache_lock:
-                    shop_sections_cache['payload'] = payload
-                    shop_sections_cache['limit'] = limit
-                    shop_sections_cache['timestamp'] = disk_cache.get('timestamp', 0)
+        if SHOP_SECTIONS_CACHE_TTL_S > 0:
+            disk_cache = _load_shop_sections_cache_from_disk()
+            if disk_cache and disk_cache.get('limit') == limit:
+                disk_payload = disk_cache.get('payload')
+                disk_ts = float(disk_cache.get('timestamp') or 0)
+                disk_ok = (now - disk_ts) <= SHOP_SECTIONS_CACHE_TTL_S
+                if disk_payload and disk_ok:
+                    payload = disk_payload
+                    with shop_sections_cache_lock:
+                        shop_sections_cache['payload'] = payload
+                        shop_sections_cache['limit'] = limit
+                        shop_sections_cache['timestamp'] = disk_ts
 
     if payload is None:
         payload = _build_shop_sections_payload(limit)
-        with shop_sections_cache_lock:
-            shop_sections_cache['payload'] = payload
-            shop_sections_cache['limit'] = limit
-            shop_sections_cache['timestamp'] = now
-        _save_shop_sections_cache_to_disk(payload, limit, now)
+        if SHOP_SECTIONS_CACHE_TTL_S > 0:
+            with shop_sections_cache_lock:
+                shop_sections_cache['payload'] = payload
+                shop_sections_cache['limit'] = limit
+                shop_sections_cache['timestamp'] = now
+            _save_shop_sections_cache_to_disk(payload, limit, now)
 
     if _is_cyberfoil_request():
         _log_access(
