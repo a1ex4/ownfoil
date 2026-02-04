@@ -2,8 +2,9 @@
 
 [![Latest Release](https://img.shields.io/docker/v/luketanti/ownfoil?sort=semver)](https://github.com/luketanti/ownfoil/releases/latest)
 [![Docker Pulls](https://img.shields.io/docker/pulls/luketanti/ownfoil)](https://hub.docker.com/r/luketanti/ownfoil)
-[![Docker Image Size (latest semver)](https://img.shields.io/docker/image-size/luketanti/ownfoil?sort=date&arch=amd64)](https://hub.docker.com/r/luketanti/ownfoil/tags)  
-![Static Badge](https://img.shields.io/badge/platforms-amd64%20%7C%20%20arm64%2Fv8%20%7C%20arm%2Fv7%20%7C%20arm%2Fv6-8A2BE2)
+[![Docker Image Size](https://img.shields.io/docker/image-size/luketanti/ownfoil/latest?arch=amd64)](https://hub.docker.com/r/luketanti/ownfoil/tags)
+![Platforms](https://img.shields.io/badge/platforms-amd64%20%7C%20arm64-8A2BE2)
+
 
 Ownfoil is a Nintendo Switch library manager that turns your library into a fully customizable, self-hosted Tinfoil Shop. The goal of this project is to manage your library, identify any missing content (DLCs or updates) and provide a user friendly way to browse your content. Some of the features include:
 
