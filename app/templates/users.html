@@ -1,0 +1,863 @@
+{% extends "base.html" %}
+{% block content %}
+{% include 'nav.html' %}
+
+<div class="container-fluid setting-body">
+    <div class="row">
+        <div class="col">
+            <div class="settings-container container mt-3">
+
+                <h2 class="pb-2">Users</h2>
+                <p class="text-muted">Create accounts and manage permissions.</p>
+
+                {% if admin_account_created == false %}
+                <div class="alert alert-danger" role="alert">
+                    <h4 class="alert-heading">Create an admin account</h4>
+                    <p class="mb-0">Authentication is currently disabled until an admin account exists. Create the first admin user below.</p>
+                </div>
+                {% endif %}
+
+                <div class="card mb-3">
+                    <div class="card-body">
+                        <div class="d-flex flex-column flex-lg-row gap-2 align-items-lg-center">
+                            <div class="flex-grow-1">
+                                <div class="input-group">
+                                    <span class="input-group-text"><i class="bi bi-search"></i></span>
+                                    <input type="text" class="form-control" id="userSearchInput" placeholder="Search username">
+                                    <button class="btn btn-outline-secondary" type="button" id="clearUserSearchBtn">Clear</button>
+                                </div>
+                            </div>
+                            <div class="d-flex gap-2">
+                                <select class="form-select" id="userPageSizeSelect" style="max-width: 140px;">
+                                    <option value="10">10 / page</option>
+                                    <option value="25" selected>25 / page</option>
+                                    <option value="50">50 / page</option>
+                                    <option value="100">100 / page</option>
+                                </select>
+                                <button type="button" class="btn btn-outline-secondary" id="refreshUsersBtn">
+                                    <i class="bi bi-arrow-clockwise"></i> Refresh
+                                </button>
+                                <button class="btn btn-primary" type="button" data-bs-toggle="collapse" data-bs-target="#collapseNewUser"
+                                    aria-expanded="false" aria-controls="collapseNewUser">
+                                    <i class="bi bi-person-plus"></i> Add user
+                                </button>
+                            </div>
+                        </div>
+                        <div class="d-flex justify-content-between align-items-center mt-2">
+                            <div class="text-muted small" id="usersCountLabel">Loading users...</div>
+                            <nav aria-label="Users pagination">
+                                <ul class="pagination pagination-sm mb-0" id="usersPagination"></ul>
+                            </nav>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="collapse" id="collapseNewUser">
+                    <div class="card card-body mb-3">
+                        <label class="form-label">Add a new user:</label>
+                        <form class="row g-3" onsubmit="return false;">
+                            <div class="col-md-4">
+                                <label for="inputNewUser" class="form-label">Username</label>
+                                <input type="text" class="form-control" id="inputNewUser" placeholder="Username">
+                                <div class="invalid-feedback" id="newUserNameFeedback">Username is required.</div>
+                            </div>
+                            <div class="col-md-4">
+                                <label for="inputNewUserPassword" class="form-label">Password</label>
+                                <input type="password" class="form-control" id="inputNewUserPassword" placeholder="Password">
+                                <div class="invalid-feedback" id="newUserPasswordFeedback">Password is required.</div>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Permissions</label>
+                                <div class="d-flex flex-wrap gap-3">
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" id="checkboxNewUserShopAccess" checked>
+                                        <label class="form-check-label" for="checkboxNewUserShopAccess">Shop</label>
+                                    </div>
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" id="checkboxNewUserBackupAccess">
+                                        <label class="form-check-label" for="checkboxNewUserBackupAccess">Backup</label>
+                                    </div>
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" id="checkboxNewUserAdminAccess">
+                                        <label class="form-check-label" for="checkboxNewUserAdminAccess">Admin</label>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-12">
+                                <button type="button" class="btn btn-primary" onClick='submitNewUser()'>Create user</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle" id="userTable">
+                        <thead>
+                            <tr>
+                                <th scope="col" role="button" id="usersSortUser" data-sort="user">User <span class="text-muted" id="sortUserIcon"></span></th>
+                                <th scope="col" role="button" id="usersSortPerms" data-sort="perms">Permissions <span class="text-muted" id="sortPermsIcon"></span></th>
+                                <th scope="col">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+
+                <!-- Delete User Modal -->
+                <div class="modal fade" id="deleteUserModal" tabindex="-1" aria-labelledby="deleteUserModalLabel" aria-hidden="true">
+                    <div class="modal-dialog modal-dialog-centered">
+                        <div class="modal-content">
+                            <div class="modal-header">
+                                <h1 class="modal-title fs-5" id="deleteUserModalLabel">Delete user</h1>
+                                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                            </div>
+                            <div class="modal-body">...</div>
+                            <div class="modal-footer">
+                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                                <button type="button" class="btn btn-danger" data-bs-dismiss="modal">Delete</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Edit User Modal -->
+                <div class="modal fade" id="editUserModal" tabindex="-1" aria-labelledby="editUserModalLabel" aria-hidden="true">
+                    <div class="modal-dialog modal-dialog-centered">
+                        <div class="modal-content">
+                            <div class="modal-header">
+                                <h1 class="modal-title fs-5" id="editUserModalLabel">Modify user</h1>
+                                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                            </div>
+                            <div class="modal-body">
+                                <div class="mb-3">
+                                    <label for="editUserNameInput" class="form-label">Username</label>
+                                    <input type="text" class="form-control" id="editUserNameInput">
+                                    <div id="editUserNameFeedback" class="invalid-feedback">Username is required.</div>
+                                </div>
+                                <div class="mb-2">
+                                    <label class="form-label">Permissions</label>
+                                    <div class="d-flex flex-wrap gap-3">
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" id="checkboxEditUserShopAccess">
+                                            <label class="form-check-label" for="checkboxEditUserShopAccess">Shop</label>
+                                        </div>
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" id="checkboxEditUserBackupAccess">
+                                            <label class="form-check-label" for="checkboxEditUserBackupAccess">Backup</label>
+                                        </div>
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" id="checkboxEditUserAdminAccess">
+                                            <label class="form-check-label" for="checkboxEditUserAdminAccess">Admin</label>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="modal-footer">
+                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                                <button type="button" id="submitModifyUserBtn" class="btn btn-primary" onClick='submitModifyUser()'>Save</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Reset Password Modal -->
+                <div class="modal fade" id="resetPasswordModal" tabindex="-1" aria-labelledby="resetPasswordModalLabel" aria-hidden="true">
+                    <div class="modal-dialog modal-dialog-centered">
+                        <div class="modal-content">
+                            <div class="modal-header">
+                                <h1 class="modal-title fs-5" id="resetPasswordModalLabel">Reset password</h1>
+                                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                            </div>
+                            <div class="modal-body">
+                                <div class="mb-3">
+                                    <label for="resetPasswordInput" class="form-label">New password</label>
+                                    <input type="password" class="form-control" id="resetPasswordInput">
+                                    <div id="resetPasswordFeedback" class="invalid-feedback">Password is required.</div>
+                                </div>
+                                <div class="mb-3">
+                                    <label for="resetPasswordConfirmInput" class="form-label">Confirm password</label>
+                                    <input type="password" class="form-control" id="resetPasswordConfirmInput">
+                                    <div id="resetPasswordConfirmFeedback" class="invalid-feedback">Passwords must match.</div>
+                                </div>
+                                <div class="mb-2">
+                                    <label for="generatedPasswordInput" class="form-label">Generated password</label>
+                                    <div class="input-group">
+                                        <input type="text" class="form-control" id="generatedPasswordInput" readonly>
+                                        <button type="button" class="btn btn-outline-secondary" id="copyGeneratedPasswordBtn">Copy</button>
+                                        <button type="button" class="btn btn-outline-primary" id="generatePasswordBtn">Generate</button>
+                                    </div>
+                                    <div id="generatedPasswordHelp" class="form-text">Generate a strong password and copy it.</div>
+                                </div>
+                            </div>
+                            <div class="modal-footer">
+                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                                <button type="button" id="submitResetPasswordBtn" class="btn btn-primary" onClick='submitResetPassword()'>Reset</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Freeze User Modal -->
+                <div class="modal fade" id="freezeUserModal" tabindex="-1" aria-labelledby="freezeUserModalLabel" aria-hidden="true">
+                    <div class="modal-dialog modal-dialog-centered">
+                        <div class="modal-content">
+                            <div class="modal-header">
+                                <h1 class="modal-title fs-5" id="freezeUserModalLabel">Freeze account</h1>
+                                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                            </div>
+                            <div class="modal-body">
+                                <p class="text-muted mb-2">Frozen accounts remain visible, but cannot access the library. When they connect, they only receive the MOTD message below.</p>
+                                <div class="mb-3">
+                                    <label for="freezeMessageInput" class="form-label">MOTD message</label>
+                                    <textarea class="form-control" id="freezeMessageInput" rows="3" placeholder="Your account is frozen. Contact the admin."></textarea>
+                                    <div class="form-text">Shown to this user when they try to access the shop.</div>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="freezeEnabledCheck" checked>
+                                    <label class="form-check-label" for="freezeEnabledCheck">Freeze this account</label>
+                                </div>
+                            </div>
+                            <div class="modal-footer">
+                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                                <button type="button" id="submitFreezeBtn" class="btn btn-warning" onClick='submitFreezeUser()'>Save</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    let allUsers = [];
+    let allUsernames = [];
+    let currentPage = 1;
+    let pageSize = 25;
+    let sortKey = 'user';
+    let sortDir = 'asc';
+
+    function getInputVal(inputId) {
+        return $("#" + inputId).val();
+    };
+
+    function setInputVal(inputId, value) {
+        return $("#" + inputId).val(value);
+    };
+
+    function getCheckboxStatus(checkboxId) {
+        return $('#' + checkboxId).is(":checked")
+    }
+
+    function initTooltips() {
+        const tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-title]'));
+        tooltipTriggerList.forEach(function (tooltipTriggerEl) {
+            const existing = bootstrap.Tooltip.getInstance(tooltipTriggerEl);
+            if (existing) {
+                existing.dispose();
+            }
+            new bootstrap.Tooltip(tooltipTriggerEl);
+        });
+    }
+
+    function _escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text == null ? '' : String(text);
+        return div.innerHTML;
+    }
+
+    function _permsScore(user) {
+        // Sort admins first, then shop, then backup.
+        return (user['admin_access'] ? 4 : 0) + (user['shop_access'] ? 2 : 0) + (user['backup_access'] ? 1 : 0);
+    }
+
+    function _filteredUsers() {
+        const q = (getInputVal('userSearchInput') || '').trim().toLowerCase();
+        let users = allUsers || [];
+        if (q) {
+            users = users.filter(u => (u['user'] || '').toLowerCase().includes(q));
+        }
+        users = users.slice();
+        users.sort((a, b) => {
+            let av;
+            let bv;
+            if (sortKey === 'perms') {
+                av = _permsScore(a);
+                bv = _permsScore(b);
+            } else {
+                av = (a['user'] || '').toLowerCase();
+                bv = (b['user'] || '').toLowerCase();
+            }
+            if (av < bv) return sortDir === 'asc' ? -1 : 1;
+            if (av > bv) return sortDir === 'asc' ? 1 : -1;
+            return 0;
+        });
+        return users;
+    }
+
+    function _renderSortIcons() {
+        $('#sortUserIcon').text(sortKey === 'user' ? (sortDir === 'asc' ? '▲' : '▼') : '');
+        $('#sortPermsIcon').text(sortKey === 'perms' ? (sortDir === 'asc' ? '▲' : '▼') : '');
+    }
+
+    function _renderPagination(totalCount) {
+        const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
+        currentPage = Math.max(1, Math.min(currentPage, totalPages));
+        const $pager = $('#usersPagination');
+        $pager.empty();
+
+        function addItem(label, page, disabled, active) {
+            const li = $('<li>').addClass('page-item');
+            if (disabled) li.addClass('disabled');
+            if (active) li.addClass('active');
+            const a = $('<a>').addClass('page-link').attr('href', '#').text(label);
+            a.on('click', function (e) {
+                e.preventDefault();
+                if (disabled || active) return;
+                currentPage = page;
+                renderUsers();
+            });
+            li.append(a);
+            $pager.append(li);
+        }
+
+        addItem('Prev', currentPage - 1, currentPage <= 1, false);
+
+        // Compact window around current page.
+        const windowSize = 2;
+        const start = Math.max(1, currentPage - windowSize);
+        const end = Math.min(totalPages, currentPage + windowSize);
+
+        if (start > 1) {
+            addItem('1', 1, false, currentPage === 1);
+            if (start > 2) {
+                const ellipsis = $('<li>').addClass('page-item disabled').append($('<span>').addClass('page-link').text('…'));
+                $pager.append(ellipsis);
+            }
+        }
+
+        for (let p = start; p <= end; p++) {
+            addItem(String(p), p, false, currentPage === p);
+        }
+
+        if (end < totalPages) {
+            if (end < totalPages - 1) {
+                const ellipsis = $('<li>').addClass('page-item disabled').append($('<span>').addClass('page-link').text('…'));
+                $pager.append(ellipsis);
+            }
+            addItem(String(totalPages), totalPages, false, currentPage === totalPages);
+        }
+
+        addItem('Next', currentPage + 1, currentPage >= totalPages, false);
+    }
+
+    function renderUsers() {
+        const users = _filteredUsers();
+        const total = users.length;
+        const startIdx = (currentPage - 1) * pageSize;
+        const pageItems = users.slice(startIdx, startIdx + pageSize);
+
+        $('#usersCountLabel').text(total === 1 ? '1 user' : `${total} users`);
+        _renderSortIcons();
+        _renderPagination(total);
+
+        const $tbody = $('#userTable tbody');
+        $tbody.empty();
+        if (!pageItems.length) {
+            $tbody.append('<tr><td colspan="3" class="text-muted">No users found.</td></tr>');
+            return;
+        }
+
+        pageItems.forEach(user => {
+            const isAdmin = !!user['admin_access'];
+            const isShop = !!user['shop_access'];
+            const isBackup = !!user['backup_access'];
+
+            let badges = '';
+            if (user['frozen']) {
+                badges += '<span class="badge text-bg-warning me-1">Frozen</span>';
+            }
+            if (isAdmin) {
+                badges += '<span class="badge text-bg-danger me-1">Admin</span>';
+            }
+            if (isShop) {
+                badges += '<span class="badge text-bg-success me-1">Shop</span>';
+            }
+            if (isBackup) {
+                badges += '<span class="badge text-bg-info me-1">Backup</span>';
+            }
+            if (!badges) {
+                badges = '<span class="badge text-bg-secondary">None</span>';
+            }
+
+            const username = _escapeHtml(user['user']);
+            const tr = $('<tr>');
+            tr.append(`<td><code>${username}</code></td>`);
+            tr.append(`<td>${badges}</td>`);
+            tr.append(
+                '<td>'
+                + '<button type="button" class="btn btn-outline-info btn-sm" data-bs-toggle="modal" data-bs-target="#editUserModal" data-bs-title="Modify user" data-bs-placement="top"'
+                + ' data-bs-id="' + user['id'] + '" data-bs-user="' + _escapeHtml(user['user']) + '"'
+                + ' data-bs-admin="' + user['admin_access'] + '" data-bs-shop="' + user['shop_access'] + '" data-bs-backup="' + user['backup_access'] + '">' 
+                + '<i class="bi bi-pencil-square"></i></button> '
+                + '<button type="button" class="btn ' + (user['frozen'] ? 'btn-warning' : 'btn-outline-warning') + ' btn-sm" data-bs-toggle="modal" data-bs-target="#freezeUserModal" data-bs-title="Freeze account" data-bs-placement="top"'
+                + ' data-bs-id="' + user['id'] + '" data-bs-user="' + _escapeHtml(user['user']) + '" data-bs-frozen="' + (user['frozen'] ? 'true' : 'false') + '" data-bs-message="' + _escapeHtml(user['frozen_message'] || '') + '">' 
+                + '<i class="bi bi-snow"></i></button> '
+                + '<button type="button" class="btn btn-outline-warning btn-sm" data-bs-toggle="modal" data-bs-target="#resetPasswordModal" data-bs-title="Reset password" data-bs-placement="top"'
+                + ' data-bs-id="' + user['id'] + '" data-bs-user="' + _escapeHtml(user['user']) + '"><i class="bi bi-key"></i></button> '
+                + '<button type="button" class="btn btn-outline-danger btn-sm" data-bs-toggle="modal" data-bs-target="#deleteUserModal" data-bs-title="Delete user" data-bs-placement="top"'
+                + ' data-bs-id="' + user['id'] + '" data-bs-user="' + _escapeHtml(user['user']) + '"><i class="bi bi-x-circle"></i></button>'
+                + '</td>'
+            );
+            $tbody.append(tr);
+        });
+        initTooltips();
+    }
+
+    function fillUserTable() {
+        $('#usersCountLabel').text('Loading users...');
+        $.getJSON("/api/users", function (result) {
+            // Note: /api/users returns a list, not a success wrapper.
+            allUsers = result || [];
+            allUsernames = allUsers.map(u => u['user']);
+            currentPage = 1;
+            renderUsers();
+        });
+    }
+
+    let freezeUserId = null;
+    let freezeWasFrozen = false;
+    const freezeUserModal = $('#freezeUserModal')
+
+    function _updateFreezeModalState() {
+        const enabled = getCheckboxStatus('freezeEnabledCheck');
+        const $message = $('#freezeMessageInput');
+        const $btn = $('#submitFreezeBtn');
+        if (enabled) {
+            $message.prop('disabled', false);
+            $btn.text(freezeWasFrozen ? 'Save' : 'Freeze');
+        } else {
+            $message.prop('disabled', true);
+            $btn.text('Unfreeze');
+        }
+    }
+
+    if (freezeUserModal) {
+        freezeUserModal.on('show.bs.modal', event => {
+            const button = event.relatedTarget
+            freezeUserId = button.getAttribute('data-bs-id')
+            const username = button.getAttribute('data-bs-user')
+            const frozen = button.getAttribute('data-bs-frozen') === 'true'
+            const message = button.getAttribute('data-bs-message') || ''
+            freezeWasFrozen = frozen;
+            $('#freezeUserModalLabel').text((frozen ? 'Edit freeze for ' : 'Freeze ') + username);
+            $('#freezeEnabledCheck').prop('checked', frozen);
+            setInputVal('freezeMessageInput', message);
+            _updateFreezeModalState();
+        })
+    }
+
+    $('#freezeEnabledCheck').on('change', function () {
+        _updateFreezeModalState();
+    });
+
+    function submitFreezeUser() {
+        $('#submitFreezeBtn').prop('disabled', true);
+        const enabled = getCheckboxStatus('freezeEnabledCheck');
+        const message = (getInputVal('freezeMessageInput') || '').trim();
+        const data = {
+            user_id: freezeUserId,
+            frozen: enabled,
+            message: message
+        };
+        $.ajax({
+            url: '/api/user/freeze',
+            type: 'PATCH',
+            data: JSON.stringify(data),
+            contentType: 'application/json',
+            success: function (result) {
+                if (result['success']) {
+                    fillUserTable();
+                    const modalEl = document.getElementById('freezeUserModal');
+                    const modal = bootstrap.Modal.getInstance(modalEl);
+                    if (modal) {
+                        modal.hide();
+                    }
+                }
+            },
+            complete: function () {
+                $('#submitFreezeBtn').prop('disabled', false);
+            }
+        });
+    }
+
+    function deleteUser(userId) {
+        data = {
+            user_id: userId
+        }
+        $.ajax({
+            url: "/api/user",
+            type: 'DELETE',
+            data: JSON.stringify(data),
+            contentType: "application/json",
+            success: function (result) {
+                if (result['success']) {
+                    fillUserTable();
+                }
+            }
+        });
+    }
+
+    $('#checkboxNewUserAdminAccess').change(function () {
+        if (this.checked != false) {
+            $('#checkboxNewUserShopAccess').prop('checked', true).attr("disabled", true);
+            $('#checkboxNewUserBackupAccess').prop('checked', true).attr("disabled", true);
+        } else {
+            $('#checkboxNewUserShopAccess').attr("disabled", false);
+            $('#checkboxNewUserBackupAccess').attr("disabled", false);
+        }
+    });
+
+    $('#checkboxEditUserAdminAccess').change(function () {
+        if (this.checked != false) {
+            $('#checkboxEditUserShopAccess').prop('checked', true).attr("disabled", true);
+            $('#checkboxEditUserBackupAccess').prop('checked', true).attr("disabled", true);
+        } else {
+            $('#checkboxEditUserShopAccess').attr("disabled", false);
+            $('#checkboxEditUserBackupAccess').attr("disabled", false);
+        }
+    });
+
+    function submitNewUser() {
+        let formOk = true;
+        const user = (getInputVal("inputNewUser") || '').trim();
+        const password = getInputVal("inputNewUserPassword") || '';
+        const shop_access = getCheckboxStatus("checkboxNewUserShopAccess");
+        const backup_access = getCheckboxStatus("checkboxNewUserBackupAccess");
+        const admin_access = getCheckboxStatus("checkboxNewUserAdminAccess");
+
+        if (!user) {
+            $('#inputNewUser').addClass('is-invalid');
+            $('#newUserNameFeedback').text('Username is required.');
+            formOk = false;
+        } else if (allUsernames.includes(user)) {
+            $('#inputNewUser').addClass('is-invalid');
+            $('#newUserNameFeedback').text('Username already exists.');
+            formOk = false;
+        } else {
+            $('#inputNewUser').removeClass('is-invalid');
+        }
+
+        if (!password) {
+            $('#inputNewUserPassword').addClass('is-invalid');
+            $('#newUserPasswordFeedback').text('Password is required.');
+            formOk = false;
+        } else {
+            $('#inputNewUserPassword').removeClass('is-invalid');
+        }
+
+        if (!formOk) {
+            return;
+        }
+
+        data = {
+            user: user,
+            password: password,
+            shop_access: shop_access,
+            backup_access: backup_access,
+            admin_access: admin_access,
+        }
+
+        $.ajax({
+            url: "/api/user/signup",
+            type: 'POST',
+            data: JSON.stringify(data),
+            contentType: "application/json",
+            success: function (result) {
+                if (result['success']) {
+                    if (result['status_code'] == '302') {
+                        window.location.href = result['location']
+                        return
+                    }
+                    setInputVal("inputNewUser", "")
+                    setInputVal("inputNewUserPassword", "")
+                    fillUserTable();
+                }
+            }
+        });
+    }
+
+    let editUserId = null;
+    let editOriginalUser = '';
+    const editUserModal = $('#editUserModal')
+    if (editUserModal) {
+        editUserModal.on('show.bs.modal', event => {
+            const button = event.relatedTarget
+            editUserId = button.getAttribute('data-bs-id')
+            editOriginalUser = button.getAttribute('data-bs-user')
+            const adminAccess = button.getAttribute('data-bs-admin') === 'true'
+            const shopAccess = button.getAttribute('data-bs-shop') === 'true'
+            const backupAccess = button.getAttribute('data-bs-backup') === 'true'
+
+            setInputVal("editUserNameInput", editOriginalUser)
+            $('#editUserModalLabel').text('Modify user');
+            $('#submitModifyUserBtn').text('Save');
+            $("#checkboxEditUserAdminAccess").prop("checked", adminAccess)
+            $("#checkboxEditUserShopAccess").prop("checked", adminAccess || shopAccess)
+            $("#checkboxEditUserBackupAccess").prop("checked", adminAccess || backupAccess)
+
+            if (adminAccess) {
+                $("#checkboxEditUserShopAccess").prop('checked', true).attr("disabled", true);
+                $("#checkboxEditUserBackupAccess").prop('checked', true).attr("disabled", true);
+            } else {
+                $("#checkboxEditUserShopAccess").attr("disabled", false);
+                $("#checkboxEditUserBackupAccess").attr("disabled", false);
+            }
+            $("#editUserNameInput").attr("disabled", false);
+            $("#checkboxEditUserAdminAccess").attr("disabled", false);
+            if (!adminAccess) {
+                $("#checkboxEditUserShopAccess").attr("disabled", false);
+                $("#checkboxEditUserBackupAccess").attr("disabled", false);
+            }
+            $('#editUserNameInput').removeClass('is-invalid');
+            $('#editUserNameFeedback').text('Username is required.');
+        })
+    }
+
+    function submitModifyUser() {
+        let formOk = true;
+        $('#submitModifyUserBtn').prop('disabled', true);
+        const user = (getInputVal("editUserNameInput") || '').trim();
+        const shop_access = getCheckboxStatus("checkboxEditUserShopAccess")
+        const backup_access = getCheckboxStatus("checkboxEditUserBackupAccess")
+        const admin_access = getCheckboxStatus("checkboxEditUserAdminAccess")
+
+        if (!user) {
+            $('#editUserNameInput').addClass('is-invalid');
+            $('#editUserNameFeedback').text('Username is required.');
+            formOk = false;
+        } else if (user != editOriginalUser && allUsernames.includes(user)) {
+            $('#editUserNameInput').addClass('is-invalid');
+            $('#editUserNameFeedback').text('Username already exists.');
+            formOk = false;
+        } else {
+            $('#editUserNameInput').removeClass('is-invalid');
+        }
+
+        if (!formOk) {
+            $('#submitModifyUserBtn').prop('disabled', false);
+            return;
+        }
+
+        data = {
+            user_id: editUserId,
+            user: user,
+            shop_access: shop_access,
+            backup_access: backup_access,
+            admin_access: admin_access,
+        }
+
+        $.ajax({
+            url: "/api/user",
+            type: 'PATCH',
+            data: JSON.stringify(data),
+            contentType: "application/json",
+            success: function (result) {
+                if (result['success']) {
+                    fillUserTable();
+                    const modalEl = document.getElementById('editUserModal');
+                    const modal = bootstrap.Modal.getInstance(modalEl);
+                    if (modal) {
+                        modal.hide();
+                    }
+                } else if (result['errors'] && result['errors'].length) {
+                    $('#editUserNameInput').addClass('is-invalid');
+                    $('#editUserNameFeedback').text(result['errors'][0]);
+                }
+            },
+            complete: function () {
+                $('#submitModifyUserBtn').prop('disabled', false);
+            }
+        });
+    }
+
+    let resetUserId = null;
+    const resetPasswordModal = $('#resetPasswordModal')
+    if (resetPasswordModal) {
+        resetPasswordModal.on('show.bs.modal', event => {
+            const button = event.relatedTarget
+            resetUserId = button.getAttribute('data-bs-id')
+            const username = button.getAttribute('data-bs-user')
+            $('#resetPasswordModalLabel').text('Reset password for ' + username);
+            setInputVal("resetPasswordInput", "")
+            setInputVal("resetPasswordConfirmInput", "")
+            setInputVal("generatedPasswordInput", "")
+            $('#resetPasswordInput').removeClass('is-invalid');
+            $('#resetPasswordConfirmInput').removeClass('is-invalid');
+        })
+    }
+
+    function generatePassword(length = 20) {
+        const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@$%&*?';
+        let result = '';
+        if (window.crypto && window.crypto.getRandomValues) {
+            const values = new Uint32Array(length);
+            window.crypto.getRandomValues(values);
+            for (let i = 0; i < values.length; i++) {
+                result += chars[values[i] % chars.length];
+            }
+        } else {
+            for (let i = 0; i < length; i++) {
+                result += chars[Math.floor(Math.random() * chars.length)];
+            }
+        }
+        return result;
+    }
+
+    $('#generatePasswordBtn').on('click', function () {
+        const generated = generatePassword();
+        setInputVal("generatedPasswordInput", generated);
+        setInputVal("resetPasswordInput", generated);
+        setInputVal("resetPasswordConfirmInput", generated);
+        $('#resetPasswordInput').removeClass('is-invalid');
+        $('#resetPasswordConfirmInput').removeClass('is-invalid');
+    });
+
+    $('#copyGeneratedPasswordBtn').on('click', function () {
+        const password = getInputVal("generatedPasswordInput");
+        if (!password) {
+            return;
+        }
+        if (navigator.clipboard && window.isSecureContext) {
+            navigator.clipboard.writeText(password);
+        } else {
+            const tempInput = document.createElement('input');
+            tempInput.value = password;
+            document.body.appendChild(tempInput);
+            tempInput.select();
+            document.execCommand('copy');
+            document.body.removeChild(tempInput);
+        }
+    });
+
+    function submitResetPassword() {
+        let formOk = true;
+        $('#submitResetPasswordBtn').prop('disabled', true);
+        const password = getInputVal("resetPasswordInput") || '';
+        const confirmPassword = getInputVal("resetPasswordConfirmInput") || '';
+
+        if (!password) {
+            $('#resetPasswordInput').addClass('is-invalid');
+            $('#resetPasswordFeedback').text('Password is required.');
+            formOk = false;
+        } else {
+            $('#resetPasswordInput').removeClass('is-invalid');
+        }
+
+        if (!confirmPassword || confirmPassword != password) {
+            $('#resetPasswordConfirmInput').addClass('is-invalid');
+            $('#resetPasswordConfirmFeedback').text('Passwords must match.');
+            formOk = false;
+        } else {
+            $('#resetPasswordConfirmInput').removeClass('is-invalid');
+        }
+
+        if (!formOk) {
+            $('#submitResetPasswordBtn').prop('disabled', false);
+            return;
+        }
+
+        data = {
+            user_id: resetUserId,
+            password: password
+        }
+        $.ajax({
+            url: "/api/user/password",
+            type: 'PATCH',
+            data: JSON.stringify(data),
+            contentType: "application/json",
+            success: function (result) {
+                if (result['success']) {
+                    const modalEl = document.getElementById('resetPasswordModal');
+                    const modal = bootstrap.Modal.getInstance(modalEl);
+                    if (modal) {
+                        modal.hide();
+                    }
+                } else if (result['errors'] && result['errors'].length) {
+                    $('#resetPasswordInput').addClass('is-invalid');
+                    $('#resetPasswordFeedback').text(result['errors'][0]);
+                }
+            },
+            complete: function () {
+                $('#submitResetPasswordBtn').prop('disabled', false);
+            }
+        });
+    }
+
+    const deleteUserModal = $('#deleteUserModal')
+    if (deleteUserModal) {
+        deleteUserModal.on('show.bs.modal', event => {
+            const button = event.relatedTarget
+            const user = button.getAttribute('data-bs-user')
+            const id = button.getAttribute('data-bs-id')
+            const modalBody = deleteUserModal.find('.modal-body')
+            const deleteBtn = deleteUserModal.find('.btn-danger')
+            deleteBtn.attr('onClick', 'deleteUser(' + id + ');');
+            modalBody.text("Delete user " + user + " ?")
+        })
+    }
+
+    function _setSort(key) {
+        if (sortKey === key) {
+            sortDir = (sortDir === 'asc') ? 'desc' : 'asc';
+        } else {
+            sortKey = key;
+            sortDir = 'asc';
+        }
+        currentPage = 1;
+        renderUsers();
+    }
+
+    $(document).ready(function () {
+        fillUserTable();
+        initTooltips();
+
+        $('#refreshUsersBtn').on('click', function () {
+            fillUserTable();
+        });
+
+        $('#userSearchInput').on('input', function () {
+            currentPage = 1;
+            renderUsers();
+        });
+
+        $('#clearUserSearchBtn').on('click', function () {
+            setInputVal('userSearchInput', '');
+            currentPage = 1;
+            renderUsers();
+        });
+
+        $('#userPageSizeSelect').on('change', function () {
+            const val = parseInt($(this).val(), 10);
+            pageSize = isNaN(val) ? 25 : val;
+            currentPage = 1;
+            renderUsers();
+        });
+
+        $('#usersSortUser').on('click', function () {
+            _setSort('user');
+        });
+        $('#usersSortPerms').on('click', function () {
+            _setSort('perms');
+        });
+    });
+
+    {% if admin_account_created == false %}
+    $('#checkboxNewUserAdminAccess').prop('checked', true).attr("disabled", true);
+    $('#checkboxNewUserShopAccess').prop('checked', true).attr("disabled", true);
+    $('#checkboxNewUserBackupAccess').prop('checked', true).attr("disabled", true);
+    {% endif %}
+</script>
+
+{% endblock %}

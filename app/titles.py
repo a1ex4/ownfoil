@@ -2,6 +2,7 @@ import os
 import sys
 import re
 import json
+import requests
 
 import titledb
 from constants import *
@@ -28,8 +29,42 @@ identification_in_progress_count = 0
 _titles_db_loaded = False
 _cnmts_db = None
 _titles_db = None
+_titles_desc_db = None
+_titles_desc_by_title_id = None
+_titles_images_by_title_id = None
 _versions_db = None
 _versions_txt_db = None
+
+
+def _ensure_titledb_descriptions_file(app_settings):
+    """Ensure the descriptions index file exists locally."""
+    try:
+        desc_url, desc_filename = titledb.get_descriptions_url(app_settings)
+        desc_path = os.path.join(TITLEDB_DIR, desc_filename)
+        if os.path.isfile(desc_path):
+            return desc_path
+
+        os.makedirs(TITLEDB_DIR, exist_ok=True)
+        tmp_path = desc_path + '.tmp'
+        try:
+            logger.info(f"Downloading {desc_filename} from {desc_url}...")
+            r = requests.get(desc_url, stream=True, timeout=120)
+            r.raise_for_status()
+            with open(tmp_path, 'wb') as fp:
+                for chunk in r.iter_content(chunk_size=1024 * 1024):
+                    if chunk:
+                        fp.write(chunk)
+            os.replace(tmp_path, desc_path)
+            return desc_path
+        finally:
+            try:
+                if os.path.isfile(tmp_path):
+                    os.remove(tmp_path)
+            except Exception:
+                pass
+    except Exception as e:
+        logger.warning(f"Failed to ensure TitleDB descriptions: {e}")
+        return None
 
 def getDirsAndFiles(path):
     entries = os.listdir(path)
@@ -88,7 +123,7 @@ def identify_appId(app_id):
     
     global _cnmts_db
     if _cnmts_db is None:
-        logger.error("cnmts_db is not loaded. Call load_titledb first.")
+        logger.warning("cnmts_db is not loaded. Call load_titledb first.")
         return None, None
 
     if app_id in _cnmts_db:
@@ -141,6 +176,9 @@ def load_titledb():
     global _titles_db
     global _versions_db
     global _versions_txt_db
+    global _titles_desc_db
+    global _titles_desc_by_title_id
+    global _titles_images_by_title_id
     global identification_in_progress_count
     global _titles_db_loaded
 
@@ -148,25 +186,93 @@ def load_titledb():
     if not _titles_db_loaded:
         logger.info("Loading TitleDBs into memory...")
         app_settings = load_settings()
-        with open(os.path.join(TITLEDB_DIR, 'cnmts.json'), encoding="utf-8") as f:
-            _cnmts_db = json.load(f)
+        
+        # Check if TitleDB directory exists and has required files
+        if not os.path.isdir(TITLEDB_DIR):
+            logger.warning(f"TitleDB directory {TITLEDB_DIR} does not exist. TitleDB files need to be downloaded first.")
+            return
+        
+        cnmts_file = os.path.join(TITLEDB_DIR, 'cnmts.json')
+        if not os.path.isfile(cnmts_file):
+            logger.warning(f"TitleDB file {cnmts_file} does not exist. TitleDB files need to be downloaded first.")
+            return
+        
+        region_titles_file = os.path.join(TITLEDB_DIR, titledb.get_region_titles_file(app_settings))
+        if not os.path.isfile(region_titles_file):
+            logger.warning(f"TitleDB file {region_titles_file} does not exist. TitleDB files need to be downloaded first.")
+            return
+        
+        versions_file = os.path.join(TITLEDB_DIR, 'versions.json')
+        if not os.path.isfile(versions_file):
+            logger.warning(f"TitleDB file {versions_file} does not exist. TitleDB files need to be downloaded first.")
+            return
+        
+        versions_txt_file = os.path.join(TITLEDB_DIR, 'versions.txt')
+        if not os.path.isfile(versions_txt_file):
+            logger.warning(f"TitleDB file {versions_txt_file} does not exist. TitleDB files need to be downloaded first.")
+            return
+        
+        try:
+            with open(cnmts_file, encoding="utf-8") as f:
+                _cnmts_db = json.load(f)
 
-        with open(os.path.join(TITLEDB_DIR, titledb.get_region_titles_file(app_settings)), encoding="utf-8") as f:
-            _titles_db = json.load(f)
+            with open(region_titles_file, encoding="utf-8") as f:
+                _titles_db = json.load(f)
 
-        with open(os.path.join(TITLEDB_DIR, 'versions.json'), encoding="utf-8") as f:
-            _versions_db = json.load(f)
+            _titles_desc_db = None
+            _titles_desc_by_title_id = None
+            _titles_images_by_title_id = None
+            try:
+                desc_url, desc_filename = titledb.get_descriptions_url(app_settings)
+                desc_path = os.path.join(TITLEDB_DIR, desc_filename)
+                if not os.path.isfile(desc_path):
+                    desc_path = _ensure_titledb_descriptions_file(app_settings)
+                if desc_path and os.path.isfile(desc_path):
+                    with open(desc_path, encoding="utf-8") as f:
+                        _titles_desc_db = json.load(f)
 
-        _versions_txt_db = {}
-        with open(os.path.join(TITLEDB_DIR, 'versions.txt'), encoding="utf-8") as f:
-            for line in f:
-                line_strip = line.rstrip("\n")
-                app_id, rightsId, version = line_strip.split('|')
-                if not version:
-                    version = "0"
-                _versions_txt_db[app_id] = version
-        _titles_db_loaded = True
-        logger.info("TitleDBs loaded.")
+                    # Build a fast lookup by the actual Nintendo Title ID (the "id" field).
+                    # The descriptions file keys are NOT the title id; they are internal ids like 7001...
+                    # Keeping only descriptions limits memory usage.
+                    by_id = {}
+                    images_by_id = {}
+                    if isinstance(_titles_desc_db, dict):
+                        for _, item in _titles_desc_db.items():
+                            if not isinstance(item, dict):
+                                continue
+                            tid = (item.get('id') or '').strip().upper()
+                            if not tid:
+                                continue
+                            desc = (item.get('description') or '').strip()
+                            if desc:
+                                by_id[tid] = desc
+
+                            screenshots = item.get('screenshots')
+                            if isinstance(screenshots, list):
+                                urls = [str(u).strip() for u in screenshots if str(u or '').strip()]
+                                if urls:
+                                    images_by_id[tid] = urls[:12]
+                    _titles_desc_by_title_id = by_id
+                    _titles_images_by_title_id = images_by_id
+            except Exception as e:
+                logger.warning(f"Failed to load TitleDB descriptions: {e}")
+
+            with open(versions_file, encoding="utf-8") as f:
+                _versions_db = json.load(f)
+
+            _versions_txt_db = {}
+            with open(versions_txt_file, encoding="utf-8") as f:
+                for line in f:
+                    line_strip = line.rstrip("\n")
+                    app_id, rightsId, version = line_strip.split('|')
+                    if not version:
+                        version = "0"
+                    _versions_txt_db[app_id] = version
+            _titles_db_loaded = True
+            logger.info("TitleDBs loaded.")
+        except Exception as e:
+            logger.error(f"Failed to load TitleDB files: {e}")
+            raise
 
 @debounce(30)
 def unload_titledb():
@@ -174,6 +280,9 @@ def unload_titledb():
     global _titles_db
     global _versions_db
     global _versions_txt_db
+    global _titles_desc_db
+    global _titles_desc_by_title_id
+    global _titles_images_by_title_id
     global identification_in_progress_count
     global _titles_db_loaded
 
@@ -186,6 +295,9 @@ def unload_titledb():
     _titles_db = None
     _versions_db = None
     _versions_txt_db = None
+    _titles_desc_db = None
+    _titles_desc_by_title_id = None
+    _titles_images_by_title_id = None
     _titles_db_loaded = False
     logger.info("TitleDBs unloaded.")
 
@@ -288,18 +400,48 @@ def identify_file(filepath):
 
 def get_game_info(title_id):
     global _titles_db
+    global _titles_desc_db
+    global _titles_desc_by_title_id
+    global _titles_images_by_title_id
     if _titles_db is None:
-        logger.error("titles_db is not loaded. Call load_titledb first.")
-        return None
+        logger.warning("titles_db is not loaded. Call load_titledb first.")
+        # Return default structure so games can still be displayed
+        return {
+            'name': 'Unrecognized',
+            'bannerUrl': '//placehold.it/400x200',
+            'iconUrl': '',
+            'id': title_id,
+            'category': '',
+            'nsuId': None,
+            'description': None,
+            'screenshots': [],
+        }
 
     try:
         title_info = [_titles_db[t] for t in list(_titles_db.keys()) if _titles_db[t]['id'] == title_id][0]
+
+        description = (title_info.get('description') or '').strip() or None
+        if not description and isinstance(_titles_desc_by_title_id, dict):
+            try:
+                description = (_titles_desc_by_title_id.get(str(title_id).strip().upper()) or '').strip() or None
+            except Exception:
+                pass
+
+        screenshots = []
+        if isinstance(_titles_images_by_title_id, dict):
+            try:
+                screenshots = _titles_images_by_title_id.get(str(title_id).strip().upper()) or []
+            except Exception:
+                screenshots = []
         return {
             'name': title_info['name'],
             'bannerUrl': title_info['bannerUrl'],
             'iconUrl': title_info['iconUrl'],
             'id': title_info['id'],
             'category': title_info['category'],
+            'nsuId': title_info.get('nsuId'),
+            'description': description,
+            'screenshots': screenshots,
         }
     except Exception:
         logger.error(f"Title ID not found in titledb: {title_id}")
@@ -309,7 +451,56 @@ def get_game_info(title_id):
             'iconUrl': '',
             'id': title_id + ' not found in titledb',
             'category': '',
+            'nsuId': None,
         }
+
+
+def search_titles(query, limit=20):
+    """Search the loaded TitleDB by name or title id.
+
+    Returns a list of lightweight title dicts suitable for UI autocomplete.
+    """
+    global _titles_db
+    if _titles_db is None:
+        logger.warning("titles_db is not loaded. Call load_titledb first.")
+        return []
+
+    q = (query or '').strip().lower()
+    if not q:
+        return []
+
+    try:
+        limit = int(limit)
+    except Exception:
+        limit = 20
+    limit = max(1, min(limit, 100))
+
+    out = []
+    seen_ids = set()
+    for _, item in (_titles_db or {}).items():
+        try:
+            tid = (item.get('id') or '').upper()
+            name = (item.get('name') or '').strip()
+        except Exception:
+            continue
+        if not tid or tid in seen_ids:
+            continue
+
+        hay = f"{tid} {name}".lower()
+        if q not in hay:
+            continue
+
+        out.append({
+            'id': tid,
+            'name': name or 'Unrecognized',
+            'category': item.get('category') or '',
+            'iconUrl': item.get('iconUrl') or '',
+            'bannerUrl': item.get('bannerUrl') or '',
+        })
+        seen_ids.add(tid)
+        if len(out) >= limit:
+            break
+    return out
 
 def get_update_number(version):
     return int(version)//65536
@@ -320,7 +511,11 @@ def get_game_latest_version(all_existing_versions):
 def get_all_existing_versions(titleid):
     global _versions_db
     if _versions_db is None:
-        logger.error("versions_db is not loaded. Call load_titledb first.")
+        logger.warning("versions_db is not loaded. Call load_titledb first.")
+        return []
+
+    if not titleid:
+        logger.warning("get_all_existing_versions called with None or empty titleid")
         return []
 
     titleid = titleid.lower()
@@ -341,7 +536,11 @@ def get_all_existing_versions(titleid):
 def get_all_app_existing_versions(app_id):
     global _cnmts_db
     if _cnmts_db is None:
-        logger.error("cnmts_db is not loaded. Call load_titledb first.")
+        logger.warning("cnmts_db is not loaded. Call load_titledb first.")
+        return None
+
+    if not app_id:
+        logger.warning("get_all_app_existing_versions called with None or empty app_id")
         return None
 
     app_id = app_id.lower()
@@ -359,14 +558,21 @@ def get_all_app_existing_versions(app_id):
 def get_app_id_version_from_versions_txt(app_id):
     global _versions_txt_db
     if _versions_txt_db is None:
-        logger.error("versions_txt_db is not loaded. Call load_titledb first.")
+        logger.warning("versions_txt_db is not loaded. Call load_titledb first.")
+        return None
+    if not app_id:
+        logger.warning("get_app_id_version_from_versions_txt called with None or empty app_id")
         return None
     return _versions_txt_db.get(app_id, None)
     
 def get_all_existing_dlc(title_id):
     global _cnmts_db
     if _cnmts_db is None:
-        logger.error("cnmts_db is not loaded. Call load_titledb first.")
+        logger.warning("cnmts_db is not loaded. Call load_titledb first.")
+        return []
+
+    if not title_id:
+        logger.warning("get_all_existing_dlc called with None or empty title_id")
         return []
 
     title_id = title_id.lower()

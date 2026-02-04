@@ -82,6 +82,40 @@
     </script>
     <script>
         (function () {
+            const badgeEl = document.getElementById('requestsNavBadge');
+            if (!badgeEl) {
+                return;
+            }
+
+            function setBadge(count) {
+                const n = Number(count || 0);
+                if (!Number.isFinite(n) || n <= 0) {
+                    badgeEl.textContent = '';
+                    badgeEl.classList.add('d-none');
+                    return;
+                }
+                badgeEl.textContent = String(n > 99 ? '99+' : n);
+                badgeEl.classList.remove('d-none');
+            }
+
+            function pollRequestsBadge() {
+                $.getJSON('/api/requests/unseen-count', function (result) {
+                    if (!result || result['success'] !== true) {
+                        setBadge(0);
+                        return;
+                    }
+                    setBadge(result['count'] || 0);
+                }).fail(function () {
+                    setBadge(0);
+                });
+            }
+
+            pollRequestsBadge();
+            setInterval(pollRequestsBadge, 15000);
+        })();
+    </script>
+    <script>
+        (function () {
             const rebuildEl = document.getElementById('libraryRebuildLabel');
             const rebuildTextEl = document.getElementById('libraryRebuildText');
             const rebuildSpinnerEl = document.getElementById('libraryRebuildSpinner');

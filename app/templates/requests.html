@@ -1,0 +1,369 @@
+{% extends 'base.html' %}
+
+{% block content %}
+{% include 'nav.html' %}
+<div class="container mt-4">
+  <div class="d-flex align-items-center justify-content-between gap-3 flex-wrap">
+    <div>
+      {% if current_user.is_admin or admin_account_created == false %}
+      <h2 class="mb-1">Requests</h2>
+      <div class="text-muted">User title requests and torrent search.</div>
+      {% else %}
+      <h2 class="mb-1">Request A Title</h2>
+      <div class="text-muted">Search TitleDB and request content not yet in your library.</div>
+      {% endif %}
+    </div>
+    <div class="d-flex align-items-center gap-2">
+      {% if current_user.is_admin or admin_account_created == false %}
+      <button class="btn btn-outline-light btn-sm" id="refreshRequestsBtn"><i class="bi bi-arrow-clockwise"></i> Refresh</button>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="card bg-dark text-light mt-3">
+    <div class="card-body">
+      {% if current_user.is_admin or admin_account_created == false %}
+      <div class="row g-2">
+        <div class="col-12 col-lg-6">
+          <input type="text" class="form-control" id="adminSearchBox" placeholder="Filter by title id, name, user...">
+        </div>
+        <div class="col-12">
+          <div class="table-responsive">
+            <table class="table table-dark table-sm align-middle mb-0">
+              <thead>
+                <tr>
+                  <th>Requested</th>
+                  <th>Title</th>
+                  <th>User</th>
+                  <th>Status</th>
+                  <th class="text-end">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="requestsTableBody"></tbody>
+            </table>
+          </div>
+          <div class="text-muted small mt-2" id="requestsStatus"></div>
+        </div>
+      </div>
+      {% else %}
+      <div class="row g-2">
+        <div class="col-12 col-lg-8">
+          <input type="text" class="form-control" id="requestSearchBox" placeholder="Search by name or title id (e.g. Mario, 0100...)" autocomplete="off">
+          <div class="list-group mt-2" id="requestSearchResults"></div>
+        </div>
+        <div class="col-12 col-lg-4">
+          <div class="border rounded p-3">
+            <div class="fw-semibold">Selected</div>
+            <div class="text-muted small" id="selectedTitleText">None</div>
+            <button class="btn btn-warning btn-sm mt-3" id="submitRequestBtn" disabled>
+              <i class="bi bi-send"></i> Submit request
+            </button>
+            <div class="text-muted small mt-2" id="requestSubmitStatus"></div>
+          </div>
+        </div>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Torrent Search Modal (admin) -->
+  {% if current_user.is_admin or admin_account_created == false %}
+  <div class="modal fade" id="requestTorrentSearchModal" tabindex="-1" aria-labelledby="requestTorrentSearchModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h1 class="modal-title fs-5" id="requestTorrentSearchModalLabel">Torrent search results</h1>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <div id="requestTorrentSearchStatus" class="text-muted mb-2"></div>
+          <div class="table-responsive">
+            <table class="table table-sm table-striped align-middle">
+              <thead>
+                <tr>
+                  <th scope="col">Title</th>
+                  <th scope="col">Size</th>
+                  <th scope="col">Seeders</th>
+                  <th scope="col">Leechers</th>
+                  <th scope="col">Action</th>
+                </tr>
+              </thead>
+              <tbody id="requestTorrentSearchResults"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+</div>
+
+<script>
+  const isAdmin = {{ 'true' if current_user.is_admin or admin_account_created == false else 'false' }};
+
+  function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text ?? '';
+    return div.innerHTML;
+  }
+
+  function formatBytes(bytes) {
+    if (!bytes) return '-';
+    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    let size = bytes;
+    let unitIndex = 0;
+    while (size >= 1024 && unitIndex < units.length - 1) {
+      size /= 1024;
+      unitIndex += 1;
+    }
+    return `${size.toFixed(size >= 10 ? 0 : 1)} ${units[unitIndex]}`;
+  }
+
+  let selectedTitle = null;
+  let adminRequests = [];
+
+  async function apiGet(url) {
+    const resp = await fetch(url, { credentials: 'same-origin' });
+    return await resp.json();
+  }
+
+  async function apiPost(url, payload) {
+    const resp = await fetch(url, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload || {}),
+    });
+    return await resp.json();
+  }
+
+  function renderUserSearchResults(results) {
+    const box = document.getElementById('requestSearchResults');
+    box.innerHTML = '';
+    if (!results || !results.length) return;
+    results.forEach(item => {
+      const disabled = item.in_library === true;
+      const a = document.createElement('button');
+      a.type = 'button';
+      a.className = `list-group-item list-group-item-action ${disabled ? 'disabled' : ''}`;
+      a.innerHTML = `
+        <div class="d-flex justify-content-between align-items-start gap-2">
+          <div>
+            <div class="fw-semibold">${escapeHtml(item.name || 'Unrecognized')}</div>
+            <div class="text-muted small">${escapeHtml(item.id || '')} ${item.category ? `| ${escapeHtml(item.category)}` : ''}</div>
+          </div>
+          ${disabled ? '<span class="badge text-bg-secondary">In library</span>' : ''}
+        </div>
+      `;
+      a.addEventListener('click', () => {
+        if (disabled) return;
+        selectedTitle = item;
+        document.getElementById('selectedTitleText').textContent = `${item.name || 'Unrecognized'} (${item.id})`;
+        document.getElementById('submitRequestBtn').disabled = false;
+        document.getElementById('requestSubmitStatus').textContent = '';
+        box.innerHTML = '';
+        document.getElementById('requestSearchBox').value = `${item.name || ''}`.trim();
+      });
+      box.appendChild(a);
+    });
+  }
+
+  let searchTimer = null;
+  async function handleUserSearchInput() {
+    const q = (document.getElementById('requestSearchBox').value || '').trim();
+    if (searchTimer) clearTimeout(searchTimer);
+    searchTimer = setTimeout(async () => {
+      if (!q) {
+        renderUserSearchResults([]);
+        return;
+      }
+      const data = await apiGet(`/api/titledb/search?q=${encodeURIComponent(q)}&limit=25`);
+      if (!data || data.success !== true) {
+        renderUserSearchResults([]);
+        return;
+      }
+      const results = Array.isArray(data.results) ? data.results : [];
+      // Hide titles already present in the library.
+      renderUserSearchResults(results.filter(r => r && r.in_library !== true));
+    }, 250);
+  }
+
+  async function submitRequest() {
+    const status = document.getElementById('requestSubmitStatus');
+    if (!selectedTitle) return;
+    status.textContent = 'Submitting...';
+    const data = await apiPost('/api/requests', {
+      title_id: selectedTitle.id,
+      title_name: selectedTitle.name,
+    });
+    if (data && data.success) {
+      status.textContent = data.message || 'Request created.';
+      document.getElementById('submitRequestBtn').disabled = true;
+      selectedTitle = null;
+      document.getElementById('selectedTitleText').textContent = 'None';
+    } else {
+      status.textContent = (data && data.message) ? data.message : 'Request failed.';
+    }
+  }
+
+  function renderAdminRequestsTable() {
+    const tbody = document.getElementById('requestsTableBody');
+    const filter = (document.getElementById('adminSearchBox').value || '').toLowerCase().trim();
+    tbody.innerHTML = '';
+
+    const rows = (adminRequests || []).filter(r => {
+      if (!filter) return true;
+      const u = r.user && r.user.user ? r.user.user : '';
+      const hay = `${r.title_id || ''} ${r.title_name || ''} ${u} ${r.status || ''}`.toLowerCase();
+      return hay.includes(filter);
+    });
+
+    rows.forEach(r => {
+      const tr = document.createElement('tr');
+      const when = r.created_at ? new Date(r.created_at * 1000).toLocaleString() : '-';
+      const userText = r.user && r.user.user ? r.user.user : '-';
+      tr.innerHTML = `
+        <td class="small text-muted">${escapeHtml(when)}</td>
+        <td>
+          <div class="fw-semibold">${escapeHtml(r.title_name || 'Unrecognized')}</div>
+          <div class="text-muted small">${escapeHtml(r.title_id || '')}</div>
+        </td>
+        <td>${escapeHtml(userText)}</td>
+        <td><span class="badge text-bg-secondary">${escapeHtml(r.status || 'open')}</span></td>
+        <td class="text-end">
+          <div class="btn-group btn-group-sm" role="group">
+            <button class="btn btn-warning search-request-btn" data-title-id="${escapeHtml(r.title_id || '')}" data-title-name="${escapeHtml(r.title_name || '')}">
+              <i class="bi bi-search"></i> Search torrents
+            </button>
+            <button class="btn btn-outline-danger delete-request-btn" data-request-id="${escapeHtml(String(r.id || ''))}" title="Delete request">
+              <i class="bi bi-trash"></i>
+            </button>
+          </div>
+        </td>
+      `;
+      tbody.appendChild(tr);
+    });
+  }
+
+  async function refreshAdminRequests() {
+    const status = document.getElementById('requestsStatus');
+    status.textContent = 'Loading...';
+    const data = await apiGet('/api/requests?all=1');
+    if (!data || data.success !== true) {
+      status.textContent = (data && data.message) ? data.message : 'Failed to load.';
+      return;
+    }
+    adminRequests = data.requests || [];
+    renderAdminRequestsTable();
+    status.textContent = `Showing ${adminRequests.length} request(s).`;
+
+    // Mark currently-open requests as seen for this admin.
+    try {
+      await apiPost('/api/requests/mark-seen', {});
+    } catch (e) {
+      // ignore
+    }
+  }
+
+  async function searchTorrentsForRequest(titleId, titleName) {
+    const modalEl = document.getElementById('requestTorrentSearchModal');
+    const statusEl = document.getElementById('requestTorrentSearchStatus');
+    const bodyEl = document.getElementById('requestTorrentSearchResults');
+    bodyEl.innerHTML = '';
+    statusEl.textContent = 'Searching Prowlarr...';
+    const modal = new bootstrap.Modal(modalEl);
+    modal.show();
+
+    // API to be added (next step)
+    const data = await apiGet(`/api/requests/search?title_id=${encodeURIComponent(titleId)}&title_name=${encodeURIComponent(titleName || '')}`);
+    if (!data || data.success !== true) {
+      statusEl.textContent = (data && data.message) ? data.message : 'Search failed.';
+      return;
+    }
+    const results = data.results || [];
+    if (!results.length) {
+      statusEl.textContent = 'No results found.';
+      return;
+    }
+    statusEl.textContent = `Found ${results.length} results.`;
+    results.forEach(item => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${escapeHtml(item.title || '-')}</td>
+        <td>${formatBytes(item.size)}</td>
+        <td>${escapeHtml(String(item.seeders ?? '-'))}</td>
+        <td>${escapeHtml(String(item.leechers ?? '-'))}</td>
+        <td>
+          <button class="btn btn-sm btn-warning queue-torrent-btn" data-download-url="${escapeHtml(item.download_url || '')}" data-title="${escapeHtml(item.title || '')}">
+            Queue
+          </button>
+        </td>
+      `;
+      bodyEl.appendChild(tr);
+    });
+  }
+
+  document.addEventListener('click', async (e) => {
+    if (!isAdmin) return;
+    const btn = e.target.closest('.search-request-btn');
+    if (!btn) return;
+    const titleId = btn.getAttribute('data-title-id');
+    const titleName = btn.getAttribute('data-title-name');
+    if (!titleId) return;
+    await searchTorrentsForRequest(titleId, titleName);
+  });
+
+  document.addEventListener('click', async (e) => {
+    if (!isAdmin) return;
+    const btn = e.target.closest('.delete-request-btn');
+    if (!btn) return;
+    const requestId = btn.getAttribute('data-request-id');
+    if (!requestId) return;
+
+    if (!confirm('Delete this request?')) return;
+
+    btn.setAttribute('disabled', 'true');
+    try {
+      const data = await apiPost('/api/requests/delete', { request_id: requestId });
+      if (!data || data.success !== true) {
+        alert((data && data.message) ? data.message : 'Delete failed.');
+        return;
+      }
+      await refreshAdminRequests();
+    } finally {
+      btn.removeAttribute('disabled');
+    }
+  });
+
+  document.addEventListener('click', async (e) => {
+    if (!isAdmin) return;
+    const btn = e.target.closest('.queue-torrent-btn');
+    if (!btn) return;
+    const downloadUrl = btn.getAttribute('data-download-url');
+    const title = btn.getAttribute('data-title');
+    if (!downloadUrl) return;
+    btn.setAttribute('disabled', 'true');
+    try {
+      const data = await apiPost('/api/downloads/queue', {
+        download_url: downloadUrl,
+        title: title,
+        update_only: false,
+      });
+      // best-effort feedback in modal header
+      const statusEl = document.getElementById('requestTorrentSearchStatus');
+      statusEl.textContent = (data && data.message) ? data.message : (data && data.success ? 'Queued.' : 'Queue failed.');
+    } finally {
+      btn.removeAttribute('disabled');
+    }
+  });
+
+  if (!isAdmin) {
+    document.getElementById('requestSearchBox')?.addEventListener('input', handleUserSearchInput);
+    document.getElementById('submitRequestBtn')?.addEventListener('click', submitRequest);
+  } else {
+    document.getElementById('refreshRequestsBtn')?.addEventListener('click', refreshAdminRequests);
+    document.getElementById('adminSearchBox')?.addEventListener('input', renderAdminRequestsTable);
+    refreshAdminRequests();
+  }
+</script>
+{% endblock %}

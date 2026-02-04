@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container">
+    <div class="row d-flex flex-column min-vh-100 justify-content-center align-items-center">
+        <div class="col-12 col-lg-7">
+            <div class="card">
+                <div class="card-body">
+                    <h3 class="card-title mb-2">Setup required</h3>
+                    <p class="text-muted mb-3">
+                        OwnFoil is not configured yet. For security, creating the first admin account is restricted to private networks.
+                    </p>
+
+                    {% if reason %}
+                    <div class="alert alert-warning" role="alert">{{ reason }}</div>
+                    {% endif %}
+
+                    <h6 class="mb-2">How to continue</h6>
+                    <ol class="mb-3">
+                        <li>Open this page from the same LAN as the server (private IP range).</li>
+                        <li>If you are using Nginx Proxy Manager / a reverse proxy, configure trusted proxies in <code>app/config/settings.yaml</code>:</li>
+                    </ol>
+
+                    <pre class="bg-body-tertiary p-3 rounded border"><code>security:
+  trust_proxy_headers: true
+  trusted_proxies:
+    - "172.16.0.0/12"   # example docker network
+    - "192.168.0.0/16"  # example LAN
+</code></pre>
+
+                    <p class="text-muted mb-0">
+                        Debug: peer={{ peer_addr or 'unknown' }}, xff={{ x_forwarded_for or 'none' }}
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -5,6 +5,7 @@ from functools import wraps
 import json
 import os
 import tempfile
+import time
 
 # Global lock for all JSON writes in this process
 _json_write_lock = threading.Lock()
@@ -43,14 +44,62 @@ def debounce(wait):
     """Decorator that postpones a function's execution until after `wait` seconds
     have elapsed since the last time it was invoked."""
     def decorator(fn):
+        lock = threading.Lock()
+        condition = threading.Condition(lock)
+        state = {
+            "deadline": None,
+            "args": None,
+            "kwargs": None,
+            "running": False,
+            "stop": False,
+        }
+
+        def runner():
+            while True:
+                with condition:
+                    while state["deadline"] is None and not state["stop"]:
+                        condition.wait()
+                    if state["stop"]:
+                        return
+
+                    while True:
+                        remaining = state["deadline"] - time.time()
+                        if remaining <= 0:
+                            break
+                        condition.wait(timeout=remaining)
+                        if state["deadline"] is None or state["stop"]:
+                            break
+
+                    if state["stop"]:
+                        return
+
+                    if state["deadline"] is None:
+                        continue
+
+                    args = state["args"]
+                    kwargs = state["kwargs"]
+                    state["deadline"] = None
+
+                fn(*args, **kwargs)
+
         @wraps(fn)
         def debounced(*args, **kwargs):
-            def call_it():
-                fn(*args, **kwargs)
-            if hasattr(debounced, '_timer'):
-                debounced._timer.cancel()
-            debounced._timer = threading.Timer(wait, call_it)
-            debounced._timer.start()
+            with condition:
+                state["args"] = args
+                state["kwargs"] = kwargs
+                state["deadline"] = time.time() + wait
+                if not state["running"]:
+                    state["running"] = True
+                    thread = threading.Thread(target=runner, daemon=True)
+                    thread.start()
+                condition.notify()
+
+        def cancel():
+            with condition:
+                state["deadline"] = None
+                condition.notify()
+
+        debounced.cancel = cancel
         return debounced
     return decorator
 

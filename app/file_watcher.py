@@ -1,6 +1,7 @@
 from constants import *
 from utils import *
 import time, os
+from watchdog.observers import Observer
 from watchdog.observers.polling import PollingObserver
 from watchdog.events import FileSystemEventHandler
 from types import SimpleNamespace
@@ -15,7 +16,13 @@ class Watcher:
         self.directories = set()  # Use a set to store directories
         self.callback = callback
         self.event_handler = Handler(self.callback)
-        self.observer = PollingObserver()
+        use_polling = str(os.environ.get('WATCHDOG_POLLING', '')).strip().lower() in ('1', 'true', 'yes')
+        if use_polling:
+            self.observer = PollingObserver()
+            logger.info('Watchdog using polling observer (WATCHDOG_POLLING enabled).')
+        else:
+            self.observer = Observer()
+            logger.info('Watchdog using native observer.')
         self.scheduler_map = {}
 
     def run(self):
@@ -48,6 +55,7 @@ class Watcher:
                 self.observer.unschedule(self.scheduler_map[directory])
                 del self.scheduler_map[directory]
             self.directories.remove(directory)
+            self.event_handler.remove_directory(directory)
             logger.info(f'Removed {directory} from watchdog monitoring.')
             return True
         else:
@@ -65,6 +73,10 @@ class Handler(FileSystemEventHandler):
     def add_directory(self, directory):
         if directory not in self.directories:
             self.directories.append(directory)
+    
+    def remove_directory(self, directory):
+        if directory in self.directories:
+            self.directories.remove(directory)
 
     def _debounce(self, func, wait):
         """Debounce decorator for the stability check."""

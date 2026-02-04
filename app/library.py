@@ -255,12 +255,18 @@ def add_missing_apps_to_db():
     
     for n, title in enumerate(titles):
         title_id = title.title_id
+        if not title_id:
+            logger.warning(f'Skipping title with None title_id: {title}')
+            continue
         title_db_id = get_title_id_db_id(title_id)
         
-        # Add base game if not present
-        existing_base = get_app_by_id_and_version(title_id, "0")
-        
-        if not existing_base:
+        # Add base game if not present at all (any base version)
+        existing_bases = [
+            a for a in get_all_title_apps(title_id)
+            if a.get('app_type') == APP_TYPE_BASE
+        ]
+
+        if not existing_bases:
             new_base_app = Apps(
                 app_id=title_id,
                 app_version="0",
@@ -435,7 +441,13 @@ def compute_apps_hash():
         hash_md5.update((app['app_type'] or '').encode())
         hash_md5.update(str(app['owned'] or False).encode())
         hash_md5.update((app['title_id'] or '').encode())
+        hash_md5.update(str(app.get('size') or 0).encode())
+        hash_md5.update(str(app.get('title_db_id') or 0).encode())
     return hash_md5.hexdigest()
+
+
+# Bump this when the cached library schema changes.
+LIBRARY_CACHE_VERSION = 6
 
 def is_library_unchanged():
     cache_path = Path(LIBRARY_CACHE_FILE)
@@ -444,6 +456,9 @@ def is_library_unchanged():
 
     saved_library = load_library_from_disk()
     if not saved_library:
+        return False
+
+    if saved_library.get('version') != LIBRARY_CACHE_VERSION:
         return False
 
     if not saved_library.get('hash'):
@@ -475,10 +490,19 @@ def generate_library():
         saved_library = load_library_from_disk()
         if saved_library:
             return saved_library['library']
+
+    # If the schema changed, regenerate and overwrite the cache.
+    try:
+        cache_path = Path(LIBRARY_CACHE_FILE)
+        if cache_path.exists():
+            cache_path.unlink(missing_ok=True)
+    except Exception:
+        pass
     
     logger.info(f'Generating library ...')
     titles_lib.load_titledb()
     titles = get_all_apps()
+    logger.info(f'Found {len(titles)} apps in database')
     games_info = []
     processed_dlc_apps = set()  # Track processed DLC app_ids to avoid duplicates
 
@@ -489,20 +513,30 @@ def generate_library():
             continue
         if title['app_type'] == APP_TYPE_UPD:
             continue
+
             
         # Get title info from titledb
         info_from_titledb = titles_lib.get_game_info(title['app_id'])
+        # Note: get_game_info now returns a default dict instead of None, so this check is mostly for safety
         if info_from_titledb is None:
             logger.warning(f'Info not found for game: {title}')
             continue
         title.update(info_from_titledb)
+
+        # Normalize genre/category fields for UI filtering/sorting.
+        title['genre'] = title.get('category') or ''
+        if title.get('category') is None:
+            title['category'] = ''
         
         if title['app_type'] == APP_TYPE_BASE:
             # Get title status from Titles table (already calculated by update_titles)
             title_obj = get_title(title['title_id'])
             if title_obj:
                 title['has_base'] = title_obj.have_base
-                title['has_latest_version'] = title_obj.up_to_date
+                # Only mark as up to date if the base itself is owned and up_to_date
+                title['has_latest_version'] = (
+                    title_obj.have_base and title_obj.up_to_date
+                )
                 title['has_all_dlcs'] = title_obj.complete
             else:
                 title['has_base'] = False
@@ -523,6 +557,7 @@ def generate_library():
                 version_list.append({
                     'version': app_version,
                     'owned': update_app.get('owned', False),
+                    'size': update_app.get('size', 0) or 0,
                     'release_date': version_release_dates.get(app_version, 'Unknown')
                 })
             
@@ -550,12 +585,18 @@ def generate_library():
                 })
             
             title['version'] = sorted(version_list, key=lambda x: x['version'])
+
+            # Card-level ownership: owned if any version is owned.
+            title['owned'] = any(app.get('owned') for app in dlc_apps)
             
             # Check if this DLC has latest version
             if dlc_apps:
                 highest_version = max(int(app['app_version']) for app in dlc_apps)
-                highest_owned_version = max((int(app['app_version']) for app in dlc_apps if app.get('owned')), default=0)
-                title['has_latest_version'] = highest_owned_version >= highest_version
+                owned_versions = [int(app['app_version']) for app in dlc_apps if app.get('owned')]
+                # Only true if at least one version is OWNED and the highest owned >= highest available
+                title['has_latest_version'] = (
+                    len(owned_versions) > 0 and max(owned_versions) >= highest_version
+                )
             else:
                 title['has_latest_version'] = True
             
@@ -566,6 +607,7 @@ def generate_library():
         games_info.append(title)
     
     library_data = {
+        'version': LIBRARY_CACHE_VERSION,
         'hash': compute_apps_hash(),
         'library': sorted(games_info, key=lambda x: (
             "title_id_name" not in x, 
@@ -758,6 +800,8 @@ def organize_library(dry_run=False, verbose=False, detail_limit=200):
         'success': True,
         'moved': 0,
         'skipped': 0,
+        'folders_deleted': 0,
+        'folders_failed': 0,
         'errors': [],
         'details': []
     }
@@ -768,6 +812,49 @@ def organize_library(dry_run=False, verbose=False, detail_limit=200):
         if (verbose or dry_run) and detail_count < detail_limit:
             results['details'].append(message)
             detail_count += 1
+
+    def plan_empty_dirs(root_dir):
+        """Return a bottom-up list of empty directories (excluding root_dir).
+
+        In dry_run mode we plan deletions so parent directories that only contain
+        empty directories are also considered deletable.
+        """
+        root_dir = os.path.normpath(root_dir or '')
+        if not root_dir or not os.path.isdir(root_dir):
+            return []
+
+        removable = set()
+        planned = []
+        for dirpath, dirnames, filenames in os.walk(root_dir, topdown=False):
+            try:
+                norm_dirpath = os.path.normpath(dirpath)
+                if norm_dirpath == root_dir:
+                    continue
+                if os.path.islink(dirpath):
+                    continue
+
+                has_remaining = False
+                with os.scandir(dirpath) as it:
+                    for entry in it:
+                        try:
+                            if entry.is_dir(follow_symlinks=False):
+                                if os.path.normpath(entry.path) in removable:
+                                    continue
+                                has_remaining = True
+                                break
+                            else:
+                                has_remaining = True
+                                break
+                        except OSError:
+                            has_remaining = True
+                            break
+
+                if not has_remaining:
+                    removable.add(norm_dirpath)
+                    planned.append(dirpath)
+            except OSError:
+                continue
+        return planned
 
     titles_lib.load_titledb()
     title_name_cache = {}
@@ -866,6 +953,32 @@ def organize_library(dry_run=False, verbose=False, detail_limit=200):
             add_detail(f"Plan move: {file_entry.filepath} -> {dest_path}.")
 
     titles_lib.unload_titledb()
+
+    # Cleanup: delete empty folders created or left behind after organizing.
+    try:
+        library_roots = [lib.path for lib in get_libraries() if lib and lib.path]
+    except Exception:
+        library_roots = []
+
+    planned_dirs = []
+    for root in library_roots:
+        planned_dirs.extend(plan_empty_dirs(root))
+
+    if planned_dirs:
+        if dry_run:
+            results['folders_deleted'] = len(planned_dirs)
+            for d in planned_dirs[:detail_limit]:
+                add_detail(f"Plan delete empty folder: {d}.")
+        else:
+            for d in planned_dirs:
+                try:
+                    os.rmdir(d)
+                    results['folders_deleted'] += 1
+                    add_detail(f"Deleted empty folder: {d}.")
+                except OSError:
+                    results['folders_failed'] += 1
+                    add_detail(f"Failed to delete empty folder: {d}.")
+
     if results['errors']:
         results['success'] = False
     return results

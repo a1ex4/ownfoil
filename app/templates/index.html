@@ -104,6 +104,31 @@
         </div>
         <div class="col-auto">
             <div class="btn-group dropdown-center" role="group">
+                <button id="sortDropdownBtn" type="button" class="btn btn-primary dropdown-toggle"
+                    data-bs-toggle="dropdown" aria-expanded="false">
+                    Sort
+                </button>
+                <ul class="dropdown-menu" aria-labelledby="sortDropdownBtn">
+                    <li><button class="dropdown-item sort-option" data-sort="title_asc">Title (A-Z)</button></li>
+                    <li><button class="dropdown-item sort-option" data-sort="title_desc">Title (Z-A)</button></li>
+                    <li><button class="dropdown-item sort-option" data-sort="newest">Newest added</button></li>
+                </ul>
+            </div>
+        </div>
+
+        <div class="col-auto">
+            <div class="btn-group dropdown-center" role="group">
+                <button id="genreDropdownBtn" type="button" class="btn btn-primary dropdown-toggle"
+                    data-bs-toggle="dropdown" aria-expanded="false">
+                    Genre
+                </button>
+                <ul class="dropdown-menu" id="genreDropdownMenu" aria-labelledby="genreDropdownBtn">
+                    <li><button class="dropdown-item genre-option" data-genre="">All genres</button></li>
+                </ul>
+            </div>
+        </div>
+        <div class="col-auto">
+            <div class="btn-group dropdown-center" role="group">
                 <button id="itemsPerPageDropdownBtn" type="button" class="btn btn-primary dropdown-toggle"
                     data-bs-toggle="dropdown" aria-expanded="false">
                     Items per page
@@ -128,6 +153,53 @@
             <input type="range" class="form-range" min="1" max="5" step="1" id="cardSizeRange">
         </div>
     </div>
+
+    <div class="px-3 mt-3 d-none" id="discoverSection">
+        <div class="d-flex gap-3 align-items-stretch mt-3 py-4 discover-columns">
+            <div class="flex-fill">
+                <div class="mb-3">
+                    <div class="fw-semibold">Newly added</div>
+                    <div class="text-muted small">Latest titles found in your library.</div>
+                </div>
+                <div class="discover-row-wrapper position-relative">
+                    <button class="discover-scroll-btn discover-scroll-left" aria-label="Scroll left">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="currentColor" viewBox="0 0 16 16">
+                            <path fill-rule="evenodd" d="M11.354 1.646a.5.5 0 0 1 0 .708L5.707 8l5.647 5.646a.5.5 0 0 1-.708.708l-6-6a.5.5 0 0 1 0-.708l6-6a.5.5 0 0 1 .708 0z"/>
+                        </svg>
+                    </button>
+                    <div class="discover-row" id="newlyAddedRow"></div>
+                    <button class="discover-scroll-btn discover-scroll-right" aria-label="Scroll right">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="currentColor" viewBox="0 0 16 16">
+                            <path fill-rule="evenodd" d="M4.646 1.646a.5.5 0 0 1 .708 0l6 6a.5.5 0 0 1 0 .708l-6 6a.5.5 0 0 1-.708-.708L10.293 8 4.646 2.354a.5.5 0 0 1 0-.708z"/>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+
+            <div class="discover-separator" style="width: 1px; background-color: rgba(255, 255, 255, 0.1); align-self: stretch;"></div>
+
+            <div class="flex-fill">
+                <div class="mb-3">
+                    <div class="fw-semibold">Recommended</div>
+                    <div class="text-muted small">A rotating selection from your library.</div>
+                </div>
+                <div class="discover-row-wrapper position-relative">
+                    <button class="discover-scroll-btn discover-scroll-left" aria-label="Scroll left">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="currentColor" viewBox="0 0 16 16">
+                            <path fill-rule="evenodd" d="M11.354 1.646a.5.5 0 0 1 0 .708L5.707 8l5.647 5.646a.5.5 0 0 1-.708.708l-6-6a.5.5 0 0 1 0-.708l6-6a.5.5 0 0 1 .708 0z"/>
+                        </svg>
+                    </button>
+                    <div class="discover-row" id="recommendedRow"></div>
+                    <button class="discover-scroll-btn discover-scroll-right" aria-label="Scroll right">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="currentColor" viewBox="0 0 16 16">
+                            <path fill-rule="evenodd" d="M4.646 1.646a.5.5 0 0 1 .708 0l6 6a.5.5 0 0 1 0 .708l-6 6a.5.5 0 0 1-.708-.708L10.293 8 4.646 2.354a.5.5 0 0 1 0-.708z"/>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <div class="grid-container" id="gridContainer">
         <div class="row g-4" id="gameGrid"></div>
         <!-- <div class="row row-cols-1 row-cols-md-3 g-4" id="gameGrid"></div> -->
@@ -155,6 +227,44 @@
                 <div class="mb-3" id="detailsMeta"></div>
                 <div id="detailsVersions"></div>
                 <div id="detailsDownloadStatus" class="small text-muted mt-2"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Game Info Modal -->
+<div class="modal fade" id="gameInfoModal" tabindex="-1" aria-labelledby="gameInfoModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h1 class="modal-title fs-5" id="gameInfoModalLabel">Game info</h1>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-2">
+                    <div class="fw-semibold" id="gameInfoTitle"></div>
+                    <div class="text-muted small" id="gameInfoMeta"></div>
+                </div>
+                <div id="gameInfoStatus" class="text-muted small mb-2"></div>
+                <div id="gameInfoBody" class="game-info-body"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Screenshot Modal -->
+<div class="modal fade" id="screenshotModal" tabindex="-1" aria-labelledby="screenshotModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+        <div class="modal-content bg-dark text-white">
+            <div class="modal-header">
+                <h1 class="modal-title fs-6" id="screenshotModalLabel">Screenshot</h1>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body p-0">
+                <img id="screenshotModalImg" class="w-100" alt="">
             </div>
         </div>
     </div>
@@ -198,6 +308,8 @@
     let totalGames = 0;
     let cardSize = 3; // Default card size
     let currentView = 'card'; // Default view is 'card'
+    let currentSort = 'title_asc';
+    let selectedGenre = '';
     const canManageDownloads = {{ 'true' if current_user.is_admin or admin_account_created == false else 'false' }};
 
     function fetchGames() {
@@ -206,6 +318,7 @@
                 totalGames = data.total;
                 games = data.games;
                 filteredGames = games;
+                applySort();
                 resolve();
             }).fail(function() {
                 reject();
@@ -228,8 +341,8 @@
     }
 
     function renderGames() {
-        // Set slider to show `cardsize` columns by default
-        $('#cardSizeRange').val(cardSize);
+        renderDiscoverySections();
+        applyCardSizeLimits();
 
         if (currentView === 'card') {
             renderCardView();
@@ -250,6 +363,219 @@
         const popoverList = [...popoverTriggerList].map(popoverTriggerEl => new bootstrap.Popover(popoverTriggerEl))
     }
 
+    function getGameTitle(game) {
+        return (game && (game.title_id_name || game.name || game.title_id || game.app_id)) || '';
+    }
+
+    function getGameGenre(game) {
+        return (game && (game.genre || game.category)) || '';
+    }
+
+    function splitGenres(raw) {
+        // Some titles come back with comma-separated genres.
+        const parts = String(raw || '')
+            .split(',')
+            .map(s => String(s).trim())
+            .filter(Boolean);
+
+        // De-dupe (case-insensitive), preserve casing of first occurrence.
+        const seen = new Set();
+        const out = [];
+        for (const p of parts) {
+            const key = p.toLowerCase();
+            if (seen.has(key)) continue;
+            seen.add(key);
+            out.push(p);
+        }
+        return out;
+    }
+
+    function getPrimaryGenre(game) {
+        const parts = splitGenres(getGameGenre(game));
+        return parts[0] || '';
+    }
+
+    function compareText(a, b) {
+        return String(a || '').localeCompare(String(b || ''), undefined, { sensitivity: 'base' });
+    }
+
+    function applySort() {
+        if (!Array.isArray(filteredGames)) {
+            filteredGames = [];
+            return;
+        }
+
+        const withIndex = filteredGames.map((g, i) => ({ g, i }));
+        withIndex.sort((x, y) => {
+            const a = x.g;
+            const b = y.g;
+
+            if (currentSort === 'title_desc') {
+                const c = compareText(getGameTitle(b), getGameTitle(a));
+                return c || (x.i - y.i);
+            }
+
+            if (currentSort === 'newest') {
+                const aId = parseInt(a && a.title_db_id, 10) || 0;
+                const bId = parseInt(b && b.title_db_id, 10) || 0;
+                if (aId !== bId) return bId - aId;
+                const c = compareText(getGameTitle(a), getGameTitle(b));
+                return c || (x.i - y.i);
+            }
+
+            // Default: title asc
+            const c = compareText(getGameTitle(a), getGameTitle(b));
+            return c || (x.i - y.i);
+        });
+
+        filteredGames = withIndex.map(x => x.g);
+    }
+
+    function shouldShowDiscovery() {
+        const searchText = ($('#textFilter').val() || '').trim();
+        if (searchText) return false;
+        return (
+            activeTypeFilters.size === 0 &&
+            activeOwnershipFilters.size === 0 &&
+            activeUpdateFilters.size === 0 &&
+            activeCompletionFilters.size === 0
+        );
+    }
+
+    function hashStringToInt32(str) {
+        // FNV-1a 32-bit
+        let h = 0x811c9dc5;
+        const s = String(str || '');
+        for (let i = 0; i < s.length; i++) {
+            h ^= s.charCodeAt(i);
+            h = Math.imul(h, 0x01000193);
+        }
+        return h | 0;
+    }
+
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text ?? '';
+        return div.innerHTML;
+    }
+
+    function renderDiscoverRow(containerId, items) {
+        const el = document.getElementById(containerId);
+        if (!el) return;
+        el.innerHTML = '';
+
+        (items || []).forEach(game => {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'discover-tile btn btn-link p-0 text-start';
+            btn.setAttribute('data-bs-toggle', 'modal');
+            btn.setAttribute('data-bs-target', '#detailsModal');
+            btn.setAttribute('data-bs-app-id', game.app_id);
+            btn.setAttribute('data-bs-app-type', game.app_type);
+
+            const iconSrc = game.title_id ? `/api/shop/icon/${game.title_id}` : '';
+            const title = escapeHtml(getGameTitle(game));
+            const genre = escapeHtml(getPrimaryGenre(game));
+            btn.innerHTML = `
+                <div class="discover-tile-body">
+                    <img class="discover-tile-img" src="${iconSrc || '/static/placeholder-icon.svg'}" alt="">
+                    <div class="discover-tile-title">${title}</div>
+                    <div class="discover-tile-subtitle">${genre}</div>
+                </div>
+            `;
+
+            const img = btn.querySelector('img');
+            if (img) {
+                img.addEventListener('error', function () {
+                    if (!this.dataset.triedFallback) {
+                        this.dataset.triedFallback = '1';
+                        this.src = '/static/placeholder-icon.svg';
+                    }
+                });
+            }
+
+            el.appendChild(btn);
+        });
+    }
+
+    function renderDiscoverySections() {
+        const wrapper = document.getElementById('discoverSection');
+        if (!wrapper) return;
+
+        if (!Array.isArray(games) || !shouldShowDiscovery()) {
+            wrapper.classList.add('d-none');
+            return;
+        }
+
+        const baseGames = games.filter(g => g && g.app_type === 'BASE');
+
+        const newest = baseGames
+            .slice()
+            .sort((a, b) => (parseInt(b.title_db_id, 10) || 0) - (parseInt(a.title_db_id, 10) || 0))
+            .slice(0, 12);
+
+        const candidates = baseGames.filter(g => g && g.owned === true);
+        const dayKey = new Date().toISOString().slice(0, 10);
+        const seed = `ownfoil-reco-${dayKey}`;
+        const recommended = candidates
+            .slice()
+            .sort((a, b) => {
+                const ha = hashStringToInt32(`${seed}-${a.title_id || a.app_id}`);
+                const hb = hashStringToInt32(`${seed}-${b.title_id || b.app_id}`);
+                return ha - hb;
+            })
+            .slice(0, 12);
+
+        wrapper.classList.remove('d-none');
+        renderDiscoverRow('newlyAddedRow', newest);
+        renderDiscoverRow('recommendedRow', recommended);
+        
+        // Initialize scroll buttons
+        initDiscoverScrollButtons('newlyAddedRow');
+        initDiscoverScrollButtons('recommendedRow');
+    }
+
+    function initDiscoverScrollButtons(rowId) {
+        const row = document.getElementById(rowId);
+        if (!row) return;
+        
+        const wrapper = row.closest('.discover-row-wrapper');
+        if (!wrapper) return;
+        
+        const leftBtn = wrapper.querySelector('.discover-scroll-left');
+        const rightBtn = wrapper.querySelector('.discover-scroll-right');
+        
+        if (!leftBtn || !rightBtn) return;
+        
+        function updateButtonStates() {
+            const scrollLeft = row.scrollLeft;
+            const scrollWidth = row.scrollWidth;
+            const clientWidth = row.clientWidth;
+            const maxScroll = scrollWidth - clientWidth;
+            
+            leftBtn.disabled = scrollLeft <= 0;
+            rightBtn.disabled = scrollLeft >= maxScroll - 1; // -1 for rounding
+        }
+        
+        // Update button states on scroll
+        row.addEventListener('scroll', updateButtonStates);
+        
+        // Update button states on resize
+        window.addEventListener('resize', updateButtonStates);
+        
+        // Initial state
+        updateButtonStates();
+        
+        // Scroll handlers
+        leftBtn.addEventListener('click', () => {
+            row.scrollBy({ left: -320, behavior: 'smooth' });
+        });
+        
+        rightBtn.addEventListener('click', () => {
+            row.scrollBy({ left: 320, behavior: 'smooth' });
+        });
+    }
+
     function renderCardView() {
         // Render card view logic...
         const gameGrid = $('#gameGrid');
@@ -266,7 +592,7 @@
 
             const card = $('<div class="card text-bg-dark game-card"></div>');
 
-            const cacheBannerSrc = game.title_id ? `/api/shop/banner/${game.title_id}` : '';
+            const cacheBannerSrc = game.title_id ? `/api/shop/banner/${game.title_id}?size=web` : '';
             const bannerFallback = '/static/placeholder-banner.svg';
             const img = $('<img class="card-img"></img>').attr('src', cacheBannerSrc || bannerFallback);
             img.on('error', function () {
@@ -291,11 +617,28 @@
             description.append(small);
             cardOverlay.append(description);
 
+            const genres = splitGenres(getGameGenre(game));
+            if (genres.length) {
+                const genreText = genres.join(', ');
+                const genreLine = $('<p class="card-text game-genre mb-0"></p>');
+                genreLine.append($('<small></small>').text(genreText));
+            cardOverlay.append(genreLine);
+            }
+
             const tagsContainer = $('<div class="tags-container"></div>');
 
-            const typeBadgeClass = (game.owned === false) ? 'text-bg-warning' : 'text-bg-info';
-            const typeBadge = $(`<span class="badge rounded-pill ${typeBadgeClass} game-tag"></span>`).text(game.app_type);
-            tagsContainer.append(typeBadge);
+            // Status icons (Base / Update / DLC) shown above action buttons.
+            const statusIcons = $('<div class="game-status-icons"></div>');
+
+            const baseState = (game.has_base !== undefined)
+                ? (game.has_base ? 'success' : 'warning')
+                : ((game.app_type === 'BASE') ? ((game.owned === false) ? 'warning' : 'success') : null);
+            if (baseState) {
+                statusIcons.append(
+                    $(`<span class="badge rounded-pill game-tag text-bg-${baseState}" title="Base"></span>`)
+                        .html('<i class="bi bi-disc-fill"></i>')
+                );
+            }
 
             if (game.has_latest_version !== undefined) {
                 const versionBadge = $(`<span class="badge rounded-pill game-tag version-tag" title="${game.name} [${game.title_id}] Updates"></span>`)
@@ -322,21 +665,38 @@
                         versionBadge.attr("data-bs-title", "Version v" + game.version)
                     }
                 }
-                tagsContainer.append(versionBadge);
+                statusIcons.append(versionBadge);
             }
 
             if (game.has_all_dlcs !== undefined) {
                 const dlcBadge = $('<span class="badge rounded-pill game-tag"></span>').addClass(`text-bg-${game.has_all_dlcs ? 'success' : 'warning'}`).html('<i class="bi bi-box-seam-fill"></i>');
-                tagsContainer.append(dlcBadge);
+                dlcBadge.attr('title', 'DLC');
+                statusIcons.append(dlcBadge);
             }
 
-            const detailsBtn = $('<button type="button" class="btn btn-outline-light btn-sm ms-2"></button>')
+            if (statusIcons.children().length) {
+                tagsContainer.append(statusIcons);
+            }
+
+            const actionButtons = $('<div class="game-action-buttons"></div>');
+
+            const detailsBtn = $('<button type="button" class="btn btn-outline-light btn-sm"></button>')
                 .attr('data-bs-toggle', 'modal')
                 .attr('data-bs-target', '#detailsModal')
                 .attr('data-bs-app-id', game.app_id)
                 .attr('data-bs-app-type', game.app_type)
                 .html('<i class="bi bi-info-circle"></i> Details');
-            tagsContainer.append(detailsBtn);
+            actionButtons.append(detailsBtn);
+
+            const infoBtn = $('<button type="button" class="btn btn-outline-info btn-sm game-info-btn"></button>')
+                .attr('data-bs-toggle', 'modal')
+                .attr('data-bs-target', '#gameInfoModal')
+                .attr('data-title-id', game.title_id || '')
+                .attr('data-title', getGameTitle(game))
+                .html('<i class="bi bi-journal-text"></i> Game info');
+            actionButtons.append(infoBtn);
+
+            tagsContainer.append(actionButtons);
 
             cardOverlay.append(tagsContainer);
             card.append(cardOverlay);
@@ -360,22 +720,45 @@
         paginatedGames = baseGames.slice(start, end);
 
         paginatedGames.forEach(game => {
-            const iconBtn = $('<button type="button" class="btn btn-link p-0 game-icon-btn"></button>')
+            const iconBtn = $('<button type="button" class="btn btn-link p-0 game-icon-btn library-icon-tile text-start"></button>')
                 .attr('data-bs-toggle', 'modal')
                 .attr('data-bs-target', '#detailsModal')
                 .attr('data-bs-app-id', game.app_id)
                 .attr('data-bs-app-type', game.app_type);
-            const cacheIconSrc = game.title_id ? `/api/shop/icon/${game.title_id}` : '';
+            const cacheIconSrc = game.title_id ? `/api/shop/icon/${game.title_id}?size=web` : '';
             const iconFallback = '/static/placeholder-icon.svg';
-            const icon = $('<img class="game-icon">').attr('src', cacheIconSrc || iconFallback);
-            icon.on('error', function () {
+            const title = escapeHtml(getGameTitle(game));
+            const parts = splitGenres(getGameGenre(game));
+            const genre = escapeHtml(parts.length > 3 ? `${parts.slice(0, 3).join(', ')}...` : parts.join(', '));
+
+            iconBtn.html(`
+                <div class="discover-tile-body">
+                    <img class="library-icon-img" src="${cacheIconSrc || iconFallback}" alt="">
+                    <div class="discover-tile-title">${title}</div>
+                    <div class="discover-tile-subtitle">${genre}</div>
+                </div>
+            `);
+
+            const img = iconBtn.find('img');
+            img.on('error', function () {
                 if (!this.dataset.triedFallback) {
                     this.dataset.triedFallback = '1';
                     this.src = iconFallback;
                 }
             });
-            iconBtn.append(icon);
-            gameGrid.append(iconBtn);
+            const item = $('<div class="library-icon-item"></div>');
+            item.append(iconBtn);
+
+            const infoBtn = $('<button type="button" class="btn btn-outline-info btn-sm game-info-btn library-icon-info-overlay" aria-label="Game info"></button>')
+                .attr('data-bs-toggle', 'modal')
+                .attr('data-bs-target', '#gameInfoModal')
+                .attr('data-title-id', game.title_id || '')
+                .attr('data-title', getGameTitle(game))
+                .html('<i class="bi bi-journal-text"></i>');
+            infoBtn.on('click', function (e) { e.stopPropagation(); });
+            item.append(infoBtn);
+
+            gameGrid.append(item);
         });
 
         // Adjust icon sizes based on the slider value
@@ -426,6 +809,7 @@
                 <thead>
                     <tr>
                         <th scope="col">Title</th>
+                        <th scope="col">Genres</th>
                         <th scope="col">Type</th>
                         <th scope="col">Version</th>
                         <th scope="col">Status</th>
@@ -467,6 +851,7 @@
                         <div class="fw-semibold">${title}</div>
                         <div class="text-muted small">${subtitle}</div>
                     </td>
+                    <td class="text-muted small">${escapeHtml(splitGenres(getGameGenre(game)).join(', ')) || '-'}</td>
                     <td>${game.app_type}</td>
                     <td>${versionText}</td>
                     <td>${statusBadges.join(' ')}</td>
@@ -476,13 +861,22 @@
                             data-bs-app-id="${game.app_id}" data-bs-app-type="${game.app_type}">
                             <i class="bi bi-info-circle"></i> Details
                         </button>
+
+                        <button type="button" class="btn btn-outline-info btn-sm ms-2 game-info-btn"
+                            data-bs-toggle="modal" data-bs-target="#gameInfoModal"
+                            data-title-id="${game.title_id || ''}"
+                            data-title="${escapeHtml(getGameTitle(game))}">
+                            <i class="bi bi-journal-text"></i> Game info
+                        </button>
                     </td>
                 </tr>
             `);
             tbody.append(row);
         });
 
-        gameGrid.append(table);
+        const wrapper = $('<div class="table-responsive"></div>');
+        wrapper.append(table);
+        gameGrid.append(wrapper);
         updatePaginationControls(filteredGames.length);
     }
 
@@ -497,14 +891,76 @@
         }
     }
 
+    function getCardSizeRangeForView(view) {
+        // Card view extremes are too small/big; icon view keeps full range.
+        if (view === 'card') {
+            return { min: 2, max: 4, def: 3 };
+        }
+        return { min: 1, max: 5, def: 3 };
+    }
+
+    function clampCardSizeForView(view, size) {
+        const r = getCardSizeRangeForView(view);
+        const n = parseInt(size, 10);
+        if (!Number.isFinite(n)) return r.def;
+        return Math.min(r.max, Math.max(r.min, n));
+    }
+
+    function getCardSizeStorageKeyForView(view) {
+        return view === 'icon' ? 'cardSizeIcon' : 'cardSizeCard';
+    }
+
+    function loadCardSizeForView(view) {
+        const key = getCardSizeStorageKeyForView(view);
+        const saved = localStorage.getItem(key);
+        if (saved) {
+            return clampCardSizeForView(view, saved);
+        }
+
+        // Backward-compat: older builds used a single shared key.
+        const legacy = localStorage.getItem('cardSize');
+        if (legacy) {
+            return clampCardSizeForView(view, legacy);
+        }
+
+        return clampCardSizeForView(view, cardSize);
+    }
+
+    function saveCardSizeForView(view, size) {
+        const key = getCardSizeStorageKeyForView(view);
+        localStorage.setItem(key, String(size));
+    }
+
+    function applyCardSizeLimits() {
+        const r = getCardSizeRangeForView(currentView);
+        const slider = $('#cardSizeRange');
+        slider.attr('min', r.min);
+        slider.attr('max', r.max);
+        slider.val(clampCardSizeForView(currentView, cardSize));
+    }
+
     function updatePaginationControls(nbDisplayedGames) {
         const paginationControls = $('#paginationControls');
         paginationControls.empty(); // Clear existing pagination
 
-        const totalPages = Math.ceil(nbDisplayedGames / itemsPerPage);
+        const safeItemsPerPage = Math.max(parseInt(itemsPerPage || 0), 1);
+        const totalPages = Math.max(1, Math.ceil((nbDisplayedGames || 0) / safeItemsPerPage));
+
+        // If switching views results in fewer pages, clamp to last valid page.
+        // This prevents a blank grid when currentPage is out of range.
+        if (currentPage > totalPages) {
+            currentPage = totalPages;
+            renderGames();
+            return;
+        }
+        if (currentPage < 1) {
+            currentPage = 1;
+            renderGames();
+            return;
+        }
 
         // Previous button
-        const prevButton = $('<li class="page-item"></li>').addClass(`page-item ${currentPage === 1 ? 'disabled' : ''}`).html(`
+        const prevButton = $('<li class="page-item"></li>').addClass(`page-item ${currentPage <= 1 ? 'disabled' : ''}`).html(`
                 <a class="page-link" href="#" aria-label="Previous">
                     <span aria-hidden="true">&laquo;</span>
                 </a>`);
@@ -529,7 +985,7 @@
         }
 
         // Next button
-        const nextButton = $('<li class="page-item"></li>').addClass(`page-item ${currentPage === totalPages ? 'disabled' : ''}`).html(`
+        const nextButton = $('<li class="page-item"></li>').addClass(`page-item ${currentPage >= totalPages ? 'disabled' : ''}`).html(`
                 <a class="page-link" href="#" aria-label="Next">
                     <span aria-hidden="true">&raquo;</span>
                 </a>`);
@@ -552,8 +1008,16 @@
     }
 
     function adjustIconSizes() {
-        // Calculate the size of the icons based on the slider value
-        const iconSize = 280 - (cardSize * 20);
+        // Calculate the size of the icons based on the slider value.
+        // Use distinct steps so adjacent settings are visually different.
+        const iconSizes = {
+            1: 320,
+            2: 280,
+            3: 240,
+            4: 200,
+            5: 160,
+        };
+        const iconSize = iconSizes[cardSize] || 240;
         $('#gameGrid').css('--icon-size', `${iconSize}px`);
     }
 
@@ -573,6 +1037,110 @@
         localStorage.setItem('activeFilters', JSON.stringify(filters));
     }
 
+    function saveGenreToStorage() {
+        localStorage.setItem('selectedGenre', selectedGenre || '');
+    }
+
+    function loadGenreFromStorage() {
+        const saved = localStorage.getItem('selectedGenre');
+        selectedGenre = saved ? String(saved) : '';
+        updateGenreButtonLabel();
+    }
+
+    function updateGenreButtonLabel() {
+        const btn = document.getElementById('genreDropdownBtn');
+        if (!btn) return;
+        btn.textContent = selectedGenre ? `Genre: ${selectedGenre}` : 'Genre';
+    }
+
+    function populateGenreDropdown() {
+        const menu = $('#genreDropdownMenu');
+        if (!menu.length) return;
+
+        menu.empty();
+
+        const allLi = $('<li></li>');
+        const allBtn = $('<button type="button" class="dropdown-item genre-option"></button>')
+            .text('All genres')
+            .attr('data-genre', '');
+        allLi.append(allBtn);
+        menu.append(allLi);
+
+        const seen = new Map();
+        (games || []).forEach(g => {
+            const raw = getGameGenre(g);
+            splitGenres(raw).forEach(cleaned => {
+                const key = cleaned.toLowerCase();
+                if (!seen.has(key)) {
+                    seen.set(key, cleaned);
+                }
+            });
+        });
+
+        const genres = Array.from(seen.values());
+        genres.sort((a, b) => String(a).localeCompare(String(b), undefined, { sensitivity: 'base' }));
+        genres.forEach(genre => {
+            const li = $('<li></li>');
+            const btn = $('<button type="button" class="dropdown-item genre-option"></button>')
+                .text(genre)
+                .attr('data-genre', genre);
+            li.append(btn);
+            menu.append(li);
+        });
+    }
+
+    function recomputeFilteredGames() {
+        let list = Array.isArray(games) ? games.slice() : [];
+
+        const searchText = ($('#textFilter').val() || '').trim().toLowerCase();
+        if (searchText) {
+            list = list.filter(game =>
+                game.app_id?.toLowerCase().includes(searchText) ||
+                game.title_id?.toLowerCase().includes(searchText) ||
+                game.name?.toLowerCase().includes(searchText) ||
+                game.title_id_name?.toLowerCase().includes(searchText)
+            );
+        }
+
+        if (activeTypeFilters.size > 0) {
+            list = list.filter(game => activeTypeFilters.has(game.app_type));
+        }
+
+        if (activeOwnershipFilters.size === 1) {
+            if (activeOwnershipFilters.has('Owned')) {
+                list = list.filter(game => game.owned === true);
+            } else if (activeOwnershipFilters.has('Missing')) {
+                list = list.filter(game => game.owned === false);
+            }
+        }
+
+        if (activeUpdateFilters.size === 1) {
+            if (activeUpdateFilters.has('Up to date')) {
+                list = list.filter(game => game.has_latest_version === true);
+            } else if (activeUpdateFilters.has('Outdated')) {
+                list = list.filter(game => game.has_latest_version === false);
+            }
+        }
+
+        if (activeCompletionFilters.size === 1) {
+            if (activeCompletionFilters.has('Complete')) {
+                list = list.filter(game => game.has_all_dlcs === true);
+            } else if (activeCompletionFilters.has('Missing DLC')) {
+                list = list.filter(game => game.has_all_dlcs === false);
+            }
+        }
+
+        if (selectedGenre) {
+            const wanted = String(selectedGenre).trim().toLowerCase();
+            list = list.filter(game => splitGenres(getGameGenre(game)).some(g => g.toLowerCase() === wanted));
+        }
+
+        filteredGames = list;
+        currentPage = 1;
+        applySort();
+        renderGames();
+    }
+
     function loadFiltersFromStorage() {
         const savedFilters = localStorage.getItem('activeFilters');
         if (savedFilters) {
@@ -586,15 +1154,15 @@
             $('#filterCheckMissingDlc').prop('checked', filters.completion?.includes('Missing DLC') || false);
 
             updateFilter();
-            applyFilters();
+            recomputeFilteredGames();
         }
 
         const savedSearch = localStorage.getItem('searchTerm');
         if (savedSearch) {
             $('#textFilter').val(savedSearch);
-            filterBySearchText(savedSearch);
+            recomputeFilteredGames();
         } else {
-            renderGames();
+            recomputeFilteredGames();
         }
     }
 
@@ -610,13 +1178,30 @@
         }
 
         const savedCardSize = localStorage.getItem('cardSize');
-        if (savedCardSize){
-            cardSize = parseInt(savedCardSize);
+        if (savedCardSize) {
+            // Migrate old shared key into per-view keys on first load.
+            localStorage.setItem('cardSizeCard', String(clampCardSizeForView('card', savedCardSize)));
+            localStorage.setItem('cardSizeIcon', String(clampCardSizeForView('icon', savedCardSize)));
+            localStorage.removeItem('cardSize');
         }
+
+        cardSize = loadCardSizeForView(currentView);
+
+        const savedSort = localStorage.getItem('sortMethod');
+        const allowedSorts = new Set(['title_asc', 'title_desc', 'newest']);
+        if (savedSort && allowedSorts.has(savedSort)) {
+            currentSort = savedSort;
+        } else if (savedSort) {
+            currentSort = 'title_asc';
+            localStorage.setItem('sortMethod', currentSort);
+        }
+
+        loadGenreFromStorage();
 
         // Fetch initial set of games and render
         fetchGames()
             .then(() => {
+                populateGenreDropdown();
                 loadFiltersFromStorage();
             })
             .catch(() => {})
@@ -624,6 +1209,22 @@
                 fetchLibrarySize();
                 fetchLibraryStatus();
             });
+
+        // Sort dropdown
+        $('.sort-option').click(function () {
+            currentSort = $(this).data('sort');
+            localStorage.setItem('sortMethod', currentSort);
+            currentPage = 1;
+            applySort();
+            renderGames();
+        });
+
+        $('#genreDropdownMenu').on('click', '.genre-option', function () {
+            selectedGenre = String($(this).attr('data-genre') || '');
+            saveGenreToStorage();
+            updateGenreButtonLabel();
+            recomputeFilteredGames();
+        });
 
         // Event listeners for items per page dropdown
         $('.items-per-page').click(function () {
@@ -645,8 +1246,9 @@
 
         // Event listener for card size slider
         $('#cardSizeRange').on('input', function () {
-            cardSize = parseInt($(this).val());
-            localStorage.setItem('cardSize', cardSize);
+            cardSize = clampCardSizeForView(currentView, $(this).val());
+            saveCardSizeForView(currentView, cardSize);
+            applyCardSizeLimits();
             if (currentView === 'icon') {
                 adjustIconSizes(cardSize);
             } else {
@@ -667,7 +1269,10 @@
             } else if (view === 'list') {
                 currentView = 'list';
             }
-            renderGames(games);
+
+            cardSize = loadCardSizeForView(currentView);
+            applyCardSizeLimits();
+            renderGames();
         });
         
         // Handle filter checkbox
@@ -681,7 +1286,7 @@
         $("#textFilter").on("input", function () {
             const attributeText = $(this).val();
             localStorage.setItem('searchTerm', attributeText);
-            filterBySearchText(attributeText);
+            recomputeFilteredGames();
         });
 
         if (canManageDownloads) {
@@ -694,7 +1299,7 @@
                 $('#torrentSearchResults').empty();
                 const modal = new bootstrap.Modal(document.getElementById('torrentSearchModal'));
                 modal.show();
-                $.getJSON(`/api/downloads/search?query=${encodeURIComponent(query)}`, function (result) {
+                $.getJSON(`/api/downloads/search?query=${encodeURIComponent(query)}&apply_settings=1`, function (result) {
                     if (!result['success']) {
                         $('#torrentSearchStatus').text(result['message'] || 'Search failed.');
                         return;
@@ -795,6 +1400,10 @@
         $('#detailsSubtitle').text(`${game.app_type} | App ID ${game.app_id} | Title ID ${game.title_id}`);
 
         const metaItems = [];
+        const genres = splitGenres(getGameGenre(game));
+        if (genres.length) {
+            metaItems.push(`<span class="badge text-bg-secondary">Genres: ${escapeHtml(genres.join(', '))}</span>`);
+        }
         if (game.owned !== undefined) {
             metaItems.push(`<span class="badge text-bg-${game.owned ? 'success' : 'warning'}">Owned: ${game.owned ? 'Yes' : 'No'}</span>`);
         }
@@ -806,6 +1415,9 @@
         }
         if (game.has_all_dlcs !== undefined) {
             metaItems.push(`<span class="badge text-bg-${game.has_all_dlcs ? 'success' : 'warning'}">All DLC: ${game.has_all_dlcs ? 'Yes' : 'No'}</span>`);
+        }
+        if (game.size !== undefined) {
+            metaItems.push(`<span class="badge text-bg-secondary">Size: ${formatBytes(game.size)}</span>`);
         }
         $('#detailsMeta').html(metaItems.join(' '));
 
@@ -820,6 +1432,7 @@
             <tr>
                 <td>v${version.version}</td>
                 <td>${version.owned ? 'Owned' : 'Missing'}</td>
+                <td>${(version.size !== undefined && version.size !== null) ? formatBytes(version.size) : '-'}</td>
                 <td>${version.release_date || 'Unknown'}</td>
             </tr>
         `).join('');
@@ -833,19 +1446,27 @@
                         data-title-id="${game.title_id}" data-version="${latestMissing.version}">
                         <i class="bi bi-cloud-arrow-down"></i> Search & download v${latestMissing.version}
                     </button>
+                    <div class="input-group input-group-sm mt-2 manual-search-group">
+                        <input type="text" class="form-control manual-search-input" placeholder="Custom search terms">
+                        <button type="button" class="btn btn-outline-secondary manual-search-btn"
+                            data-title-id="${game.title_id}" data-version="${latestMissing.version}">
+                            Search files
+                        </button>
+                    </div>
                 </div>
             `
             : '';
 
         $('#detailsVersions').html(`
             <table class="table table-sm table-striped">
-                <thead>
-                    <tr>
-                        <th scope="col">Version</th>
-                        <th scope="col">Status</th>
-                        <th scope="col">Release date</th>
-                    </tr>
-                </thead>
+                 <thead>
+                     <tr>
+                         <th scope="col">Version</th>
+                         <th scope="col">Status</th>
+                         <th scope="col">Size</th>
+                         <th scope="col">Release date</th>
+                     </tr>
+                 </thead>
                 <tbody>
                     ${rows}
                 </tbody>
@@ -865,6 +1486,76 @@
             renderDetails(game);
         });
     }
+
+    function findGameByTitleId(titleId) {
+        const tid = (titleId || '').trim().toUpperCase();
+        if (!tid || !Array.isArray(games)) return null;
+
+        const base = games.find(g => (g && String(g.title_id || '').toUpperCase() === tid && g.app_type === 'BASE'));
+        if (base) return base;
+        return games.find(g => (g && String(g.title_id || '').toUpperCase() === tid)) || null;
+    }
+
+    function renderGameInfoModalFromTitleDb(game, titleId, title) {
+        $('#gameInfoTitle').text(title || (game && (game.title_id_name || game.name)) || 'Game info');
+        $('#gameInfoMeta').text(titleId ? `Title ID ${titleId}` : '');
+        const body = $('#gameInfoBody');
+        body.empty();
+
+        const desc = (game && game.description) ? String(game.description).trim() : '';
+        if (desc) {
+            $('#gameInfoStatus').text('').removeClass('text-danger').addClass('text-muted');
+            body.append($('<div class="game-info-description"></div>').text(desc));
+        } else {
+            $('#gameInfoStatus')
+                .text('No description available in TitleDB for this title.')
+                .removeClass('text-danger')
+                .addClass('text-muted');
+        }
+
+        const shots = (game && Array.isArray(game.screenshots)) ? game.screenshots : [];
+        if (shots.length) {
+            const grid = $('<div class="game-info-image-grid"></div>');
+            shots.slice(0, 12).forEach(u => {
+                const img = $('<img class="game-info-image" alt="">').attr('src', u);
+                img.on('error', function () { $(this).remove(); });
+                grid.append(img);
+            });
+            body.append(grid);
+        }
+    }
+
+    const gameInfoModal = document.getElementById('gameInfoModal');
+    if (gameInfoModal) {
+        gameInfoModal.addEventListener('show.bs.modal', event => {
+            const button = event.relatedTarget;
+            const titleId = (button.getAttribute('data-title-id') || '').trim().toUpperCase();
+            const title = button.getAttribute('data-title') || '';
+            if (!titleId) {
+                renderGameInfoModalFromTitleDb(null, titleId, title);
+                $('#gameInfoStatus').text('This item has no Title ID.').removeClass('text-muted').addClass('text-danger');
+                return;
+            }
+
+            const game = findGameByTitleId(titleId);
+            renderGameInfoModalFromTitleDb(game, titleId, title);
+        });
+    }
+
+    const screenshotModalEl = document.getElementById('screenshotModal');
+    const screenshotModal = screenshotModalEl ? new bootstrap.Modal(screenshotModalEl) : null;
+    if (screenshotModalEl) {
+        screenshotModalEl.addEventListener('hidden.bs.modal', () => {
+            $('#screenshotModalImg').attr('src', '');
+        });
+    }
+
+    $(document).on('click', '.game-info-image', function () {
+        const src = $(this).attr('src') || '';
+        if (!src || !screenshotModal) return;
+        $('#screenshotModalImg').attr('src', src);
+        screenshotModal.show();
+    });
 
     $(document).on('click', '.manual-download-btn', function () {
         const button = $(this);
@@ -923,23 +1614,67 @@
         });
     });
 
+    $(document).on('click', '.manual-search-btn', function () {
+        const button = $(this);
+        const group = button.closest('.manual-search-group');
+        const input = group.find('.manual-search-input');
+        const query = (input.val() || '').trim();
+        const titleId = button.data('title-id');
+        const version = button.data('version');
+        if (!query) {
+            input.focus();
+            return;
+        }
+        button.prop('disabled', true);
+        $('#detailsDownloadStatus').text('Searching Prowlarr...').removeClass('text-danger text-success').addClass('text-muted');
+        $('#torrentSearchStatus').text('Searching Prowlarr...');
+        $('#torrentSearchResults').empty();
+        const modal = new bootstrap.Modal(document.getElementById('torrentSearchModal'));
+        modal.show();
+        $.getJSON(`/api/downloads/search?query=${encodeURIComponent(query)}`, function (result) {
+            if (!result['success']) {
+                $('#torrentSearchStatus').text(result['message'] || 'Search failed.');
+                return;
+            }
+            const results = result['results'] || [];
+            if (!results.length) {
+                $('#torrentSearchStatus').text('No results found.');
+                return;
+            }
+            $('#torrentSearchStatus').text(`Found ${results.length} results.`);
+            results.forEach(item => {
+                const row = $(`
+                    <tr>
+                        <td>${item.title || '-'}</td>
+                        <td>${formatBytes(item.size)}</td>
+                        <td>${item.seeders ?? '-'}</td>
+                        <td>${item.leechers ?? '-'}</td>
+                        <td>
+                            <button class="btn btn-sm btn-warning queue-torrent-btn"
+                                data-download-url="${item.download_url}"
+                                data-title="${item.title || ''}"
+                                data-update-only="true"
+                                data-expected-version="${version}">
+                                Queue update
+                            </button>
+                        </td>
+                    </tr>
+                `);
+                $('#torrentSearchResults').append(row);
+            });
+            $('#detailsDownloadStatus').text('');
+        }).fail(function () {
+            $('#torrentSearchStatus').text('Search failed.');
+        }).always(function () {
+            button.prop('disabled', false);
+        });
+    });
+
     // Function to filter cards based on input text
     function filterBySearchText(attributeText) {
-        if (!attributeText) {
-            filteredGames = games;
-        } else {
-            searchText = attributeText.toLowerCase();
-
-            filteredGames = games.filter(game =>
-                game.app_id?.toLowerCase().includes(searchText) ||
-                game.title_id?.toLowerCase().includes(searchText) ||
-                game.name?.toLowerCase().includes(searchText) ||
-                game.title_id_name?.toLowerCase().includes(searchText)
-            )
-        }
-
-        currentPage = 1;
-        renderGames();
+        const text = (attributeText || '').trim();
+        localStorage.setItem('searchTerm', text);
+        recomputeFilteredGames();
     }
 
     // Set to store active filters
@@ -1013,51 +1748,7 @@
 
     // Function to apply filters and show/hide game cards with animation
     function applyFilters() {
-
-        if (activeTypeFilters.size === 0 && activeOwnershipFilters.size === 0 && activeUpdateFilters.size === 0 && activeCompletionFilters.size === 0) {
-            filteredGames = games;
-        } else {
-            gamesFilteredByType = []
-            gamesFilteredByOwnership = []
-            gamesFilteredByUpdate = []
-            gamesFilteredByCompletion = []
-
-            console.log(activeTypeFilters);
-            if (activeTypeFilters.size > 0) {
-                filteredGames = [];
-                for (let type of activeTypeFilters) {
-                    gamesFilteredByType = gamesFilteredByType.concat(games.filter(game => game.app_type === type));
-                }
-            }
-
-            if (activeOwnershipFilters.has("Owned")) {
-                gamesFilteredByOwnership = gamesFilteredByOwnership.concat(games.filter(game => game.owned === true));
-            }
-            if (activeOwnershipFilters.has("Missing")) {
-                gamesFilteredByOwnership = gamesFilteredByOwnership.concat(games.filter(game => game.owned === false));
-            }
-
-            if (activeUpdateFilters.has("Up to date")) {
-                gamesFilteredByUpdate = gamesFilteredByUpdate.concat(games.filter(game => game.has_latest_version === true));
-            }
-            if (activeUpdateFilters.has("Outdated")) {
-                gamesFilteredByUpdate = gamesFilteredByUpdate.concat(games.filter(game => game.has_latest_version === false));
-            }
-            
-            if (activeCompletionFilters.has("Complete")) {
-                gamesFilteredByCompletion = gamesFilteredByCompletion.concat(games.filter(game => game.has_all_dlcs === true));
-            }
-            if (activeCompletionFilters.has("Missing DLC")) {
-                gamesFilteredByCompletion = gamesFilteredByCompletion.concat(games.filter(game => game.has_all_dlcs === false));
-            }
-
-            // Find common elements
-            filteredGames = findCommonElements(games, gamesFilteredByType, gamesFilteredByOwnership, gamesFilteredByUpdate, gamesFilteredByCompletion);
-        }
-
-        currentPage = 1;
-        renderGames();
-
+        recomputeFilteredGames();
     }
 
     // $('#btnApplyFilters').on('click', function () {

@@ -100,6 +100,17 @@ There is watchdog in place for all your added directories: files moved, renamed,
 ## Library management
 In the `Manage` page, you can organize your library structure, delete older update files, and convert `nsp`/`xci` to `nsz`.
 
+## Library browser UI
+- Card view: the Base/Update/DLC status icons are displayed above the action buttons.
+- Icon view: the `Game info` button is shown as an overlay on the game tile.
+
+## Game info (TitleDB)
+The `Game info` modal uses TitleDB metadata (not Nintendo website scraping):
+- `description`: shown as the game summary.
+- `screenshots`: displayed in a grid; click a screenshot to open it larger.
+
+Ownfoil will download the TitleDB descriptions/screenshot dataset on demand to `./data/titledb/US.en.json` (Docker path: `/app/data/titledb/US.en.json`).
+
 Conversion details:
 - Uses the bundled `nsz` tool from the `./nsz` directory (with progress output).
 - Uses the same `keys.txt` uploaded in the `Settings` page.
@@ -149,6 +160,26 @@ Encryption uses the Tinfoil public key and AES, and requires the `pycryptodome` 
 - Map port `8465` from the container to any host port you prefer.
 - To bootstrap an admin account, set `USER_ADMIN_NAME` and `USER_ADMIN_PASSWORD` when starting the container.
 - Update the container with `docker pull luketanti/ownfoil:latest` and restart it.
+
+## Reverse proxy: real client IP (Activity page)
+If you run Ownfoil behind a reverse proxy (e.g. Nginx Proxy Manager), Ownfoil will only trust `X-Forwarded-For` when explicitly configured.
+
+In `config/settings.json`:
+```json
+{
+  "security": {
+    "trust_proxy_headers": true,
+    "trusted_proxies": ["172.16.0.0/12", "192.168.0.0/16"]
+  }
+}
+```
+
+Set `trusted_proxies` to your proxy IP(s) and/or your Docker network subnet so the Activity page shows the WAN/client IP instead of the proxy's LAN IP.
+
+## TitleDB sources and downloads
+- TitleDB artifacts are downloaded separately from the metadata dataset.
+- The descriptions/screenshot dataset (`US.en.json`) is downloaded to `/app/data/titledb/US.en.json` and is not part of the TitleDB artifacts zip.
+- The TitleDB artifacts zip may be very large (multi-GB) depending on the upstream workflow output.
 
 # Roadmap
 Planned feature, in no particular order.

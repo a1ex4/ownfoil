@@ -10,9 +10,25 @@
                 <li class="nav-item">
                     <a class="nav-link{% if title == 'Library' %} active" aria-current="page"{% else %}"{% endif %} href="/">Library</a>
                 </li>
+                {% if current_user.is_authenticated %}
+                <li class="nav-item">
+                    <a class="nav-link{% if title == 'Requests' %} active" aria-current="page"{% else %}"{% endif %}" href="/requests">
+                        {% if current_user.is_admin or admin_account_created == false %}
+                        Requests <span class="badge rounded-pill text-bg-warning ms-2 d-none" id="requestsNavBadge"></span>
+                        {% else %}
+                        Request
+                        {% endif %}
+                    </a>
+                </li>
+                {% endif %}
                 {% if current_user.is_admin or admin_account_created == false %}
                 <li class="nav-item">
                     <a class="nav-link{% if title == 'Settings' %} active" aria-current="page"{% else %}"{% endif %}" href="/settings">Settings</a>
+                </li>
+                {% endif %}
+                {% if current_user.is_admin or admin_account_created == false %}
+                <li class="nav-item">
+                    <a class="nav-link{% if title == 'Users' %} active" aria-current="page"{% else %}"{% endif %}" href="/users">Users</a>
                 </li>
                 {% endif %}
                 {% if current_user.is_admin or admin_account_created == false %}
@@ -23,6 +39,11 @@
                 {% if current_user.is_admin or admin_account_created == false %}
                 <li class="nav-item">
                     <a class="nav-link{% if title == 'Upload' %} active" aria-current="page"{% else %}"{% endif %}" href="/upload">Upload</a>
+                </li>
+                {% endif %}
+                {% if current_user.is_admin or admin_account_created == false %}
+                <li class="nav-item">
+                    <a class="nav-link{% if title == 'Activity' %} active" aria-current="page"{% else %}"{% endif %}" href="/activity">Activity</a>
                 </li>
                 {% endif %}
             </ul>
