@@ -503,6 +503,15 @@ def scan_library():
     for library in libraries:
         scan_library_path(library.path) # Only scan, identification will be done globally
 
+def create_app():
+    logger.info('Starting initialization of Ownfoil...')
+    init_db(app)
+    init_users(app)
+    init()
+    logger.info('Initialization steps done, starting server...')
+
+    return app
+
 if __name__ == '__main__':
     logger.info('Starting initialization of Ownfoil...')
     init_db(app)
