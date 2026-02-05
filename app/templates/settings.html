@@ -272,21 +272,6 @@
                 </div>
 
                 <hr class="hr-settings">
-
-                <h2 class="pb-2">Scheduler</h2>
-                <p>Configure the automatic scan and update job.</p>
-                <div class="mb-3">
-                    <label for="scanIntervalInput" class="form-label">Scan interval:</label>
-                    <input type="text" class="form-control" id="scanIntervalInput" aria-describedby="scanIntervalHelp" placeholder="2h">
-                    <div id="scanIntervalHelp" class="form-text">How often to automatically update TitleDB and scan the library. Format: number + unit (e.g., "2h", "30m", "1d"). Units: s (seconds), m (minutes), h (hours), d (days). Set to "0" to disable. Default is "2h".</div>
-                </div>
-
-                <div class="mb-3">
-                    <button type="button" id="submitSchedulerSettingsBtn" class="btn btn-primary"
-                        onClick='submitSchedulerSettings()'>Submit</button>
-                </div>
-
-                <hr class="hr-settings">
                 <h2 class="pb-2">Titles</h2>
                 <p>Titles identification configuration.</p>
                 <div class="row mb-4">
@@ -374,6 +359,24 @@
                 <div class="mb-3">
                     <button type="button" id="submitShopSettingsBtn" class="btn btn-primary"
                         onClick='submitShopSettings()'>Submit</button>
+                </div>
+
+                
+                <hr class="hr-settings">
+                <h2 class="pb-2">Scheduler</h2>
+                <p>Configure the periodic jobs. Interval format is <code>number + unit</code>  (e.g., <code>2h</code>, <code>30m</code>, <code>1d</code>), with units: <code>s</code> (seconds), <code>m</code> (minutes), <code>h</code> (hours), <code>d</code> (days). Set to <code>0</code> to disable.</p>
+                <div class="row mb-3">
+                    <div class="col-6">
+                        <label for="scanIntervalInput" class="form-label">Scan interval:</label>
+                        <input type="text" class="form-control" id="scanIntervalInput" aria-describedby="scanIntervalHelp" placeholder="2h">
+                        <div id="scanIntervalFeedback"></div>
+                        <div id="scanIntervalHelp" class="form-text">How often to automatically update TitleDB, scan and regenerate the library.</div>
+                    </div>
+                </div>
+
+                <div class="mb-3">
+                    <button type="button" id="submitSchedulerSettingsBtn" class="btn btn-primary"
+                        onClick='submitSchedulerSettings()'>Submit</button>
                 </div>
 
             </div>
@@ -1017,11 +1020,22 @@
                     console.log('Not Success!');
                     if (result['errors']) {
                         result['errors'].forEach(error => {
+                            if (error['path'] === 'scheduler/scan_interval') {
+                                $('#scanIntervalFeedback').text(error['error']);
+                                $('#scanIntervalFeedback').addClass('invalid-feedback d-block');
+                                $("#scanIntervalInput").removeClass('is-valid');
+                                $("#scanIntervalInput").addClass('is-invalid');
+                            }
+                            console.log('Path:', error['path']);
                             console.log('Error:', error['error']);
                         });
                     }
                 } else {
                     console.log('Scheduler settings updated successfully!');
+                    $('#scanIntervalFeedback').text('');
+                    $('#scanIntervalFeedback').removeClass('invalid-feedback d-block');
+                    $("#scanIntervalInput").removeClass('is-invalid');
+                    $("#scanIntervalInput").addClass('is-valid');
                 }
                 $('#submitSchedulerSettingsBtn').prop('disabled', false);
             }

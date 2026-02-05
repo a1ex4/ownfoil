@@ -54,7 +54,7 @@ DEFAULT_SETTINGS = {
         "hauth": "",
     },
     "scheduler": {
-        "scan_interval": "2h",
+        "scan_interval": "12h",
     }
 }
 

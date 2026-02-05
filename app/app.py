@@ -42,8 +42,8 @@ def init():
     # Initialize and schedule jobs
     logger.info('Initializing Scheduler...')
     init_scheduler(app)
-    scan_interval_str = app_settings.get('scheduler', {}).get('scan_interval', '2h')
-    schedule_update_and_scan_job(app, scan_interval_str, run_first=True)
+    scan_interval_str = app_settings.get('scheduler', {}).get('scan_interval', '12h')
+    schedule_update_and_scan_job(app, scan_interval_str, run_first=True, run_once=True)
 
 os.makedirs(CONFIG_DIR, exist_ok=True)
 os.makedirs(DATA_DIR, exist_ok=True)
@@ -375,7 +375,7 @@ def set_scheduler_settings_api():
     
     if scan_interval_str is not None:
         try:
-            current_interval_str = app_settings.get('scheduler', {}).get('scan_interval', '2h')
+            current_interval_str = app_settings.get('scheduler', {}).get('scan_interval', '12h')
             schedule_update_and_scan_job(app, current_interval_str, run_first=False)
         except Exception as e:
             logger.error(f"Error updating scheduler: {e}")
