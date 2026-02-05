@@ -220,6 +220,12 @@
             const typeBadge = $(`<span class="badge rounded-pill ${typeBadgeClass} game-tag"></span>`).text(game.app_type);
             tagsContainer.append(typeBadge);
 
+            // Add owned/missing tag
+            const ownedBadgeClass = game.owned ? 'text-bg-success' : 'text-bg-danger';
+            const ownedText = game.owned ? 'Owned' : 'Missing';
+            const ownedBadge = $(`<span class="badge rounded-pill ${ownedBadgeClass} game-tag"></span>`).text(ownedText);
+            tagsContainer.append(ownedBadge);
+
             if (game.has_latest_version !== undefined) {
                 const versionBadge = $(`<span class="badge rounded-pill game-tag version-tag" title="${game.name} [${game.title_id}] Updates"></span>`)
                     .addClass(`text-bg-${game.has_latest_version ? 'success' : 'warning'}`)
