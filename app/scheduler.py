@@ -12,15 +12,7 @@ logger = logging.getLogger('main')
 
 # Generic interval parsing utilities
 def parse_interval_string(interval_str: str) -> Tuple[int, str]:
-    """ Parse interval string like '2h', '30m', '1d', '45s' or '0' into (value, unit).:
-        Tuple of (interval_value, unit_letter)
-        Returns (0, 'h') if interval is '0' or invalid
-        
-    Examples:
-        '2h' -> (2, 'h')
-        '30m' -> (30, 'm')
-        '0' -> (0, 'h')
-    """
+    """ Parse interval string like '2h', '30m', '1d', '45s' or '0' into (value, unit)"""
     if not interval_str or interval_str == '0':
         return 0, 'h'
     
@@ -32,16 +24,7 @@ def parse_interval_string(interval_str: str) -> Tuple[int, str]:
     return 0, 'h'
 
 def validate_interval_string(interval_str: str) -> Tuple[bool, Optional[str]]:
-    """
-    Validate interval string format.
-    
-    Args:
-        interval_str: Interval string to validate
-        
-    Returns:
-        Tuple of (is_valid, error_message)
-        If valid, error_message is None
-    """
+    """Validate interval string format."""
     if interval_str == '0':
         return True, None
     
@@ -51,20 +34,7 @@ def validate_interval_string(interval_str: str) -> Tuple[bool, Optional[str]]:
     return False, 'Interval must be in format: number+unit (e.g., "2h", "30m", "1d", "45s") or "0" to disable'
 
 def interval_string_to_timedelta(interval_str: str) -> Optional[timedelta]:
-    """
-    Convert interval string to timedelta object.
-    
-    Args:
-        interval_str: Interval string in format: number + unit (s/m/h/d)
-        
-    Returns:
-        timedelta object or None if interval is '0' or invalid
-        
-    Examples:
-        '2h' -> timedelta(hours=2)
-        '30m' -> timedelta(minutes=30)
-        '0' -> None
-    """
+    """Convert interval string to timedelta object."""
     interval_value, unit = parse_interval_string(interval_str)
     
     if interval_value == 0:
@@ -210,19 +180,10 @@ class JobScheduler:
                 del self.scheduled_jobs[job_id]
                 logger.info(f"Removed job {job_id}.")
 
-    def update_job_interval(self, job_id: str, interval_str: str, func: Callable, run_first: bool = False):
+    def update_job_interval(self, job_id: str, interval_str: str, func: Callable, run_first: bool = False, run_once: bool = False):
         """
         Update or add a job with an interval string (e.g., '2h', '30m', '0').
         If interval is '0', the job is removed. Otherwise, it's rescheduled.
-        
-        Args:
-            job_id: Unique identifier for the job
-            interval_str: Interval string (e.g., '2h', '30m', '1d', '0')
-            func: Function to execute
-            run_first: Whether to run immediately on first schedule
-            
-        Returns:
-            True if job was scheduled, False if disabled (interval='0')
         """
         # Remove existing job if it exists
         try:
@@ -234,9 +195,20 @@ class JobScheduler:
         interval_delta = interval_string_to_timedelta(interval_str)
         
         if interval_delta is None:
-            # Job disabled
-            logger.info(f"Job {job_id} disabled (interval set to '0')")
-            return False
+            if not run_once:
+                # Job disabled
+                logger.debug(f"Job {job_id} disabled (interval set to '0')")
+                return False
+            else:
+                # For one-off jobs, we can still add them even if interval is '0'
+                logger.debug(f"Job {job_id} set as one-off (interval '0' ignored).")
+                self.add_job(
+                    job_id=job_id,
+                    func=func,
+                    interval=interval_delta,
+                    run_once=run_once
+                )
+                return True
         
         # Add job with new interval
         self.add_job(
@@ -245,7 +217,7 @@ class JobScheduler:
             interval=interval_delta,
             run_first=run_first
         )
-        logger.info(f"Job {job_id} scheduled with interval: {interval_str}")
+        logger.debug(f"Job {job_id} scheduled with interval: {interval_str}")
         return True
 
     def shutdown(self):
@@ -306,13 +278,14 @@ def update_and_scan_job():
     
     logger.info("Update job completed.")
 
-def schedule_update_and_scan_job(app: Flask, interval_str: str, run_first: bool = True):
+def schedule_update_and_scan_job(app: Flask, interval_str: str, run_first: bool = True, run_once: bool = False):
     """Schedule or update the update_and_scan job"""
     app.scheduler.update_job_interval(
         job_id='update_db_and_scan',
         interval_str=interval_str,
         func=update_and_scan_job,
-        run_first=run_first
+        run_first=run_first,
+        run_once=run_once
     )
 
 # Generic parallel runner
