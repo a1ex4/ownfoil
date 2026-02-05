@@ -361,6 +361,24 @@
                         onClick='submitShopSettings()'>Submit</button>
                 </div>
 
+                
+                <hr class="hr-settings">
+                <h2 class="pb-2">Scheduler</h2>
+                <p>Configure the periodic jobs. Interval format is <code>number + unit</code>  (e.g., <code>2h</code>, <code>30m</code>, <code>1d</code>), with units: <code>s</code> (seconds), <code>m</code> (minutes), <code>h</code> (hours), <code>d</code> (days). Set to <code>0</code> to disable.</p>
+                <div class="row mb-3">
+                    <div class="col-6">
+                        <label for="scanIntervalInput" class="form-label">Scan interval:</label>
+                        <input type="text" class="form-control" id="scanIntervalInput" aria-describedby="scanIntervalHelp" placeholder="2h">
+                        <div id="scanIntervalFeedback"></div>
+                        <div id="scanIntervalHelp" class="form-text">How often to automatically update TitleDB, scan and regenerate the library.</div>
+                    </div>
+                </div>
+
+                <div class="mb-3">
+                    <button type="button" id="submitSchedulerSettingsBtn" class="btn btn-primary"
+                        onClick='submitSchedulerSettings()'>Submit</button>
+                </div>
+
             </div>
         </div>
     </div>
@@ -986,6 +1004,44 @@
         });
     }
 
+    function submitSchedulerSettings() {
+        $('#submitSchedulerSettingsBtn').prop('disabled', true);
+        data = {
+            scan_interval: getInputVal("scanIntervalInput").trim()
+        }
+
+        $.ajax({
+            url: "/api/settings/scheduler",
+            type: 'POST',
+            data: JSON.stringify(data),
+            contentType: "application/json",
+            success: function (result) {
+                if (!result['success']) {
+                    console.log('Not Success!');
+                    if (result['errors']) {
+                        result['errors'].forEach(error => {
+                            if (error['path'] === 'scheduler/scan_interval') {
+                                $('#scanIntervalFeedback').text(error['error']);
+                                $('#scanIntervalFeedback').addClass('invalid-feedback d-block');
+                                $("#scanIntervalInput").removeClass('is-valid');
+                                $("#scanIntervalInput").addClass('is-invalid');
+                            }
+                            console.log('Path:', error['path']);
+                            console.log('Error:', error['error']);
+                        });
+                    }
+                } else {
+                    console.log('Scheduler settings updated successfully!');
+                    $('#scanIntervalFeedback').text('');
+                    $('#scanIntervalFeedback').removeClass('invalid-feedback d-block');
+                    $("#scanIntervalInput").removeClass('is-invalid');
+                    $("#scanIntervalInput").addClass('is-valid');
+                }
+                $('#submitSchedulerSettingsBtn').prop('disabled', false);
+            }
+        });
+    }
+
     $(document).ready(function () {
         fillUserTable();
         fillLibraryTable();
@@ -1049,6 +1105,12 @@
             setInputVal("selectRegion", titlesSettings['region']);
             $('#selectRegion').trigger('change');
             setInputVal("selectLanguage", titlesSettings['language']);
+
+            // Scheduler settings
+            schedulerSettings = result['scheduler'];
+            if (schedulerSettings && schedulerSettings['scan_interval'] !== undefined) {
+                setInputVal("scanIntervalInput", schedulerSettings['scan_interval']);
+            }
 
             // Shop settings
             shopSettings = result['shop'];

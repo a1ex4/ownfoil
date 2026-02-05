@@ -39,18 +39,53 @@ class FilterRemoveDateFromWerkzeugLogs(logging.Filter):
         return True
 
 
-def debounce(wait):
-    """Decorator that postpones a function's execution until after `wait` seconds
-    have elapsed since the last time it was invoked."""
+# Global registry for debounced function states
+# This ensures all decorator instances share the same state even across different imports
+_debounce_registry = {}
+_debounce_registry_lock = threading.Lock()
+
+def debounce(wait, key=None):
+    """Thread-safe decorator that postpones a function's execution until after `wait` seconds
+    have elapsed since the last time it was invoked. Only allows one execution at a time.
+    Uses a global registry to ensure state is shared across all imports and decorator instances.
+    
+    Args:
+        wait: Number of seconds to wait before executing
+        key: Optional string key to identify this function across different imports.
+             If not provided, uses function qualname (may not work across module reloads).
+    """
     def decorator(fn):
+        # Use provided key or fall back to qualname
+        func_key = key if key is not None else fn.__qualname__
+        
+        # Initialize state in global registry if not already present
+        with _debounce_registry_lock:
+            if func_key not in _debounce_registry:
+                _debounce_registry[func_key] = {
+                    'timer': None,
+                    'lock': threading.Lock(),
+                    'execution_lock': threading.Lock()
+                }
+        
         @wraps(fn)
         def debounced(*args, **kwargs):
+            state = _debounce_registry[func_key]
+            
             def call_it():
-                fn(*args, **kwargs)
-            if hasattr(debounced, '_timer'):
-                debounced._timer.cancel()
-            debounced._timer = threading.Timer(wait, call_it)
-            debounced._timer.start()
+                # Acquire execution lock to ensure only one instance runs at a time
+                with state['execution_lock']:
+                    fn(*args, **kwargs)
+            
+            # Acquire lock to safely cancel old timer and start new one
+            with state['lock']:
+                # Cancel existing timer if any
+                if state['timer'] is not None:
+                    state['timer'].cancel()
+                
+                # Create and start new timer
+                state['timer'] = threading.Timer(wait, call_it)
+                state['timer'].start()
+        
         return debounced
     return decorator
 
