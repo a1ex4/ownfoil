@@ -52,6 +52,9 @@ DEFAULT_SETTINGS = {
         "clientCertKey": "-----BEGIN PRIVATE KEY-----",
         "host": "",
         "hauth": "",
+    },
+    "scheduler": {
+        "scan_interval": "12h",
     }
 }
 

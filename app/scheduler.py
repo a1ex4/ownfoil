@@ -1,13 +1,54 @@
 import threading
 import time
 import logging
+import re
 from datetime import datetime, timedelta
-from typing import Callable, Dict, Any, Optional, List
+from typing import Callable, Dict, Any, Optional, List, Tuple
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from flask import Flask
 from croniter import croniter, CroniterBadCronError
 
 logger = logging.getLogger('main')
+
+# Generic interval parsing utilities
+def parse_interval_string(interval_str: str) -> Tuple[int, str]:
+    """ Parse interval string like '2h', '30m', '1d', '45s' or '0' into (value, unit)"""
+    if not interval_str or interval_str == '0':
+        return 0, 'h'
+    
+    match = re.match(r'^(\d+)([smhd])$', str(interval_str))
+    if match:
+        return int(match.group(1)), match.group(2)
+    
+    # Invalid format - return disabled
+    return 0, 'h'
+
+def validate_interval_string(interval_str: str) -> Tuple[bool, Optional[str]]:
+    """Validate interval string format."""
+    if interval_str == '0':
+        return True, None
+    
+    if re.match(r'^\d+[smhd]$', str(interval_str)):
+        return True, None
+    
+    return False, 'Interval must be in format: number+unit (e.g., "2h", "30m", "1d", "45s") or "0" to disable'
+
+def interval_string_to_timedelta(interval_str: str) -> Optional[timedelta]:
+    """Convert interval string to timedelta object."""
+    interval_value, unit = parse_interval_string(interval_str)
+    
+    if interval_value == 0:
+        return None
+    
+    unit_map = {
+        's': 'seconds',
+        'm': 'minutes',
+        'h': 'hours',
+        'd': 'days'
+    }
+    
+    timedelta_unit = unit_map.get(unit, 'hours')
+    return timedelta(**{timedelta_unit: interval_value})
 
 class JobScheduler:
     def __init__(self, app: Flask, max_workers: int = 4):
@@ -139,6 +180,46 @@ class JobScheduler:
                 del self.scheduled_jobs[job_id]
                 logger.info(f"Removed job {job_id}.")
 
+    def update_job_interval(self, job_id: str, interval_str: str, func: Callable, run_first: bool = False, run_once: bool = False):
+        """
+        Update or add a job with an interval string (e.g., '2h', '30m', '0').
+        If interval is '0', the job is removed. Otherwise, it's rescheduled.
+        """
+        # Remove existing job if it exists
+        try:
+            self.remove_job(job_id)
+        except:
+            pass
+        
+        # Parse and validate interval
+        interval_delta = interval_string_to_timedelta(interval_str)
+        
+        if interval_delta is None:
+            if not run_once:
+                # Job disabled
+                logger.debug(f"Job {job_id} disabled (interval set to '0')")
+                return False
+            else:
+                # For one-off jobs, we can still add them even if interval is '0'
+                logger.debug(f"Job {job_id} set as one-off (interval '0' ignored).")
+                self.add_job(
+                    job_id=job_id,
+                    func=func,
+                    interval=interval_delta,
+                    run_once=run_once
+                )
+                return True
+        
+        # Add job with new interval
+        self.add_job(
+            job_id=job_id,
+            func=func,
+            interval=interval_delta,
+            run_first=run_first
+        )
+        logger.debug(f"Job {job_id} scheduled with interval: {interval_str}")
+        return True
+
     def shutdown(self):
         self._running = False
         self.executor.shutdown(wait=False)
@@ -146,6 +227,66 @@ class JobScheduler:
 
 def init_scheduler(app: Flask):
     app.scheduler = JobScheduler(app)
+
+# Scheduled job definitions
+def update_and_scan_job():
+    """Combined job: updates TitleDB then scans library"""
+    import app as app_module
+    from settings import load_settings
+    import titledb
+    
+    logger.info("Running update job (TitleDB update and library scan)...")
+    
+    # Update TitleDB with locking
+    with app_module.titledb_update_lock:
+        app_module.is_titledb_update_running = True
+    
+    logger.info("Starting TitleDB update...")
+    try:
+        settings = load_settings()
+        titledb.update_titledb(settings)
+        logger.info("TitleDB update completed.")
+    except Exception as e:
+        logger.error(f"Error during TitleDB update: {e}")
+    finally:
+        with app_module.titledb_update_lock:
+            app_module.is_titledb_update_running = False
+    
+    # Check if update is still running before scanning
+    with app_module.titledb_update_lock:
+        if app_module.is_titledb_update_running:
+            logger.info("Skipping library scan: TitleDB update still in progress.")
+            return
+    
+    # Scan library with locking
+    logger.info("Starting library scan...")
+    with app_module.scan_lock:
+        if app_module.scan_in_progress:
+            logger.info('Skipping library scan: scan already in progress.')
+            return
+        app_module.scan_in_progress = True
+    
+    try:
+        app_module.scan_library()
+        app_module.post_library_change()
+        logger.info("Library scan completed.")
+    except Exception as e:
+        logger.error(f"Error during library scan: {e}")
+    finally:
+        with app_module.scan_lock:
+            app_module.scan_in_progress = False
+    
+    logger.info("Update job completed.")
+
+def schedule_update_and_scan_job(app: Flask, interval_str: str, run_first: bool = True, run_once: bool = False):
+    """Schedule or update the update_and_scan job"""
+    app.scheduler.update_job_interval(
+        job_id='update_db_and_scan',
+        interval_str=interval_str,
+        func=update_and_scan_job,
+        run_first=run_first,
+        run_once=run_once
+    )
 
 # Generic parallel runner
 def run_task_parallel(
