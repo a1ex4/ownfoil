@@ -235,6 +235,24 @@ def get_all_non_identified_files_from_library(library_id):
 def get_files_with_identification_from_library(library_id, identification_type):
     return Files.query.filter_by(library_id=library_id, identification_type=identification_type).all()
 
+def get_filtered_files(content_filter=None) -> list:
+    """Get files from database with optional content type filtering."""
+
+    if not content_filter:
+        # No filter: get all files regardless of identification status
+        query = Files.query
+    else:
+        query = Files.query.filter_by(identified=True)
+
+        if content_filter == 'multi':
+            query = query.filter_by(multicontent=True)
+        elif content_filter in APP_TYPE_FILTERS.keys():
+            expected_type = APP_TYPE_FILTERS[content_filter]
+            query = query.filter_by(multicontent=False).join(Files.apps).filter(Apps.app_type == expected_type)
+    
+    # Execute query and return files
+    return query.all()
+
 def get_shop_files():
     results = Files.query.all()
     shop_files = [{

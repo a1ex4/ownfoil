@@ -201,7 +201,8 @@ def access_shop_auth():
     return access_shop()
 
 @app.route('/')
-def index():
+@app.route('/<content_type>/')
+def index(content_type=None):
     """Main shop endpoint routing to either client-specific shop or web browser UI."""
     # Check if this is a client request
     client = get_client_for_request(request)
@@ -209,16 +210,12 @@ def index():
     if client:
         # Handle client request
         logger.info(f"{client.CLIENT_NAME} connection from {request.remote_addr}")
-        
-        # Authenticate the request
-        auth_success, error_message, verified_host = client.authenticate(request)
-        if not auth_success:
-            return client.error_response(error_message)
-        
-        # Serve the shop
-        return client.serve_shop(request, verified_host)
+        return client.handle_request(request)
     
     # Browser request - serve web UI
+    elif content_type is not None:
+        return redirect('/')
+    
     if not app_settings['shop']['public']:
         return access_shop_auth()
     return access_shop()

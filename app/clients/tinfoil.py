@@ -1,25 +1,21 @@
 """
 Tinfoil client implementation.
 """
-from flask import Request, Response, jsonify, send_from_directory
+from flask import Request, Response, jsonify
 from typing import Tuple, Optional
-import os
 import json
 import random
 from Crypto.PublicKey import RSA
-from Crypto.Cipher import PKCS1_OAEP
+from Crypto.Cipher import PKCS1_OAEP, AES
 from Crypto.Hash import SHA256
-from Crypto.Cipher import AES
 import zstandard as zstd
 
 from .client import BaseClient
 from constants import TINFOIL_HEADERS
 from auth import basic_auth
 from settings import set_shop_settings
-from db import get_shop_files, Files
 
-
-# https://github.com/blawar/tinfoil/blob/master/docs/files/public.key 1160174fa2d7589831f74d149bc403711f3991e4
+# https://github.com/blawar/tinfoil/blob/master/docs/files/public.key
 TINFOIL_PUBLIC_KEY = '''-----BEGIN PUBLIC KEY-----
 MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAvPdrJigQ0rZAy+jla7hS
 jwen8gkF0gjtl+lZGY59KatNd9Kj2gfY7dTMM+5M2tU4Wr3nk8KWr5qKm3hzo/2C
@@ -34,115 +30,117 @@ CQIDAQAB
 class TinfoilClient(BaseClient):
     """Tinfoil client with header-based identification, Hauth verification, and encrypted shop responses."""
     
+    # Class variables
     CLIENT_NAME = "Tinfoil"
+    
+    # ==================== Abstract Method Implementations (Required) ====================
     
     @classmethod
     def identify_client(cls, request: Request) -> bool:
         """Identify Tinfoil client by checking for required headers."""
         return all(header in request.headers for header in TINFOIL_HEADERS)
     
-    def authenticate(self, request: Request) -> Tuple[bool, Optional[str], Optional[str]]:
+    def error_response(self, error_message: str) -> Response:
+        """Generate Tinfoil error response in JSON format."""
+        return jsonify({'error': error_message})
+    
+    def info_response(self, info_message: str) -> Response:
+        """Generate Tinfoil info response in JSON format."""
+        return jsonify({'success': info_message})
+    
+    def _handle_get(self, request: Request) -> Response:
+        """Handle GET requests for specific paths."""
+        # Authenticate the request
+        auth_success, error_message, verified_host = self._authenticate(request)
+        if not auth_success:
+            return self.error_response(error_message)
+        
+        # Parse path for content type filtering
+        content_filter = request.path.strip('/') if request.path else None
+        
+        # Serve the shop
+        return self._serve_shop(verified_host, content_filter)
+    
+    # ==================== Private/Helper Methods ====================
+    
+    def _authenticate(self, request: Request) -> Tuple[bool, Optional[str], Optional[str]]:
         """Authenticate Tinfoil request with host verification and basic auth."""
-        hauth_success = None
-        auth_success = None
-        verified_host = None
-        
-        # Host verification to prevent hotlinking
-        host_verification = request.is_secure or request.headers.get("X-Forwarded-Proto") == "https"
-        
-        if host_verification:
-            request_host = request.host
-            request_hauth = request.headers.get('Hauth')
-            self.log_info(f"Secure request from remote host {request_host}, proceeding with host verification.")
-            
-            shop_host = self.app_settings["shop"].get("host")
-            shop_hauth = self.app_settings["shop"].get("hauth")
-            
-            if not shop_host:
-                self.log_error("Missing shop host configuration, Host verification is disabled.")
-            
-            elif request_host != shop_host:
-                self.log_warning(f"Incorrect URL referrer detected: {request_host}.")
-                error = f"Incorrect URL `{request_host}`."
-                hauth_success = False
-            
-            elif not shop_hauth:
-                # Try authentication, if an admin user is logging in then set the hauth
-                auth_success, auth_error, auth_is_admin = basic_auth(request)
-                if auth_success and auth_is_admin:
-                    shop_settings = self.app_settings['shop']
-                    shop_settings['hauth'] = request_hauth
-                    set_shop_settings(shop_settings)
-                    self.log_info(f"Successfully set Hauth value for host {request_host}.")
-                    hauth_success = True
-                else:
-                    self.log_warning(
-                        f"Hauth value not set for host {request_host}, Host verification is disabled. "
-                        f"Connect to the shop from Tinfoil with an admin account to set it."
-                    )
-            
-            elif request_hauth != shop_hauth:
-                self.log_warning(f"Incorrect Hauth detected for host: {request_host}.")
-                error = f"Incorrect Hauth for URL `{request_host}`."
-                hauth_success = False
-            
-            else:
-                hauth_success = True
-                verified_host = shop_host
-            
-            if hauth_success is False:
+        if request.is_secure or request.headers.get("X-Forwarded-Proto") == "https":
+            success, error, verified_host = self._verify_host(request)
+            if not success:
                 return False, error, None
+        else:
+            verified_host = None
         
-        # Now checking auth if shop is private
         if not self.app_settings['shop']['public']:
-            # Shop is private
-            if auth_success is None:
-                auth_success, auth_error, _ = basic_auth(request)
-            if not auth_success:
-                return False, auth_error, verified_host
+            success, error, _ = basic_auth(request)
+            if not success:
+                return False, error, verified_host
         
-        # Auth success
         return True, None, verified_host
     
-    def serve_shop(self, request: Request, verified_host: Optional[str] = None) -> Response:
-        """Generate and serve Tinfoil shop listing (encrypted or JSON)."""
-        shop = {
-            "success": self.app_settings['shop']['motd']
-        }
+    def _verify_host(self, request: Request) -> Tuple[bool, Optional[str], Optional[str]]:
+        """Verify host and Hauth to prevent hotlinking."""
+        request_host = request.host
+        request_hauth = request.headers.get('Hauth')
+        shop_host = self.app_settings["shop"].get("host")
+        shop_hauth = self.app_settings["shop"].get("hauth")
         
-        if verified_host is not None:
-            # enforce client side host verification
+        self.log_info(f"Secure request from remote host {request_host}, proceeding with host verification.")
+        
+        if not shop_host:
+            self.log_error("Missing shop host configuration, Host verification is disabled.")
+            return True, None, None
+        
+        if request_host != shop_host:
+            self.log_warning(f"Incorrect URL referrer detected: {request_host}.")
+            return False, f"Incorrect URL `{request_host}`.", None
+        
+        if not shop_hauth:
+            return self._handle_missing_hauth(request, request_host, request_hauth)
+        
+        if request_hauth != shop_hauth:
+            self.log_warning(f"Incorrect Hauth detected for host: {request_host}.")
+            return False, f"Incorrect Hauth for URL `{request_host}`.", None
+        
+        return True, None, shop_host
+    
+    def _handle_missing_hauth(self, request: Request, request_host: str, request_hauth: str) -> Tuple[bool, Optional[str], Optional[str]]:
+        """Handle case when Hauth is not configured."""
+        auth_success, auth_error, auth_is_admin = basic_auth(request)
+        
+        if auth_success and auth_is_admin:
+            shop_settings = self.app_settings['shop']
+            shop_settings['hauth'] = request_hauth
+            set_shop_settings(shop_settings)
+            self.log_info(f"Successfully set Hauth value for host {request_host}.")
+            return True, None, request_host
+        
+        self.log_warning(
+            f"Hauth value not set for host {request_host}, Host verification is disabled. "
+            f"Connect to the shop from Tinfoil with an admin account to set it."
+        )
+        return True, None, None
+    
+    def _serve_shop(self, verified_host: Optional[str] = None, content_filter: Optional[str] = None) -> Response:
+        """Generate and serve Tinfoil shop listing (encrypted or JSON)."""
+        shop = {"success": self.app_settings['shop']['motd']}
+        
+        if verified_host:
+            # Enforce client side host verification
             shop["referrer"] = f"https://{verified_host}"
         
-        shop["files"] = self._generate_shop_files()
+        shop["files"] = self._generate_shop_files(content_filter)
         
         if self.app_settings['shop']['encrypt']:
             return Response(self._encrypt_shop(shop), mimetype='application/octet-stream')
         
         return jsonify(shop)
     
-    def error_response(self, error_message: str) -> Response:
-        """Generate Tinfoil error response in JSON format."""
-        return jsonify({
-            'error': error_message
-        })
-    
-    def info_response(self, info_message: str) -> Response:
-        """Generate Tinfoil info response in JSON format."""
-        return jsonify({
-            'success': info_message
-        })
-    
-    def _generate_shop_files(self) -> list:
-        """Generate the files list for the shop."""
-        shop_files = []
-        files = get_shop_files()
-        for file in files:
-            shop_files.append({
-                "url": f'/api/get_game/{file["id"]}#{file["filename"]}',
-                'size': file["size"]
-            })
-        return shop_files
+    def _generate_shop_files(self, content_filter: Optional[str] = None) -> list:
+        """Generate the files list for the shop with optional content type filtering."""
+        files = self.get_filtered_files(content_filter)
+        return [{'url': f'/api/get_game/{f.id}#{f.filename}', 'size': f.size} for f in files]
     
     def _encrypt_shop(self, shop: dict) -> bytes:
         """Encrypt shop data for Tinfoil using RSA + AES encryption."""

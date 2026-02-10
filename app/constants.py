@@ -85,6 +85,13 @@ APP_TYPE_MAP = {
     130: APP_TYPE_DLC
 }
 
+APP_TYPE_FILTERS = {
+    'base': APP_TYPE_BASE,
+    'update': APP_TYPE_UPD,
+    'dlc': APP_TYPE_DLC,
+    'multi': 'MULTI'
+}
+
 # Define OS-specific forbidden characters for Organizer
 FORBIDDEN_CHARS_WINDOWS = set('<>:"/\\|?*')
 FORBIDDEN_CHARS_UNIX = set('/') # Only / is truly forbidden on Unix-like systems
