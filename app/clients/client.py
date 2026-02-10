@@ -4,8 +4,10 @@ All client implementations must inherit from this class and implement the requir
 """
 from abc import ABC, abstractmethod
 from flask import Request, Response
-from typing import Tuple, Optional
+from typing import Tuple, Optional, Dict, Any
+from functools import wraps
 from db import get_filtered_files
+from auth import basic_auth
 import logging
 
 logger = logging.getLogger('main')
@@ -24,6 +26,61 @@ class BaseClient(ABC):
         self.app_settings = app_settings
         self.db = db
         logger.debug(f"Initialized {self.CLIENT_NAME} client")
+    
+    # ==================== Authentication Decorator ====================
+    
+    @staticmethod
+    def authenticate(handler):
+        """Decorator that handles authentication for handle_<method> functions."""
+        @wraps(handler)
+        def wrapper(self, request: Request) -> Response:
+            # Initialize auth flags on request object
+            request.auth_success = False
+            request.auth_error = None
+            request.auth_user_is_admin = False
+            request.auth_data = {}
+            
+            # Step 1: Generic Basic Auth (if shop is not public)
+            if not self.app_settings['shop']['public']:
+                basic_auth_success, basic_auth_error, is_admin = basic_auth(request)
+                if not basic_auth_success:
+                    request.auth_success = False
+                    request.auth_error = basic_auth_error
+                    self.log_warning(f"Basic auth failed: {basic_auth_error}")
+                    return self.error_response(basic_auth_error)
+                
+                request.auth_user_is_admin = is_admin
+                self.log_info(f"Basic auth successful for user (admin: {is_admin})")
+            
+            # Step 2: Client-specific authentication
+            client_auth_success, client_auth_error, client_auth_data = self._client_authenticate(request)
+            if not client_auth_success:
+                request.auth_success = False
+                request.auth_error = client_auth_error
+                self.log_warning(f"Client-specific auth failed: {client_auth_error}")
+                return self.error_response(client_auth_error)
+            
+            # Step 3: Set success flags and data
+            request.auth_success = True
+            request.auth_data = client_auth_data or {}
+            
+            # Step 4: Call the actual handler
+            return handler(self, request)
+        
+        return wrapper
+    
+    def _client_authenticate(self, request: Request) -> Tuple[bool, Optional[str], Optional[Dict[str, Any]]]:
+        """
+        Client-specific authentication logic. Override in subclasses for custom behavior.
+        
+        Returns:
+            Tuple of (success: bool, error_message: Optional[str], auth_data: Optional[Dict])
+            - success: True if authentication passed
+            - error_message: Error message if authentication failed
+            - auth_data: Additional authentication data to be stored in request.auth_data
+        """
+        # Default implementation: no additional authentication required
+        return True, None, {}
     
     # ==================== Abstract Methods (Required) ====================
     
