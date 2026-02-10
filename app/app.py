@@ -163,16 +163,16 @@ def client_access(f):
         client = get_client_for_request(request)
         if client is None:
             return jsonify({'error': 'Unsupported client'}), 400
-        
+
         # Authenticate the request
         auth_success, error_message, verified_host = client.authenticate(request)
         if not auth_success:
             return client.error_response(error_message)
-        
+
         # Store client and verified_host in request for use by the route
         request.client = client
         request.verified_host = verified_host
-        
+
         return f(*args, **kwargs)
     return _client_access
 
@@ -182,14 +182,16 @@ def file_access(f):
     @wraps(f)
     def _file_access(*args, **kwargs):
         reload_conf()
-        
+
         # Check if shop is private
         if not app_settings['shop']['public']:
             # Shop is private, require authentication
-            auth_success, auth_error, _ = basic_auth(request)
+            auth_success, auth_error, user = basic_auth(request)
             if not auth_success:
                 return jsonify({'error': auth_error}), 401
-        
+            elif not user.has_shop_access():
+                return jsonify({'error': f'User "{user.user}" does not have access to the shop.'}), 403
+
         return f(*args, **kwargs)
     return _file_access
 
@@ -206,16 +208,16 @@ def index(content_type=None):
     """Main shop endpoint routing to either client-specific shop or web browser UI."""
     # Check if this is a client request
     client = get_client_for_request(request)
-    
+
     if client:
         # Handle client request
         logger.info(f"{client.CLIENT_NAME} connection from {request.remote_addr}")
         return client.handle_request(request)
-    
+
     # Browser request - serve web UI
     elif content_type is not None:
         return redirect('/')
-    
+
     if not app_settings['shop']['public']:
         return access_shop_auth()
     return access_shop()
@@ -263,7 +265,7 @@ def set_titles_settings_api():
                 }]
         }
         return jsonify(resp)
-    
+
     if region != app_settings['titles']['region'] or language != app_settings['titles']['language']:
         set_titles_settings(region, language)
         reload_conf()
@@ -307,7 +309,7 @@ def library_paths_api():
             'success': True,
             'errors': [],
             'paths': app_settings['library']['paths']
-        }    
+        }
     elif request.method == 'DELETE':
         data = request.json
         success, errors = remove_library_complete(app, watcher, data['path'])
@@ -338,7 +340,7 @@ def set_library_management_settings_api():
 def set_scheduler_settings_api():
     data = request.json
     scan_interval_str = data.get('scan_interval')
-    
+
     if scan_interval_str is not None:
         is_valid, error_msg = validate_interval_string(scan_interval_str)
         if not is_valid:
@@ -346,10 +348,10 @@ def set_scheduler_settings_api():
                 'success': False,
                 'errors': [{'path': 'scheduler/scan_interval', 'error': error_msg}]
             })
-    
+
     set_scheduler_settings(data)
     reload_conf()
-    
+
     if scan_interval_str is not None:
         try:
             current_interval_str = app_settings.get('scheduler', {}).get('scan_interval', '12h')
@@ -360,7 +362,7 @@ def set_scheduler_settings_api():
                 'success': False,
                 'errors': [{'path': 'scheduler', 'error': str(e)}]
             })
-    
+
     return jsonify({'success': True, 'errors': []})
 
 @app.post('/api/upload')
@@ -399,7 +401,7 @@ def upload_file():
         resp['data']['valid_keys'] = valid_keys
         resp['data']['missing_keys'] = missing_keys
         resp['data']['corrupt_keys'] = corrupt_keys
-    
+
     return jsonify(resp)
 
 
