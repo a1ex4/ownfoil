@@ -2,7 +2,7 @@
 Tinfoil client implementation.
 """
 from flask import Request, Response, jsonify
-from typing import Tuple, Optional
+from typing import Tuple, Optional, Dict, Any
 import json
 import random
 from Crypto.PublicKey import RSA
@@ -48,36 +48,45 @@ class TinfoilClient(BaseClient):
         """Generate Tinfoil info response in JSON format."""
         return jsonify({'success': info_message})
     
+    @BaseClient.authenticate
     def _handle_get(self, request: Request) -> Response:
         """Handle GET requests for specific paths."""
-        # Authenticate the request
-        auth_success, error_message, verified_host = self._authenticate(request)
-        if not auth_success:
-            return self.error_response(error_message)
+        # Access auth flags from request object (set by @authenticate decorator)
+        # Get verified_host from auth_data
+        verified_host = request.auth_data.get('verified_host')
         
         # Parse path for content type filtering
         content_filter = request.path.strip('/') if request.path else None
+
+        # Build shop content
+        shop = {"success": self.app_settings['shop']['motd']}
+        shop["files"] = self._generate_shop_files(content_filter)
         
+        if verified_host:
+            # Enforce client side host verification
+            shop["referrer"] = f"https://{verified_host}"
+
         # Serve the shop
-        return self._serve_shop(verified_host, content_filter)
+        if self.app_settings['shop']['encrypt']:
+            return Response(self._encrypt_shop(shop), mimetype='application/octet-stream')
+        
+        return jsonify(shop)
     
     # ==================== Private/Helper Methods ====================
     
-    def _authenticate(self, request: Request) -> Tuple[bool, Optional[str], Optional[str]]:
-        """Authenticate Tinfoil request with host verification and basic auth."""
+    def _client_authenticate(self, request: Request) -> Tuple[bool, Optional[str], Optional[Dict[str, Any]]]:
+        """Tinfoil-specific authentication: Host verification for HTTPS requests."""
+        verified_host = None
+        
+        # Perform host verification only for HTTPS requests
         if request.is_secure or request.headers.get("X-Forwarded-Proto") == "https":
             success, error, verified_host = self._verify_host(request)
             if not success:
                 return False, error, None
-        else:
-            verified_host = None
         
-        if not self.app_settings['shop']['public']:
-            success, error, _ = basic_auth(request)
-            if not success:
-                return False, error, verified_host
-        
-        return True, None, verified_host
+        # Return auth data with verified_host
+        auth_data = {'verified_host': verified_host}
+        return True, None, auth_data
     
     def _verify_host(self, request: Request) -> Tuple[bool, Optional[str], Optional[str]]:
         """Verify host and Hauth to prevent hotlinking."""
@@ -121,21 +130,6 @@ class TinfoilClient(BaseClient):
             f"Connect to the shop from Tinfoil with an admin account to set it."
         )
         return True, None, None
-    
-    def _serve_shop(self, verified_host: Optional[str] = None, content_filter: Optional[str] = None) -> Response:
-        """Generate and serve Tinfoil shop listing (encrypted or JSON)."""
-        shop = {"success": self.app_settings['shop']['motd']}
-        
-        if verified_host:
-            # Enforce client side host verification
-            shop["referrer"] = f"https://{verified_host}"
-        
-        shop["files"] = self._generate_shop_files(content_filter)
-        
-        if self.app_settings['shop']['encrypt']:
-            return Response(self._encrypt_shop(shop), mimetype='application/octet-stream')
-        
-        return jsonify(shop)
     
     def _generate_shop_files(self, content_filter: Optional[str] = None) -> list:
         """Generate the files list for the shop with optional content type filtering."""
