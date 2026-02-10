@@ -11,11 +11,11 @@ from utils import *
 from settings import load_settings
 from db import update_file_path 
 
-def sanitize_filename(name):
-    if sys.platform == 'win32':
+def sanitize_filename(name, windows_compatible=False):
+    if sys.platform == 'win32' or windows_compatible:
         forbidden_chars = FORBIDDEN_CHARS_WINDOWS
         # Replace forbidden characters with underscore
-        sanitized = ''.join('_' if c in forbidden_chars else c for c in name)
+        sanitized = ''.join('' if c in forbidden_chars else c for c in name)
         # Remove trailing periods and spaces specific to Windows
         sanitized = sanitized.strip().rstrip('. ')
         # Handle Windows reserved names
@@ -67,7 +67,8 @@ def organize_file(file_obj, library_path, organizer_settings, watcher):
         
         # Format the new relative path and remove leading slash if present
         raw_path = template.format(**format_data).lstrip('/')
-        safe_parts = [sanitize_filename(part) for part in Path(raw_path).parts]
+        windows_compatible = organizer_settings.get('windows_compatible', False)
+        safe_parts = [sanitize_filename(part, windows_compatible) for part in Path(raw_path).parts]
         new_relative_path = os.path.join(*safe_parts)
         
         # Construct the full new path
