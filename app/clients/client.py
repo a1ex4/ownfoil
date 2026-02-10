@@ -42,7 +42,7 @@ class BaseClient(ABC):
             request.user = None
             request.auth_data = {}
 
-            # Step 1: Generic Basic Auth
+            # Generic Basic Auth
             basic_auth_success, basic_auth_error, user = basic_auth(request)
             if not basic_auth_success:
                 request.basic_auth_success = False
@@ -54,18 +54,19 @@ class BaseClient(ABC):
                 self.log_info(f"successful authentication for user {user.user}")
             request.user = user
 
-            # Step 2: Client-specific authentication
+            # Client-specific authentication
             client_auth_success, client_auth_error, client_auth_data = self._client_authenticate(request)
             if not client_auth_success:
                 request.client_auth_success = False
                 request.client_auth_error = client_auth_error
                 self.log_warning(f"Client-specific auth failed: {client_auth_error}")
+            else:
+                request.client_auth_success = True
+                self.log_info("Client-specific authentication successful.")
+                if client_auth_data:
+                    request.auth_data.update(client_auth_data)
 
-            # Step 3: Set success flags and data
-            request.client_auth_success = True
-            request.auth_data = client_auth_data or {}
-
-            # Step 4: Call the actual handler
+            # Call the actual handler
             return handler(self, request)
 
         return wrapper
