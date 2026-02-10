@@ -214,15 +214,25 @@
 
                 <h4 class="py-2">Organizer</h4>
                 <p>Keep your library organized.</p>
-                <div class="mb-3 form-check">
-                    <input type="checkbox" class="form-check-input" id="organizerEnabledCheck">
-                    <label class="form-check-label" for="organizerEnabledCheck">Enable organizer</label>
-                    <div class="form-text">Enables automatic organization of identified files in the library, according to the templates below.</div>
-                </div>
-                <div class="mb-3 form-check">
-                    <input type="checkbox" class="form-check-input" id="removeEmptyFoldersCheck">
-                    <label class="form-check-label" for="removeEmptyFoldersCheck">Remove empty folders</label>
-                    <div class="form-text">Removes empty folders after organizing files.</div>
+                <div class="row">
+                    <div class="col-7">
+                        <div class="mb-3 form-check">
+                            <input type="checkbox" class="form-check-input" id="organizerEnabledCheck">
+                            <label class="form-check-label" for="organizerEnabledCheck">Enable organizer</label>
+                            <div class="form-text">Enables automatic organization of identified files in the library, according to the templates below.</div>
+                        </div>
+                        <div class="mb-3 form-check">
+                            <input type="checkbox" class="form-check-input" id="removeEmptyFoldersCheck">
+                            <label class="form-check-label" for="removeEmptyFoldersCheck">Remove empty folders</label>
+                            <div class="form-text">Removes empty folders after organizing files.</div>
+                        </div>
+                        <div class="mb-3 form-check">
+                            <input type="checkbox" class="form-check-input" id="windowsCompatibleCheck">
+                            <label class="form-check-label" for="windowsCompatibleCheck">Windows compatible filenames</label>
+                            <div class="form-text">Ownfoil enforces filename sanitization depending on the OS running it. Enabling this will sanitize filenames with
+                                Windows compatible characters, this is needed when acessing libraries from Windows systems (e.g. SMB/NFS mount).</div>
+                        </div>
+                    </div>
                 </div>
 
                 <h5 class="pb-3 pt-2">Templates</h5>
@@ -981,6 +991,7 @@
             organizer: {
                 enabled: getCheckboxStatus("organizerEnabledCheck"),
                 remove_empty_folders: getCheckboxStatus("removeEmptyFoldersCheck"),
+                windows_compatible: getCheckboxStatus("windowsCompatibleCheck"),
                 templates: {
                     base: getInputVal("baseTemplateInput"),
                     update: getInputVal("updateTemplateInput"),
@@ -1092,6 +1103,7 @@
             $("#deleteOlderUpdatesCheck").prop("checked", librarySettings['management']['delete_older_updates']);
             $("#organizerEnabledCheck").prop("checked", librarySettings['management']['organizer']['enabled']);
             $("#removeEmptyFoldersCheck").prop("checked", librarySettings['management']['organizer']['remove_empty_folders']);
+            $("#windowsCompatibleCheck").prop("checked", librarySettings['management']['organizer']['windows_compatible']);
             setInputVal("baseTemplateInput", librarySettings['management']['organizer']['templates']['base']);
             setInputVal("updateTemplateInput", librarySettings['management']['organizer']['templates']['update']);
             setInputVal("dlcTemplateInput", librarySettings['management']['organizer']['templates']['dlc']);
