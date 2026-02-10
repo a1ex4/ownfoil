@@ -31,6 +31,7 @@ DEFAULT_SETTINGS = {
             "organizer": {
                 "enabled": False,
                 "remove_empty_folders": False,
+                "windows_compatible": False,
                 "templates": {
                     "base": "{titleName}/{titleName} [{appId}][v{appVersion}]",
                     "update": "{titleName}/{titleName} [{appId}][v{appVersion}]",
