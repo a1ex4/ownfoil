@@ -59,15 +59,6 @@ DEFAULT_SETTINGS = {
     }
 }
 
-TINFOIL_HEADERS = [
-    'Theme',
-    'Uid',
-    'Version',
-    'Revision',
-    'Language',
-    'Hauth',
-    'Uauth'
-]
 
 ALLOWED_EXTENSIONS = [
     'nsp',

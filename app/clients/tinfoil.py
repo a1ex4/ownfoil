@@ -11,8 +11,17 @@ from Crypto.Hash import SHA256
 import zstandard as zstd
 
 from .client import BaseClient
-from constants import TINFOIL_HEADERS
 from settings import set_shop_settings
+
+TINFOIL_HEADERS = [
+    'Theme',
+    'Uid',
+    'Version',
+    'Revision',
+    'Language',
+    'Hauth',
+    'Uauth'
+]
 
 # https://github.com/blawar/tinfoil/blob/master/docs/files/public.key
 TINFOIL_PUBLIC_KEY = '''-----BEGIN PUBLIC KEY-----
