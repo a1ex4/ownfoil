@@ -1,6 +1,6 @@
 from flask import Flask, render_template, request, redirect, url_for, jsonify, send_from_directory, Response
 from flask_login import LoginManager
-from scheduler import init_scheduler, validate_interval_string, schedule_update_and_scan_job
+from scheduler import init_scheduler, validate_interval_string
 from functools import wraps
 from file_watcher import Watcher
 import threading
@@ -502,6 +502,62 @@ def scan_library():
     libraries = get_libraries()
     for library in libraries:
         scan_library_path(library.path) # Only scan, identification will be done globally
+
+def update_and_scan_job():
+    """Combined job: updates TitleDB then scans library"""
+    logger.info("Running update job (TitleDB update and library scan)...")
+    global scan_in_progress
+    
+    # Update TitleDB with locking
+    with titledb_update_lock:
+        is_titledb_update_running = True
+    
+    logger.info("Starting TitleDB update...")
+    try:
+        settings = load_settings()
+        titledb.update_titledb(settings)
+        logger.info("TitleDB update completed.")
+    except Exception as e:
+        logger.error(f"Error during TitleDB update: {e}")
+    finally:
+        with titledb_update_lock:
+            is_titledb_update_running = False
+    
+    # Check if update is still running before scanning
+    with titledb_update_lock:
+        if is_titledb_update_running:
+            logger.info("Skipping library scan: TitleDB update still in progress.")
+            return
+    
+    # Scan library with locking
+    logger.info("Starting library scan...")
+    with scan_lock:
+        if scan_in_progress:
+            logger.info('Skipping library scan: scan already in progress.')
+            return
+        scan_in_progress = True
+    
+    try:
+        scan_library()
+        post_library_change()
+        logger.info("Library scan completed.")
+    except Exception as e:
+        logger.error(f"Error during library scan: {e}")
+    finally:
+        with scan_lock:
+            scan_in_progress = False
+    
+    logger.info("Update job completed.")
+
+def schedule_update_and_scan_job(app: Flask, interval_str: str, run_first: bool = True, run_once: bool = False):
+    """Schedule or update the update_and_scan job"""
+    app.scheduler.update_job_interval(
+        job_id='update_db_and_scan',
+        interval_str=interval_str,
+        func=update_and_scan_job,
+        run_first=run_first,
+        run_once=run_once
+    )
 
 if __name__ == '__main__':
     logger.info('Starting initialization of Ownfoil...')

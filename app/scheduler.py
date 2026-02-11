@@ -228,66 +228,6 @@ class JobScheduler:
 def init_scheduler(app: Flask):
     app.scheduler = JobScheduler(app)
 
-# Scheduled job definitions
-def update_and_scan_job():
-    """Combined job: updates TitleDB then scans library"""
-    import app as app_module
-    from settings import load_settings
-    import titledb
-    
-    logger.info("Running update job (TitleDB update and library scan)...")
-    
-    # Update TitleDB with locking
-    with app_module.titledb_update_lock:
-        app_module.is_titledb_update_running = True
-    
-    logger.info("Starting TitleDB update...")
-    try:
-        settings = load_settings()
-        titledb.update_titledb(settings)
-        logger.info("TitleDB update completed.")
-    except Exception as e:
-        logger.error(f"Error during TitleDB update: {e}")
-    finally:
-        with app_module.titledb_update_lock:
-            app_module.is_titledb_update_running = False
-    
-    # Check if update is still running before scanning
-    with app_module.titledb_update_lock:
-        if app_module.is_titledb_update_running:
-            logger.info("Skipping library scan: TitleDB update still in progress.")
-            return
-    
-    # Scan library with locking
-    logger.info("Starting library scan...")
-    with app_module.scan_lock:
-        if app_module.scan_in_progress:
-            logger.info('Skipping library scan: scan already in progress.')
-            return
-        app_module.scan_in_progress = True
-    
-    try:
-        app_module.scan_library()
-        app_module.post_library_change()
-        logger.info("Library scan completed.")
-    except Exception as e:
-        logger.error(f"Error during library scan: {e}")
-    finally:
-        with app_module.scan_lock:
-            app_module.scan_in_progress = False
-    
-    logger.info("Update job completed.")
-
-def schedule_update_and_scan_job(app: Flask, interval_str: str, run_first: bool = True, run_once: bool = False):
-    """Schedule or update the update_and_scan job"""
-    app.scheduler.update_job_interval(
-        job_id='update_db_and_scan',
-        interval_str=interval_str,
-        func=update_and_scan_job,
-        run_first=run_first,
-        run_once=run_once
-    )
-
 # Generic parallel runner
 def run_task_parallel(
     inputs: List[Any],
