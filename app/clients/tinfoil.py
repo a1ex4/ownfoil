@@ -67,8 +67,11 @@ class TinfoilClient(BaseClient):
         # Parse path for content type filtering
         content_filter = request.path.strip('/') if request.path else None
 
+        # Get client-specific settings
+        client_settings = self.app_settings['shop']['clients']['tinfoil']
+
         # Build shop content
-        shop = {"success": self.app_settings['shop']['motd']}
+        shop = {"success": client_settings['motd']}
         shop["files"] = self._generate_shop_files(content_filter)
 
         # Get verified_host from auth_data
@@ -78,7 +81,7 @@ class TinfoilClient(BaseClient):
             shop["referrer"] = f"https://{verified_host}"
 
         # Serve the shop
-        if self.app_settings['shop']['encrypt']:
+        if client_settings['encrypt']:
             return Response(self._encrypt_shop(shop), mimetype='application/octet-stream')
 
         return jsonify(shop)
@@ -104,7 +107,8 @@ class TinfoilClient(BaseClient):
         request_host = request.host
         request_hauth = request.headers.get('Hauth')
         shop_host = self.app_settings["shop"].get("host")
-        shop_hauth = self.app_settings["shop"].get("hauth")
+        client_settings = self.app_settings["shop"]["clients"]["tinfoil"]
+        shop_hauth = client_settings.get("hauth")
 
         self.log_info(f"Secure request from remote host {request_host}, proceeding with host verification.")
 
@@ -127,8 +131,9 @@ class TinfoilClient(BaseClient):
         user_is_admin = request.user.has_admin_access() if request.user else False
 
         if basic_auth_success and user_is_admin:
+            # Save hauth to client-specific settings
             shop_settings = self.app_settings['shop']
-            shop_settings['hauth'] = request_hauth
+            shop_settings['clients']['tinfoil']['hauth'] = request_hauth
             set_shop_settings(shop_settings)
             self.log_info(f"Successfully set Hauth value for host {request_host}.")
             return True, None, request_host
