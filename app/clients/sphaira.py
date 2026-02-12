@@ -1,17 +1,11 @@
 """
-Tinfoil client implementation.
+Sphaira client implementation.
 """
-from flask import Request, Response, jsonify
-from typing import Tuple, Optional, Dict, Any
-import json
-import random
-from Crypto.PublicKey import RSA
-from Crypto.Cipher import PKCS1_OAEP, AES
-from Crypto.Hash import SHA256
-import zstandard as zstd
+from flask import Request, Response, send_from_directory
 
 from .client import BaseClient
-from settings import set_shop_settings
+from db import Files
+from constants import APP_TYPE_FILTERS
 
 SPHAIRA_HEADERS = [
     'Host',
@@ -20,9 +14,17 @@ SPHAIRA_HEADERS = [
     'Accept-Encoding',
 ]
 
+SPHAIRA_HTML_TEMPLATE = '''<!DOCTYPE html>
+<html>
+<body>
+<table>
+{}
+</table>
+</body>
+</html>'''
 
 class SphairaClient(BaseClient):
-    """Sphaira client with header-based identification, Hauth verification, and encrypted shop responses."""
+    """Sphaira client with header-based identification, and directory listing support."""
 
     # Class variables
     CLIENT_NAME = "Sphaira"
@@ -35,20 +37,63 @@ class SphairaClient(BaseClient):
         return all(header in request.headers for header in SPHAIRA_HEADERS)
 
     def error_response(self, error_message: str) -> Response:
-        """Generate Sphaira error response in JSON format."""
-        return jsonify({'error': error_message})
+        """Generate error response in dir list format."""
+        content = [f"{i:02d} - {s}" for i, s in enumerate(['ERROR'] + error_message.split('\n'))]
+        return self._serve_directory_listing(content)
 
     def info_response(self, info_message: str) -> Response:
-        """Generate Sphaira info response in JSON format."""
-        return jsonify({'success': info_message})
+        """Generate info response in dir list format."""
+        content = [f"{i:02d} - {s}" for i, s in enumerate(['INFO'] + info_message.split('\n'))]
+        return self._serve_directory_listing(content)
 
     @BaseClient.authenticate
     @BaseClient.verify_shop_access
     def _handle_get(self, request: Request) -> Response:
-        """Handle GET requests for specific paths."""
-        # Access auth flags from request object (set by @authenticate decorator)
-        self.log_info("Successfully authenticated request.")
-        return Response("GET request handled successfully.", status=200)
+        """Handle GET requests for directory listing or file downloads."""
+        subpath = request.subpath
+
+        # Root path or content filter, return directory listing
+        if not subpath or subpath in APP_TYPE_FILTERS:
+            files = [
+                f.filename
+                for f in self.get_filtered_files(None if not subpath else subpath)
+            ]
+            return self._serve_directory_listing(files)
+
+        return self._serve_file(subpath)
+
+    @BaseClient.authenticate
+    @BaseClient.verify_shop_access
+    def _handle_head(self, request: Request) -> Response:
+        """
+        Handle HEAD requests for file lookups.
+        Sphaira sends HEAD requests to filenames to get file headers before downloading.
+        """
+        return self._serve_file(request.subpath)
 
     # ==================== Private/Helper Methods ====================
 
+    def _serve_directory_listing(self, content: list[str] | str) -> Response:
+        """Serve a Sphaira compatible directory listing."""
+        if not content:
+            content = '<a href="No content available."> </a>'
+        elif isinstance(content, list):
+            content = '\n'.join(f'<a href="{item}"> </a>' for item in content)
+        else:
+            content = f'<a href="{content}"> </a>'
+        html = SPHAIRA_HTML_TEMPLATE.format(content)
+        return Response(html)
+
+    def _serve_file(self, filename: str) -> Response: 
+        """Serve a file from the given filename."""
+        # Look up the file in the database by filename
+        file = Files.query.filter_by(filename=filename).first()
+
+        if not file:
+            self.log_warning(f"File not found: {filename}")
+            # Throws NspBadMagic for HEAD requests anyway
+            return self.error_response("File not found")
+
+        self.log_info(f"Serving file: {file.folder}/{filename}")
+
+        return send_from_directory(file.folder, filename)

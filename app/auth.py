@@ -144,11 +144,11 @@ def basic_auth(request):
     user = User.query.filter_by(user=username).first()
     if user is None:
         success = False
-        error = f'Unknown user "{username}".'
+        error = f'Unknown user {username}.'
     
     elif not check_password_hash(user.password, password):
         success = False
-        error = f'Incorrect password for user "{username}".'
+        error = f'Incorrect password for user {username}.'
 
     return success, error, user
 

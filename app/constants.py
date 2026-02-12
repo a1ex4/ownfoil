@@ -56,7 +56,8 @@ DEFAULT_SETTINGS = {
                 "clientCertPub": "-----BEGIN PUBLIC KEY-----",
                 "clientCertKey": "-----BEGIN PRIVATE KEY-----",
                 "hauth": "",
-            }
+            },
+            "sphaira": {"enabled": True,}
         }
     },
     "scheduler": {

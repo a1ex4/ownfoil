@@ -127,6 +127,7 @@ def on_library_change(events):
 
 def create_app():
     app = Flask(__name__)
+    app.url_map.strict_slashes = False  # Disable automatic trailing slash redirects globally, needed for Sphaira
     app.config["SQLALCHEMY_DATABASE_URI"] = OWNFOIL_DB
     # TODO: generate random secret_key
     app.config['SECRET_KEY'] = '8accb915665f11dfa15c2db1a4e8026905f57716'
@@ -203,9 +204,11 @@ def access_shop_auth():
     return access_shop()
 
 @app.route('/')
-@app.route('/<content_type>/')
-def index(content_type=None):
+@app.route('/<subpath>/')
+def index(subpath=None):
     """Main shop endpoint routing to either client-specific shop or web browser UI."""
+    # Store clean subpath in request
+    request.subpath = subpath
     # Check if this is a client request
     client = get_client_for_request(request)
 
@@ -222,7 +225,7 @@ def index(content_type=None):
         return client.handle_request(request)
 
     # Browser request - serve web UI
-    elif content_type is not None:
+    elif subpath is not None:
         return redirect('/')
 
     if not app_settings['shop']['public']:
@@ -549,9 +552,6 @@ def schedule_update_and_scan_job(app: Flask, interval_str: str, run_first: bool 
         run_once=run_once
     )
 
-@app.before_request
-def print_request():
-    print(request.headers)
 
 if __name__ == '__main__':
     logger.info('Starting initialization of Ownfoil...')
