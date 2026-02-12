@@ -46,13 +46,18 @@ DEFAULT_SETTINGS = {
         "region": "US",
     },
     "shop": {
-        "motd": "Welcome to your own shop!",
-        "public": False,
-        "encrypt": True,
-        "clientCertPub": "-----BEGIN PUBLIC KEY-----",
-        "clientCertKey": "-----BEGIN PRIVATE KEY-----",
         "host": "",
-        "hauth": "",
+        "public": False,
+        "clients": {
+            "tinfoil": {
+                "enabled": True,
+                "motd": "Welcome to your own shop!",
+                "encrypt": True,
+                "clientCertPub": "-----BEGIN PUBLIC KEY-----",
+                "clientCertKey": "-----BEGIN PRIVATE KEY-----",
+                "hauth": "",
+            }
+        }
     },
     "scheduler": {
         "scan_interval": "12h",

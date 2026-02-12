@@ -55,6 +55,35 @@ def remove_obsolete_keys(target, defaults):
                 removed = True
     return removed
 
+def migrate_shop_settings(settings):
+    """Migrate old shop settings format to new client-based structure."""
+    migrated = False
+    shop = settings.get('shop', {})
+    
+    # Check if we have old format (client settings at shop level)
+    old_client_keys = ['motd', 'encrypt', 'hauth', 'clientCertKey', 'clientCertPub']
+    has_old_format = any(key in shop for key in old_client_keys)
+    has_new_format = 'clients' in shop and 'tinfoil' in shop.get('clients', {})
+    
+    if has_old_format and not has_new_format:
+        logger.info('Migrating shop settings to new client-based format...')
+        # Ensure clients structure exists
+        if 'clients' not in shop:
+            shop['clients'] = {}
+        if 'tinfoil' not in shop['clients']:
+            shop['clients']['tinfoil'] = {}
+        
+        # Migrate client-specific settings to tinfoil client
+        for key in old_client_keys:
+            if key in shop:
+                shop['clients']['tinfoil'][key] = shop[key]
+                del shop[key]
+        
+        migrated = True
+        logger.info('Shop settings migration completed.')
+    
+    return migrated
+
 def load_settings():
     settings_updated = False
     with settings_lock:
@@ -62,6 +91,10 @@ def load_settings():
             logger.debug('Reading configuration file.')
             with open(CONFIG_FILE, 'r') as yaml_file:
                 settings = yaml.safe_load(yaml_file)
+
+            # Migrate old shop settings format
+            if migrate_shop_settings(settings):
+                settings_updated = True
 
             # Remove obsolete keys from loaded settings
             if remove_obsolete_keys(settings, DEFAULT_SETTINGS):
@@ -168,10 +201,17 @@ def set_titles_settings(region, language):
 
 def set_shop_settings(data):
     settings = load_settings()
-    shop_host = data['host']
-    if '://' in shop_host:
-        data['host'] = shop_host.split('://')[-1]
-    settings['shop'].update(data)
+    # Clean host URL if present
+    if 'host' in data and '://' in data['host']:
+        data['host'] = data['host'].split('://')[-1]
+    # Update shop-level settings
+    for key in ['host', 'public']:
+        if key in data:
+            settings['shop'][key] = data[key]
+    # Update client-specific settings
+    if 'clients' in data:
+        for client_name, client_data in data['clients'].items():
+            settings['shop']['clients'][client_name].update(client_data)
     with settings_lock:
         with open(CONFIG_FILE, 'w') as yaml_file:
             yaml.dump(settings, yaml_file)
