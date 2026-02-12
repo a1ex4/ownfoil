@@ -20,7 +20,7 @@ from utils import *
 from library import *
 import titledb
 import os
-from clients import TinfoilClient
+from clients import TinfoilClient, SphairaClient
 
 def init():
     global watcher
@@ -144,7 +144,7 @@ def create_app():
 app = create_app()
 
 # List of supported client classes
-SUPPORTED_CLIENTS = [TinfoilClient]
+SUPPORTED_CLIENTS = [TinfoilClient, SphairaClient]
 
 
 def get_client_for_request(request):
@@ -548,6 +548,10 @@ def schedule_update_and_scan_job(app: Flask, interval_str: str, run_first: bool 
         run_first=run_first,
         run_once=run_once
     )
+
+@app.before_request
+def print_request():
+    print(request.headers)
 
 if __name__ == '__main__':
     logger.info('Starting initialization of Ownfoil...')
