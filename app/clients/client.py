@@ -77,11 +77,12 @@ class BaseClient(ABC):
         @wraps(handler)
         def wrapper(self, request: Request) -> Response:
             # Check if shop requires authentication
-            if not self.app_settings['shop']['public'] and not request.basic_auth_success:
-                return self.error_response("Shop requires authentication.\n" + (request.basic_auth_error))
-            # Check if user has shop access
-            if request.user and not request.user.has_shop_access():
-                return self.error_response(f'User "{request.user.user}" does not have access to the shop.')
+            if not self.app_settings['shop']['public']:
+                if not request.basic_auth_success:
+                    return self.error_response("Shop requires authentication.\n" + (request.basic_auth_error))
+                # Check if user has shop access
+                if request.user and not request.user.has_shop_access():
+                    return self.error_response(f'User "{request.user.user}" does not have access to the shop.')
 
             # Call the actual handler
             return handler(self, request)
