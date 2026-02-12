@@ -13,7 +13,7 @@ SPHAIRA_DEFAULT_HEADERS = [
     'Accept-Encoding',
 ]
 
-SPHAIRA_OPTIONAL_HEADERS = [
+SPHAIRA_ADDITIONAL_HEADERS = [
     'Authorization',
     'Range',
 ]
@@ -37,8 +37,22 @@ class SphairaClient(BaseClient):
 
     @classmethod
     def identify_client(cls, request: Request) -> bool:
-        """Identify Sphaira client by checking for required headers."""
-        return all(header in request.headers for header in SPHAIRA_DEFAULT_HEADERS)
+        """Identify Sphaira client by validating required and allowed headers."""
+        headers = set(request.headers.keys())
+
+        default_headers = set(SPHAIRA_DEFAULT_HEADERS)
+        additional_headers = set(SPHAIRA_ADDITIONAL_HEADERS)
+
+        # All default headers must be present
+        if not default_headers.issubset(headers):
+            return False
+
+        # Any extra headers must be allowed
+        extra_headers = headers - default_headers
+        if not extra_headers.issubset(additional_headers):
+            return False
+
+        return True
 
     def error_response(self, error_message: str) -> Response:
         """Generate error response in dir list format."""
