@@ -90,7 +90,7 @@ class BaseClient(ABC):
                     return self.error_response("Shop requires authentication.\n" + (request.basic_auth_error))
                 # Check if user has shop access
                 if request.user and not request.user.has_shop_access():
-                    return self.error_response(f'User "{request.user.user}" does not have access to the shop.')
+                    return self.error_response(f'User {request.user.user} does not have access to the shop.')
 
             # Call the actual handler
             return handler(self, request)
@@ -144,6 +144,8 @@ class BaseClient(ABC):
         # Route request based on method and path
         if method == "OPTIONS":
             return self._handle_options(path, headers)
+        elif method == "HEAD":
+            return self._handle_head(request)
         elif method == "GET":
             return self._handle_get(request)
 
@@ -168,3 +170,10 @@ class BaseClient(ABC):
     def _handle_options(self, path: str, headers: dict) -> Response:
         """Handle OPTIONS requests for CORS preflight."""
         pass
+
+    def _handle_head(self, request: Request) -> Response:
+        """
+        Handle HEAD requests. Override in subclasses if needed.
+        Default implementation returns 404.
+        """
+        return self.error_response("HEAD method not implemented"), 404
