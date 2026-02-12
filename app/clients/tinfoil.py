@@ -61,8 +61,8 @@ class TinfoilClient(BaseClient):
     def _handle_get(self, request: Request) -> Response:
         """Handle GET requests for specific paths."""
         # Access auth flags from request object (set by @authenticate decorator)
-        # Get verified_host from auth_data
-        verified_host = request.auth_data.get('verified_host')
+        if not request.client_auth_success:
+            return self.error_response(request.client_auth_error)
 
         # Parse path for content type filtering
         content_filter = request.path.strip('/') if request.path else None
@@ -71,6 +71,8 @@ class TinfoilClient(BaseClient):
         shop = {"success": self.app_settings['shop']['motd']}
         shop["files"] = self._generate_shop_files(content_filter)
 
+        # Get verified_host from auth_data
+        verified_host = request.auth_data.get('verified_host')
         if verified_host:
             # Enforce client side host verification
             shop["referrer"] = f"https://{verified_host}"
@@ -85,17 +87,17 @@ class TinfoilClient(BaseClient):
 
     def _client_authenticate(self, request: Request) -> Tuple[bool, Optional[str], Optional[Dict[str, Any]]]:
         """Tinfoil-specific authentication: Host verification for HTTPS requests."""
+        success = True
+        error = None
         verified_host = None
 
         # Perform host verification only for HTTPS requests
         if request.is_secure or request.headers.get("X-Forwarded-Proto") == "https":
             success, error, verified_host = self._verify_host(request)
-            if not success:
-                return False, error, None
 
         # Return auth data with verified_host
         auth_data = {'verified_host': verified_host}
-        return True, None, auth_data
+        return success, error, auth_data
 
     def _verify_host(self, request: Request) -> Tuple[bool, Optional[str], Optional[str]]:
         """Verify Hauth to prevent hotlinking."""

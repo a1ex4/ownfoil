@@ -153,15 +153,15 @@ class BaseClient(ABC):
 
     def log_info(self, message: str):
         """Log an info message with client context."""
-        logger.info(f"[{self.CLIENT_NAME}] {message}")
+        logger.info(f"({self.CLIENT_NAME}) {message}")
 
     def log_warning(self, message: str):
         """Log a warning message with client context."""
-        logger.warning(f"[{self.CLIENT_NAME}] {message}")
+        logger.warning(f"({self.CLIENT_NAME}) {message}")
 
     def log_error(self, message: str):
         """Log an error message with client context."""
-        logger.error(f"[{self.CLIENT_NAME}] {message}")
+        logger.error(f"({self.CLIENT_NAME}) {message}")
 
     # ==================== Private/Helper Methods ====================
 
