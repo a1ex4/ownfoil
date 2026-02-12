@@ -337,7 +337,7 @@
                     <input class="form-control" id="shopHostInput" aria-describedby="shopHostHelp"
                         placeholder="shop.domain.tld">
                     <div id="shopHostHelp" class="form-text">Configure your shop URL to enable host verification.<br>
-                        Host verification from Tinfoil requests will be enforced if the shop is accessed securely (with
+                        Host verification from client requests will be enforced if the shop is accessed securely (with
                         <code>https</code>), make sure your reverse proxy <strong>does NOT</strong> allow insecure
                         connections (or upgrades them to use SSL) and correctly sets the <code>X-Forwarded-Proto</code>
                         header.
@@ -347,22 +347,31 @@
                     <input type="checkbox" class="form-check-input" id="publicShopCheck"
                         aria-describedby="publicShopCheckHelp">
                     <label class="form-check-label" for="publicShopCheck">Public shop</label>
-                    <div id="publicShopCheckHelp" class="form-text">If enabled, Shop access from Tinfoil does not
+                    <div id="publicShopCheckHelp" class="form-text">If enabled, Shop access from clients does not
                         require authentication.
                     </div>
                 </div>
+
+                <h4 class="pt-3 pb-2">Clients</h3>
+                <h5 class="pb-2">Tinfoil</h4>
                 <div class="mb-3 form-check">
-                    <input type="checkbox" class="form-check-input" id="encryptShopCheck"
-                        aria-describedby="encryptShopCheckHelp">
-                    <label class="form-check-label" for="encryptShopCheck">Encrypt shop</label>
-                    <div id="encryptShopCheckHelp" class="form-text">Serve encrypted and compressed shop, so that only Tinfoil clients
+                    <input type="checkbox" class="form-check-input" id="tinfoilEnabledCheck"
+                        aria-describedby="tinfoilEnabledCheckHelp">
+                    <label class="form-check-label" for="tinfoilEnabledCheck">Enabled</label>
+                    <div id="tinfoilEnabledCheckHelp" class="form-text">Enable or disable Tinfoil client access to the shop.</div>
+                </div>
+                <div class="mb-3 form-check">
+                    <input type="checkbox" class="form-check-input" id="tinfoilEncryptShopCheck"
+                        aria-describedby="tinfoilEncryptShopCheckHelp">
+                    <label class="form-check-label" for="tinfoilEncryptShopCheck">Encrypt shop</label>
+                    <div id="tinfoilEncryptShopCheckHelp" class="form-text">Serve encrypted and compressed shop, so that only Tinfoil clients
                         can access the content. <strong>Strongly suggested to enable it for security</strong>.</div>
                 </div>
 
                 <div class="mb-3">
-                    <label for="motdTextArea" class="form-label">Message of the day:</label>
-                    <textarea class="form-control" id="motdTextArea" rows="3"></textarea>
-                    <div id="motdTextAreaHelp" class="form-text">Message presented when opening Tinfoil after
+                    <label for="tinfoilMotdTextArea" class="form-label">Message of the day:</label>
+                    <textarea class="form-control" id="tinfoilMotdTextArea" rows="3"></textarea>
+                    <div id="tinfoilMotdTextAreaHelp" class="form-text">Message presented when opening Tinfoil after
                         successfully loading your shop.</div>
                 </div>
 
@@ -956,8 +965,13 @@
         data = {
             host: $('#shopHostInput').val(),
             public: getCheckboxStatus("publicShopCheck"),
-            encrypt: getCheckboxStatus("encryptShopCheck"),
-            motd: $('#motdTextArea').val(),
+            clients: {
+                tinfoil: {
+                    enabled: getCheckboxStatus("tinfoilEnabledCheck"),
+                    encrypt: getCheckboxStatus("tinfoilEncryptShopCheck"),
+                    motd: $('#tinfoilMotdTextArea').val(),
+                }
+            }
         }
 
         $.ajax({
@@ -1127,13 +1141,21 @@
             // Shop settings
             shopSettings = result['shop'];
             setInputVal("shopHostInput", shopSettings['host']);
-            setInputVal("motdTextArea", shopSettings['motd']);
             $("#publicShopCheck").prop("checked", shopSettings['public']);
-            $("#encryptShopCheck").prop("checked", shopSettings['encrypt']);
-            if (!shopSettings['host']) {
-                $("#missingShopHostAlert").css('display', '');
-            } else if (!shopSettings['hauth']) {
-                $("#missingShopHauthAlert").css('display', '');
+            
+            // Client-specific settings
+            if (shopSettings['clients'] && shopSettings['clients']['tinfoil']) {
+                tinfoilSettings = shopSettings['clients']['tinfoil'];
+                $("#tinfoilEnabledCheck").prop("checked", tinfoilSettings['enabled']);
+                $("#tinfoilEncryptShopCheck").prop("checked", tinfoilSettings['encrypt']);
+                setInputVal("tinfoilMotdTextArea", tinfoilSettings['motd']);
+                
+                // Check for missing hauth
+                if (!shopSettings['host']) {
+                    $("#missingShopHostAlert").css('display', '');
+                } else if (!tinfoilSettings['hauth']) {
+                    $("#missingShopHauthAlert").css('display', '');
+                }
             }
         });
 

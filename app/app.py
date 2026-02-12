@@ -210,6 +210,13 @@ def index(content_type=None):
     client = get_client_for_request(request)
 
     if client:
+        # Check if client is enabled
+        client_name = client.CLIENT_NAME.lower()
+        client_settings = app_settings.get('shop', {}).get('clients', {}).get(client_name, {})
+        if not client_settings.get('enabled', False):
+            logger.warning(f"{client.CLIENT_NAME} connection from {request.remote_addr} - Client is disabled")
+            return client.error_response(f"Shop access from {client.CLIENT_NAME} is disabled."), 403
+        
         # Handle client request
         logger.info(f"{client.CLIENT_NAME} connection from {request.remote_addr}")
         return client.handle_request(request)
@@ -239,10 +246,13 @@ def settings_page():
 def get_settings_api():
     reload_conf()
     settings = copy.deepcopy(app_settings)
-    if settings['shop'].get('hauth'):
-        settings['shop']['hauth'] = True
-    else:
-        settings['shop']['hauth'] = False
+    # Check hauth for each client
+    if 'clients' in settings['shop']:
+        for client_name, client_settings in settings['shop']['clients'].items():
+            if client_settings.get('hauth'):
+                settings['shop']['clients'][client_name]['hauth'] = True
+            else:
+                settings['shop']['clients'][client_name]['hauth'] = False
     return jsonify(settings)
 
 @app.post('/api/settings/titles')
