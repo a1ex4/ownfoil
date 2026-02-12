@@ -64,15 +64,12 @@ class TinfoilClient(BaseClient):
         if not request.client_auth_success:
             return self.error_response(request.client_auth_error)
 
-        # Parse path for content type filtering
-        content_filter = request.path.strip('/') if request.path else None
-
         # Get client-specific settings
         client_settings = self.app_settings['shop']['clients']['tinfoil']
 
         # Build shop content
         shop = {"success": client_settings['motd']}
-        shop["files"] = self._generate_shop_files(content_filter)
+        shop["files"] = self._generate_shop_files(request.subpath)
 
         # Get verified_host from auth_data
         verified_host = request.auth_data.get('verified_host')
