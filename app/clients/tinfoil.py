@@ -69,7 +69,7 @@ class TinfoilClient(BaseClient):
 
         # Build shop content
         shop = {"success": client_settings['motd']}
-        shop["files"] = self._generate_shop_files(request.subpath)
+        shop["files"] = self._generate_shop_files(request.content_filter)
 
         # Get verified_host from auth_data
         verified_host = request.auth_data.get('verified_host')

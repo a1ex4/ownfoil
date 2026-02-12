@@ -204,11 +204,13 @@ def access_shop_auth():
     return access_shop()
 
 @app.route('/')
-@app.route('/<subpath>/')
-def index(subpath=None):
+@app.route('/<content_filter>/')
+@app.route('/<content_filter>/<subpath>/')
+def index(content_filter=None, subpath=None):
     """Main shop endpoint routing to either client-specific shop or web browser UI."""
-    # Store clean subpath in request
+    # Store variables in request
     request.subpath = subpath
+    request.content_filter = content_filter
     # Check if this is a client request
     client = get_client_for_request(request)
 
