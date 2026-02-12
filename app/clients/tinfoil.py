@@ -98,7 +98,7 @@ class TinfoilClient(BaseClient):
         return True, None, auth_data
 
     def _verify_host(self, request: Request) -> Tuple[bool, Optional[str], Optional[str]]:
-        """Verify host and Hauth to prevent hotlinking."""
+        """Verify Hauth to prevent hotlinking."""
         request_host = request.host
         request_hauth = request.headers.get('Hauth')
         shop_host = self.app_settings["shop"].get("host")
@@ -109,10 +109,6 @@ class TinfoilClient(BaseClient):
         if not shop_host:
             self.log_error("Missing shop host configuration, Host verification is disabled.")
             return True, None, None
-
-        if request_host != shop_host:
-            self.log_warning(f"Incorrect URL referrer detected: {request_host}.")
-            return False, f"Incorrect URL `{request_host}`.", None
 
         if not shop_hauth:
             return self._handle_missing_hauth(request, request_host, request_hauth)

@@ -42,6 +42,14 @@ class BaseClient(ABC):
             request.user = None
             request.auth_data = {}
 
+            # Perform host verification only for HTTPS requests
+            if request.is_secure or request.headers.get("X-Forwarded-Proto") == "https":
+                shop_host = self.app_settings["shop"].get("host")
+                if not shop_host:
+                    self.log_error("Missing shop host configuration, Host verification is disabled.")
+                elif request.host != shop_host:
+                    return self.error_response(f"Incorrect URL referrer detected: {request.host}.")
+
             # Generic Basic Auth
             basic_auth_success, basic_auth_error, user = basic_auth(request)
             if not basic_auth_success:
