@@ -448,36 +448,11 @@ def remove_missing_files_from_db():
         # Query all entries in the Files table
         files = Files.query.all()
         
-        # List to keep track of IDs to be deleted
-        ids_to_delete = []
-        
         for file_entry in files:
             # Check if the file exists on disk
             if not os.path.exists(file_entry.filepath):
-                # If the file does not exist, mark this entry for deletion
-                ids_to_delete.append(file_entry.id)
                 logger.debug(f"File not found, marking file for deletion: {file_entry.filepath}")
-        
-        # Update Apps table before deleting files
-        total_apps_updated = 0
-        if ids_to_delete:
-            # Remove file_ids from Apps table and update owned status
-            for file_id in ids_to_delete:
-                apps_updated = remove_file_from_apps(file_id)
-                total_apps_updated += apps_updated
-            
-            # Delete all marked entries from the Files table
-            Files.query.filter(Files.id.in_(ids_to_delete)).delete(synchronize_session=False)
-            
-            db.session.commit()
-            
-            logger.info(f"Deleted {len(ids_to_delete)} files from the database.")
-            if total_apps_updated > 0:
-                logger.info(f"Updated {total_apps_updated} app entries to remove missing file references.")
-
-        else:
-            logger.debug("No files were deleted. All files are present on disk.")
+                delete_file_by_filepath(file_entry.filepath)
     
     except Exception as e:
-        db.session.rollback()  # Rollback in case of an error
         logger.error(f"An error occurred while removing missing files: {str(e)}")

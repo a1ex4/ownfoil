@@ -451,9 +451,9 @@ def post_library_change():
         titles_lib.load_titledb()
         process_library_identification(app)
         add_missing_apps_to_db()
-        update_titles() # Ensure titles are updated after identification
         # remove missing files
         remove_missing_files_from_db()
+        update_titles() # Ensure titles are updated after identification
         process_library_organization(app, watcher) # Pass the watcher instance to skip organizer move/delete events
         # The process_library_identification already handles updating titles and generating library
         # So, we just need to ensure titles_library is updated from the generated library
