@@ -59,7 +59,7 @@ class BaseClient(ABC):
 
             else:
                 request.basic_auth_success = True
-                self.log_info(f"successful authentication for user {user.user}")
+                self.log_info(f"Successful authentication for user {user.user}")
             request.user = user
 
             # Client-specific authentication
