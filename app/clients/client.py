@@ -21,10 +21,9 @@ class BaseClient(ABC):
 
     # ==================== Initialization ====================
 
-    def __init__(self, app_settings: dict, db):
+    def __init__(self, app_settings: dict):
         """Initialize the client with application settings and database."""
         self.app_settings = app_settings
-        self.db = db
         logger.debug(f"Initialized {self.CLIENT_NAME} client")
 
     # ==================== Authentication Decorator ====================

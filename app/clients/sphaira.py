@@ -83,7 +83,7 @@ class SphairaClient(BaseClient):
         if not content_filter or content_filter in APP_TYPE_FILTERS:
             files = [
                 f.filename
-                for f in self.get_filtered_files(None if not content_filter else content_filter)
+                for f in self.get_filtered_files(content_filter)
             ]
             return self._serve_directory_listing(files)
 
