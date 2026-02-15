@@ -153,30 +153,8 @@ def get_client_for_request(request):
     reload_conf()
     for client_class in SUPPORTED_CLIENTS:
         if client_class.identify_client(request):
-            return client_class(app_settings, db)
+            return client_class(app_settings)
     return None
-
-
-def client_access(f):
-    """Decorator for client-specific endpoints with authentication."""
-    @wraps(f)
-    def _client_access(*args, **kwargs):
-        client = get_client_for_request(request)
-        if client is None:
-            return jsonify({'error': 'Unsupported client'}), 400
-
-        # Authenticate the request
-        auth_success, error_message, verified_host = client.authenticate(request)
-        if not auth_success:
-            return client.error_response(error_message)
-
-        # Store client and verified_host in request for use by the route
-        request.client = client
-        request.verified_host = verified_host
-
-        return f(*args, **kwargs)
-    return _client_access
-
 
 def file_access(f):
     """Decorator for file serving endpoints with basic authentication (no client identification required)."""
