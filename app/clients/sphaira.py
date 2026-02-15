@@ -4,8 +4,8 @@ Sphaira client implementation.
 from flask import Request, Response, send_from_directory
 
 from .client import BaseClient
-from db import Files
-from constants import APP_TYPE_FILTERS
+from db import Files, Libraries
+from constants import APP_TYPE_FILTERS, ALLOWED_EXTENSIONS
 
 SPHAIRA_DEFAULT_HEADERS = [
     'Host',
@@ -68,24 +68,16 @@ class SphairaClient(BaseClient):
     @BaseClient.verify_shop_access
     def _handle_get(self, request: Request) -> Response:
         """Handle GET requests for directory listing or file downloads."""
-        content_filter = request.content_filter
-        subpath = request.subpath
-
-        if content_filter:
-            if subpath:
-                # this is a file request from a filtered result
-                return self._serve_file(subpath)
-            if content_filter not in APP_TYPE_FILTERS:
-                # this is a file request from a non filtered result
-                return self._serve_file(content_filter)
-
-        # Root path or content filter only, return directory listing
-        if not content_filter or content_filter in APP_TYPE_FILTERS:
-            files = [
-                f.filename
-                for f in self.get_filtered_files(content_filter)
-            ]
-            return self._serve_directory_listing(files)
+        subpath = request.subpath.strip('/') if request.subpath else ''
+        paths = request.subpath.split('/')
+        # Check if requesting a specific file
+        if paths and any([paths[-1].endswith(ext) for ext in ALLOWED_EXTENSIONS]):
+            return self._serve_file(paths[-1])
+        
+        # Otherwise, show directory listing
+        content_filter = paths[0] if paths and paths[0] in APP_TYPE_FILTERS else None
+        self.log_info(f"{content_filter=}, {subpath=}")
+        return self._serve_virtual_directory(subpath, content_filter)
 
 
     @BaseClient.authenticate
@@ -95,9 +87,65 @@ class SphairaClient(BaseClient):
         Handle HEAD requests for file lookups.
         Sphaira sends HEAD requests to filenames to get file headers before downloading.
         """
-        return self._serve_file(request.subpath if request.subpath else request.content_filter)
+        subpath = request.subpath.strip('/') if request.subpath else ''
+        filename = subpath.split('/')[-1] if subpath else ''
+        if filename and any([filename.endswith(ext) for ext in ALLOWED_EXTENSIONS]):
+            return self._serve_file(filename)
+        return self.error_response("File not found")
 
     # ==================== Private/Helper Methods ====================
+
+    def _serve_virtual_directory(self, subpath: str, content_filter: str = None) -> Response:
+        """
+        Serve a virtual directory listing by recreating folder structure.
+        Strips library path from file paths and shows directories/files at current level.
+        """
+        # Get all filtered files
+        all_files = self.get_filtered_files(content_filter)
+        print(subpath)
+        if content_filter:
+            subpath = subpath[len(content_filter):].lstrip('/')
+            print(subpath)
+        # Build virtual paths by stripping library paths
+        virtual_items = set()
+        
+        for file in all_files:
+            # Get the library path for this file
+            library = Libraries.query.filter_by(id=file.library_id).first()
+            
+            library_path = library.path.rstrip('/')
+            file_path = file.filepath
+            
+            # Strip library path to get relative path
+            relative_path = file_path[len(library_path):].lstrip('/')
+            print(relative_path)
+            
+            # If we're in a subdirectory, filter to only show items under current path
+            if subpath:
+                if not relative_path.startswith(subpath + '/'):
+                    continue
+                # Get the remainder after the current subpath
+                remainder = relative_path[len(subpath) + 1:]
+            else:
+                remainder = relative_path
+            
+            # Get the next level item (directory or file)
+            if '/' in remainder:
+                # This is a directory - get just the directory name
+                next_item = remainder.split('/')[0] + '/'
+            else:
+                # This is a file at the current level
+                next_item = remainder
+            
+            virtual_items.add(next_item)
+        
+        # Sort items: directories first, then files
+        sorted_items = sorted(virtual_items, key=lambda x: (not x.endswith('/'), x.lower()))
+        
+        if not sorted_items:
+            return self._serve_directory_listing(['No content available'])
+        
+        return self._serve_directory_listing(sorted_items)
 
     def _serve_directory_listing(self, content: list[str] | str) -> Response:
         """Serve a Sphaira compatible directory listing."""
