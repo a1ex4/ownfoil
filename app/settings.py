@@ -41,7 +41,7 @@ def load_keys(key_file=KEYS_FILE):
             logger.error(f'Provided keys file {key_file} is invalid.')
         return valid, missing, corrupt
 
-def remove_obsolete_keys(target, defaults):
+def remove_obsolete_keys(target, defaults, path=''):
     removed = False
     keys_to_remove = [key for key in target if key not in defaults]
     for key in keys_to_remove:
@@ -51,7 +51,11 @@ def remove_obsolete_keys(target, defaults):
 
     for key, value in target.items():
         if isinstance(value, dict) and key in defaults and isinstance(defaults[key], dict):
-            if remove_obsolete_keys(value, defaults[key]):
+            # Skip removing keys from hauth dict as it contains dynamic per-host entries
+            current_path = f"{path}/{key}" if path else key
+            if current_path.endswith('/hauth'):
+                continue
+            if remove_obsolete_keys(value, defaults[key], current_path):
                 removed = True
     return removed
 
@@ -82,6 +86,27 @@ def migrate_shop_settings(settings):
         migrated = True
         logger.info('Shop settings migration completed.')
     
+    # Migrate hauth from string to dict format (per-host)
+    if 'clients' in shop and 'tinfoil' in shop['clients']:
+        tinfoil = shop['clients']['tinfoil']
+        hauth = tinfoil.get('hauth')
+        
+        # If hauth is a non-empty string, convert it to dict format with current host as key
+        if isinstance(hauth, str) and hauth:
+            logger.info('Migrating Tinfoil hauth from string to per-host dict format...')
+            current_host = shop.get('host', '')
+            if current_host:
+                # Store the old hauth value with the current host as key
+                tinfoil['hauth'] = {current_host: hauth}
+            else:
+                # No host configured, reset to empty dict
+                tinfoil['hauth'] = {}
+            migrated = True
+            logger.info('Hauth migration completed.')
+        elif hauth == '':
+            # Empty string, convert to empty dict
+            tinfoil['hauth'] = {}
+            migrated = True
     return migrated
 
 def load_settings():
@@ -212,6 +237,7 @@ def set_shop_settings(data):
     if 'clients' in data:
         for client_name, client_data in data['clients'].items():
             settings['shop']['clients'][client_name].update(client_data)
+
     with settings_lock:
         with open(CONFIG_FILE, 'w') as yaml_file:
             yaml.dump(settings, yaml_file)

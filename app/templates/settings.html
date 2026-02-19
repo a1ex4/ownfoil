@@ -42,15 +42,6 @@
                     <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
                 </div>
 
-                <div id="missingShopHauthAlert" class="alert alert-warning alert-dismissible fade show" role="alert" style="display: none;">
-                    <h4 class="alert-heading">Missing shop Hauth!</h4>
-                    <a href="https://blawar.github.io/tinfoil/network/#host-signature" class="alert-link"
-                        target="_blank">Host signature</a> verification from outside the local network is disabled if
-                    the shop <code>Hauth</code> is missing. Connect to the shop from Tinfoil with an admin account to
-                    set it.
-                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-                </div>
-
                 <h2 id="Authentication">Authentication</h2>
 
                 <table class="table table-hover caption-top" id="userTable">
@@ -1152,6 +1143,11 @@
             shopSettings = result['shop'];
             setInputVal("shopHostInput", shopSettings['host']);
             $("#publicShopCheck").prop("checked", shopSettings['public']);
+
+            // Check for missing shop host
+            if (!shopSettings['host']) {
+                $("#missingShopHostAlert").css('display', '');
+            }
             
             // Client-specific settings
             if (shopSettings['clients']) {
@@ -1160,13 +1156,6 @@
                     $("#tinfoilEnabledCheck").prop("checked", tinfoilSettings['enabled']);
                     $("#tinfoilEncryptShopCheck").prop("checked", tinfoilSettings['encrypt']);
                     setInputVal("tinfoilMotdTextArea", tinfoilSettings['motd']);
-                    
-                    // Check for missing hauth
-                    if (!shopSettings['host']) {
-                        $("#missingShopHostAlert").css('display', '');
-                    } else if (!tinfoilSettings['hauth']) {
-                        $("#missingShopHauthAlert").css('display', '');
-                    }
                 }
                 if (shopSettings['clients']['sphaira']) {
                     sphairaSettings = shopSettings['clients']['sphaira'];

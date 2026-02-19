@@ -270,13 +270,12 @@ def setup_page():
 def get_settings_api():
     reload_conf()
     settings = copy.deepcopy(app_settings)
-    # Check hauth for each client
+    # Strip hauth values for privacy (don't send to client)
     if 'clients' in settings['shop']:
         for client_name, client_settings in settings['shop']['clients'].items():
-            if client_settings.get('hauth'):
-                settings['shop']['clients'][client_name]['hauth'] = True
-            else:
-                settings['shop']['clients'][client_name]['hauth'] = False
+            if 'hauth' in client_settings:
+                # Replace hauth dict with empty dict to keep it private
+                settings['shop']['clients'][client_name]['hauth'] = {}
     return jsonify(settings)
 
 @app.post('/api/settings/titles')
