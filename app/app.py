@@ -20,7 +20,7 @@ from utils import *
 from library import *
 import titledb
 import os
-from clients import TinfoilClient
+from clients import TinfoilClient, SphairaClient
 
 def init():
     global watcher
@@ -127,6 +127,7 @@ def on_library_change(events):
 
 def create_app():
     app = Flask(__name__)
+    app.url_map.strict_slashes = False  # Disable automatic trailing slash redirects globally, needed for Sphaira
     app.config["SQLALCHEMY_DATABASE_URI"] = OWNFOIL_DB
     # TODO: generate random secret_key
     app.config['SECRET_KEY'] = '8accb915665f11dfa15c2db1a4e8026905f57716'
@@ -144,7 +145,7 @@ def create_app():
 app = create_app()
 
 # List of supported client classes
-SUPPORTED_CLIENTS = [TinfoilClient]
+SUPPORTED_CLIENTS = [TinfoilClient, SphairaClient]
 
 
 def get_client_for_request(request):
@@ -152,30 +153,8 @@ def get_client_for_request(request):
     reload_conf()
     for client_class in SUPPORTED_CLIENTS:
         if client_class.identify_client(request):
-            return client_class(app_settings, db)
+            return client_class(app_settings)
     return None
-
-
-def client_access(f):
-    """Decorator for client-specific endpoints with authentication."""
-    @wraps(f)
-    def _client_access(*args, **kwargs):
-        client = get_client_for_request(request)
-        if client is None:
-            return jsonify({'error': 'Unsupported client'}), 400
-
-        # Authenticate the request
-        auth_success, error_message, verified_host = client.authenticate(request)
-        if not auth_success:
-            return client.error_response(error_message)
-
-        # Store client and verified_host in request for use by the route
-        request.client = client
-        request.verified_host = verified_host
-
-        return f(*args, **kwargs)
-    return _client_access
-
 
 def file_access(f):
     """Decorator for file serving endpoints with basic authentication (no client identification required)."""
@@ -202,9 +181,9 @@ def access_shop():
 def access_shop_auth():
     return access_shop()
 
-@app.route('/')
-@app.route('/<content_type>/')
-def index(content_type=None):
+@app.route('/', defaults={'path': ''})
+@app.route('/<path:path>')
+def index(path=None):
     """Main shop endpoint routing to either client-specific shop or web browser UI."""
     # Check if this is a client request
     client = get_client_for_request(request)
@@ -222,7 +201,7 @@ def index(content_type=None):
         return client.handle_request(request)
 
     # Browser request - serve web UI
-    elif content_type is not None:
+    elif path:
         return redirect('/')
 
     if not app_settings['shop']['public']:
@@ -289,6 +268,7 @@ def set_titles_settings_api():
     return jsonify(resp)
 
 @app.post('/api/settings/shop')
+@access_required('admin')
 def set_shop_settings_api():
     data = request.json
     set_shop_settings(data)
@@ -548,6 +528,7 @@ def schedule_update_and_scan_job(app: Flask, interval_str: str, run_first: bool 
         run_first=run_first,
         run_once=run_once
     )
+
 
 if __name__ == '__main__':
     logger.info('Starting initialization of Ownfoil...')
