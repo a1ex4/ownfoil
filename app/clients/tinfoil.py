@@ -108,7 +108,10 @@ class TinfoilClient(BaseClient):
         request_hauth = request.headers.get('Hauth')
         shop_host = self.app_settings["shop"].get("host")
         client_settings = self.app_settings["shop"]["clients"]["tinfoil"]
-        shop_hauth = client_settings.get("hauth")
+        hauth_dict = client_settings.get("hauth", {})
+
+        # Get hauth for this specific host
+        shop_hauth = hauth_dict.get(request_host)
 
         self.log_info(f"Secure request from remote host {request_host}, proceeding with host verification.")
 
@@ -131,9 +134,13 @@ class TinfoilClient(BaseClient):
         user_is_admin = request.user.has_admin_access() if request.user else False
 
         if basic_auth_success and user_is_admin:
-            # Save hauth to client-specific settings
+            # Save hauth to client-specific settings as a dict with host as key
             shop_settings = self.app_settings['shop']
-            shop_settings['clients']['tinfoil']['hauth'] = request_hauth
+            hauth_dict = shop_settings['clients']['tinfoil'].get('hauth', {})
+            
+            # Set hauth for this specific host
+            hauth_dict[request_host] = request_hauth
+            shop_settings['clients']['tinfoil']['hauth'] = hauth_dict
             set_shop_settings(shop_settings)
             self.log_info(f"Successfully set Hauth value for host {request_host}.")
             return True, None, request_host

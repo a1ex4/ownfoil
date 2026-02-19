@@ -55,7 +55,7 @@ DEFAULT_SETTINGS = {
                 "encrypt": True,
                 "clientCertPub": "-----BEGIN PUBLIC KEY-----",
                 "clientCertKey": "-----BEGIN PRIVATE KEY-----",
-                "hauth": "",
+                "hauth": {},
             },
             "sphaira": {"enabled": True,}
         }
