@@ -352,8 +352,8 @@
                     </div>
                 </div>
 
-                <h4 class="pt-3 pb-2">Clients</h3>
-                <h5 class="pb-2">Tinfoil</h4>
+                <h4 class="pt-3 pb-2">Clients</h4>
+                <h5 class="pb-2">Tinfoil</h5>
                 <div class="mb-3 form-check">
                     <input type="checkbox" class="form-check-input" id="tinfoilEnabledCheck"
                         aria-describedby="tinfoilEnabledCheckHelp">
@@ -375,6 +375,13 @@
                         successfully loading your shop.</div>
                 </div>
 
+                <h5 class="pb-2">Sphaira</h5>
+                <div class="mb-3 form-check">
+                    <input type="checkbox" class="form-check-input" id="sphairaEnabledCheck"
+                        aria-describedby="sphairaEnabledCheckHelp">
+                    <label class="form-check-label" for="sphairaEnabledCheck">Enabled</label>
+                    <div id="sphairaEnabledCheckHelp" class="form-text">Enable or disable Sphaira client access to the shop.</div>
+                </div>
                 <div class="mb-3">
                     <button type="button" id="submitShopSettingsBtn" class="btn btn-primary"
                         onClick='submitShopSettings()'>Submit</button>
@@ -970,6 +977,9 @@
                     enabled: getCheckboxStatus("tinfoilEnabledCheck"),
                     encrypt: getCheckboxStatus("tinfoilEncryptShopCheck"),
                     motd: $('#tinfoilMotdTextArea').val(),
+                },
+                sphaira: {
+                    enabled: getCheckboxStatus("sphairaEnabledCheck"),
                 }
             }
         }
@@ -1144,17 +1154,23 @@
             $("#publicShopCheck").prop("checked", shopSettings['public']);
             
             // Client-specific settings
-            if (shopSettings['clients'] && shopSettings['clients']['tinfoil']) {
-                tinfoilSettings = shopSettings['clients']['tinfoil'];
-                $("#tinfoilEnabledCheck").prop("checked", tinfoilSettings['enabled']);
-                $("#tinfoilEncryptShopCheck").prop("checked", tinfoilSettings['encrypt']);
-                setInputVal("tinfoilMotdTextArea", tinfoilSettings['motd']);
-                
-                // Check for missing hauth
-                if (!shopSettings['host']) {
-                    $("#missingShopHostAlert").css('display', '');
-                } else if (!tinfoilSettings['hauth']) {
-                    $("#missingShopHauthAlert").css('display', '');
+            if (shopSettings['clients']) {
+                if (shopSettings['clients']['tinfoil']) {
+                    tinfoilSettings = shopSettings['clients']['tinfoil'];
+                    $("#tinfoilEnabledCheck").prop("checked", tinfoilSettings['enabled']);
+                    $("#tinfoilEncryptShopCheck").prop("checked", tinfoilSettings['encrypt']);
+                    setInputVal("tinfoilMotdTextArea", tinfoilSettings['motd']);
+                    
+                    // Check for missing hauth
+                    if (!shopSettings['host']) {
+                        $("#missingShopHostAlert").css('display', '');
+                    } else if (!tinfoilSettings['hauth']) {
+                        $("#missingShopHauthAlert").css('display', '');
+                    }
+                }
+                if (shopSettings['clients']['sphaira']) {
+                    sphairaSettings = shopSettings['clients']['sphaira'];
+                    $("#sphairaEnabledCheck").prop("checked", sphairaSettings['enabled']);
                 }
             }
         });
