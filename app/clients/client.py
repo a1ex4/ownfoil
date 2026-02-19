@@ -21,10 +21,9 @@ class BaseClient(ABC):
 
     # ==================== Initialization ====================
 
-    def __init__(self, app_settings: dict, db):
+    def __init__(self, app_settings: dict):
         """Initialize the client with application settings and database."""
         self.app_settings = app_settings
-        self.db = db
         logger.debug(f"Initialized {self.CLIENT_NAME} client")
 
     # ==================== Authentication Decorator ====================
@@ -51,28 +50,21 @@ class BaseClient(ABC):
                     return self.error_response(f"Incorrect URL referrer detected: {request.host}.")
 
             # Generic Basic Auth
-            basic_auth_success, basic_auth_error, user = basic_auth(request)
-            if not basic_auth_success:
-                request.basic_auth_success = False
-                request.basic_auth_error = basic_auth_error
-                self.log_warning(f"Authentication failed: {basic_auth_error}")
-
+            request.basic_auth_success, request.basic_auth_error, request.user = basic_auth(request)
+            if request.basic_auth_success:
+                self.log_info(f"Basic authentication successful for user: {request.user.user}")
             else:
-                request.basic_auth_success = True
-                self.log_info(f"successful authentication for user {user.user}")
-            request.user = user
+                self.log_warning(f"Authentication failed: {request.basic_auth_error}")
 
             # Client-specific authentication
-            client_auth_success, client_auth_error, client_auth_data = self._client_authenticate(request)
-            if not client_auth_success:
-                request.client_auth_success = False
-                request.client_auth_error = client_auth_error
-                self.log_warning(f"Client-specific auth failed: {client_auth_error}")
-            else:
-                request.client_auth_success = True
+            request.client_auth_success, request.client_auth_error, client_auth_data = self._client_authenticate(request)
+            if request.client_auth_success:
                 self.log_info("Client-specific authentication successful.")
                 if client_auth_data:
                     request.auth_data.update(client_auth_data)
+
+            else:
+                self.log_warning(f"Client-specific auth failed: {request.client_auth_error}")
 
             # Call the actual handler
             return handler(self, request)
@@ -90,7 +82,7 @@ class BaseClient(ABC):
                     return self.error_response("Shop requires authentication.\n" + (request.basic_auth_error))
                 # Check if user has shop access
                 if request.user and not request.user.has_shop_access():
-                    return self.error_response(f'User "{request.user.user}" does not have access to the shop.')
+                    return self.error_response(f'User {request.user.user} does not have access to the shop.')
 
             # Call the actual handler
             return handler(self, request)
@@ -144,6 +136,8 @@ class BaseClient(ABC):
         # Route request based on method and path
         if method == "OPTIONS":
             return self._handle_options(path, headers)
+        elif method == "HEAD":
+            return self._handle_head(request)
         elif method == "GET":
             return self._handle_get(request)
 
@@ -168,3 +162,10 @@ class BaseClient(ABC):
     def _handle_options(self, path: str, headers: dict) -> Response:
         """Handle OPTIONS requests for CORS preflight."""
         pass
+
+    def _handle_head(self, request: Request) -> Response:
+        """
+        Handle HEAD requests. Override in subclasses if needed.
+        Default implementation returns 404.
+        """
+        return self.error_response("HEAD method not implemented"), 404

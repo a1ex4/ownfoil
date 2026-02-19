@@ -12,6 +12,7 @@ import zstandard as zstd
 
 from .client import BaseClient
 from settings import set_shop_settings
+from constants import APP_TYPE_FILTERS
 
 TINFOIL_HEADERS = [
     'Theme',
@@ -64,12 +65,11 @@ class TinfoilClient(BaseClient):
         if not request.client_auth_success:
             return self.error_response(request.client_auth_error)
 
-        # Parse path for content type filtering
-        content_filter = request.path.strip('/') if request.path else None
-
         # Get client-specific settings
         client_settings = self.app_settings['shop']['clients']['tinfoil']
 
+        paths = request.path.strip('/').split('/')
+        content_filter = paths[0] if paths and paths[0] in APP_TYPE_FILTERS else None
         # Build shop content
         shop = {"success": client_settings['motd']}
         shop["files"] = self._generate_shop_files(content_filter)
