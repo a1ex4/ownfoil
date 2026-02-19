@@ -220,6 +220,51 @@ def settings_page():
         languages_from_titledb=languages,
         admin_account_created=admin_account_created())
 
+@app.route('/setup')
+def setup_page():
+    """Setup page showing client information and connection instructions."""
+    reload_conf()
+    
+    # Check if user has access (must have shop access or shop must be public)
+    if not app_settings['shop']['public'] and admin_account_created():
+        if not current_user.is_authenticated:
+            return login_manager.unauthorized()
+        if not current_user.has_shop_access():
+            return 'Forbidden', 403
+
+    local_address = None
+    local_port  = None
+    
+    # Get remote host from configuration
+    remote_host = app_settings['shop'].get('host', '')
+    
+    # Check if we're accessing via the configured remote host
+    # If so, hide the local tab since we're already remote
+    show_local_tab = remote_host and (remote_host != request.host)
+    if show_local_tab:
+        local_address = request.host.split(':')[0]
+        local_port = request.host.split(':')[1] if ':' in request.host else 80
+    
+    # Check if clients are enabled
+    tinfoil_enabled = app_settings.get('shop', {}).get('clients', {}).get('tinfoil', {}).get('enabled', False)
+    sphaira_enabled = app_settings.get('shop', {}).get('clients', {}).get('sphaira', {}).get('enabled', False)
+    
+    # Check if shop is public
+    shop_public = app_settings['shop']['public']
+    
+    return render_template(
+        'setup.html',
+        title='Setup',
+        local_address=local_address,
+        local_port=local_port,
+        remote_host=remote_host,
+        show_local_tab=show_local_tab,
+        tinfoil_enabled=tinfoil_enabled,
+        sphaira_enabled=sphaira_enabled,
+        shop_public=shop_public,
+        admin_account_created=admin_account_created()
+    )
+
 @app.get('/api/settings')
 @access_required('admin')
 def get_settings_api():
