@@ -47,6 +47,9 @@ class SphairaClient(BaseClient):
         if not default_headers.issubset(headers):
             return False
 
+        # Remove headers added by reverse proxy
+        headers -= set([h for h in headers if h.startswith('X-')])
+
         # Any extra headers must be allowed
         extra_headers = headers - default_headers
         if not extra_headers.issubset(additional_headers):
