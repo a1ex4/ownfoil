@@ -68,7 +68,7 @@ class TinfoilClient(BaseClient):
         # Get client-specific settings
         client_settings = self.app_settings['shop']['clients']['tinfoil']
 
-        paths = request.subpath.split('/')
+        paths = request.path.strip('/').split('/')
         content_filter = paths[0] if paths and paths[0] in APP_TYPE_FILTERS else None
         # Build shop content
         shop = {"success": client_settings['motd']}

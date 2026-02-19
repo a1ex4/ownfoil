@@ -181,12 +181,10 @@ def access_shop():
 def access_shop_auth():
     return access_shop()
 
-@app.route('/', defaults={'subpath': ''})
-@app.route('/<path:subpath>')
-def index(subpath=None):
+@app.route('/', defaults={'path': ''})
+@app.route('/<path:path>')
+def index(path=None):
     """Main shop endpoint routing to either client-specific shop or web browser UI."""
-    # Store variables in request
-    request.subpath = subpath
     # Check if this is a client request
     client = get_client_for_request(request)
 
@@ -203,7 +201,7 @@ def index(subpath=None):
         return client.handle_request(request)
 
     # Browser request - serve web UI
-    elif subpath:
+    elif path:
         return redirect('/')
 
     if not app_settings['shop']['public']:

@@ -71,15 +71,14 @@ class SphairaClient(BaseClient):
     @BaseClient.verify_shop_access
     def _handle_get(self, request: Request) -> Response:
         """Handle GET requests for directory listing or file downloads."""
-        subpath = request.subpath.strip('/') if request.subpath else ''
-        paths = request.subpath.split('/')
+        subpath = request.path.strip('/')
+        paths = subpath.split('/')
         # Check if requesting a specific file
         if paths and any([paths[-1].endswith(ext) for ext in ALLOWED_EXTENSIONS]):
             return self._serve_file(paths[-1])
         
         # Otherwise, show directory listing
         content_filter = paths[0] if paths and paths[0] in APP_TYPE_FILTERS else None
-        self.log_info(f"{content_filter=}, {subpath=}")
         return self._serve_virtual_directory(subpath, content_filter)
 
 
@@ -90,25 +89,22 @@ class SphairaClient(BaseClient):
         Handle HEAD requests for file lookups.
         Sphaira sends HEAD requests to filenames to get file headers before downloading.
         """
-        subpath = request.subpath.strip('/') if request.subpath else ''
-        filename = subpath.split('/')[-1] if subpath else ''
+        filename = request.path.split('/')[-1] if request.path else ''
         if filename and any([filename.endswith(ext) for ext in ALLOWED_EXTENSIONS]):
             return self._serve_file(filename)
         return self.error_response("File not found")
 
     # ==================== Private/Helper Methods ====================
 
-    def _serve_virtual_directory(self, subpath: str, content_filter: str = None) -> Response:
+    def _serve_virtual_directory(self, path: str, content_filter: str = None) -> Response:
         """
         Serve a virtual directory listing by recreating folder structure.
         Strips library path from file paths and shows directories/files at current level.
         """
         # Get all filtered files
         all_files = self.get_filtered_files(content_filter)
-        print(subpath)
         if content_filter:
-            subpath = subpath[len(content_filter):].lstrip('/')
-            print(subpath)
+            path = path[len(content_filter):].lstrip('/')
         # Build virtual paths by stripping library paths
         virtual_items = set()
         
@@ -121,14 +117,13 @@ class SphairaClient(BaseClient):
             
             # Strip library path to get relative path
             relative_path = file_path[len(library_path):].lstrip('/')
-            print(relative_path)
             
             # If we're in a subdirectory, filter to only show items under current path
-            if subpath:
-                if not relative_path.startswith(subpath + '/'):
+            if path:
+                if not relative_path.startswith(path + '/'):
                     continue
-                # Get the remainder after the current subpath
-                remainder = relative_path[len(subpath) + 1:]
+                # Get the remainder after the current path
+                remainder = relative_path[len(path) + 1:]
             else:
                 remainder = relative_path
             
