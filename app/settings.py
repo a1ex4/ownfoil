@@ -65,7 +65,7 @@ def migrate_shop_settings(settings):
     shop = settings.get('shop', {})
     
     # Check if we have old format (client settings at shop level)
-    old_client_keys = ['motd', 'encrypt', 'hauth', 'clientCertKey', 'clientCertPub']
+    old_client_keys = ['encrypt', 'hauth', 'clientCertKey', 'clientCertPub']
     has_old_format = any(key in shop for key in old_client_keys)
     has_new_format = 'clients' in shop and 'tinfoil' in shop.get('clients', {})
     
@@ -230,7 +230,7 @@ def set_shop_settings(data):
     if 'host' in data and '://' in data['host']:
         data['host'] = data['host'].split('://')[-1]
     # Update shop-level settings
-    for key in ['host', 'public']:
+    for key in ['host', 'motd', 'public']:
         if key in data:
             settings['shop'][key] = data[key]
     # Update client-specific settings
