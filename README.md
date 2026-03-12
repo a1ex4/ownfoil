@@ -7,6 +7,8 @@
 ![Image archs](https://img.shields.io/badge/platforms-amd64%20%7C%20%20arm64%2Fv8%20%7C%20arm%2Fv7%20%7C%20arm%2Fv6-8A2BE2)  
 [![Tinfoil Version](https://img.shields.io/badge/Tinfoil-v20.0-da1c5c)](https://tinfoil.io/Download)
 [![Sphaira Version](https://img.shields.io/badge/Sphaira-v1.0.0-%233cd57a)](https://github.com/ITotalJustice/sphaira)
+[![CyberFoil Version](https://img.shields.io/badge/CyberFoil-v1.4.1-firebrick)](https://github.com/luketanti/CyberFoil)
+
 
 Ownfoil is a Nintendo Switch library manager, that will also turn your library into a fully customizable and self-hosted Shop, supporting multiple clients. The goal of this project is to manage your library, identify any missing content (DLCs or updates) and provide a user friendly way to browse and install your content. Some of the features include:
 - [x] multi user authentication
@@ -127,6 +129,14 @@ Ownfoil supports multiple clients to install content on your Nintendo Switch:
 - ✅ Directory-based file browsing
 - ✅ Content filtering (games, updates, DLC, XCI) based on URL
 - ✅ Compressed content (NSZ and XCZ) support
+
+### [CyberFoil:](https://github.com/luketanti/CyberFoil)
+- ✅ `HTTP` / `HTTPS` protocol support
+- ✅ User authentication
+- ✅ Shop browsing with icons and Sections (Updates, DLC)
+- ✅ Compressed content (NSZ and XCZ) support
+- ✅ Client side Host verification for secure connections
+- ✅ Custom welcome message (MOTD)
 
 > [!TIP]
 > Check the `Setup` page in the Web UI for specific instructions on configuring each app, using local or remote access.
