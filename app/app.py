@@ -248,6 +248,7 @@ def setup_page():
     # Check if clients are enabled
     tinfoil_enabled = app_settings.get('shop', {}).get('clients', {}).get('tinfoil', {}).get('enabled', False)
     sphaira_enabled = app_settings.get('shop', {}).get('clients', {}).get('sphaira', {}).get('enabled', False)
+    cyberfoil_enabled = app_settings.get('shop', {}).get('clients', {}).get('cyberfoil', {}).get('enabled', False)
     
     # Check if shop is public
     shop_public = app_settings['shop']['public']
@@ -261,6 +262,7 @@ def setup_page():
         show_local_tab=show_local_tab,
         tinfoil_enabled=tinfoil_enabled,
         sphaira_enabled=sphaira_enabled,
+        cyberfoil_enabled=cyberfoil_enabled,
         shop_public=shop_public,
         admin_account_created=admin_account_created()
     )
