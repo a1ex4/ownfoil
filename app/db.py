@@ -1,3 +1,4 @@
+from flask import send_from_directory
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import create_engine
 from sqlalchemy import event
@@ -15,6 +16,7 @@ import shutil
 import logging
 import datetime
 from constants import *
+from utils import throttle
 
 # Retrieve main logger
 logger = logging.getLogger('main')
@@ -474,3 +476,32 @@ def remove_missing_files_from_db():
     
     except Exception as e:
         logger.error(f"An error occurred while removing missing files: {str(e)}")
+
+def increment_download_count(filepath):
+    """Increment the download count for a file by filepath"""
+    try:
+        file_entry = Files.query.filter_by(filepath=filepath).first()
+        if file_entry:
+            previous = file_entry.download_count
+            file_entry.download_count += 1
+            db.session.commit()
+            logger.debug(f"Download count incremented for '{filepath}': {file_entry.download_count}")
+            return True
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"An error occurred while incrementing download count for '{filepath}': {str(e)}")
+        return False
+
+@throttle(60, key_func=lambda filepath, host: (filepath, host))
+def increment_download_count_throttled(filepath, host):
+    """Throttled wrapper around increment_download_count.
+
+    Ensures the download count is incremented at most once per (filepath, host) pair
+    within a 60-second window. This prevents clients that use HTTP range requests from
+    inflating the count with the many sub-requests that make up a single download.
+
+    Args:
+        filepath: Absolute path of the file being served.
+        host: IP address (or identifier) of the requesting client.
+    """
+    increment_download_count(filepath)

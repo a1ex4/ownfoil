@@ -455,9 +455,9 @@ def get_all_titles_api():
 @file_access
 def serve_game(id):
     """Serve a game file to authenticated clients."""
-    # TODO: add download count increment
     filepath = db.session.query(Files.filepath).filter_by(id=id).first()[0]
     filedir, filename = os.path.split(filepath)
+    increment_download_count_throttled(filepath, request.remote_addr)
     return send_from_directory(filedir, filename)
 
 
