@@ -1173,6 +1173,10 @@
                     sphairaSettings = shopSettings['clients']['sphaira'];
                     $("#sphairaEnabledCheck").prop("checked", sphairaSettings['enabled']);
                 }
+                if (shopSettings['clients']['cyberfoil']) {
+                    cyberfoilSettings = shopSettings['clients']['cyberfoil'];
+                    $("#cyberfoilEnabledCheck").prop("checked", cyberfoilSettings['enabled']);
+                }
             }
         });
 
