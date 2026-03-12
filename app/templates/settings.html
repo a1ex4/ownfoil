@@ -343,6 +343,13 @@
                     </div>
                 </div>
 
+                <div class="mb-3">
+                    <label for="shopMotdTextArea" class="form-label">Message of the day:</label>
+                    <textarea class="form-control" id="shopMotdTextArea" rows="3"></textarea>
+                    <div id="shopMotdTextAreaHelp" class="form-text">Message presented in clients after
+                        successfully loading your shop.</div>
+                </div>
+
                 <h4 class="pt-3 pb-2">Clients</h4>
                 <h5 class="pb-2">Tinfoil</h5>
                 <div class="mb-3 form-check">
@@ -359,13 +366,6 @@
                         can access the content. <strong>Strongly suggested to enable it for security</strong>.</div>
                 </div>
 
-                <div class="mb-3">
-                    <label for="tinfoilMotdTextArea" class="form-label">Message of the day:</label>
-                    <textarea class="form-control" id="tinfoilMotdTextArea" rows="3"></textarea>
-                    <div id="tinfoilMotdTextAreaHelp" class="form-text">Message presented when opening Tinfoil after
-                        successfully loading your shop.</div>
-                </div>
-
                 <h5 class="pb-2">Sphaira</h5>
                 <div class="mb-3 form-check">
                     <input type="checkbox" class="form-check-input" id="sphairaEnabledCheck"
@@ -373,6 +373,15 @@
                     <label class="form-check-label" for="sphairaEnabledCheck">Enabled</label>
                     <div id="sphairaEnabledCheckHelp" class="form-text">Enable or disable Sphaira client access to the shop.</div>
                 </div>
+
+                <h5 class="pb-2">CyberFoil</h5>
+                <div class="mb-3 form-check">
+                    <input type="checkbox" class="form-check-input" id="cyberfoilEnabledCheck"
+                        aria-describedby="cyberfoilEnabledCheckHelp">
+                    <label class="form-check-label" for="cyberfoilEnabledCheck">Enabled</label>
+                    <div id="cyberfoilEnabledCheckHelp" class="form-text">Enable or disable CyberFoil client access to the shop.</div>
+                </div>
+
                 <div class="mb-3">
                     <button type="button" id="submitShopSettingsBtn" class="btn btn-primary"
                         onClick='submitShopSettings()'>Submit</button>
@@ -963,11 +972,14 @@
         data = {
             host: $('#shopHostInput').val(),
             public: getCheckboxStatus("publicShopCheck"),
+            motd: $('#shopMotdTextArea').val(),
             clients: {
+                cyberfoil: {
+                    enabled: getCheckboxStatus("cyberfoilEnabledCheck"),
+                },
                 tinfoil: {
                     enabled: getCheckboxStatus("tinfoilEnabledCheck"),
                     encrypt: getCheckboxStatus("tinfoilEncryptShopCheck"),
-                    motd: $('#tinfoilMotdTextArea').val(),
                 },
                 sphaira: {
                     enabled: getCheckboxStatus("sphairaEnabledCheck"),
@@ -1143,6 +1155,7 @@
             shopSettings = result['shop'];
             setInputVal("shopHostInput", shopSettings['host']);
             $("#publicShopCheck").prop("checked", shopSettings['public']);
+            setInputVal("shopMotdTextArea", shopSettings['motd']);
 
             // Check for missing shop host
             if (!shopSettings['host']) {
@@ -1155,7 +1168,6 @@
                     tinfoilSettings = shopSettings['clients']['tinfoil'];
                     $("#tinfoilEnabledCheck").prop("checked", tinfoilSettings['enabled']);
                     $("#tinfoilEncryptShopCheck").prop("checked", tinfoilSettings['encrypt']);
-                    setInputVal("tinfoilMotdTextArea", tinfoilSettings['motd']);
                 }
                 if (shopSettings['clients']['sphaira']) {
                     sphairaSettings = shopSettings['clients']['sphaira'];
