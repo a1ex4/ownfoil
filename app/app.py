@@ -20,7 +20,7 @@ from utils import *
 from library import *
 import titledb
 import os
-from clients import TinfoilClient, SphairaClient
+from clients import CyberFoilClient, TinfoilClient, SphairaClient
 
 def init():
     global watcher
@@ -145,7 +145,7 @@ def create_app():
 app = create_app()
 
 # List of supported client classes
-SUPPORTED_CLIENTS = [TinfoilClient, SphairaClient]
+SUPPORTED_CLIENTS = [CyberFoilClient, TinfoilClient, SphairaClient]
 
 
 def get_client_for_request(request):
@@ -194,7 +194,7 @@ def index(path=None):
         client_settings = app_settings.get('shop', {}).get('clients', {}).get(client_name, {})
         if not client_settings.get('enabled', False):
             logger.warning(f"{client.CLIENT_NAME} connection from {request.remote_addr} - Client is disabled")
-            return client.error_response(f"Shop access from {client.CLIENT_NAME} is disabled."), 403
+            return client.error_response(f"Shop access from {client.CLIENT_NAME} is disabled.")
         
         # Handle client request
         logger.info(f"{client.CLIENT_NAME} connection from {request.remote_addr}")
@@ -248,6 +248,7 @@ def setup_page():
     # Check if clients are enabled
     tinfoil_enabled = app_settings.get('shop', {}).get('clients', {}).get('tinfoil', {}).get('enabled', False)
     sphaira_enabled = app_settings.get('shop', {}).get('clients', {}).get('sphaira', {}).get('enabled', False)
+    cyberfoil_enabled = app_settings.get('shop', {}).get('clients', {}).get('cyberfoil', {}).get('enabled', False)
     
     # Check if shop is public
     shop_public = app_settings['shop']['public']
@@ -261,6 +262,7 @@ def setup_page():
         show_local_tab=show_local_tab,
         tinfoil_enabled=tinfoil_enabled,
         sphaira_enabled=sphaira_enabled,
+        cyberfoil_enabled=cyberfoil_enabled,
         shop_public=shop_public,
         admin_account_created=admin_account_created()
     )
@@ -510,6 +512,14 @@ def scan_library_api():
         'errors': errors
     } 
     return jsonify(resp)
+
+
+# @app.before_request
+# def before_request():
+#     # print request headers for debugging
+#     logger.debug(f"Incoming request: {request.method} {request.path}")
+#     for header, value in request.headers:
+#         logger.debug(f"Header: {header} = {value}")
 
 def scan_library():
     logger.info(f'Scanning whole library ...')

@@ -56,6 +56,27 @@
                 </div>
             </div>
             {% endif %}
+
+            {% if cyberfoil_enabled %}
+            <!-- CyberFoil Client -->
+            <div class="card mb-3">
+                <div class="card-header bg-secondary">
+                    <h3 class="h5 mb-0">
+                        <i class="bi bi-download"></i> CyberFoil
+                    </h3>
+                </div>
+                <div class="card-body">
+                    <ul class="list-unstyled mb-0">
+                        <li><i class="bi bi-check-circle-fill text-success"></i> <code>HTTP</code> / <code>HTTPS</code> protocol support</li>
+                        <li><i class="bi bi-check-circle-fill text-success"></i> User authentication</li>
+                        <li><i class="bi bi-check-circle-fill text-success"></i> Shop browsing with icons and Sections (Updates, DLC)</li>
+                        <li><i class="bi bi-check-circle-fill text-success"></i> Compressed content (NSZ and XCZ) support</li>
+                        <li><i class="bi bi-check-circle-fill text-success"></i> Client side Host verification for secure connections</li>
+                        <li><i class="bi bi-check-circle-fill text-success"></i> Custom welcome message (MOTD)</li>
+                    </ul>
+                </div>
+            </div>
+            {% endif %}
         </div>
     </div>
     
@@ -233,6 +254,67 @@
                             </div>
                         </div>
                         {% endif %}
+
+                        {% if cyberfoil_enabled %}
+                        <div class="accordion-item">
+                            <h2 class="accordion-header" id="headingCyberFoil">
+                            <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapseCyberFoil" aria-expanded="false" aria-controls="collapseCyberFoil" style="font-size: 1.25rem;">
+                                <i class="bi bi-download"></i>&nbsp; CyberFoil Setup
+                            </button>
+                            </h2>
+                            <div id="collapseCyberFoil" class="accordion-collapse collapse" aria-labelledby="headingCyberFoil" data-bs-parent="#accordionSetup">
+                                <div class="accordion-body">
+                                    <!-- CyberFoil Local Setup -->
+                                    <ol>
+                                        <li class="mb-2">On your Nintendo Switch, open <strong>CyberFoil</strong></li>
+                                        <li class="mb-2">Open <strong>Settings</strong> → <strong>Shop</strong> → <strong>Add new shop</strong></li>
+                                        <li class="mb-2">Enter the following details:
+                                            <div class="card bg-dark mt-2 mb-2">
+                                                <div class="card-body">
+                                                    <table class="table table-sm table-dark mb-0">
+                                                        <tr>
+                                                            <td class="fw-bold">Shop title:</td>
+                                                            <td><code>Ownfoil - Local</code></td>
+                                                            <td></td>
+                                                        </tr>
+                                                        <tr>
+                                                            <td class="fw-bold" style="width: 120px;">Shop protocol:</td>
+                                                            <td><code>HTTP</code></td>
+                                                            <td></td>
+                                                        </tr>
+                                                        <tr>
+                                                            <td class="fw-bold">Host:</td>
+                                                            <td><code>{{ local_address }}</code></td>
+                                                            <td></td>
+                                                        </tr>
+                                                        <tr>
+                                                            <td class="fw-bold">Port:</td>
+                                                            <td><code>{{ local_port }}</code></td>
+                                                            <td></td>
+                                                        </tr>
+                                                        {% if not shop_public %}
+                                                        <tr>
+                                                            <td class="fw-bold">Username:</td>
+                                                            <td><code>Username</code></td>
+                                                            <td></td>
+                                                        </tr>
+                                                        <tr>
+                                                            <td class="fw-bold">Password:</td>
+                                                            <td><code>Password</code></td>
+                                                            <td></td>
+                                                        </tr>
+                                                        {% endif %}
+                                                    </table>
+                                                </div>
+                                            </div>
+                                        </li>
+                                        <li class="mb-2">Ensure <strong>Active shop</strong> is set to the correct shop</strong></li>
+                                        <li class="mb-2">Press <strong>Back</strong> to go back to the main menu, and open <strong>Install from eShop</strong> to browse your shop</li>
+                                    </ol>
+                                </div>
+                            </div>
+                        </div>
+                        {% endif %}
                     </div>
                     {% endif %}
                 </div>
@@ -377,6 +459,67 @@
                                         <i class="bi bi-info-circle-fill"></i>
                                         To refresh the shop, simply select another <code>Mount</code> then select back Ownfoil.
                                     </div>
+                                </div>
+                            </div>
+                        </div>
+                        {% endif %}
+
+                        {% if cyberfoil_enabled %}
+                        <div class="accordion-item">
+                            <h2 class="accordion-header" id="headingCyberFoil">
+                            <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapseCyberFoil" aria-expanded="false" aria-controls="collapseCyberFoil" style="font-size: 1.25rem;">
+                                <i class="bi bi-download"></i>&nbsp; CyberFoil Setup
+                            </button>
+                            </h2>
+                            <div id="collapseCyberFoil" class="accordion-collapse collapse" aria-labelledby="headingCyberFoil" data-bs-parent="#accordionSetup">
+                                <div class="accordion-body">
+                                    <!-- CyberFoil Local Setup -->
+                                    <ol>
+                                        <li class="mb-2">On your Nintendo Switch, open <strong>CyberFoil</strong></li>
+                                        <li class="mb-2">Open <strong>Settings</strong> → <strong>Shop</strong> → <strong>Add new shop</strong></li>
+                                        <li class="mb-2">Enter the following details:
+                                            <div class="card bg-dark mt-2 mb-2">
+                                                <div class="card-body">
+                                                    <table class="table table-sm table-dark mb-0">
+                                                        <tr>
+                                                            <td class="fw-bold">Shop title:</td>
+                                                            <td><code>Ownfoil - Remote</code></td>
+                                                            <td></td>
+                                                        </tr>
+                                                        <tr>
+                                                            <td class="fw-bold" style="width: 120px;">Shop protocol:</td>
+                                                            <td><code>HTTPS</code></td>
+                                                            <td></td>
+                                                        </tr>
+                                                        <tr>
+                                                            <td class="fw-bold">Host:</td>
+                                                            <td><code>{{ remote_host }}</code></td>
+                                                            <td></td>
+                                                        </tr>
+                                                        <tr>
+                                                            <td class="fw-bold">Port:</td>
+                                                            <td><code>443</code></td>
+                                                            <td></td>
+                                                        </tr>
+                                                        {% if not shop_public %}
+                                                        <tr>
+                                                            <td class="fw-bold">Username:</td>
+                                                            <td><code>Username</code></td>
+                                                            <td></td>
+                                                        </tr>
+                                                        <tr>
+                                                            <td class="fw-bold">Password:</td>
+                                                            <td><code>Password</code></td>
+                                                            <td></td>
+                                                        </tr>
+                                                        {% endif %}
+                                                    </table>
+                                                </div>
+                                            </div>
+                                        </li>
+                                        <li class="mb-2">Ensure <strong>Active shop</strong> is set to the correct shop</strong></li>
+                                        <li class="mb-2">Press <strong>Back</strong> to go back to the main menu, and open <strong>Install from eShop</strong> to browse your shop</li>
+                                    </ol>
                                 </div>
                             </div>
                         </div>

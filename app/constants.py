@@ -48,10 +48,14 @@ DEFAULT_SETTINGS = {
     "shop": {
         "host": "",
         "public": False,
+        "motd": "Welcome to your own shop!",
         "clients": {
+            "cyberfoil": {
+                "enabled": True,
+                "hauth": {},
+            },
             "tinfoil": {
                 "enabled": True,
-                "motd": "Welcome to your own shop!",
                 "encrypt": True,
                 "clientCertPub": "-----BEGIN PUBLIC KEY-----",
                 "clientCertKey": "-----BEGIN PRIVATE KEY-----",
