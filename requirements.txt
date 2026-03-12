@@ -6,7 +6,7 @@ flask-sqlalchemy==3.1.1
 git+https://github.com/nicoboss/nsz.git@272c53f50eb67b9adf1f26624dbed85c3b41fa54
 PyYAML==6.0.3
 requests==2.32.5
-unzip_http==0.6
+unzip_http==0.7
 watchdog==6.0.0
 Werkzeug==3.1.6
 zstandard==0.25.0
