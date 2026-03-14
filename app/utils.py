@@ -1,6 +1,7 @@
 import logging
 import re
 import threading
+import time
 from functools import wraps
 import json
 import os
@@ -87,6 +88,58 @@ def debounce(wait, key=None):
                 state['timer'].start()
         
         return debounced
+    return decorator
+
+# Global registry for throttled function states
+_throttle_registry = {}
+_throttle_registry_lock = threading.Lock()
+
+def throttle(wait, key_func=None):
+    """Thread-safe decorator that ensures a function executes at most once per `wait` seconds
+    per computed key. The first call within a window executes immediately; subsequent calls
+    within the same window are silently ignored.
+
+    Unlike debounce (which delays the last call), throttle fires on the FIRST call and then
+    suppresses further calls until the window expires.
+
+    Args:
+        wait: Number of seconds to suppress duplicate calls after the first execution.
+        key_func: Optional callable that receives the same arguments as the decorated function
+                  and returns a hashable key used to distinguish independent throttle windows.
+                  If not provided, all calls share a single window (no per-argument distinction).
+
+    Example:
+        @throttle(60, key_func=lambda filepath, host: (filepath, host))
+        def increment_download_count(filepath, host):
+            ...
+    """
+    def decorator(fn):
+        func_id = fn.__qualname__
+
+        @wraps(fn)
+        def throttled(*args, **kwargs):
+            now = time.monotonic()
+
+            # Compute the per-call key
+            if key_func is not None:
+                call_key = key_func(*args, **kwargs)
+            else:
+                call_key = None
+
+            registry_key = (func_id, call_key)
+
+            with _throttle_registry_lock:
+                last_called = _throttle_registry.get(registry_key)
+                if last_called is None or (now - last_called) >= wait:
+                    _throttle_registry[registry_key] = now
+                    should_execute = True
+                else:
+                    should_execute = False
+
+            if should_execute:
+                return fn(*args, **kwargs)
+
+        return throttled
     return decorator
 
 def allowed_file(filename):

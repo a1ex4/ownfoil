@@ -1,10 +1,10 @@
 """
 Sphaira client implementation.
 """
-from flask import Request, Response, send_from_directory
+from flask import Request, Response, request, send_from_directory
 
 from .client import BaseClient
-from db import Files, Libraries
+from db import Files, Libraries, increment_download_count_throttled
 from constants import APP_TYPE_FILTERS, ALLOWED_EXTENSIONS
 
 SPHAIRA_DEFAULT_HEADERS = [
@@ -167,5 +167,6 @@ class SphairaClient(BaseClient):
             return self.error_response("File not found")
 
         self.log_info(f"Serving file: {file.folder}/{filename}")
+        increment_download_count_throttled(file.filepath, request.remote_addr)
 
         return send_from_directory(file.folder, filename)
