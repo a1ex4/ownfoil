@@ -215,13 +215,19 @@ def get_cnmts(container):
             cnmt = container.cnmt()
             cnmts.append(cnmt)
         except Exception as e:
-            logger.warning('CNMT section not found in Nsp.')
+            logger.warning(f'CNMT section not found in Nsp: {e}')
+            raise
 
     elif isinstance(container, Xci.Xci):
         container = container.hfs0['secure']
         for nspf in container:
             if isinstance(nspf, Nca.Nca) and nspf.header.contentType == Type.Content.META:
                 cnmts.append(nspf)
+        if not cnmts:
+            raise ValueError("No META NCA found in XCI secure partition.")
+
+    else:
+        raise ValueError(f"Unsupported container type: {type(container).__name__}.")
 
     return cnmts
 
@@ -234,6 +240,8 @@ def extract_meta_from_cnmt(cnmt_sections):
             titleId = Cnmt.titleId.upper()
             version = Cnmt.version
             contents.append((titleType, titleId, version))
+    if not contents:
+        raise ValueError("No Pfs0 sections found in CNMT container.")
     return contents
 
 def identify_file_from_cnmt(filepath):
@@ -265,18 +273,14 @@ def identify_file(filepath):
         identification = 'cnmt'
         try:
             cnmt_contents = identify_file_from_cnmt(filepath)
-            if not cnmt_contents:
-                error = 'No content found in NCA containers.'
-                success = False
-            else:
-                for content in cnmt_contents:
-                    app_type, app_id, version = content
-                    if app_type != APP_TYPE_BASE:
-                        # need to get the title ID from cnmts
-                        title_id, app_type = identify_appId(app_id)
-                    else:
-                        title_id = app_id
-                    contents.append((title_id, app_type, app_id, version))
+            for content in cnmt_contents:
+                app_type, app_id, version = content
+                if app_type != APP_TYPE_BASE:
+                    # need to get the title ID from cnmts
+                    title_id, app_type = identify_appId(app_id)
+                else:
+                    title_id = app_id
+                contents.append((title_id, app_type, app_id, version))
         except Exception as e:
             logger.error(f'Could not identify file {filepath} from metadata: {e}')
             error = str(e)
