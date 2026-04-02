@@ -62,18 +62,6 @@ class Task(db.Model):
 # --- Progress ---
 _current_task_id = None
 
-
-def update_progress(pct):
-    """Update completion_pct for the currently executing task."""
-    if _current_task_id is None:
-        return
-    task = db.session.get(Task, _current_task_id)
-    if task:
-        task.completion_pct = int(pct)
-        logger.debug(f"Task {task.id} ({task.task_name}) progress: {task.completion_pct}%")
-        db.session.commit()
-
-
 # --- Child task helpers ---
 
 def create_child_task(parent_id, task_name, input_data=None):
@@ -152,7 +140,7 @@ def _try_complete_parent(parent_id):
         )
         done = cursor.fetchone()[0]
         pct = int(done * 100 / total) if total else 0
-        logger.debug(f"Task {parent_id} ({row[1]}) progress: {done}/{total} children — {pct}%")
+        # logger.debug(f"Task {row[1]} progress: {done}/{total} — {pct}%")
 
         if done < total:
             cursor.execute("UPDATE tasks SET completion_pct = ? WHERE id = ?", (pct, parent_id))
@@ -173,9 +161,9 @@ def _try_complete_parent(parent_id):
         if continuation:
             input_data = json.loads(row[2])
             continuation(**input_data)
-            logger.info(f"Parent task {parent_id} ({task_name}) completed, continuation executed")
-        else:
-            logger.info(f"Parent task {parent_id} ({task_name}) completed")
+            # logger.info(f"Parent task {parent_id} ({task_name}) completed, continuation executed")
+        # else:
+        #     logger.info(f"Parent task {parent_id} ({task_name}) completed")
 
         # Delete parent and its children
         Task.query.filter_by(parent_id=parent_id).delete()
@@ -196,7 +184,7 @@ def cleanup_tasks():
     completed = Task.query.filter_by(status='completed').count()
     if completed:
         Task.query.filter_by(status='completed').delete()
-        logger.info(f"Removed {completed} completed tasks")
+        # logger.info(f"Removed {completed} completed tasks")
 
     # Mark running/waiting tasks as failed — they can't survive a restart
     stale = Task.query.filter(Task.status.in_(['running', 'waiting_for_children'])).all()
@@ -308,6 +296,7 @@ def scan_library_task(library_path, **kwargs):
         logger.warning(f'Library path {library_path} does not exist.')
         return
 
+    logger.info(f'Scanning library path {library_path} ...')
     _, files = titles_lib.getDirsAndFiles(library_path)
     filepaths_in_db = get_library_file_paths(library_id)
     new_files = [f for f in files if f not in filepaths_in_db]
@@ -366,6 +355,7 @@ def identify_library_task(library_path, **kwargs):
     from library import get_files_to_identify
     from db import get_library_id
 
+    logger.info(f"Starting library identification process for library {library_path} ...")
     library_id = get_library_id(library_path)
     files_to_identify = get_files_to_identify(library_id)
 
@@ -420,18 +410,23 @@ def identify_file_task(filepath, file_id, **kwargs):
                 if existing_app:
                     add_file_to_app(file_content["app_id"], file_content["version"], file_id)
                 else:
-                    new_app = Apps(
-                        app_id=file_content["app_id"],
-                        app_version=file_content["version"],
-                        app_type=file_content["type"],
-                        owned=True,
-                        title_id=title_id_in_db
-                    )
-                    db.session.add(new_app)
-                    db.session.flush()
-                    file_obj = get_file_from_db(file_id)
-                    if file_obj:
-                        new_app.files.append(file_obj)
+                    try:
+                        new_app = Apps(
+                            app_id=file_content["app_id"],
+                            app_version=file_content["version"],
+                            app_type=file_content["type"],
+                            owned=True,
+                            title_id=title_id_in_db
+                        )
+                        db.session.add(new_app)
+                        db.session.flush()
+                        file_obj = get_file_from_db(file_id)
+                        if file_obj:
+                            new_app.files.append(file_obj)
+                    except Exception:
+                        # Another worker inserted the same app concurrently
+                        db.session.rollback()
+                        add_file_to_app(file_content["app_id"], file_content["version"], file_id)
                 nb_content += 1
 
             if nb_content > 1:
