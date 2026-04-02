@@ -1,0 +1,9 @@
+{
+  "testgame": {
+    "id": "0100000000000000",
+    "name": "Test Game",
+    "bannerUrl": "",
+    "iconUrl": "",
+    "category": ["Action"]
+  }
+}

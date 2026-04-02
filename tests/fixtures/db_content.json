@@ -1,0 +1,85 @@
+{
+  "files": [
+    {
+      "filename": "Test DLC [0100000000001000][v0].nsp",
+      "extension": "nsp",
+      "size": 0,
+      "identified": true,
+      "identification_type": "filename",
+      "identification_error": null,
+      "identification_attempts": 1,
+      "compressed": false,
+      "multicontent": false,
+      "nb_content": 1
+    },
+    {
+      "filename": "Test Game Update [0100000000000800][v131072].nsp",
+      "extension": "nsp",
+      "size": 0,
+      "identified": true,
+      "identification_type": "filename",
+      "identification_error": null,
+      "identification_attempts": 1,
+      "compressed": false,
+      "multicontent": false,
+      "nb_content": 1
+    },
+    {
+      "filename": "Test Game [0100000000000000][v0].nsp",
+      "extension": "nsp",
+      "size": 0,
+      "identified": true,
+      "identification_type": "filename",
+      "identification_error": null,
+      "identification_attempts": 1,
+      "compressed": false,
+      "multicontent": false,
+      "nb_content": 1
+    }
+  ],
+  "titles": [
+    {
+      "title_id": "0100000000000000",
+      "have_base": true,
+      "up_to_date": true,
+      "complete": true
+    }
+  ],
+  "apps": [
+    {
+      "app_id": "0100000000000000",
+      "app_version": "0",
+      "app_type": "BASE",
+      "owned": true
+    },
+    {
+      "app_id": "0100000000000800",
+      "app_version": "131072",
+      "app_type": "UPDATE",
+      "owned": true
+    },
+    {
+      "app_id": "0100000000001000",
+      "app_version": "0",
+      "app_type": "DLC",
+      "owned": true
+    }
+  ],
+  "app_files": [
+    {
+      "filename": "Test DLC [0100000000001000][v0].nsp",
+      "app_id": "0100000000001000",
+      "app_version": "0"
+    },
+    {
+      "filename": "Test Game Update [0100000000000800][v131072].nsp",
+      "app_id": "0100000000000800",
+      "app_version": "131072"
+    },
+    {
+      "filename": "Test Game [0100000000000000][v0].nsp",
+      "app_id": "0100000000000000",
+      "app_version": "0"
+    }
+  ]
+}
