@@ -210,6 +210,72 @@
       ]
     ]
   },
+  "tasks": {
+    "columns": [
+      {
+        "name": "completed_at",
+        "type": "DATETIME",
+        "nullable": true
+      },
+      {
+        "name": "completion_pct",
+        "type": "INTEGER",
+        "nullable": true
+      },
+      {
+        "name": "created_at",
+        "type": "DATETIME",
+        "nullable": false
+      },
+      {
+        "name": "error_message",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "exit_code",
+        "type": "INTEGER",
+        "nullable": true
+      },
+      {
+        "name": "id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "input_hash",
+        "type": "VARCHAR(64)",
+        "nullable": false
+      },
+      {
+        "name": "input_json",
+        "type": "TEXT",
+        "nullable": false
+      },
+      {
+        "name": "output_json",
+        "type": "TEXT",
+        "nullable": true
+      },
+      {
+        "name": "started_at",
+        "type": "DATETIME",
+        "nullable": true
+      },
+      {
+        "name": "status",
+        "type": "VARCHAR",
+        "nullable": false
+      },
+      {
+        "name": "task_name",
+        "type": "VARCHAR",
+        "nullable": false
+      }
+    ],
+    "foreign_keys": [],
+    "unique_constraints": []
+  },
   "titles": {
     "columns": [
       {

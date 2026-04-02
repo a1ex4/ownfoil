@@ -141,6 +141,7 @@ class User(UserMixin, db.Model):
             return self.has_backup_access()
 
 def init_db(app):
+    import tasks  # noqa: F401 — ensure Task model is registered before create_all
     with app.app_context():
         # Ensure foreign keys are enforced when the SQLite connection is opened
         @event.listens_for(db.engine, "connect")
