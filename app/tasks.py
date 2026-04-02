@@ -185,11 +185,38 @@ def _try_complete_parent(parent_id):
             logger.info(f"Parent task {parent_id} ({task_name}) completed, continuation executed")
         else:
             logger.info(f"Parent task {parent_id} ({task_name}) completed")
+
+        # Delete parent and its children
+        Task.query.filter_by(parent_id=parent_id).delete()
+        Task.query.filter_by(id=parent_id).delete()
+        db.session.commit()
     except Exception:
         connection.rollback()
         raise
     finally:
         connection.close()
+
+
+# --- Startup cleanup ---
+
+def cleanup_tasks():
+    """Startup cleanup: remove completed tasks and fail stale running tasks."""
+    # Remove completed tasks
+    completed = Task.query.filter_by(status='completed').count()
+    if completed:
+        Task.query.filter_by(status='completed').delete()
+        logger.info(f"Removed {completed} completed tasks")
+
+    # Mark running/waiting tasks as failed — they can't survive a restart
+    stale = Task.query.filter(Task.status.in_(['running', 'waiting_for_children'])).all()
+    for task in stale:
+        task.status = 'failed'
+        task.error_message = 'Interrupted by application restart'
+        task.exit_code = 1
+        task.completed_at = datetime.datetime.utcnow()
+        logger.info(f"Reset stale task {task.id} ({task.task_name})")
+
+    db.session.commit()
 
 
 # --- Helpers ---
