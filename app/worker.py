@@ -63,8 +63,9 @@ class TaskWorker:
             task.error_message = f"No registered handler for task: {task.task_name}"
             task.exit_code = 1
             task.completed_at = datetime.datetime.utcnow()
+            parent_id = task.parent_id
             db.session.commit()
-            on_task_completed(task)
+            on_task_completed(task_id, parent_id)
             return
 
         try:
@@ -87,13 +88,16 @@ class TaskWorker:
                 task.exit_code = 0
                 task.output_json = json.dumps(result) if result else None
                 task.completed_at = datetime.datetime.utcnow()
+                parent_id = task.parent_id
                 db.session.commit()
                 logger.info(f"Task {task_id} completed")
-                on_task_completed(task)
+                on_task_completed(task_id, parent_id)
                 # Delete completed non-parent tasks (parent+children are cleaned up in _try_complete_parent)
-                if not task.parent_id:
-                    db.session.delete(task)
-                    db.session.commit()
+                if not parent_id:
+                    task = db.session.get(Task, task_id)
+                    if task:
+                        db.session.delete(task)
+                        db.session.commit()
         except Exception as e:
             tasks_mod._current_task_id = None
             logger.error(f"Task {task_id} failed: {e}")
@@ -104,8 +108,9 @@ class TaskWorker:
                 task.error_message = str(e)
                 task.exit_code = 1
                 task.completed_at = datetime.datetime.utcnow()
+                parent_id = task.parent_id
                 db.session.commit()
-                on_task_completed(task)
+                on_task_completed(task_id, parent_id)
 
     def run(self):
         with self.app.app_context():
