@@ -9,10 +9,11 @@ logger = logging.getLogger('worker')
 
 
 class TaskWorker:
-    def __init__(self, app, poll_interval=2.0, stop_event=None):
+    def __init__(self, app, poll_interval=2.0, stop_event=None, worker_id=1):
         self.app = app
         self.poll_interval = poll_interval
         self.stop_event = stop_event or Event()
+        self.worker_id = worker_id
 
     def claim_task(self):
         """Atomically claim the oldest pending task. Returns task_id or None."""
@@ -114,17 +115,18 @@ class TaskWorker:
 
     def run(self):
         with self.app.app_context():
-            logger.info(f"Worker started, polling every {self.poll_interval}s")
+            wlog = logging.getLogger(f'worker-{self.worker_id}')
+            wlog.info(f"Worker started, polling every {self.poll_interval}s")
             while not self.stop_event.is_set():
                 task_id = self.claim_task()
                 if task_id is not None:
                     self.execute_task(task_id)
                 else:
                     self.stop_event.wait(self.poll_interval)
-            logger.info("Worker stopped")
+            wlog.info("Worker stopped")
 
 
-def start_worker_process(stop_event):
+def start_worker_process(stop_event, worker_id=1):
     """Entry point for the worker subprocess."""
     import signal
     signal.signal(signal.SIGINT, signal.SIG_IGN)
@@ -134,7 +136,7 @@ def start_worker_process(stop_event):
 
     from utils import ColoredFormatter
     formatter = ColoredFormatter(
-        '[%(asctime)s.%(msecs)03d] %(levelname)s (%(module)s:worker) %(message)s',
+        '[%(asctime)s.%(msecs)03d] %(levelname)s (%(module)s:worker-' + str(worker_id) + ') %(message)s',
         datefmt='%Y-%m-%d %H:%M:%S',
     )
     handler = logging.StreamHandler(sys.stdout)
@@ -142,5 +144,5 @@ def start_worker_process(stop_event):
     logging.basicConfig(level=logging.INFO, handlers=[handler], force=True)
 
     app = create_app()
-    worker = TaskWorker(app, poll_interval=2.0, stop_event=stop_event)
+    worker = TaskWorker(app, poll_interval=2.0, stop_event=stop_event, worker_id=worker_id)
     worker.run()

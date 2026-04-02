@@ -395,6 +395,31 @@ def set_scheduler_settings_api():
 
     return jsonify({'success': True, 'errors': []})
 
+@app.post('/api/settings/worker')
+@access_required('admin')
+def set_worker_settings_api():
+    import os
+    data = request.json
+    count = data.get('count')
+    if count is not None:
+        try:
+            count = int(count)
+        except (TypeError, ValueError):
+            return jsonify({'success': False, 'errors': [{'path': 'worker/count', 'error': 'Must be an integer'}]})
+        max_workers = os.cpu_count() or 1
+        if count < 1 or count > max_workers:
+            return jsonify({'success': False, 'errors': [{'path': 'worker/count', 'error': f'Must be between 1 and {max_workers}'}]})
+        data['count'] = count
+    set_worker_settings(data)
+    reload_conf()
+    return jsonify({'success': True, 'errors': []})
+
+@app.get('/api/settings/worker-info')
+@access_required('admin')
+def get_worker_info():
+    import os
+    return jsonify({'max_workers': os.cpu_count() or 1})
+
 @app.post('/api/upload')
 @access_required('admin')
 def upload_file():
@@ -564,8 +589,9 @@ def schedule_update_and_scan_job(app: Flask, interval_str: str, run_first: bool 
 
 
 if __name__ == '__main__':
-    from multiprocessing import Process, Event as MPEvent
-    from worker import start_worker_process
+    import threading
+    from constants import CONFIG_FILE
+    from run import WorkerPool, _watch_settings
 
     logger.info('Starting initialization of Ownfoil...')
     init_db(app)
@@ -575,22 +601,31 @@ if __name__ == '__main__':
         cleanup_tasks()
     init()
 
-    # Start worker process
-    worker_stop_event = MPEvent()
-    worker_process = Process(target=start_worker_process, args=(worker_stop_event,), daemon=True)
-    worker_process.start()
-    logger.info('Worker process started.')
+    # Read initial worker count
+    initial_count = app_settings.get('worker', {}).get('count', 1)
+    import os
+    max_workers = os.cpu_count() or 1
+    initial_count = max(1, min(initial_count, max_workers))
+
+    # Start worker pool
+    pool = WorkerPool(initial_count=initial_count)
+
+    # Start settings watcher thread
+    watcher_stop = threading.Event()
+    settings_watcher = threading.Thread(
+        target=_watch_settings,
+        args=(pool, CONFIG_FILE, 2.0, watcher_stop),
+        daemon=True,
+    )
+    settings_watcher.start()
 
     logger.info('Initialization steps done, starting server...')
     app.run(debug=False, use_reloader=False, host="0.0.0.0", port=8465)
 
     # Shutdown
     logger.info('Shutting down server...')
-    worker_stop_event.set()
-    worker_process.join(timeout=10)
-    if worker_process.is_alive():
-        worker_process.terminate()
-    logger.debug('Worker process terminated.')
+    watcher_stop.set()
+    pool.shutdown()
     watcher.stop()
     watcher_thread.join()
     logger.debug('Watcher thread terminated.')

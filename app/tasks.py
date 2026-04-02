@@ -105,21 +105,12 @@ def complete_child_task(child, output=None, error=None):
         child.output_json = json.dumps(output) if output else None
     child.completed_at = now
     child.completion_pct = 100
-
-    # Update parent progress
-    if child.parent_id:
-        parent = db.session.get(Task, child.parent_id)
-        if parent:
-            total = parent.children.count()
-            done = parent.children.filter(Task.status.in_(['completed', 'failed'])).count()
-            parent.completion_pct = int(done * 100 / total) if total else 0
-            logger.debug(f"Task {parent.id} ({parent.task_name}) progress: {done}/{total} children — {parent.completion_pct}%")
-
+    parent_id = child.parent_id
     db.session.commit()
 
-    # Check if parent is ready to complete
-    if child.parent_id:
-        _try_complete_parent(child.parent_id)
+    # Update parent progress atomically (handles multi-worker race)
+    if parent_id:
+        _try_complete_parent(parent_id)
 
 
 def set_waiting_for_children():
@@ -136,18 +127,11 @@ def on_task_completed(task_id, parent_id):
     """Called by the worker after any task completes. Updates parent progress and checks for completion."""
     if not parent_id:
         return
-    parent = db.session.get(Task, parent_id)
-    if parent:
-        total = parent.children.count()
-        done = parent.children.filter(Task.status.in_(['completed', 'failed'])).count()
-        parent.completion_pct = int(done * 100 / total) if total else 0
-        logger.debug(f"Task {parent.id} ({parent.task_name}) progress: {done}/{total} children — {parent.completion_pct}%")
-        db.session.commit()
     _try_complete_parent(parent_id)
 
 
 def _try_complete_parent(parent_id):
-    """Atomically check if all children are done and complete the parent."""
+    """Atomically update parent progress and complete if all children are done."""
     connection = db.engine.raw_connection()
     try:
         cursor = connection.cursor()
@@ -159,12 +143,19 @@ def _try_complete_parent(parent_id):
             connection.commit()
             return
 
+        # Count children atomically under the lock
+        cursor.execute("SELECT COUNT(*) FROM tasks WHERE parent_id = ?", (parent_id,))
+        total = cursor.fetchone()[0]
         cursor.execute(
-            "SELECT COUNT(*) FROM tasks WHERE parent_id = ? AND status NOT IN ('completed', 'failed')",
+            "SELECT COUNT(*) FROM tasks WHERE parent_id = ? AND status IN ('completed', 'failed')",
             (parent_id,)
         )
-        pending = cursor.fetchone()[0]
-        if pending > 0:
+        done = cursor.fetchone()[0]
+        pct = int(done * 100 / total) if total else 0
+        logger.debug(f"Task {parent_id} ({row[1]}) progress: {done}/{total} children — {pct}%")
+
+        if done < total:
+            cursor.execute("UPDATE tasks SET completion_pct = ? WHERE id = ?", (pct, parent_id))
             connection.commit()
             return
 
