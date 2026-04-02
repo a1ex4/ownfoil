@@ -258,6 +258,11 @@
         "nullable": true
       },
       {
+        "name": "parent_id",
+        "type": "INTEGER",
+        "nullable": true
+      },
+      {
         "name": "started_at",
         "type": "DATETIME",
         "nullable": true
@@ -273,7 +278,17 @@
         "nullable": false
       }
     ],
-    "foreign_keys": [],
+    "foreign_keys": [
+      {
+        "constrained": [
+          "parent_id"
+        ],
+        "referred_table": "tasks",
+        "referred_columns": [
+          "id"
+        ]
+      }
+    ],
     "unique_constraints": []
   },
   "titles": {
