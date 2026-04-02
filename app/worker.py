@@ -121,6 +121,9 @@ class TaskWorker:
 
 def start_worker_process(stop_event):
     """Entry point for the worker subprocess."""
+    import signal
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
+
     from app import create_app
     import tasks  # noqa: F401 — registers @register_task decorators
 
