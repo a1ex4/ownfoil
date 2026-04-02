@@ -570,6 +570,9 @@ if __name__ == '__main__':
     logger.info('Starting initialization of Ownfoil...')
     init_db(app)
     init_users(app)
+    with app.app_context():
+        from tasks import cleanup_tasks
+        cleanup_tasks()
     init()
 
     # Start worker process

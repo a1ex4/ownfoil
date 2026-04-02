@@ -90,6 +90,10 @@ class TaskWorker:
                 db.session.commit()
                 logger.info(f"Task {task_id} completed")
                 on_task_completed(task)
+                # Delete completed non-parent tasks (parent+children are cleaned up in _try_complete_parent)
+                if not task.parent_id:
+                    db.session.delete(task)
+                    db.session.commit()
         except Exception as e:
             tasks_mod._current_task_id = None
             logger.error(f"Task {task_id} failed: {e}")
