@@ -15,12 +15,14 @@ depends_on = None
 
 
 def upgrade():
-    op.add_column('tasks', sa.Column('parent_id', sa.Integer(), nullable=True))
-    op.create_foreign_key('fk_tasks_parent_id', 'tasks', 'tasks', ['parent_id'], ['id'])
-    op.create_index('ix_tasks_parent_id', 'tasks', ['parent_id'])
+    with op.batch_alter_table('tasks') as batch_op:
+        batch_op.add_column(sa.Column('parent_id', sa.Integer(), nullable=True))
+        batch_op.create_foreign_key('fk_tasks_parent_id', 'tasks', ['parent_id'], ['id'])
+        batch_op.create_index('ix_tasks_parent_id', ['parent_id'])
 
 
 def downgrade():
-    op.drop_index('ix_tasks_parent_id', table_name='tasks')
-    op.drop_constraint('fk_tasks_parent_id', 'tasks', type_='foreignkey')
-    op.drop_column('tasks', 'parent_id')
+    with op.batch_alter_table('tasks') as batch_op:
+        batch_op.drop_index('ix_tasks_parent_id')
+        batch_op.drop_constraint('fk_tasks_parent_id', type_='foreignkey')
+        batch_op.drop_column('parent_id')
