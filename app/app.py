@@ -125,10 +125,10 @@ def on_library_change(events):
 
     post_library_change()
 
-def create_app():
+def create_app(db_uri=None):
     app = Flask(__name__)
     app.url_map.strict_slashes = False  # Disable automatic trailing slash redirects globally, needed for Sphaira
-    app.config["SQLALCHEMY_DATABASE_URI"] = OWNFOIL_DB
+    app.config["SQLALCHEMY_DATABASE_URI"] = db_uri or OWNFOIL_DB
     # TODO: generate random secret_key
     app.config['SECRET_KEY'] = '8accb915665f11dfa15c2db1a4e8026905f57716'
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
