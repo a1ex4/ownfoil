@@ -18,7 +18,9 @@ from auth import *
 import titles as titles_lib
 from utils import *
 from library import *
+import json
 import titledb
+import tasks as tasks_mod
 import os
 from clients import CyberFoilClient, TinfoilClient, SphairaClient
 
@@ -514,12 +516,64 @@ def scan_library_api():
     return jsonify(resp)
 
 
-# @app.before_request
-# def before_request():
-#     # print request headers for debugging
-#     logger.debug(f"Incoming request: {request.method} {request.path}")
-#     for header, value in request.headers:
-#         logger.debug(f"Header: {header} = {value}")
+# --- Task Queue API ---
+
+@app.post('/api/tasks')
+@access_required('admin')
+def enqueue_task_api():
+    data = request.json
+    task_name = data.get('task_name')
+    input_data = data.get('input', {})
+    try:
+        task, created = tasks_mod.enqueue_task(task_name, input_data)
+        return jsonify({
+            'success': True,
+            'task_id': task.id,
+            'created': created,
+            'status': task.status,
+        }), 201 if created else 200
+    except ValueError as e:
+        return jsonify({'success': False, 'error': str(e)}), 400
+
+@app.get('/api/tasks')
+@access_required('admin')
+def list_tasks_api():
+    status = request.args.get('status')
+    limit = request.args.get('limit', 50, type=int)
+    task_list = tasks_mod.get_tasks(status=status, limit=limit)
+    return jsonify({
+        'tasks': [{
+            'id': t.id,
+            'task_name': t.task_name,
+            'status': t.status,
+            'completion_pct': t.completion_pct,
+            'exit_code': t.exit_code,
+            'error_message': t.error_message,
+            'created_at': t.created_at.isoformat() if t.created_at else None,
+            'started_at': t.started_at.isoformat() if t.started_at else None,
+            'completed_at': t.completed_at.isoformat() if t.completed_at else None,
+        } for t in task_list]
+    })
+
+@app.get('/api/tasks/<int:task_id>')
+@access_required('admin')
+def get_task_api(task_id):
+    task = tasks_mod.get_task(task_id)
+    if not task:
+        return jsonify({'error': 'Task not found'}), 404
+    return jsonify({
+        'id': task.id,
+        'task_name': task.task_name,
+        'status': task.status,
+        'completion_pct': task.completion_pct,
+        'input': json.loads(task.input_json) if task.input_json else {},
+        'output': json.loads(task.output_json) if task.output_json else None,
+        'exit_code': task.exit_code,
+        'error_message': task.error_message,
+        'created_at': task.created_at.isoformat() if task.created_at else None,
+        'started_at': task.started_at.isoformat() if task.started_at else None,
+        'completed_at': task.completed_at.isoformat() if task.completed_at else None,
+    })
 
 def scan_library():
     logger.info(f'Scanning whole library ...')
@@ -585,17 +639,32 @@ def schedule_update_and_scan_job(app: Flask, interval_str: str, run_first: bool 
 
 
 if __name__ == '__main__':
+    from multiprocessing import Process, Event as MPEvent
+    from worker import start_worker_process
+
     logger.info('Starting initialization of Ownfoil...')
     init_db(app)
     init_users(app)
     init()
+
+    # Start worker process
+    worker_stop_event = MPEvent()
+    worker_process = Process(target=start_worker_process, args=(worker_stop_event,), daemon=True)
+    worker_process.start()
+    logger.info('Worker process started.')
+
     logger.info('Initialization steps done, starting server...')
     app.run(debug=False, use_reloader=False, host="0.0.0.0", port=8465)
-    # Shutdown server
+
+    # Shutdown
     logger.info('Shutting down server...')
+    worker_stop_event.set()
+    worker_process.join(timeout=10)
+    if worker_process.is_alive():
+        worker_process.terminate()
+    logger.debug('Worker process terminated.')
     watcher.stop()
     watcher_thread.join()
     logger.debug('Watcher thread terminated.')
-    # Shutdown scheduler
     app.scheduler.shutdown()
     logger.debug('Scheduler terminated.')
