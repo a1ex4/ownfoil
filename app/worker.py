@@ -72,7 +72,6 @@ class TaskWorker:
         try:
             import tasks as tasks_mod
             input_data = json.loads(task.input_json) if task.input_json else {}
-            logger.info(f"Executing task {task_id}: {task.task_name}")
             tasks_mod._current_task_id = task_id
             result = task_func(**input_data)
             tasks_mod._current_task_id = None
@@ -81,9 +80,7 @@ class TaskWorker:
             db.session.expire(task)
             task = db.session.get(Task, task_id)
 
-            if task.status == 'waiting_for_children':
-                logger.info(f"Task {task_id} waiting for children")
-            else:
+            if task.status != 'waiting_for_children':
                 task.status = 'completed'
                 task.completion_pct = 100
                 task.exit_code = 0
@@ -91,7 +88,6 @@ class TaskWorker:
                 task.completed_at = datetime.datetime.utcnow()
                 parent_id = task.parent_id
                 db.session.commit()
-                logger.info(f"Task {task_id} completed")
                 on_task_completed(task_id, parent_id)
                 # Delete completed non-parent tasks (parent+children are cleaned up in _try_complete_parent)
                 if not parent_id:
@@ -135,8 +131,10 @@ def start_worker_process(stop_event, worker_id=1):
     import tasks  # noqa: F401 — registers @register_task decorators
 
     from utils import ColoredFormatter
+    grey = '\033[90m'
+    reset = '\033[0m'
     formatter = ColoredFormatter(
-        '[%(asctime)s.%(msecs)03d] %(levelname)s (%(module)s:worker-' + str(worker_id) + ') %(message)s',
+        f'[%(asctime)s.%(msecs)03d] %(levelname)s (%(module)s) {grey}worker-{worker_id}{reset} %(message)s',
         datefmt='%Y-%m-%d %H:%M:%S',
     )
     handler = logging.StreamHandler(sys.stdout)

@@ -349,11 +349,15 @@ def get_title_id_db_id(title_id):
 
 def add_title_id_in_db(title_id):
     existing_title = Titles.query.filter_by(title_id=title_id).first()
-    
+
     if not existing_title:
-        new_title = Titles(title_id=title_id)
-        db.session.add(new_title)
-        db.session.commit()
+        try:
+            new_title = Titles(title_id=title_id)
+            db.session.add(new_title)
+            db.session.commit()
+        except Exception:
+            # Another worker inserted the same title concurrently
+            db.session.rollback()
 
 def get_all_title_apps(title_id):
     title = Titles.query.options(joinedload(Titles.apps)).filter_by(title_id=title_id).first()
@@ -379,9 +383,13 @@ def add_file_to_app(app_id, app_version, file_id):
     if app:
         file_obj = get_file_from_db(file_id)
         if file_obj and file_obj not in app.files:
-            app.files.append(file_obj)
-            app.owned = True
-            db.session.commit()
+            try:
+                app.files.append(file_obj)
+                app.owned = True
+                db.session.commit()
+            except Exception:
+                # Another worker added the same file association concurrently
+                db.session.rollback()
             return True
     return False
 
