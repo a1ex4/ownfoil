@@ -22,7 +22,7 @@ class TaskWorker:
             cursor = connection.cursor()
             cursor.execute("BEGIN IMMEDIATE")
             cursor.execute(
-                "SELECT id FROM tasks WHERE status = 'pending' AND parent_id IS NULL ORDER BY created_at ASC LIMIT 1"
+                "SELECT id FROM tasks WHERE status = 'pending' ORDER BY created_at ASC LIMIT 1"
             )
             row = cursor.fetchone()
             if row is None:
@@ -49,7 +49,7 @@ class TaskWorker:
             connection.close()
 
     def execute_task(self, task_id):
-        from tasks import Task, get_registered_task
+        from tasks import Task, get_registered_task, on_task_completed
         from db import db
 
         task = db.session.get(Task, task_id)
@@ -64,6 +64,7 @@ class TaskWorker:
             task.exit_code = 1
             task.completed_at = datetime.datetime.utcnow()
             db.session.commit()
+            on_task_completed(task)
             return
 
         try:
@@ -72,14 +73,23 @@ class TaskWorker:
             logger.info(f"Executing task {task_id}: {task.task_name}")
             tasks_mod._current_task_id = task_id
             result = task_func(**input_data)
-            task.status = 'completed'
-            task.completion_pct = 100
-            task.exit_code = 0
-            task.output_json = json.dumps(result) if result else None
             tasks_mod._current_task_id = None
-            task.completed_at = datetime.datetime.utcnow()
-            db.session.commit()
-            logger.info(f"Task {task_id} completed")
+
+            # Re-read task — function may have set waiting_for_children
+            db.session.expire(task)
+            task = db.session.get(Task, task_id)
+
+            if task.status == 'waiting_for_children':
+                logger.info(f"Task {task_id} waiting for children")
+            else:
+                task.status = 'completed'
+                task.completion_pct = 100
+                task.exit_code = 0
+                task.output_json = json.dumps(result) if result else None
+                task.completed_at = datetime.datetime.utcnow()
+                db.session.commit()
+                logger.info(f"Task {task_id} completed")
+                on_task_completed(task)
         except Exception as e:
             tasks_mod._current_task_id = None
             logger.error(f"Task {task_id} failed: {e}")
@@ -91,6 +101,7 @@ class TaskWorker:
                 task.exit_code = 1
                 task.completed_at = datetime.datetime.utcnow()
                 db.session.commit()
+                on_task_completed(task)
 
     def run(self):
         with self.app.app_context():
