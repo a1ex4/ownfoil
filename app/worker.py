@@ -22,7 +22,7 @@ class TaskWorker:
             cursor = connection.cursor()
             cursor.execute("BEGIN IMMEDIATE")
             cursor.execute(
-                "SELECT id FROM tasks WHERE status = 'pending' ORDER BY created_at ASC LIMIT 1"
+                "SELECT id FROM tasks WHERE status = 'pending' AND parent_id IS NULL ORDER BY created_at ASC LIMIT 1"
             )
             row = cursor.fetchone()
             if row is None:
@@ -67,17 +67,21 @@ class TaskWorker:
             return
 
         try:
+            import tasks as tasks_mod
             input_data = json.loads(task.input_json) if task.input_json else {}
             logger.info(f"Executing task {task_id}: {task.task_name}")
+            tasks_mod._current_task_id = task_id
             result = task_func(**input_data)
             task.status = 'completed'
             task.completion_pct = 100
             task.exit_code = 0
             task.output_json = json.dumps(result) if result else None
+            tasks_mod._current_task_id = None
             task.completed_at = datetime.datetime.utcnow()
             db.session.commit()
             logger.info(f"Task {task_id} completed")
         except Exception as e:
+            tasks_mod._current_task_id = None
             logger.error(f"Task {task_id} failed: {e}")
             db.session.rollback()
             task = db.session.get(Task, task_id)
