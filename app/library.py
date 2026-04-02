@@ -30,7 +30,7 @@ def sanitize_filename(name, windows_compatible=False):
 
     return sanitized
 
-def organize_file(file_obj, library_path, organizer_settings, watcher=None):
+def organize_file(file_obj, library_path, organizer_settings):
     try:
         templates = organizer_settings['templates']
         
@@ -100,9 +100,7 @@ def organize_file(file_obj, library_path, organizer_settings, watcher=None):
         logger.info(f'Organizing file: {file_obj.filename}')
         try:
             # Add the move event to the ignored list before performing the move
-            if watcher:
-                with watcher.event_handler.ignored_events_lock:
-                    watcher.event_handler.ignored_events_tuples.add((current_filepath, final_new_full_path))
+            add_ignored_event(current_filepath, final_new_full_path)
 
             shutil.move(current_filepath, final_new_full_path)
             logger.info(f"Moved '{current_filepath}' to '{final_new_full_path}'")
@@ -115,11 +113,8 @@ def organize_file(file_obj, library_path, organizer_settings, watcher=None):
 
         except (shutil.Error, OSError) as e:
             logger.error(f"Error moving file from '{current_filepath}' to '{final_new_full_path}': {e}")
-            # If an error occurs, ensure the event is removed from the ignored list
-            if watcher:
-                with watcher.event_handler.ignored_events_lock:
-                    if (current_filepath, final_new_full_path) in watcher.event_handler.ignored_events_tuples:
-                        watcher.event_handler.ignored_events_tuples.remove((current_filepath, final_new_full_path))
+            # If an error occurs, remove from the ignored list
+            pop_ignored_event(src_path=current_filepath, dest_path=final_new_full_path)
         # No finally block needed for removing from ignored_move_events, as it's removed by the watchdog handler
 
     except Exception as e:
@@ -464,33 +459,7 @@ def process_library_identification(app):
         logger.error(f"Error during library identification process: {e}")
     logger.info(f"Library identification process for all libraries completed.")
 
-def process_library_organization(app, watcher=None):
-    logger.info(f"Starting library organization process for all libraries...")
-    try:
-        app_settings = load_settings()
-        organizer_settings = app_settings['library']['management']['organizer']
-        if organizer_settings['enabled']:
-            with app.app_context():
-                libraries = get_libraries()
-                for library in libraries:
-                    library_path = library.path
-                    # Get all identified files for the current library
-                    identified_files = Files.query.filter_by(library_id=library.id, identified=True).all()
-                    for file_obj in identified_files:
-                        organize_file(file_obj, library_path, organizer_settings, watcher)
-                    
-                    # Remove empty directories if needed
-                    if organizer_settings['remove_empty_folders']:
-                        delete_empty_folders(library_path)
-
-        # Remove outdated update files
-        if app_settings['library']['management']['delete_older_updates']:
-            remove_outdated_update_files(watcher)
-    except Exception as e:
-        logger.error(f"Error during library organization process: {e}")
-    logger.info(f"Library organization process for all libraries completed.")
-
-def remove_outdated_update_files(watcher=None):
+def remove_outdated_update_files():
     logger.info("Starting removal of outdated update files...")
     try:
         titles = get_all_titles()
@@ -535,9 +504,7 @@ def remove_outdated_update_files(watcher=None):
                                     if os.path.exists(file_obj.filepath):
                                         try:
                                             # Add the delete event to the ignored list before performing the remove
-                                            if watcher:
-                                                with watcher.event_handler.ignored_events_lock:
-                                                    watcher.event_handler.ignored_events_tuples.add((file_obj.filepath, ""))
+                                            add_ignored_event(file_obj.filepath, '')
                                             os.remove(file_obj.filepath)
                                             logger.debug(f"Deleted physical file: {file_obj.filepath}")
                                             # Remove from database and update app owned status
@@ -545,11 +512,8 @@ def remove_outdated_update_files(watcher=None):
                                             remove_file_from_apps(file_obj.id)
                                         except OSError as e:
                                             logger.error(f"Error deleting physical file {file_obj.filepath}: {e}")
-                                            # If an error occurs, ensure the event is removed from the ignored list
-                                            if watcher:
-                                                with watcher.event_handler.ignored_events_lock:
-                                                    if (file_obj.filepath, "") in watcher.event_handler.ignored_events_tuples:
-                                                        watcher.event_handler.ignored_events_tuples.remove((file_obj.filepath, ""))
+                                            # If an error occurs, remove from the ignored list
+                                            pop_ignored_event(src_path=file_obj.filepath, dest_path='')
                                     else:
                                         logger.warning(f"Physical file not found for deletion: {file_obj.filepath}")
                                     

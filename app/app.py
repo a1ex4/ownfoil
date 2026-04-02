@@ -84,26 +84,39 @@ def load_user(user_id):
 
 def reload_conf():
     global app_settings
-    global watcher
     app_settings = load_settings()
 
 def on_library_change(events):
-    """Enqueue individual tasks per file event."""
+    """Enqueue individual tasks per file event, skipping ignored events."""
     with app.app_context():
         for event in events:
-            if event.type == 'created' or event.type == 'modified':
-                tasks_mod.enqueue_task('handle_file_added', {
-                    'library_path': event.directory,
-                    'filepath': event.src_path,
-                })
-            elif event.type == 'moved':
+            if event.type == 'moved':
+                if pop_ignored_event(src_path=event.src_path, dest_path=event.dest_path):
+                    continue
                 tasks_mod.enqueue_task('handle_file_moved', {
                     'library_path': event.directory,
                     'src_path': event.src_path,
                     'dest_path': event.dest_path,
                 })
             elif event.type == 'deleted':
+                if pop_ignored_event(src_path=event.src_path, dest_path=''):
+                    continue
+                # Also check if this delete is part of a move (dest_path != '')
+                if pop_ignored_event(src_path=event.src_path):
+                    continue
                 tasks_mod.enqueue_task('handle_file_deleted', {
+                    'filepath': event.src_path,
+                })
+            elif event.type == 'created':
+                if pop_ignored_event(dest_path=event.src_path):
+                    continue
+                tasks_mod.enqueue_task('handle_file_added', {
+                    'library_path': event.directory,
+                    'filepath': event.src_path,
+                })
+            elif event.type == 'modified':
+                tasks_mod.enqueue_task('handle_file_added', {
+                    'library_path': event.directory,
                     'filepath': event.src_path,
                 })
 

@@ -185,6 +185,27 @@
       ]
     ]
   },
+  "ignored_events": {
+    "columns": [
+      {
+        "name": "dest_path",
+        "type": "VARCHAR",
+        "nullable": false
+      },
+      {
+        "name": "id",
+        "type": "INTEGER",
+        "nullable": false
+      },
+      {
+        "name": "src_path",
+        "type": "VARCHAR",
+        "nullable": false
+      }
+    ],
+    "foreign_keys": [],
+    "unique_constraints": []
+  },
   "libraries": {
     "columns": [
       {

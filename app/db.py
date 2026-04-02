@@ -140,6 +140,34 @@ class User(UserMixin, db.Model):
         elif access == 'backup':
             return self.has_backup_access()
 
+class IgnoredEvent(db.Model):
+    """File events the watcher should ignore (written by worker before move/delete)."""
+    __tablename__ = 'ignored_events'
+    id = db.Column(db.Integer, primary_key=True)
+    src_path = db.Column(db.String, nullable=False)
+    dest_path = db.Column(db.String, nullable=False, default='')
+
+
+def add_ignored_event(src_path, dest_path=''):
+    db.session.add(IgnoredEvent(src_path=src_path, dest_path=dest_path))
+    db.session.commit()
+
+
+def pop_ignored_event(src_path=None, dest_path=None):
+    """Remove and return True if a matching ignored event exists."""
+    query = IgnoredEvent.query
+    if src_path is not None:
+        query = query.filter_by(src_path=src_path)
+    if dest_path is not None:
+        query = query.filter_by(dest_path=dest_path)
+    event = query.first()
+    if event:
+        db.session.delete(event)
+        db.session.commit()
+        return True
+    return False
+
+
 def init_db(app):
     import tasks  # noqa: F401 — ensure Task model is registered before create_all
     with app.app_context():
