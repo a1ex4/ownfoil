@@ -132,18 +132,18 @@ def set_waiting_for_children():
         db.session.commit()
 
 
-def on_task_completed(task):
+def on_task_completed(task_id, parent_id):
     """Called by the worker after any task completes. Updates parent progress and checks for completion."""
-    if not task.parent_id:
+    if not parent_id:
         return
-    parent = db.session.get(Task, task.parent_id)
+    parent = db.session.get(Task, parent_id)
     if parent:
         total = parent.children.count()
         done = parent.children.filter(Task.status.in_(['completed', 'failed'])).count()
         parent.completion_pct = int(done * 100 / total) if total else 0
         logger.debug(f"Task {parent.id} ({parent.task_name}) progress: {done}/{total} children — {parent.completion_pct}%")
         db.session.commit()
-    _try_complete_parent(task.parent_id)
+    _try_complete_parent(parent_id)
 
 
 def _try_complete_parent(parent_id):
