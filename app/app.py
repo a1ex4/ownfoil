@@ -398,7 +398,6 @@ def set_scheduler_settings_api():
 @app.post('/api/settings/worker')
 @access_required('admin')
 def set_worker_settings_api():
-    import os
     data = request.json
     count = data.get('count')
     if count is not None:
@@ -417,7 +416,6 @@ def set_worker_settings_api():
 @app.get('/api/settings/worker-info')
 @access_required('admin')
 def get_worker_info():
-    import os
     return jsonify({'max_workers': os.cpu_count() or 1})
 
 @app.post('/api/upload')
@@ -603,7 +601,6 @@ if __name__ == '__main__':
 
     # Read initial worker count
     initial_count = app_settings.get('worker', {}).get('count', 1)
-    import os
     max_workers = os.cpu_count() or 1
     initial_count = max(1, min(initial_count, max_workers))
 

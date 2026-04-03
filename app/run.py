@@ -82,10 +82,6 @@ class WorkerPool:
     def count(self):
         return len(self.workers)
 
-    @property
-    def pids(self):
-        return [proc.pid for proc, _ in self.workers.values()]
-
 
 def _watch_settings(pool, config_file, check_interval=2.0, stop_event=None):
     """Thread that monitors settings.yaml and adjusts worker pool size."""
