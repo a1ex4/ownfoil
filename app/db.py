@@ -360,9 +360,9 @@ def remove_file_from_apps(file_id):
     file_obj = get_file_from_db(file_id)
     
     if file_obj:
-        # Get all apps associated with this file using the many-to-many relationship
-        associated_apps = file_obj.apps
-        
+        # Snapshot the list — iterating file_obj.apps while removing mutates it
+        associated_apps = list(file_obj.apps)
+
         for app in associated_apps:
             # Remove the file from the app's files relationship
             app.files.remove(file_obj)
