@@ -47,6 +47,7 @@ class Task(db.Model):
     output_json = db.Column(db.Text)
     exit_code = db.Column(db.Integer)
     error_message = db.Column(db.Text)
+    run_after = db.Column(db.DateTime, nullable=True)
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.datetime.utcnow)
     started_at = db.Column(db.DateTime)
     completed_at = db.Column(db.DateTime)
@@ -123,7 +124,7 @@ def _try_complete_parent(parent_id):
             return
 
         # All children done — mark parent complete
-        now = datetime.datetime.utcnow().isoformat()
+        now = datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
         cursor.execute(
             "UPDATE tasks SET status = 'completed', completion_pct = 100, exit_code = 0, completed_at = ? WHERE id = ?",
             (now, parent_id)
@@ -151,11 +152,12 @@ def _try_complete_parent(parent_id):
 # --- Startup cleanup ---
 
 def cleanup_tasks():
-    """Startup cleanup: remove completed tasks and fail stale running tasks."""
+    """Startup cleanup: remove completed/scheduled tasks and fail stale running tasks."""
     # Remove completed tasks
-    completed = Task.query.filter_by(status='completed').count()
-    if completed:
-        Task.query.filter_by(status='completed').delete()
+    Task.query.filter_by(status='completed').delete()
+
+    # Remove pending scheduled tasks — they'll be re-enqueued by init()
+    Task.query.filter(Task.status == 'pending', Task.run_after.isnot(None)).delete()
 
     # Mark running/waiting tasks as failed — they can't survive a restart
     stale = Task.query.filter(Task.status.in_(['running', 'waiting_for_children'])).all()
@@ -176,8 +178,12 @@ def compute_input_hash(input_data):
     return hashlib.sha256(canonical.encode('utf-8')).hexdigest()
 
 
-def enqueue_task(task_name, input_data=None):
-    """Enqueue a task. Returns (task, created) — created is False if a duplicate pending/running task exists."""
+def enqueue_task(task_name, input_data=None, run_after=None):
+    """Enqueue a task. Returns (task, created) — created is False if a duplicate exists.
+
+    When run_after is set, dedup only checks pending tasks (not running),
+    so a running task won't block scheduling its next occurrence.
+    """
     if task_name not in TASK_REGISTRY:
         raise ValueError(f"Unknown task: {task_name}")
 
@@ -185,13 +191,19 @@ def enqueue_task(task_name, input_data=None):
     input_hash = compute_input_hash(input_data)
     input_json = json.dumps(input_data, sort_keys=True)
 
+    # Scheduled tasks only dedup against pending; immediate tasks dedup against running too
+    if run_after:
+        dedup_statuses = "('pending', 'waiting_for_children')"
+    else:
+        dedup_statuses = "('pending', 'running', 'waiting_for_children')"
+
     connection = db.engine.raw_connection()
     try:
         cursor = connection.cursor()
         cursor.execute("BEGIN IMMEDIATE")
 
         cursor.execute(
-            "SELECT id FROM tasks WHERE task_name = ? AND input_hash = ? AND status IN ('pending', 'running', 'waiting_for_children')",
+            f"SELECT id FROM tasks WHERE task_name = ? AND input_hash = ? AND status IN {dedup_statuses}",
             (task_name, input_hash)
         )
         existing = cursor.fetchone()
@@ -199,19 +211,66 @@ def enqueue_task(task_name, input_data=None):
         if existing:
             connection.commit()
             task = db.session.get(Task, existing[0])
+            logger.debug(f"Task '{task_name}' already exists (id={existing[0]}), skipping")
             return task, False
 
-        now = datetime.datetime.utcnow().isoformat()
+        now = datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
+        run_after_str = run_after.strftime('%Y-%m-%d %H:%M:%S') if run_after else None
         cursor.execute(
-            "INSERT INTO tasks (task_name, status, completion_pct, input_json, input_hash, created_at) "
-            "VALUES (?, 'pending', 0, ?, ?, ?)",
-            (task_name, input_json, input_hash, now)
+            "INSERT INTO tasks (task_name, status, completion_pct, input_json, input_hash, run_after, created_at) "
+            "VALUES (?, 'pending', 0, ?, ?, ?, ?)",
+            (task_name, input_json, input_hash, run_after_str, now)
         )
         new_id = cursor.lastrowid
         connection.commit()
 
+        if run_after:
+            local_run_after = run_after + (datetime.datetime.now() - datetime.datetime.utcnow())
+            schedule_info = f", run_after={local_run_after.strftime('%Y-%m-%d %H:%M:%S')}"
+        else:
+            schedule_info = ""
+        logger.debug(f"Enqueued task '{task_name}' (id={new_id}{schedule_info})")
         task = db.session.get(Task, new_id)
         return task, True
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
+
+
+def update_scheduled_task(task_name, run_after):
+    """Update run_after on a pending scheduled task, delete if None, or create if missing."""
+    connection = db.engine.raw_connection()
+    try:
+        cursor = connection.cursor()
+        cursor.execute("BEGIN IMMEDIATE")
+        if run_after is None:
+            cursor.execute(
+                "DELETE FROM tasks WHERE task_name = ? AND status = 'pending' AND run_after IS NOT NULL",
+                (task_name,)
+            )
+            logger.debug(f"Deleted scheduled task '{task_name}' (disabled)")
+        else:
+            cursor.execute(
+                "UPDATE tasks SET run_after = ? WHERE task_name = ? AND status = 'pending' AND run_after IS NOT NULL",
+                (run_after.strftime('%Y-%m-%d %H:%M:%S'), task_name)
+            )
+            if cursor.rowcount == 0:
+                # No existing scheduled task — create one
+                now = datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
+                input_hash = compute_input_hash({})
+                cursor.execute(
+                    "INSERT INTO tasks (task_name, status, completion_pct, input_json, input_hash, run_after, created_at) "
+                    "VALUES (?, 'pending', 0, '{}', ?, ?, ?)",
+                    (task_name, input_hash, run_after.strftime('%Y-%m-%d %H:%M:%S'), now)
+                )
+                local_ra = run_after + (datetime.datetime.now() - datetime.datetime.utcnow())
+                logger.debug(f"Created scheduled task '{task_name}' run_after={local_ra.strftime('%Y-%m-%d %H:%M:%S')}")
+            else:
+                local_ra = run_after + (datetime.datetime.now() - datetime.datetime.utcnow())
+                logger.debug(f"Updated scheduled task '{task_name}' run_after={local_ra.strftime('%Y-%m-%d %H:%M:%S')}")
+        connection.commit()
     except Exception:
         connection.rollback()
         raise
@@ -244,10 +303,16 @@ def update_titledb_task(**kwargs):
     import titledb
     from settings import load_settings
     from db import get_libraries
+    from utils import interval_string_to_timedelta
     settings = load_settings()
     titledb.update_titledb(settings)
     for lib in get_libraries():
         enqueue_task('scan_library', {'library_path': lib.path})
+    # Re-enqueue for next scheduled run
+    interval_str = settings.get('scheduler', {}).get('scan_interval', '12h')
+    delta = interval_string_to_timedelta(interval_str)
+    if delta:
+        enqueue_task('update_titledb', run_after=datetime.datetime.utcnow() + delta)
 
 
 @register_task('scan_library')

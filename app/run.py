@@ -1,4 +1,4 @@
-"""Production entrypoint — Gunicorn HTTP server + task worker + watcher + scheduler."""
+"""Production entrypoint — Gunicorn HTTP server + task worker pool."""
 import logging
 import os
 import sys
@@ -153,17 +153,17 @@ def main():
         mp_process._children = set()
 
     def post_worker_init(worker):
-        """Start watcher and scheduler inside the Gunicorn worker process."""
+        """Start watcher inside the Gunicorn worker process."""
         with app.app_context():
             from db import db
             db.engine.dispose()
         init()
 
     def worker_exit(server, worker):
-        """Clean shutdown of watcher and scheduler when Gunicorn worker exits."""
+        """Clean shutdown of watcher when Gunicorn worker exits."""
         from app import watcher
-        watcher.stop()
-        app.scheduler.shutdown()
+        if watcher:
+            watcher.stop()
 
     def on_exit(server):
         """Stop task worker pool when Gunicorn master exits."""
