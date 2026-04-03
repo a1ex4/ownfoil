@@ -52,26 +52,13 @@ class TaskWorker:
     def execute_task(self, task_id):
         from tasks import Task, get_registered_task, on_task_completed
         from db import db
+        import tasks as tasks_mod
 
         task = db.session.get(Task, task_id)
-        if not task:
-            logger.error(f"Task {task_id} not found")
-            return
-
         task_func = get_registered_task(task.task_name)
-        if not task_func:
-            task.status = 'failed'
-            task.error_message = f"No registered handler for task: {task.task_name}"
-            task.exit_code = 1
-            task.completed_at = datetime.datetime.utcnow()
-            parent_id = task.parent_id
-            db.session.commit()
-            on_task_completed(task_id, parent_id)
-            return
+        input_data = json.loads(task.input_json) if task.input_json else {}
 
         try:
-            import tasks as tasks_mod
-            input_data = json.loads(task.input_json) if task.input_json else {}
             tasks_mod._current_task_id = task_id
             result = task_func(**input_data)
             tasks_mod._current_task_id = None
@@ -80,46 +67,44 @@ class TaskWorker:
             db.session.expire(task)
             task = db.session.get(Task, task_id)
 
-            if task.status != 'waiting_for_children':
-                task.status = 'completed'
-                task.completion_pct = 100
-                task.exit_code = 0
-                task.output_json = json.dumps(result) if result else None
-                task.completed_at = datetime.datetime.utcnow()
-                parent_id = task.parent_id
+            if task.status == 'waiting_for_children':
+                return
+
+            task.status = 'completed'
+            task.completion_pct = 100
+            task.exit_code = 0
+            task.output_json = json.dumps(result) if result else None
+            task.completed_at = datetime.datetime.utcnow()
+            parent_id = task.parent_id
+            db.session.commit()
+            on_task_completed(task_id, parent_id)
+            # Delete completed non-parent tasks (parent+children are cleaned up in _try_complete_parent)
+            if not parent_id:
+                db.session.delete(task)
                 db.session.commit()
-                on_task_completed(task_id, parent_id)
-                # Delete completed non-parent tasks (parent+children are cleaned up in _try_complete_parent)
-                if not parent_id:
-                    task = db.session.get(Task, task_id)
-                    if task:
-                        db.session.delete(task)
-                        db.session.commit()
         except Exception as e:
             tasks_mod._current_task_id = None
             logger.error(f"Task {task_id} failed: {e}")
             db.session.rollback()
             task = db.session.get(Task, task_id)
-            if task:
-                task.status = 'failed'
-                task.error_message = str(e)
-                task.exit_code = 1
-                task.completed_at = datetime.datetime.utcnow()
-                parent_id = task.parent_id
-                db.session.commit()
-                on_task_completed(task_id, parent_id)
+            task.status = 'failed'
+            task.error_message = str(e)
+            task.exit_code = 1
+            task.completed_at = datetime.datetime.utcnow()
+            parent_id = task.parent_id
+            db.session.commit()
+            on_task_completed(task_id, parent_id)
 
     def run(self):
         with self.app.app_context():
-            wlog = logging.getLogger(f'worker-{self.worker_id}')
-            wlog.info(f"Worker started, polling every {self.poll_interval}s")
+            logger.info(f"Worker started, polling every {self.poll_interval}s")
             while not self.stop_event.is_set():
                 task_id = self.claim_task()
                 if task_id is not None:
                     self.execute_task(task_id)
                 else:
                     self.stop_event.wait(self.poll_interval)
-            wlog.info("Worker stopped")
+            logger.info("Worker stopped")
 
 
 def start_worker_process(stop_event, worker_id=1):

@@ -80,35 +80,11 @@ def create_child_task(parent_id, task_name, input_data=None):
     return child
 
 
-def complete_child_task(child, output=None, error=None):
-    """Mark a child task as completed or failed and update parent progress."""
-    now = datetime.datetime.utcnow()
-    if error:
-        child.status = 'failed'
-        child.error_message = str(error)
-        child.exit_code = 1
-    else:
-        child.status = 'completed'
-        child.exit_code = 0
-        child.output_json = json.dumps(output) if output else None
-    child.completed_at = now
-    child.completion_pct = 100
-    parent_id = child.parent_id
-    db.session.commit()
-
-    # Update parent progress atomically (handles multi-worker race)
-    if parent_id:
-        _try_complete_parent(parent_id)
-
-
 def set_waiting_for_children():
     """Mark the current task as waiting for its children to complete."""
-    if _current_task_id is None:
-        return
     task = db.session.get(Task, _current_task_id)
-    if task:
-        task.status = 'waiting_for_children'
-        db.session.commit()
+    task.status = 'waiting_for_children'
+    db.session.commit()
 
 
 def on_task_completed(task_id, parent_id):
@@ -140,7 +116,6 @@ def _try_complete_parent(parent_id):
         )
         done = cursor.fetchone()[0]
         pct = int(done * 100 / total) if total else 0
-        # logger.debug(f"Task {row[1]} progress: {done}/{total} — {pct}%")
 
         if done < total:
             cursor.execute("UPDATE tasks SET completion_pct = ? WHERE id = ?", (pct, parent_id))
@@ -161,9 +136,6 @@ def _try_complete_parent(parent_id):
         if continuation:
             input_data = json.loads(row[2])
             continuation(**input_data)
-            # logger.info(f"Parent task {parent_id} ({task_name}) completed, continuation executed")
-        # else:
-        #     logger.info(f"Parent task {parent_id} ({task_name}) completed")
 
         # Delete parent and its children
         Task.query.filter_by(parent_id=parent_id).delete()
@@ -184,7 +156,6 @@ def cleanup_tasks():
     completed = Task.query.filter_by(status='completed').count()
     if completed:
         Task.query.filter_by(status='completed').delete()
-        # logger.info(f"Removed {completed} completed tasks")
 
     # Mark running/waiting tasks as failed — they can't survive a restart
     stale = Task.query.filter(Task.status.in_(['running', 'waiting_for_children'])).all()
@@ -251,12 +222,6 @@ def enqueue_task(task_name, input_data=None):
 def get_task(task_id):
     return db.session.get(Task, task_id)
 
-
-def get_tasks(status=None, limit=50):
-    query = Task.query.order_by(Task.created_at.desc())
-    if status:
-        query = query.filter_by(status=status)
-    return query.limit(limit).all()
 
 
 # --- Titledb helper for tasks ---

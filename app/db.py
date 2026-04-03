@@ -1,10 +1,9 @@
-from flask import send_from_directory
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import create_engine
 from sqlalchemy import event
 from sqlalchemy.orm import joinedload
 from sqlalchemy.orm.exc import NoResultFound
-from sqlalchemy.dialects.sqlite import insert  # Use postgresql if using PostgreSQL
+from sqlalchemy.dialects.sqlite import insert
 from flask_migrate import Migrate, upgrade
 from alembic.runtime.migration import MigrationContext
 from alembic.config import Config
@@ -229,23 +228,6 @@ def update_file_path(library, old_path, new_path):
         db.session.rollback()  # Roll back the session in case of an error
         logger.error(f"An error occurred while updating the file path: {str(e)}")
 
-def get_all_titles_from_db():
-    results = Files.query.all()
-    return [to_dict(r) for r in results]
-
-def get_all_title_files(title_id):
-    title_id = title_id.upper()
-    results = Files.query.filter_by(title_id=title_id).all()
-    return [to_dict(r) for r in results]
-
-def get_all_files_with_identification(identification):
-    results = Files.query.filter_by(identification_type=identification).all()
-    return[to_dict(r)['filepath']  for r in results]
-
-def get_all_files_without_identification(identification):
-    results = Files.query.filter(Files.identification_type != identification).all()
-    return[to_dict(r)['filepath']  for r in results]
-
 def get_all_apps():
     apps_list = [
         {
@@ -296,20 +278,9 @@ def get_shop_files():
 def get_libraries():
     return Libraries.query.all()
 
-def get_libraries_path():
-    libraries = Libraries.query.all()
-    return [l.path for l in libraries]
-
 def add_library(library_path):
     stmt = insert(Libraries).values(path=library_path).on_conflict_do_nothing()
     db.session.execute(stmt)
-    db.session.commit()
-
-def delete_library(library):
-    if not (isinstance(library, int) or library.isdigit()):
-        library = get_library_id(library)
-        
-    db.session.delete(get_library(library))
     db.session.commit()
 
 def get_library(library_id):
@@ -366,16 +337,6 @@ def get_all_title_apps(title_id):
 def get_app_by_id_and_version(app_id, app_version):
     """Get app entry for a specific app_id and version (unique due to constraint)"""
     return Apps.query.filter_by(app_id=app_id, app_version=app_version).first()
-
-def get_app_files(app_id, app_version):
-    """Get all file_ids associated with a specific app_id and version"""
-    app = get_app_by_id_and_version(app_id, app_version)
-    return [f.id for f in app.files] if app else []
-
-def is_app_owned(app_id, app_version):
-    """Check if an app is owned (has at least one file associated with it)"""
-    app = get_app_by_id_and_version(app_id, app_version)
-    return app.owned if app else False
 
 def add_file_to_app(app_id, app_version, file_id):
     """Add a file to an existing app using many-to-many relationship"""
@@ -438,41 +399,6 @@ def remove_titles_without_owned_apps():
             titles_removed += 1
     
     return titles_removed
-
-def delete_files_by_library(library_path):
-    success = True
-    errors = []
-    try:
-        # Find all files with the given library
-        files_to_delete = Files.query.filter_by(library=library_path).all()
-        
-        # Update Apps table before deleting files
-        total_apps_updated = 0
-        for file in files_to_delete:
-            apps_updated = remove_file_from_apps(file.id)
-            total_apps_updated += apps_updated
-        
-        # Delete each file
-        for file in files_to_delete:
-            db.session.delete(file)
-        
-        # Commit the changes
-        db.session.commit()
-        
-        logger.info(f"All entries with library '{library_path}' have been deleted.")
-        if total_apps_updated > 0:
-            logger.info(f"Updated {total_apps_updated} app entries to remove library file references.")
-        return success, errors
-    except Exception as e:
-        # If there's an error, rollback the session
-        db.session.rollback()
-        logger.error(f"An error occurred: {e}")
-        success = False
-        errors.append({
-            'path': 'library/paths',
-            'error': f"An error occurred: {e}"
-        })
-        return success, errors
 
 def delete_file_by_filepath(filepath):
     try:
