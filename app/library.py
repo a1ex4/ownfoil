@@ -167,24 +167,23 @@ def remove_library_complete(app, watcher, path):
             # Get all file IDs from this library before deletion
             file_ids = [f.id for f in library.files]
             
-            # Update Apps table to remove file references and update ownership
-            total_apps_updated = 0
+            # Remove file-app associations
             for file_id in file_ids:
-                apps_updated = remove_file_from_apps(file_id)
-                total_apps_updated += apps_updated
-            
-            # Remove titles that no longer have any owned apps
-            titles_removed = remove_titles_without_owned_apps()
-            
+                remove_file_from_apps(file_id)
+
             # Delete library (cascade will delete files automatically)
             db.session.delete(library)
             db.session.commit()
-            
+
+            # Clean up orphaned apps and titles
+            apps_removed = remove_apps_without_files()
+            titles_removed = remove_titles_without_apps()
+
             logger.info(f"Removed library: {path}")
-            if total_apps_updated > 0:
-                logger.info(f"Updated {total_apps_updated} app entries to remove library file references.")
+            if apps_removed > 0:
+                logger.info(f"Removed {apps_removed} orphaned apps.")
             if titles_removed > 0:
-                logger.info(f"Removed {titles_removed} titles with no owned apps.")
+                logger.info(f"Removed {titles_removed} orphaned titles.")
         
         # Remove from settings
         success, errors = delete_library_path_from_settings(path)
