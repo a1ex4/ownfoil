@@ -388,16 +388,35 @@ def has_owned_apps(title_id):
     return owned_apps is not None
 
 def remove_titles_without_owned_apps():
-    """Remove titles that have no owned apps"""
+    """Remove titles that have no owned apps."""
     titles_removed = 0
-    titles = get_all_titles()
-    
-    for title in titles:
+    for title in get_all_titles():
         if not has_owned_apps(title.title_id):
             logger.debug(f"Removing title {title.title_id} - no owned apps remaining")
             db.session.delete(title)
             titles_removed += 1
-    
+    if titles_removed:
+        db.session.commit()
+    return titles_removed
+
+def remove_apps_without_files():
+    """Remove apps that have no associated files."""
+    apps_removed = Apps.query.filter(~Apps.files.any()).delete(synchronize_session='fetch')
+    if apps_removed:
+        db.session.commit()
+        logger.debug(f"Removed {apps_removed} apps with no associated files.")
+    return apps_removed
+
+def remove_titles_without_apps():
+    """Remove titles that have no apps."""
+    titles_removed = 0
+    for title in get_all_titles():
+        if not Apps.query.filter_by(title_id=title.id).first():
+            logger.debug(f"Removing title {title.title_id} - no apps remaining")
+            db.session.delete(title)
+            titles_removed += 1
+    if titles_removed:
+        db.session.commit()
     return titles_removed
 
 def delete_file_by_filepath(filepath):
