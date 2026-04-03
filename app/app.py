@@ -1,6 +1,6 @@
+import datetime
 from flask import Flask, render_template, request, redirect, url_for, jsonify, send_from_directory, Response
 from flask_login import LoginManager
-from scheduler import init_scheduler, validate_interval_string
 from functools import wraps
 from file_watcher import Watcher
 import threading
@@ -8,17 +8,16 @@ import logging
 import sys
 import copy
 import flask.cli
-from datetime import timedelta
 flask.cli.show_server_banner = lambda *args: None
 from constants import *
 from settings import *
 from db import *
 from shop import *
 from auth import *
-import titles as titles_lib
 from utils import *
 from library import *
-import titledb
+import json
+import tasks as tasks_mod
 import os
 from clients import CyberFoilClient, TinfoilClient, SphairaClient
 
@@ -40,11 +39,9 @@ def init():
     library_paths = app_settings['library']['paths']
     init_libraries(app, watcher, library_paths)
 
-    # Initialize and schedule jobs
-    logger.info('Initializing Scheduler...')
-    init_scheduler(app)
-    scan_interval_str = app_settings.get('scheduler', {}).get('scan_interval', '12h')
-    schedule_update_and_scan_job(app, scan_interval_str, run_first=True, run_once=True)
+    # Enqueue initial titledb update (re-enqueues itself on completion)
+    with app.app_context():
+        tasks_mod.enqueue_task('update_titledb')
 
 os.makedirs(CONFIG_DIR, exist_ok=True)
 os.makedirs(DATA_DIR, exist_ok=True)
@@ -53,12 +50,6 @@ os.makedirs(DATA_DIR, exist_ok=True)
 app_settings = {}
 watcher = None
 watcher_thread = None
-# Create a global variable and lock for scan_in_progress
-scan_in_progress = False
-scan_lock = threading.Lock()
-# Global flag for titledb update status
-is_titledb_update_running = False
-titledb_update_lock = threading.Lock()
 
 # Configure logging
 formatter = ColoredFormatter(
@@ -90,45 +81,46 @@ def load_user(user_id):
 
 def reload_conf():
     global app_settings
-    global watcher
     app_settings = load_settings()
 
 def on_library_change(events):
-    # TODO refactor: group modified and created together
+    """Enqueue individual tasks per file event, skipping ignored events."""
     with app.app_context():
-        created_events = [e for e in events if e.type == 'created']
-        modified_events = [e for e in events if e.type != 'created']
-
-        for event in modified_events:
+        for event in events:
             if event.type == 'moved':
-                if file_exists_in_db(event.src_path):
-                    # update the path
-                    update_file_path(event.directory, event.src_path, event.dest_path)
-                else:
-                    # add to the database
-                    event.src_path = event.dest_path
-                    created_events.append(event)
-
+                if pop_ignored_event(src_path=event.src_path, dest_path=event.dest_path):
+                    continue
+                tasks_mod.enqueue_task('handle_file_moved', {
+                    'library_path': event.directory,
+                    'src_path': event.src_path,
+                    'dest_path': event.dest_path,
+                })
             elif event.type == 'deleted':
-                # delete the file from library if it exists
-                delete_file_by_filepath(event.src_path)
-
+                if pop_ignored_event(src_path=event.src_path, dest_path=''):
+                    continue
+                # Also check if this delete is part of a move (dest_path != '')
+                if pop_ignored_event(src_path=event.src_path):
+                    continue
+                tasks_mod.enqueue_task('handle_file_deleted', {
+                    'filepath': event.src_path,
+                })
+            elif event.type == 'created':
+                if pop_ignored_event(dest_path=event.src_path):
+                    continue
+                tasks_mod.enqueue_task('handle_file_added', {
+                    'library_path': event.directory,
+                    'filepath': event.src_path,
+                })
             elif event.type == 'modified':
-                # can happen if file copy has started before the app was running
-                add_files_to_library(event.directory, [event.src_path])
+                tasks_mod.enqueue_task('handle_file_added', {
+                    'library_path': event.directory,
+                    'filepath': event.src_path,
+                })
 
-        if created_events:
-            directories = list(set(e.directory for e in created_events))
-            for library_path in directories:
-                new_files = [e.src_path for e in created_events if e.directory == library_path]
-                add_files_to_library(library_path, new_files)
-
-    post_library_change()
-
-def create_app():
+def create_app(db_uri=None):
     app = Flask(__name__)
     app.url_map.strict_slashes = False  # Disable automatic trailing slash redirects globally, needed for Sphaira
-    app.config["SQLALCHEMY_DATABASE_URI"] = OWNFOIL_DB
+    app.config["SQLALCHEMY_DATABASE_URI"] = db_uri or OWNFOIL_DB
     # TODO: generate random secret_key
     app.config['SECRET_KEY'] = '8accb915665f11dfa15c2db1a4e8026905f57716'
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
@@ -304,8 +296,7 @@ def set_titles_settings_api():
     if region != app_settings['titles']['region'] or language != app_settings['titles']['language']:
         set_titles_settings(region, language)
         reload_conf()
-        titledb.update_titledb(app_settings)
-        post_library_change()
+        tasks_mod.enqueue_task('update_titledb')
 
     resp = {
         'success': True,
@@ -334,7 +325,7 @@ def library_paths_api():
         success, errors = add_library_complete(app, watcher, data['path'])
         if success:
             reload_conf()
-            post_library_change()
+            tasks_mod.enqueue_task('scan_library', {'library_path': data['path']})
         resp = {
             'success': success,
             'errors': errors
@@ -351,7 +342,7 @@ def library_paths_api():
         success, errors = remove_library_complete(app, watcher, data['path'])
         if success:
             reload_conf()
-            post_library_change()
+            tasks_mod.enqueue_task('update_titles')
         resp = {
             'success': success,
             'errors': errors
@@ -364,7 +355,7 @@ def set_library_management_settings_api():
     data = request.json
     set_library_management_settings(data)
     reload_conf()
-    post_library_change()
+    tasks_mod.enqueue_task('organize_library')
     resp = {
         'success': True,
         'errors': []
@@ -374,6 +365,7 @@ def set_library_management_settings_api():
 @app.post('/api/settings/scheduler')
 @access_required('admin')
 def set_scheduler_settings_api():
+    from utils import interval_string_to_timedelta
     data = request.json
     scan_interval_str = data.get('scan_interval')
 
@@ -389,17 +381,34 @@ def set_scheduler_settings_api():
     reload_conf()
 
     if scan_interval_str is not None:
-        try:
-            current_interval_str = app_settings.get('scheduler', {}).get('scan_interval', '12h')
-            schedule_update_and_scan_job(app, current_interval_str, run_first=False)
-        except Exception as e:
-            logger.error(f"Error updating scheduler: {e}")
-            return jsonify({
-                'success': False,
-                'errors': [{'path': 'scheduler', 'error': str(e)}]
-            })
+        delta = interval_string_to_timedelta(scan_interval_str)
+        run_after = datetime.datetime.utcnow() + delta if delta else None
+        tasks_mod.update_scheduled_task('update_titledb', run_after)
 
     return jsonify({'success': True, 'errors': []})
+
+@app.post('/api/settings/worker')
+@access_required('admin')
+def set_worker_settings_api():
+    data = request.json
+    count = data.get('count')
+    if count is not None:
+        try:
+            count = int(count)
+        except (TypeError, ValueError):
+            return jsonify({'success': False, 'errors': [{'path': 'worker/count', 'error': 'Must be an integer'}]})
+        max_workers = os.cpu_count() or 1
+        if count < 1 or count > max_workers:
+            return jsonify({'success': False, 'errors': [{'path': 'worker/count', 'error': f'Must be between 1 and {max_workers}'}]})
+        data['count'] = count
+    set_worker_settings(data)
+    reload_conf()
+    return jsonify({'success': True, 'errors': []})
+
+@app.get('/api/settings/worker-info')
+@access_required('admin')
+def get_worker_info():
+    return jsonify({'max_workers': os.cpu_count() or 1})
 
 @app.post('/api/upload')
 @access_required('admin')
@@ -415,7 +424,8 @@ def upload_file():
             logger.info(f'Validating {file.filename}...')
             valid_keys, missing_keys, corrupt_keys = load_keys(KEYS_FILE)
             if valid_keys:
-                post_library_change()
+                for lib in get_libraries():
+                    tasks_mod.enqueue_task('identify_library', {'library_path': lib.path})
             else:
                 logger.warning(f'Invalid keys from {file.filename}')
             success = True
@@ -461,141 +471,134 @@ def serve_game(id):
     return send_from_directory(filedir, filename)
 
 
-@debounce(10, key='post_library_change')
-def post_library_change():
-    with app.app_context():
-        titles_lib.load_titledb()
-        process_library_identification(app)
-        add_missing_apps_to_db()
-        # remove missing files
-        remove_missing_files_from_db()
-        update_titles() # Ensure titles are updated after identification
-        process_library_organization(app, watcher) # Pass the watcher instance to skip organizer move/delete events
-        # The process_library_identification already handles updating titles and generating library
-        # So, we just need to ensure titles_library is updated from the generated library
-        generate_library()
-        titles_lib.identification_in_progress_count -= 1
-        titles_lib.unload_titledb()
 
 @app.post('/api/library/scan')
 @access_required('admin')
 def scan_library_api():
     data = request.json
-    path = data['path']
-    success = True
-    errors = []
+    path = data.get('path')
+    if path:
+        tasks_mod.enqueue_task('scan_library', {'library_path': path})
+    else:
+        for lib in get_libraries():
+            tasks_mod.enqueue_task('scan_library', {'library_path': lib.path})
+    return jsonify({'success': True, 'errors': []})
 
-    global scan_in_progress
-    with scan_lock:
-        if scan_in_progress:
-            logger.info('Skipping scan_library_api call: Scan already in progress')
-            return {'success': False, 'errors': []}
-    # Set the scan status to in progress
-    scan_in_progress = True
 
+# --- Task Queue API ---
+
+@app.post('/api/tasks')
+@access_required('admin')
+def enqueue_task_api():
+    data = request.json
+    task_name = data.get('task_name')
+    input_data = data.get('input', {})
     try:
-        if path is None:
-            scan_library()
-        else:
-            scan_library_path(path)
-    except Exception as e:
-        errors.append(e)
-        success = False
-        logger.error(f"Error during library scan: {e}")
-    finally:
-        with scan_lock:
-            scan_in_progress = False
+        task, created = tasks_mod.enqueue_task(task_name, input_data)
+        return jsonify({
+            'success': True,
+            'task_id': task.id,
+            'created': created,
+            'status': task.status,
+        }), 201 if created else 200
+    except ValueError as e:
+        return jsonify({'success': False, 'error': str(e)}), 400
 
-    post_library_change()
-    resp = {
-        'success': success,
-        'errors': errors
-    } 
-    return jsonify(resp)
+@app.get('/api/tasks')
+@access_required('admin')
+def list_tasks_api():
+    """List top-level tasks (excludes children unless ?include_children=true)."""
+    status = request.args.get('status')
+    limit = request.args.get('limit', 50, type=int)
+    include_children = request.args.get('include_children', 'false').lower() == 'true'
+    query = tasks_mod.Task.query.order_by(tasks_mod.Task.created_at.desc())
+    if not include_children:
+        query = query.filter(tasks_mod.Task.parent_id.is_(None))
+    if status:
+        query = query.filter_by(status=status)
+    task_list = query.limit(limit).all()
+    return jsonify({
+        'tasks': [{
+            'id': t.id,
+            'task_name': t.task_name,
+            'status': t.status,
+            'completion_pct': t.completion_pct,
+            'exit_code': t.exit_code,
+            'error_message': t.error_message,
+            'created_at': t.created_at.isoformat() if t.created_at else None,
+            'started_at': t.started_at.isoformat() if t.started_at else None,
+            'completed_at': t.completed_at.isoformat() if t.completed_at else None,
+        } for t in task_list]
+    })
 
+@app.get('/api/tasks/<int:task_id>')
+@access_required('admin')
+def get_task_api(task_id):
+    task = tasks_mod.get_task(task_id)
+    if not task:
+        return jsonify({'error': 'Task not found'}), 404
+    children = [{
+        'id': c.id,
+        'task_name': c.task_name,
+        'status': c.status,
+        'input': json.loads(c.input_json) if c.input_json else {},
+        'exit_code': c.exit_code,
+        'error_message': c.error_message,
+        'completed_at': c.completed_at.isoformat() if c.completed_at else None,
+    } for c in task.children.all()]
 
-# @app.before_request
-# def before_request():
-#     # print request headers for debugging
-#     logger.debug(f"Incoming request: {request.method} {request.path}")
-#     for header, value in request.headers:
-#         logger.debug(f"Header: {header} = {value}")
-
-def scan_library():
-    logger.info(f'Scanning whole library ...')
-    libraries = get_libraries()
-    for library in libraries:
-        scan_library_path(library.path) # Only scan, identification will be done globally
-
-def update_and_scan_job():
-    """Combined job: updates TitleDB then scans library"""
-    logger.info("Running update job (TitleDB update and library scan)...")
-    global scan_in_progress
-    
-    # Update TitleDB with locking
-    with titledb_update_lock:
-        is_titledb_update_running = True
-    
-    logger.info("Starting TitleDB update...")
-    try:
-        settings = load_settings()
-        titledb.update_titledb(settings)
-        logger.info("TitleDB update completed.")
-    except Exception as e:
-        logger.error(f"Error during TitleDB update: {e}")
-    finally:
-        with titledb_update_lock:
-            is_titledb_update_running = False
-    
-    # Check if update is still running before scanning
-    with titledb_update_lock:
-        if is_titledb_update_running:
-            logger.info("Skipping library scan: TitleDB update still in progress.")
-            return
-    
-    # Scan library with locking
-    logger.info("Starting library scan...")
-    with scan_lock:
-        if scan_in_progress:
-            logger.info('Skipping library scan: scan already in progress.')
-            return
-        scan_in_progress = True
-    
-    try:
-        scan_library()
-        post_library_change()
-        logger.info("Library scan completed.")
-    except Exception as e:
-        logger.error(f"Error during library scan: {e}")
-    finally:
-        with scan_lock:
-            scan_in_progress = False
-    
-    logger.info("Update job completed.")
-
-def schedule_update_and_scan_job(app: Flask, interval_str: str, run_first: bool = True, run_once: bool = False):
-    """Schedule or update the update_and_scan job"""
-    app.scheduler.update_job_interval(
-        job_id='update_db_and_scan',
-        interval_str=interval_str,
-        func=update_and_scan_job,
-        run_first=run_first,
-        run_once=run_once
-    )
-
+    return jsonify({
+        'id': task.id,
+        'task_name': task.task_name,
+        'status': task.status,
+        'completion_pct': task.completion_pct,
+        'input': json.loads(task.input_json) if task.input_json else {},
+        'output': json.loads(task.output_json) if task.output_json else None,
+        'exit_code': task.exit_code,
+        'error_message': task.error_message,
+        'created_at': task.created_at.isoformat() if task.created_at else None,
+        'started_at': task.started_at.isoformat() if task.started_at else None,
+        'completed_at': task.completed_at.isoformat() if task.completed_at else None,
+        'children': children,
+    })
 
 if __name__ == '__main__':
+    import threading
+    from constants import CONFIG_FILE
+    from run import WorkerPool, _watch_settings
+
     logger.info('Starting initialization of Ownfoil...')
     init_db(app)
     init_users(app)
+    with app.app_context():
+        from tasks import cleanup_tasks
+        cleanup_tasks()
     init()
+
+    # Read initial worker count
+    initial_count = app_settings.get('worker', {}).get('count', 1)
+    max_workers = os.cpu_count() or 1
+    initial_count = max(1, min(initial_count, max_workers))
+
+    # Start worker pool
+    pool = WorkerPool(initial_count=initial_count)
+
+    # Start settings watcher thread
+    watcher_stop = threading.Event()
+    settings_watcher = threading.Thread(
+        target=_watch_settings,
+        args=(pool, CONFIG_FILE, 2.0, watcher_stop),
+        daemon=True,
+    )
+    settings_watcher.start()
+
     logger.info('Initialization steps done, starting server...')
     app.run(debug=False, use_reloader=False, host="0.0.0.0", port=8465)
-    # Shutdown server
+
+    # Shutdown
     logger.info('Shutting down server...')
+    watcher_stop.set()
+    pool.shutdown()
     watcher.stop()
     watcher_thread.join()
     logger.debug('Watcher thread terminated.')
-    # Shutdown scheduler
-    app.scheduler.shutdown()
-    logger.debug('Scheduler terminated.')

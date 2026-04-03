@@ -30,7 +30,7 @@ def sanitize_filename(name, windows_compatible=False):
 
     return sanitized
 
-def organize_file(file_obj, library_path, organizer_settings, watcher):
+def organize_file(file_obj, library_path, organizer_settings):
     try:
         templates = organizer_settings['templates']
         
@@ -100,9 +100,8 @@ def organize_file(file_obj, library_path, organizer_settings, watcher):
         logger.info(f'Organizing file: {file_obj.filename}')
         try:
             # Add the move event to the ignored list before performing the move
-            with watcher.event_handler.ignored_events_lock:
-                watcher.event_handler.ignored_events_tuples.add((current_filepath, final_new_full_path))
-            
+            add_ignored_event(current_filepath, final_new_full_path)
+
             shutil.move(current_filepath, final_new_full_path)
             logger.info(f"Moved '{current_filepath}' to '{final_new_full_path}'")
             
@@ -110,14 +109,11 @@ def organize_file(file_obj, library_path, organizer_settings, watcher):
             # Get the library path from the library ID
             library_path_str = get_library_path(file_obj.library_id)
             update_file_path(library_path_str, current_filepath, final_new_full_path)
-            # logger.info(f"Updated database for file '{current_filepath}' to '{final_new_full_path}'")
 
         except (shutil.Error, OSError) as e:
             logger.error(f"Error moving file from '{current_filepath}' to '{final_new_full_path}': {e}")
-            # If an error occurs, ensure the event is removed from the ignored list
-            with watcher.event_handler.ignored_events_lock:
-                if (current_filepath, final_new_full_path) in watcher.event_handler.ignored_events_tuples:
-                    watcher.event_handler.ignored_events_tuples.remove((current_filepath, final_new_full_path))
+            # If an error occurs, remove from the ignored list
+            pop_ignored_event(src_path=current_filepath, dest_path=final_new_full_path)
         # No finally block needed for removing from ignored_move_events, as it's removed by the watchdog handler
 
     except Exception as e:
@@ -171,24 +167,23 @@ def remove_library_complete(app, watcher, path):
             # Get all file IDs from this library before deletion
             file_ids = [f.id for f in library.files]
             
-            # Update Apps table to remove file references and update ownership
-            total_apps_updated = 0
+            # Remove file-app associations
             for file_id in file_ids:
-                apps_updated = remove_file_from_apps(file_id)
-                total_apps_updated += apps_updated
-            
-            # Remove titles that no longer have any owned apps
-            titles_removed = remove_titles_without_owned_apps()
-            
+                remove_file_from_apps(file_id)
+
             # Delete library (cascade will delete files automatically)
             db.session.delete(library)
             db.session.commit()
-            
+
+            # Clean up orphaned apps and titles
+            apps_removed = remove_apps_without_files()
+            titles_removed = remove_titles_without_apps()
+
             logger.info(f"Removed library: {path}")
-            if total_apps_updated > 0:
-                logger.info(f"Updated {total_apps_updated} app entries to remove library file references.")
+            if apps_removed > 0:
+                logger.info(f"Removed {apps_removed} orphaned apps.")
             if titles_removed > 0:
-                logger.info(f"Removed {titles_removed} titles with no owned apps.")
+                logger.info(f"Removed {titles_removed} orphaned titles.")
         
         # Remove from settings
         success, errors = delete_library_path_from_settings(path)
@@ -257,25 +252,19 @@ def add_files_to_library(library, files):
         )
         db.session.add(new_file)
 
+        try:
+            db.session.flush()
+        except Exception:
+            # Another worker already added this file concurrently
+            db.session.rollback()
+            continue
+
         # Commit every 100 files to avoid excessive memory use
         if (n + 1) % 100 == 0:
             db.session.commit()
 
     # Final commit
     db.session.commit()
-
-def scan_library_path(library_path):
-    library_id = get_library_id(library_path)
-    logger.info(f'Scanning library path {library_path} ...')
-    if not os.path.isdir(library_path):
-        logger.warning(f'Library path {library_path} does not exists.')
-        return
-    _, files = titles_lib.getDirsAndFiles(library_path)
-
-    filepaths_in_library = get_library_file_paths(library_id)
-    new_files = [f for f in files if f not in filepaths_in_library]
-    add_files_to_library(library_id, new_files)
-    set_library_scan_time(library_id)
 
 def get_files_to_identify(library_id):
     non_identified_files = get_all_non_identified_files_from_library(library_id)
@@ -283,96 +272,6 @@ def get_files_to_identify(library_id):
         files_to_identify_with_cnmt = get_files_with_identification_from_library(library_id, 'filename')
         non_identified_files = list(set(non_identified_files).union(files_to_identify_with_cnmt))
     return non_identified_files
-
-def identify_library_files(library):
-    if isinstance(library, int) or library.isdigit():
-        library_id = library
-        library_path = get_library_path(library_id)
-    else:
-        library_path = library
-        library_id = get_library_id(library_path)
-    files_to_identify = get_files_to_identify(library_id)
-    nb_to_identify = len(files_to_identify)
-    for n, file in enumerate(files_to_identify):
-        try:
-            file_id = file.id
-            filepath = file.filepath
-            filename = file.filename
-
-            if not os.path.exists(filepath):
-                logger.warning(f'Identifying file ({n+1}/{nb_to_identify}): {filename} no longer exists, deleting from database.')
-                Files.query.filter_by(id=file_id).delete(synchronize_session=False)
-                continue
-
-            logger.info(f'Identifying file ({n+1}/{nb_to_identify}): {filename}')
-            identification, success, file_contents, error = titles_lib.identify_file(filepath)
-            if success and file_contents and not error:
-                # find all unique Titles ID to add to the Titles db
-                title_ids = list(dict.fromkeys([c['title_id'] for c in file_contents]))
-
-                for title_id in title_ids:
-                    add_title_id_in_db(title_id)
-
-                nb_content = 0
-                for file_content in file_contents:
-                    logger.info(f'Identifying file ({n+1}/{nb_to_identify}) - Found content Title ID: {file_content["title_id"]} App ID : {file_content["app_id"]} Title Type: {file_content["type"]} Version: {file_content["version"]}')
-                    # now add the content to Apps
-                    title_id_in_db = get_title_id_db_id(file_content["title_id"])
-                    
-                    # Check if app already exists
-                    existing_app = get_app_by_id_and_version(
-                        file_content["app_id"],
-                        file_content["version"]
-                    )
-                    
-                    if existing_app:
-                        # Add file to existing app using many-to-many relationship
-                        add_file_to_app(file_content["app_id"], file_content["version"], file_id)
-                    else:
-                        # Create new app entry and add file using many-to-many relationship
-                        new_app = Apps(
-                            app_id=file_content["app_id"],
-                            app_version=file_content["version"],
-                            app_type=file_content["type"],
-                            owned=True,
-                            title_id=title_id_in_db
-                        )
-                        db.session.add(new_app)
-                        db.session.flush()  # Flush to get the app ID
-                        
-                        # Add the file to the new app
-                        file_obj = get_file_from_db(file_id)
-                        if file_obj:
-                            new_app.files.append(file_obj)
-                    
-                    nb_content += 1
-
-                if nb_content > 1:
-                    file.multicontent = True
-                file.nb_content = nb_content
-                file.identified = True
-            else:
-                logger.warning(f"Error identifying file {filename}: {error}")
-                file.identification_error = error
-                file.identified = False
-
-            file.identification_type = identification
-
-        except Exception as e:
-            logger.warning(f"Error identifying file {filename}: {e}")
-            file.identification_error = str(e)
-            file.identified = False
-
-        # and finally update the File with identification info
-        file.identification_attempts += 1
-        file.last_attempt = datetime.datetime.now()
-
-        # Commit every 100 files to avoid excessive memory use
-        if (n + 1) % 100 == 0:
-            db.session.commit()
-
-    # Final commit
-    db.session.commit()
 
 def add_missing_apps_to_db():
     logger.info('Adding missing apps to database...')
@@ -450,45 +349,7 @@ def add_missing_apps_to_db():
     db.session.commit()
     logger.info(f'Finished adding missing apps to database. Total apps added: {apps_added}')
 
-def process_library_identification(app):
-    logger.info(f"Starting library identification process for all libraries...")
-    try:
-        with app.app_context():
-            libraries = get_libraries()
-            for library in libraries:
-                identify_library_files(library.path)
-
-    except Exception as e:
-        logger.error(f"Error during library identification process: {e}")
-    logger.info(f"Library identification process for all libraries completed.")
-
-def process_library_organization(app, watcher):
-    logger.info(f"Starting library organization process for all libraries...")
-    try:
-        app_settings = load_settings()
-        organizer_settings = app_settings['library']['management']['organizer']
-        if organizer_settings['enabled']:
-            with app.app_context():
-                libraries = get_libraries()
-                for library in libraries:
-                    library_path = library.path
-                    # Get all identified files for the current library
-                    identified_files = Files.query.filter_by(library_id=library.id, identified=True).all()
-                    for file_obj in identified_files:
-                        organize_file(file_obj, library_path, organizer_settings, watcher)
-                    
-                    # Remove empty directories if needed
-                    if organizer_settings['remove_empty_folders']:
-                        delete_empty_folders(library_path)
-
-        # Remove outdated update files
-        if app_settings['library']['management']['delete_older_updates']:
-            remove_outdated_update_files(watcher)
-    except Exception as e:
-        logger.error(f"Error during library organization process: {e}")
-    logger.info(f"Library organization process for all libraries completed.")
-
-def remove_outdated_update_files(watcher):
+def remove_outdated_update_files():
     logger.info("Starting removal of outdated update files...")
     try:
         titles = get_all_titles()
@@ -533,8 +394,7 @@ def remove_outdated_update_files(watcher):
                                     if os.path.exists(file_obj.filepath):
                                         try:
                                             # Add the delete event to the ignored list before performing the remove
-                                            with watcher.event_handler.ignored_events_lock:
-                                                watcher.event_handler.ignored_events_tuples.add((file_obj.filepath, ""))
+                                            add_ignored_event(file_obj.filepath, '')
                                             os.remove(file_obj.filepath)
                                             logger.debug(f"Deleted physical file: {file_obj.filepath}")
                                             # Remove from database and update app owned status
@@ -542,10 +402,8 @@ def remove_outdated_update_files(watcher):
                                             remove_file_from_apps(file_obj.id)
                                         except OSError as e:
                                             logger.error(f"Error deleting physical file {file_obj.filepath}: {e}")
-                                            # If an error occurs, ensure the event is removed from the ignored list
-                                            with watcher.event_handler.ignored_events_lock:
-                                                if (file_obj.filepath, "") in watcher.event_handler.ignored_events_tuples:
-                                                    watcher.event_handler.ignored_events_tuples.remove((file_obj.filepath, ""))
+                                            # If an error occurs, remove from the ignored list
+                                            pop_ignored_event(src_path=file_obj.filepath, dest_path='')
                                     else:
                                         logger.warning(f"Physical file not found for deletion: {file_obj.filepath}")
                                     

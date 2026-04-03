@@ -14,3 +14,6 @@ data
 
 # pyenv
 .python-version
+
+.claude
+CLAUDE.local.md

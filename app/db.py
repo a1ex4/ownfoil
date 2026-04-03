@@ -1,10 +1,9 @@
-from flask import send_from_directory
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import create_engine
 from sqlalchemy import event
 from sqlalchemy.orm import joinedload
 from sqlalchemy.orm.exc import NoResultFound
-from sqlalchemy.dialects.sqlite import insert  # Use postgresql if using PostgreSQL
+from sqlalchemy.dialects.sqlite import insert
 from flask_migrate import Migrate, upgrade
 from alembic.runtime.migration import MigrationContext
 from alembic.config import Config
@@ -140,7 +139,36 @@ class User(UserMixin, db.Model):
         elif access == 'backup':
             return self.has_backup_access()
 
+class IgnoredEvent(db.Model):
+    """File events the watcher should ignore (written by worker before move/delete)."""
+    __tablename__ = 'ignored_events'
+    id = db.Column(db.Integer, primary_key=True)
+    src_path = db.Column(db.String, nullable=False)
+    dest_path = db.Column(db.String, nullable=False, default='')
+
+
+def add_ignored_event(src_path, dest_path=''):
+    db.session.add(IgnoredEvent(src_path=src_path, dest_path=dest_path))
+    db.session.commit()
+
+
+def pop_ignored_event(src_path=None, dest_path=None):
+    """Remove and return True if a matching ignored event exists."""
+    query = IgnoredEvent.query
+    if src_path is not None:
+        query = query.filter_by(src_path=src_path)
+    if dest_path is not None:
+        query = query.filter_by(dest_path=dest_path)
+    event = query.first()
+    if event:
+        db.session.delete(event)
+        db.session.commit()
+        return True
+    return False
+
+
 def init_db(app):
+    import tasks  # noqa: F401 — ensure Task model is registered before create_all
     with app.app_context():
         # Ensure foreign keys are enforced when the SQLite connection is opened
         @event.listens_for(db.engine, "connect")
@@ -200,23 +228,6 @@ def update_file_path(library, old_path, new_path):
         db.session.rollback()  # Roll back the session in case of an error
         logger.error(f"An error occurred while updating the file path: {str(e)}")
 
-def get_all_titles_from_db():
-    results = Files.query.all()
-    return [to_dict(r) for r in results]
-
-def get_all_title_files(title_id):
-    title_id = title_id.upper()
-    results = Files.query.filter_by(title_id=title_id).all()
-    return [to_dict(r) for r in results]
-
-def get_all_files_with_identification(identification):
-    results = Files.query.filter_by(identification_type=identification).all()
-    return[to_dict(r)['filepath']  for r in results]
-
-def get_all_files_without_identification(identification):
-    results = Files.query.filter(Files.identification_type != identification).all()
-    return[to_dict(r)['filepath']  for r in results]
-
 def get_all_apps():
     apps_list = [
         {
@@ -267,20 +278,9 @@ def get_shop_files():
 def get_libraries():
     return Libraries.query.all()
 
-def get_libraries_path():
-    libraries = Libraries.query.all()
-    return [l.path for l in libraries]
-
 def add_library(library_path):
     stmt = insert(Libraries).values(path=library_path).on_conflict_do_nothing()
     db.session.execute(stmt)
-    db.session.commit()
-
-def delete_library(library):
-    if not (isinstance(library, int) or library.isdigit()):
-        library = get_library_id(library)
-        
-    db.session.delete(get_library(library))
     db.session.commit()
 
 def get_library(library_id):
@@ -320,11 +320,15 @@ def get_title_id_db_id(title_id):
 
 def add_title_id_in_db(title_id):
     existing_title = Titles.query.filter_by(title_id=title_id).first()
-    
+
     if not existing_title:
-        new_title = Titles(title_id=title_id)
-        db.session.add(new_title)
-        db.session.commit()
+        try:
+            new_title = Titles(title_id=title_id)
+            db.session.add(new_title)
+            db.session.commit()
+        except Exception:
+            # Another worker inserted the same title concurrently
+            db.session.rollback()
 
 def get_all_title_apps(title_id):
     title = Titles.query.options(joinedload(Titles.apps)).filter_by(title_id=title_id).first()
@@ -334,25 +338,19 @@ def get_app_by_id_and_version(app_id, app_version):
     """Get app entry for a specific app_id and version (unique due to constraint)"""
     return Apps.query.filter_by(app_id=app_id, app_version=app_version).first()
 
-def get_app_files(app_id, app_version):
-    """Get all file_ids associated with a specific app_id and version"""
-    app = get_app_by_id_and_version(app_id, app_version)
-    return [f.id for f in app.files] if app else []
-
-def is_app_owned(app_id, app_version):
-    """Check if an app is owned (has at least one file associated with it)"""
-    app = get_app_by_id_and_version(app_id, app_version)
-    return app.owned if app else False
-
 def add_file_to_app(app_id, app_version, file_id):
     """Add a file to an existing app using many-to-many relationship"""
     app = get_app_by_id_and_version(app_id, app_version)
     if app:
         file_obj = get_file_from_db(file_id)
         if file_obj and file_obj not in app.files:
-            app.files.append(file_obj)
-            app.owned = True
-            db.session.commit()
+            try:
+                app.files.append(file_obj)
+                app.owned = True
+                db.session.commit()
+            except Exception:
+                # Another worker added the same file association concurrently
+                db.session.rollback()
             return True
     return False
 
@@ -362,9 +360,9 @@ def remove_file_from_apps(file_id):
     file_obj = get_file_from_db(file_id)
     
     if file_obj:
-        # Get all apps associated with this file using the many-to-many relationship
-        associated_apps = file_obj.apps
-        
+        # Snapshot the list — iterating file_obj.apps while removing mutates it
+        associated_apps = list(file_obj.apps)
+
         for app in associated_apps:
             # Remove the file from the app's files relationship
             app.files.remove(file_obj)
@@ -390,52 +388,36 @@ def has_owned_apps(title_id):
     return owned_apps is not None
 
 def remove_titles_without_owned_apps():
-    """Remove titles that have no owned apps"""
+    """Remove titles that have no owned apps."""
     titles_removed = 0
-    titles = get_all_titles()
-    
-    for title in titles:
+    for title in get_all_titles():
         if not has_owned_apps(title.title_id):
             logger.debug(f"Removing title {title.title_id} - no owned apps remaining")
             db.session.delete(title)
             titles_removed += 1
-    
+    if titles_removed:
+        db.session.commit()
     return titles_removed
 
-def delete_files_by_library(library_path):
-    success = True
-    errors = []
-    try:
-        # Find all files with the given library
-        files_to_delete = Files.query.filter_by(library=library_path).all()
-        
-        # Update Apps table before deleting files
-        total_apps_updated = 0
-        for file in files_to_delete:
-            apps_updated = remove_file_from_apps(file.id)
-            total_apps_updated += apps_updated
-        
-        # Delete each file
-        for file in files_to_delete:
-            db.session.delete(file)
-        
-        # Commit the changes
+def remove_apps_without_files():
+    """Remove apps that have no associated files."""
+    apps_removed = Apps.query.filter(~Apps.files.any()).delete(synchronize_session='fetch')
+    if apps_removed:
         db.session.commit()
-        
-        logger.info(f"All entries with library '{library_path}' have been deleted.")
-        if total_apps_updated > 0:
-            logger.info(f"Updated {total_apps_updated} app entries to remove library file references.")
-        return success, errors
-    except Exception as e:
-        # If there's an error, rollback the session
-        db.session.rollback()
-        logger.error(f"An error occurred: {e}")
-        success = False
-        errors.append({
-            'path': 'library/paths',
-            'error': f"An error occurred: {e}"
-        })
-        return success, errors
+        logger.debug(f"Removed {apps_removed} apps with no associated files.")
+    return apps_removed
+
+def remove_titles_without_apps():
+    """Remove titles that have no apps."""
+    titles_removed = 0
+    for title in get_all_titles():
+        if not Apps.query.filter_by(title_id=title.id).first():
+            logger.debug(f"Removing title {title.title_id} - no apps remaining")
+            db.session.delete(title)
+            titles_removed += 1
+    if titles_removed:
+        db.session.commit()
+    return titles_removed
 
 def delete_file_by_filepath(filepath):
     try:
