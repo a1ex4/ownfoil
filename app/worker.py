@@ -23,7 +23,9 @@ class TaskWorker:
             cursor = connection.cursor()
             cursor.execute("BEGIN IMMEDIATE")
             cursor.execute(
-                "SELECT id FROM tasks WHERE status = 'pending' ORDER BY created_at ASC LIMIT 1"
+                "SELECT id FROM tasks WHERE status = 'pending' "
+                "AND (run_after IS NULL OR run_after <= datetime('now')) "
+                "ORDER BY created_at ASC LIMIT 1"
             )
             row = cursor.fetchone()
             if row is None:
@@ -31,7 +33,7 @@ class TaskWorker:
                 return None
 
             task_id = row[0]
-            now = datetime.datetime.utcnow().isoformat()
+            now = datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
             cursor.execute(
                 "UPDATE tasks SET status = 'running', started_at = ? WHERE id = ? AND status = 'pending'",
                 (now, task_id)

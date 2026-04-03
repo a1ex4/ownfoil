@@ -26,6 +26,7 @@ def upgrade():
         sa.Column('output_json', sa.Text(), nullable=True),
         sa.Column('exit_code', sa.Integer(), nullable=True),
         sa.Column('error_message', sa.Text(), nullable=True),
+        sa.Column('run_after', sa.DateTime(), nullable=True),
         sa.Column('created_at', sa.DateTime(), nullable=False),
         sa.Column('started_at', sa.DateTime(), nullable=True),
         sa.Column('completed_at', sa.DateTime(), nullable=True),

@@ -1,6 +1,6 @@
+import datetime
 from flask import Flask, render_template, request, redirect, url_for, jsonify, send_from_directory, Response
 from flask_login import LoginManager
-from scheduler import init_scheduler, validate_interval_string
 from functools import wraps
 from file_watcher import Watcher
 import threading
@@ -8,7 +8,6 @@ import logging
 import sys
 import copy
 import flask.cli
-from datetime import timedelta
 flask.cli.show_server_banner = lambda *args: None
 from constants import *
 from settings import *
@@ -40,11 +39,9 @@ def init():
     library_paths = app_settings['library']['paths']
     init_libraries(app, watcher, library_paths)
 
-    # Initialize and schedule jobs
-    logger.info('Initializing Scheduler...')
-    init_scheduler(app)
-    scan_interval_str = app_settings.get('scheduler', {}).get('scan_interval', '12h')
-    schedule_update_and_scan_job(app, scan_interval_str, run_first=True, run_once=True)
+    # Enqueue initial titledb update (re-enqueues itself on completion)
+    with app.app_context():
+        tasks_mod.enqueue_task('update_titledb')
 
 os.makedirs(CONFIG_DIR, exist_ok=True)
 os.makedirs(DATA_DIR, exist_ok=True)
@@ -368,6 +365,7 @@ def set_library_management_settings_api():
 @app.post('/api/settings/scheduler')
 @access_required('admin')
 def set_scheduler_settings_api():
+    from utils import interval_string_to_timedelta
     data = request.json
     scan_interval_str = data.get('scan_interval')
 
@@ -383,15 +381,9 @@ def set_scheduler_settings_api():
     reload_conf()
 
     if scan_interval_str is not None:
-        try:
-            current_interval_str = app_settings.get('scheduler', {}).get('scan_interval', '12h')
-            schedule_update_and_scan_job(app, current_interval_str, run_first=False)
-        except Exception as e:
-            logger.error(f"Error updating scheduler: {e}")
-            return jsonify({
-                'success': False,
-                'errors': [{'path': 'scheduler', 'error': str(e)}]
-            })
+        delta = interval_string_to_timedelta(scan_interval_str)
+        run_after = datetime.datetime.utcnow() + delta if delta else None
+        tasks_mod.update_scheduled_task('update_titledb', run_after)
 
     return jsonify({'success': True, 'errors': []})
 
@@ -570,22 +562,6 @@ def get_task_api(task_id):
         'children': children,
     })
 
-def _enqueue_update_titledb():
-    """Scheduler callback — enqueues an update_titledb task."""
-    with app.app_context():
-        tasks_mod.enqueue_task('update_titledb')
-
-def schedule_update_and_scan_job(app: Flask, interval_str: str, run_first: bool = True, run_once: bool = False):
-    """Schedule or update the update_and_scan job."""
-    app.scheduler.update_job_interval(
-        job_id='update_db_and_scan',
-        interval_str=interval_str,
-        func=_enqueue_update_titledb,
-        run_first=run_first,
-        run_once=run_once
-    )
-
-
 if __name__ == '__main__':
     import threading
     from constants import CONFIG_FILE
@@ -626,5 +602,3 @@ if __name__ == '__main__':
     watcher.stop()
     watcher_thread.join()
     logger.debug('Watcher thread terminated.')
-    app.scheduler.shutdown()
-    logger.debug('Scheduler terminated.')
