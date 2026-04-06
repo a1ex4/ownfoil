@@ -1,9 +1,7 @@
 """Production entrypoint — Gunicorn HTTP server + task worker pool."""
 import logging
 import os
-import sys
 import threading
-import time
 from multiprocessing import Process, Event as MPEvent
 from gunicorn.app.base import BaseApplication
 
@@ -83,41 +81,15 @@ class WorkerPool:
         return len(self.workers)
 
 
-def _watch_settings(pool, config_file, check_interval=2.0, stop_event=None):
-    """Thread that monitors settings.yaml and adjusts worker pool size."""
-    import yaml
-    last_mtime = None
-    while not (stop_event and stop_event.is_set()):
-        try:
-            if os.path.exists(config_file):
-                mtime = os.path.getmtime(config_file)
-                if mtime != last_mtime:
-                    last_mtime = mtime
-                    with open(config_file, 'r') as f:
-                        settings = yaml.safe_load(f) or {}
-                    desired = settings.get('worker', {}).get('count', 1)
-                    max_workers = os.cpu_count() or 1
-                    desired = max(1, min(desired, max_workers))
-                    if desired != pool.count:
-                        logger.info(f'Settings changed: scaling workers from {pool.count} to {desired}')
-                        pool.scale(desired)
-        except Exception as e:
-            logger.error(f'Error watching settings: {e}')
-        if stop_event:
-            stop_event.wait(check_interval)
-        else:
-            time.sleep(check_interval)
-
-
 logger = logging.getLogger('main')
 
 
 def main():
+    import app as app_mod
     from app import app, init
     from db import init_db
     from auth import init_users
-    from constants import CONFIG_FILE
-    from settings import load_settings
+    from settings import get_settings
 
     logger.info('Starting initialization of Ownfoil...')
 
@@ -127,51 +99,29 @@ def main():
         from tasks import cleanup_tasks
         cleanup_tasks()
 
-    # Read initial worker count from settings
-    with app.app_context():
-        settings = load_settings()
-    initial_worker_count = settings.get('worker', {}).get('count', 1)
-    max_workers = os.cpu_count() or 1
-    initial_worker_count = max(1, min(initial_worker_count, max_workers))
-
-    # Start worker pool
-    master_pid = os.getpid()
-    pool = WorkerPool(initial_count=initial_worker_count)
-
-    # Start settings watcher thread
-    watcher_stop = threading.Event()
-    settings_watcher = threading.Thread(
-        target=_watch_settings,
-        args=(pool, CONFIG_FILE, 2.0, watcher_stop),
-        daemon=True,
-    )
-    settings_watcher.start()
-
     def post_fork(server, worker):
         """Clear inherited multiprocessing children so atexit doesn't try to join them."""
         import multiprocessing.process as mp_process
         mp_process._children = set()
 
     def post_worker_init(worker):
-        """Start watcher inside the Gunicorn worker process."""
+        """Start file watcher and task worker pool inside the Gunicorn worker process."""
         with app.app_context():
             from db import db
             db.engine.dispose()
         init()
+        # Start worker pool and expose it to app module so on_settings_change can scale it
+        initial_count = get_settings().get('worker', {}).get('count', 1)
+        max_workers = os.cpu_count() or 1
+        initial_count = max(1, min(initial_count, max_workers))
+        app_mod.pool = WorkerPool(initial_count=initial_count)
 
     def worker_exit(server, worker):
-        """Clean shutdown of watcher when Gunicorn worker exits."""
-        from app import watcher
-        if watcher:
-            watcher.stop()
-
-    def on_exit(server):
-        """Stop task worker pool when Gunicorn master exits."""
-        if os.getpid() != master_pid:
-            return
-        watcher_stop.set()
-        pool.shutdown()
-        logger.debug('Task worker pool terminated.')
+        """Stop watcher and worker pool when Gunicorn worker exits."""
+        if app_mod.pool is not None:
+            app_mod.pool.shutdown()
+        if app_mod.watcher is not None:
+            app_mod.watcher.stop()
 
     options = {
         'bind': '0.0.0.0:8465',
@@ -182,7 +132,6 @@ def main():
         'post_fork': post_fork,
         'post_worker_init': post_worker_init,
         'worker_exit': worker_exit,
-        'on_exit': on_exit,
     }
 
     logger.info('Initialization done, starting Gunicorn server...')

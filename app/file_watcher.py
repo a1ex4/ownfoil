@@ -41,6 +41,13 @@ class Watcher:
             return True
         return False
     
+    def add_file_callback(self, filepath, callback):
+        """Watch a single file via its parent directory; invoke callback() on change."""
+        parent = os.path.dirname(os.path.abspath(filepath)) or '.'
+        handler = _FileCallbackHandler(filepath, callback)
+        self.observer.schedule(handler, parent, recursive=False)
+        logger.debug(f'Watching {filepath} for changes.')
+
     def remove_directory(self, directory):
         logger.debug(f'Removing {directory} from watchdog monitoring...')
         if directory in self.directories:
@@ -53,6 +60,20 @@ class Watcher:
         else:
             logger.info(f'{directory} not in watchdog, nothing to do.')
         return False
+
+class _FileCallbackHandler(FileSystemEventHandler):
+    def __init__(self, filepath, callback):
+        self.filepath = os.path.abspath(filepath)
+        self.callback = callback
+
+    def on_any_event(self, event):
+        if event.is_directory or os.path.abspath(event.src_path) != self.filepath:
+            return
+        try:
+            self.callback()
+        except Exception as e:
+            logger.error(f'File callback error for {self.filepath}: {e}')
+
 
 class Handler(FileSystemEventHandler):
     def __init__(self, callback, stability_duration=5):

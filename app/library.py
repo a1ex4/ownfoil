@@ -8,8 +8,7 @@ import datetime
 import sys
 from pathlib import Path
 from utils import *
-from settings import load_settings
-from db import update_file_path 
+from db import update_file_path
 
 def sanitize_filename(name, windows_compatible=False):
     if sys.platform == 'win32' or windows_compatible:

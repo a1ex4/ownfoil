@@ -301,10 +301,10 @@ def _with_titledb(func):
 @register_task('update_titledb')
 def update_titledb_task(**kwargs):
     import titledb
-    from settings import load_settings
+    from settings import get_settings
     from db import get_libraries
     from utils import interval_string_to_timedelta
-    settings = load_settings()
+    settings = get_settings()
     titledb.update_titledb(settings)
     for lib in get_libraries():
         enqueue_task('scan_library', {'library_path': lib.path})
@@ -500,10 +500,10 @@ def update_titles_task(**kwargs):
 @register_task('organize_library')
 def organize_library_task(**kwargs):
     """Organize all identified files, creating a child task per file."""
-    from settings import load_settings
+    from settings import get_settings
     from db import get_libraries, Files
 
-    app_settings = load_settings()
+    app_settings = get_settings()
     organizer_settings = app_settings['library']['management']['organizer']
 
     if not organizer_settings['enabled']:
@@ -534,11 +534,11 @@ def organize_library_task(**kwargs):
 
 @register_continuation('organize_library')
 def _organize_library_done(**kwargs):
-    from settings import load_settings
+    from settings import get_settings
     from db import get_libraries
     from utils import delete_empty_folders
 
-    app_settings = load_settings()
+    app_settings = get_settings()
     organizer_settings = app_settings['library']['management']['organizer']
     if organizer_settings.get('enabled') and organizer_settings.get('remove_empty_folders'):
         for library in get_libraries():
@@ -564,10 +564,10 @@ def organize_file_task(file_id, library_path, organizer_settings, **kwargs):
 @register_task('remove_outdated_updates')
 def remove_outdated_updates_task(**kwargs):
     """Remove outdated update files."""
-    from settings import load_settings
+    from settings import get_settings
     from library import remove_outdated_update_files
 
-    app_settings = load_settings()
+    app_settings = get_settings()
     if app_settings['library']['management']['delete_older_updates']:
         _with_titledb(remove_outdated_update_files)
     enqueue_task('generate_library')

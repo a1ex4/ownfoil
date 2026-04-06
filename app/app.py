@@ -24,19 +24,16 @@ from clients import CyberFoilClient, TinfoilClient, SphairaClient
 def init():
     global watcher
     global watcher_thread
-    # Create and start the file watcher
+    # Create the file watcher and register callbacks BEFORE starting the observer
     logger.info('Initializing File Watcher...')
     watcher = Watcher(on_library_change)
+    watcher.add_file_callback(CONFIG_FILE, on_settings_change)
     watcher_thread = threading.Thread(target=watcher.run)
     watcher_thread.daemon = True
     watcher_thread.start()
 
-    # Load initial configuration
-    logger.info('Loading initial configuration...')
-    reload_conf()
-
     # init libraries
-    library_paths = app_settings['library']['paths']
+    library_paths = get_settings()['library']['paths']
     init_libraries(app, watcher, library_paths)
 
     # Enqueue initial titledb update (re-enqueues itself on completion)
@@ -47,9 +44,9 @@ os.makedirs(CONFIG_DIR, exist_ok=True)
 os.makedirs(DATA_DIR, exist_ok=True)
 
 ## Global variables
-app_settings = {}
 watcher = None
 watcher_thread = None
+pool = None  # Set by entrypoint after WorkerPool is created
 
 # Configure logging
 formatter = ColoredFormatter(
@@ -79,9 +76,16 @@ def load_user(user_id):
     # since the user_id is just the primary key of our user table, use it in the query for the user
     return User.query.filter_by(id=user_id).first()
 
-def reload_conf():
-    global app_settings
-    app_settings = load_settings()
+def on_settings_change():
+    """Settings file changed: refresh cache in this process and scale worker pool if needed."""
+    settings = get_settings()
+    if pool is not None:
+        desired = settings.get('worker', {}).get('count', 1)
+        max_workers = os.cpu_count() or 1
+        desired = max(1, min(desired, max_workers))
+        if desired != pool.count:
+            logger.info(f'Settings changed: scaling workers from {pool.count} to {desired}')
+            pool.scale(desired)
 
 def on_library_change(events):
     """Enqueue individual tasks per file event, skipping ignored events."""
@@ -142,20 +146,17 @@ SUPPORTED_CLIENTS = [CyberFoilClient, TinfoilClient, SphairaClient]
 
 def get_client_for_request(request):
     """Identify and return the appropriate client for the request, or None if no client matches."""
-    reload_conf()
     for client_class in SUPPORTED_CLIENTS:
         if client_class.identify_client(request):
-            return client_class(app_settings)
+            return client_class(get_settings())
     return None
 
 def file_access(f):
     """Decorator for file serving endpoints with basic authentication (no client identification required)."""
     @wraps(f)
     def _file_access(*args, **kwargs):
-        reload_conf()
-
         # Check if shop is private
-        if not app_settings['shop']['public']:
+        if not get_settings()['shop']['public']:
             # Shop is private, require authentication
             auth_success, auth_error, user = basic_auth(request)
             if not auth_success:
@@ -183,11 +184,11 @@ def index(path=None):
     if client:
         # Check if client is enabled
         client_name = client.CLIENT_NAME.lower()
-        client_settings = app_settings.get('shop', {}).get('clients', {}).get(client_name, {})
+        client_settings = get_settings().get('shop', {}).get('clients', {}).get(client_name, {})
         if not client_settings.get('enabled', False):
             logger.warning(f"{client.CLIENT_NAME} connection from {request.remote_addr} - Client is disabled")
             return client.error_response(f"Shop access from {client.CLIENT_NAME} is disabled.")
-        
+
         # Handle client request
         logger.info(f"{client.CLIENT_NAME} connection from {request.remote_addr}")
         return client.handle_request(request)
@@ -196,7 +197,7 @@ def index(path=None):
     elif path:
         return redirect('/')
 
-    if not app_settings['shop']['public']:
+    if not get_settings()['shop']['public']:
         return access_shop_auth()
     return access_shop()
 
@@ -215,10 +216,10 @@ def settings_page():
 @app.route('/setup')
 def setup_page():
     """Setup page showing client information and connection instructions."""
-    reload_conf()
-    
+    settings = get_settings()
+
     # Check if user has access (must have shop access or shop must be public)
-    if not app_settings['shop']['public'] and admin_account_created():
+    if not settings['shop']['public'] and admin_account_created():
         if not current_user.is_authenticated:
             return login_manager.unauthorized()
         if not current_user.has_shop_access():
@@ -226,24 +227,24 @@ def setup_page():
 
     local_address = None
     local_port  = None
-    
+
     # Get remote host from configuration
-    remote_host = app_settings['shop'].get('host', '')
-    
+    remote_host = settings['shop'].get('host', '')
+
     # Check if we're accessing via the configured remote host
     # If so, hide the local tab since we're already remote
     show_local_tab = remote_host and (remote_host != request.host)
     if show_local_tab:
         local_address = request.host.split(':')[0]
         local_port = request.host.split(':')[1] if ':' in request.host else 80
-    
+
     # Check if clients are enabled
-    tinfoil_enabled = app_settings.get('shop', {}).get('clients', {}).get('tinfoil', {}).get('enabled', False)
-    sphaira_enabled = app_settings.get('shop', {}).get('clients', {}).get('sphaira', {}).get('enabled', False)
-    cyberfoil_enabled = app_settings.get('shop', {}).get('clients', {}).get('cyberfoil', {}).get('enabled', False)
-    
+    tinfoil_enabled = settings.get('shop', {}).get('clients', {}).get('tinfoil', {}).get('enabled', False)
+    sphaira_enabled = settings.get('shop', {}).get('clients', {}).get('sphaira', {}).get('enabled', False)
+    cyberfoil_enabled = settings.get('shop', {}).get('clients', {}).get('cyberfoil', {}).get('enabled', False)
+
     # Check if shop is public
-    shop_public = app_settings['shop']['public']
+    shop_public = settings['shop']['public']
     
     return render_template(
         'setup.html',
@@ -262,8 +263,12 @@ def setup_page():
 @app.get('/api/settings')
 @access_required('admin')
 def get_settings_api():
-    reload_conf()
-    settings = copy.deepcopy(app_settings)
+    settings = copy.deepcopy(get_settings())
+    # Inject runtime key status for the UI
+    valid, missing, corrupt = load_keys()
+    settings['titles']['valid_keys'] = valid
+    settings['titles']['missing_keys'] = missing
+    settings['titles']['corrupt_keys'] = corrupt
     # Strip hauth values for privacy (don't send to client)
     if 'clients' in settings['shop']:
         for client_name, client_settings in settings['shop']['clients'].items():
@@ -275,7 +280,6 @@ def get_settings_api():
 @app.post('/api/settings/titles')
 @access_required('admin')
 def set_titles_settings_api():
-    reload_conf()
     title_settings = request.json
     region = title_settings['region']
     language = title_settings['language']
@@ -293,9 +297,9 @@ def set_titles_settings_api():
         }
         return jsonify(resp)
 
-    if region != app_settings['titles']['region'] or language != app_settings['titles']['language']:
+    current = get_settings()
+    if region != current['titles']['region'] or language != current['titles']['language']:
         set_titles_settings(region, language)
-        reload_conf()
         tasks_mod.enqueue_task('update_titledb')
 
     resp = {
@@ -309,7 +313,6 @@ def set_titles_settings_api():
 def set_shop_settings_api():
     data = request.json
     set_shop_settings(data)
-    reload_conf()
     resp = {
         'success': True,
         'errors': []
@@ -324,24 +327,21 @@ def library_paths_api():
         data = request.json
         success, errors = add_library_complete(app, watcher, data['path'])
         if success:
-            reload_conf()
             tasks_mod.enqueue_task('scan_library', {'library_path': data['path']})
         resp = {
             'success': success,
             'errors': errors
         }
     elif request.method == 'GET':
-        reload_conf()
         resp = {
             'success': True,
             'errors': [],
-            'paths': app_settings['library']['paths']
+            'paths': get_settings()['library']['paths']
         }
     elif request.method == 'DELETE':
         data = request.json
         success, errors = remove_library_complete(app, watcher, data['path'])
         if success:
-            reload_conf()
             tasks_mod.enqueue_task('update_titles')
         resp = {
             'success': success,
@@ -354,7 +354,6 @@ def library_paths_api():
 def set_library_management_settings_api():
     data = request.json
     set_library_management_settings(data)
-    reload_conf()
     tasks_mod.enqueue_task('organize_library')
     resp = {
         'success': True,
@@ -378,7 +377,6 @@ def set_scheduler_settings_api():
             })
 
     set_scheduler_settings(data)
-    reload_conf()
 
     if scan_interval_str is not None:
         delta = interval_string_to_timedelta(scan_interval_str)
@@ -402,7 +400,6 @@ def set_worker_settings_api():
             return jsonify({'success': False, 'errors': [{'path': 'worker/count', 'error': f'Must be between 1 and {max_workers}'}]})
         data['count'] = count
     set_worker_settings(data)
-    reload_conf()
     return jsonify({'success': True, 'errors': []})
 
 @app.get('/api/settings/worker-info')
@@ -563,9 +560,7 @@ def get_task_api(task_id):
     })
 
 if __name__ == '__main__':
-    import threading
-    from constants import CONFIG_FILE
-    from run import WorkerPool, _watch_settings
+    from run import WorkerPool
 
     logger.info('Starting initialization of Ownfoil...')
     init_db(app)
@@ -576,28 +571,18 @@ if __name__ == '__main__':
     init()
 
     # Read initial worker count
-    initial_count = app_settings.get('worker', {}).get('count', 1)
+    initial_count = get_settings().get('worker', {}).get('count', 1)
     max_workers = os.cpu_count() or 1
     initial_count = max(1, min(initial_count, max_workers))
 
-    # Start worker pool
+    # Start worker pool — assign to module global so on_settings_change can scale it
     pool = WorkerPool(initial_count=initial_count)
-
-    # Start settings watcher thread
-    watcher_stop = threading.Event()
-    settings_watcher = threading.Thread(
-        target=_watch_settings,
-        args=(pool, CONFIG_FILE, 2.0, watcher_stop),
-        daemon=True,
-    )
-    settings_watcher.start()
 
     logger.info('Initialization steps done, starting server...')
     app.run(debug=False, use_reloader=False, host="0.0.0.0", port=8465)
 
     # Shutdown
     logger.info('Shutting down server...')
-    watcher_stop.set()
     pool.shutdown()
     watcher.stop()
     watcher_thread.join()
