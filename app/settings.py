@@ -12,6 +12,21 @@ import logging
 settings_lock = threading.Lock()
 keys_lock = threading.Lock()
 
+_cached_settings = None
+_cached_mtime = None
+
+def get_settings():
+    """Return settings, re-reading the file only when settings.yaml mtime changes."""
+    global _cached_settings, _cached_mtime
+    try:
+        mtime = os.path.getmtime(CONFIG_FILE)
+    except OSError:
+        mtime = None
+    if _cached_settings is None or mtime != _cached_mtime:
+        _cached_settings = load_settings()
+        _cached_mtime = mtime
+    return _cached_settings
+
 # Retrieve main logger
 logger = logging.getLogger('main')
 
@@ -137,11 +152,8 @@ def load_settings():
             with open(CONFIG_FILE, 'w') as yaml_file:
                 yaml.dump(settings, yaml_file)
         
-        # Get Keys informations
-        valid_keys, missing_keys, corrupt_keys = load_keys()
-        settings['titles']['valid_keys'] = valid_keys
-        settings['titles']['missing_keys'] = missing_keys
-        settings['titles']['corrupt_keys'] = corrupt_keys
+        # Prime Keys.keys_loaded for this process (used by identification code)
+        load_keys()
         return settings
 
 def verify_settings(section, data):
