@@ -54,7 +54,11 @@ class TaskWorker:
     def execute_task(self, task_id):
         from tasks import Task, get_registered_task, on_task_completed
         from db import db
+        from settings import get_settings
         import tasks as tasks_mod
+
+        # Refresh settings + prime Keys.keys_loaded before each task
+        get_settings()
 
         task = db.session.get(Task, task_id)
         task_func = get_registered_task(task.task_name)

@@ -13,18 +13,21 @@ settings_lock = threading.Lock()
 keys_lock = threading.Lock()
 
 _cached_settings = None
-_cached_mtime = None
+_cached_mtimes = (None, None)
+
+def _safe_mtime(path):
+    try:
+        return os.path.getmtime(path)
+    except OSError:
+        return None
 
 def get_settings():
-    """Return settings, re-reading the file only when settings.yaml mtime changes."""
-    global _cached_settings, _cached_mtime
-    try:
-        mtime = os.path.getmtime(CONFIG_FILE)
-    except OSError:
-        mtime = None
-    if _cached_settings is None or mtime != _cached_mtime:
+    """Return settings, re-reading when settings.yaml or keys.txt mtime changes."""
+    global _cached_settings, _cached_mtimes
+    mtimes = (_safe_mtime(CONFIG_FILE), _safe_mtime(KEYS_FILE))
+    if _cached_settings is None or mtimes != _cached_mtimes:
         _cached_settings = load_settings()
-        _cached_mtime = mtime
+        _cached_mtimes = mtimes
     return _cached_settings
 
 # Retrieve main logger
