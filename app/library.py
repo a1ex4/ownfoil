@@ -272,81 +272,61 @@ def get_files_to_identify(library_id):
         non_identified_files = list(set(non_identified_files).union(files_to_identify_with_cnmt))
     return non_identified_files
 
+def _insert_missing_app_if_absent(app_id, app_version, app_type, title_db_id):
+    """Insert an app as owned=False only if no row with (app_id, app_version) exists.
+    Uses SQLite ON CONFLICT DO NOTHING to handle concurrent inserts without clobbering
+    an owned=True row a peer worker may have just written. Returns True if inserted."""
+    from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+    stmt = sqlite_insert(Apps.__table__).values(
+        app_id=app_id,
+        app_version=app_version,
+        app_type=app_type,
+        owned=False,
+        title_id=title_db_id,
+    ).on_conflict_do_nothing(index_elements=['app_id', 'app_version'])
+    result = db.session.execute(stmt)
+    return result.rowcount > 0
+
+
+def add_missing_apps_for_title(title_id):
+    """Expand missing base/update/DLC apps (owned=False) for a single title.
+    Safe to run concurrently with other workers expanding the same title."""
+    title_db_id = get_title_id_db_id(title_id)
+    apps_added = 0
+
+    existing_bases = [a for a in get_all_title_apps(title_id) if a.get('app_type') == APP_TYPE_BASE]
+    if not existing_bases:
+        if _insert_missing_app_if_absent(title_id, "0", APP_TYPE_BASE, title_db_id):
+            apps_added += 1
+
+    update_app_id = title_id[:-3] + '800'
+    for version_info in titles_lib.get_all_existing_versions(title_id):
+        version = str(version_info['version'])
+        if _insert_missing_app_if_absent(update_app_id, version, APP_TYPE_UPD, title_db_id):
+            apps_added += 1
+
+    for dlc_app_id in titles_lib.get_all_existing_dlc(title_id):
+        dlc_versions = titles_lib.get_all_app_existing_versions(dlc_app_id) or []
+        for dlc_version in dlc_versions:
+            if _insert_missing_app_if_absent(dlc_app_id, str(dlc_version), APP_TYPE_DLC, title_db_id):
+                apps_added += 1
+
+    db.session.commit()
+    if apps_added:
+        logger.debug(f'Added {apps_added} missing apps for title {title_id}')
+    return apps_added
+
+
 def add_missing_apps_to_db():
+    """Batch: expand missing apps for every title. Used post-titledb-update."""
     logger.info('Adding missing apps to database...')
     titles = get_all_titles()
-    apps_added = 0
-    
+    total = 0
     for n, title in enumerate(titles):
-        title_id = title.title_id
-        title_db_id = get_title_id_db_id(title_id)
-        
-        # Add base game if not present at all (any version)
-        existing_bases = [
-            a for a in get_all_title_apps(title_id)
-            if a.get("app_type") == APP_TYPE_BASE
-        ]
-
-        if not existing_bases:
-            new_base_app = Apps(
-                app_id=title_id,
-                app_version="0",
-                app_type=APP_TYPE_BASE,
-                owned=False,
-                title_id=title_db_id
-            )
-            db.session.add(new_base_app)
-            apps_added += 1
-            logger.debug(f'Added missing base app: {title_id}')
-        
-        # Add missing update versions
-        title_versions = titles_lib.get_all_existing_versions(title_id)
-        for version_info in title_versions:
-            version = str(version_info['version'])
-            update_app_id = title_id[:-3] + '800'  # Convert base ID to update ID
-            
-            existing_update = get_app_by_id_and_version(update_app_id, version)
-            
-            if not existing_update:
-                new_update_app = Apps(
-                    app_id=update_app_id,
-                    app_version=version,
-                    app_type=APP_TYPE_UPD,
-                    owned=False,
-                    title_id=title_db_id
-                )
-                db.session.add(new_update_app)
-                apps_added += 1
-                logger.debug(f'Added missing update app: {update_app_id} v{version}')
-        
-        # Add missing DLC
-        title_dlc_ids = titles_lib.get_all_existing_dlc(title_id)
-        for dlc_app_id in title_dlc_ids:
-            dlc_versions = titles_lib.get_all_app_existing_versions(dlc_app_id)
-            if dlc_versions:
-                for dlc_version in dlc_versions:
-                    existing_dlc = get_app_by_id_and_version(dlc_app_id, str(dlc_version))
-                    
-                    if not existing_dlc:
-                        new_dlc_app = Apps(
-                            app_id=dlc_app_id,
-                            app_version=str(dlc_version),
-                            app_type=APP_TYPE_DLC,
-                            owned=False,
-                            title_id=title_db_id
-                        )
-                        db.session.add(new_dlc_app)
-                        apps_added += 1
-                        logger.debug(f'Added missing DLC app: {dlc_app_id} v{dlc_version}')
-        
-        # Commit every 100 titles to avoid excessive memory use
+        total += add_missing_apps_for_title(title.title_id)
         if (n + 1) % 100 == 0:
-            db.session.commit()
-            logger.info(f'Processed {n + 1}/{len(titles)} titles, added {apps_added} missing apps so far')
-    
-    # Final commit
-    db.session.commit()
-    logger.info(f'Finished adding missing apps to database. Total apps added: {apps_added}')
+            logger.info(f'Processed {n + 1}/{len(titles)} titles, added {total} missing apps so far')
+    logger.info(f'Finished adding missing apps to database. Total apps added: {total}')
 
 def remove_outdated_update_files():
     logger.info("Starting removal of outdated update files...")
@@ -410,71 +390,73 @@ def remove_outdated_update_files():
     except Exception as e:
         logger.error(f"Error during removal of outdated update files: {e}")
 
-def update_titles():
-    # Remove titles that no longer have any owned apps
-    titles_removed = remove_titles_without_owned_apps()
-    if titles_removed > 0:
-            logger.info(f"Removed {titles_removed} titles with no owned apps.")
+def update_title_flags(title_id):
+    """Recompute have_base / up_to_date / complete for a single title.
+    Wrapped in BEGIN IMMEDIATE to serialize concurrent recomputes and prevent
+    lost updates when another worker is mutating owned state for the same title."""
+    connection = db.engine.raw_connection()
+    try:
+        cursor = connection.cursor()
+        cursor.execute("BEGIN IMMEDIATE")
 
-    titles = get_all_titles()
-    for n, title in enumerate(titles):
-        have_base = False
-        up_to_date = False
-        complete = False
+        cursor.execute("SELECT id FROM titles WHERE title_id = ?", (title_id,))
+        row = cursor.fetchone()
+        if not row:
+            connection.commit()
+            return
+        title_db_id = row[0]
 
-        title_id = title.title_id
-        title_apps = get_all_title_apps(title_id)
+        cursor.execute(
+            "SELECT app_type, app_version, owned FROM apps WHERE title_id = ?",
+            (title_db_id,)
+        )
+        title_apps = [{'app_type': r[0], 'app_version': r[1], 'owned': bool(r[2])} for r in cursor.fetchall()]
 
-        # check have_base - look for owned base apps
-        owned_base_apps = [app for app in title_apps if app.get('app_type') == APP_TYPE_BASE and app.get('owned')]
+        owned_base_apps = [a for a in title_apps if a['app_type'] == APP_TYPE_BASE and a['owned']]
         have_base = len(owned_base_apps) > 0
 
-        # check up_to_date - find highest owned update version
-        owned_update_apps = [app for app in title_apps if app.get('app_type') == APP_TYPE_UPD and app.get('owned')]
-        available_update_apps = [app for app in title_apps if app.get('app_type') == APP_TYPE_UPD]
-        
+        available_update_apps = [a for a in title_apps if a['app_type'] == APP_TYPE_UPD]
+        owned_update_apps = [a for a in available_update_apps if a['owned']]
         if not available_update_apps:
-            # No updates available, consider up to date
             up_to_date = True
         elif not owned_update_apps:
-            # Updates available but none owned
             up_to_date = False
         else:
-            # Find highest available version and highest owned version
-            highest_available_version = max(int(app['app_version']) for app in available_update_apps)
-            highest_owned_version = max(int(app['app_version']) for app in owned_update_apps)
-            up_to_date = highest_owned_version >= highest_available_version
+            highest_available = max(int(a['app_version']) for a in available_update_apps)
+            highest_owned = max(int(a['app_version']) for a in owned_update_apps)
+            up_to_date = highest_owned >= highest_available
 
-        # check complete - latest version of all available DLC are owned
-        available_dlc_apps = [app for app in title_apps if app.get('app_type') == APP_TYPE_DLC]
-        
-        if not available_dlc_apps:
-            # No DLC available, consider complete
-            complete = True
-        else:
-            # Group DLC by app_id and find latest version for each
-            dlc_by_id = {}
-            for app in available_dlc_apps:
-                app_id = app['app_id']
-                version = int(app['app_version'])
-                if app_id not in dlc_by_id or version > dlc_by_id[app_id]['version']:
-                    dlc_by_id[app_id] = {
-                        'version': version,
-                        'owned': app.get('owned', False)
-                    }
-            
-            # Check if latest version of each DLC is owned
-            complete = all(dlc_info['owned'] for dlc_info in dlc_by_id.values())
+        cursor.execute(
+            "SELECT app_id, app_version, owned FROM apps WHERE title_id = ? AND app_type = ?",
+            (title_db_id, APP_TYPE_DLC)
+        )
+        dlc_by_id = {}
+        for dlc_app_id, version_str, owned in cursor.fetchall():
+            version = int(version_str)
+            if dlc_app_id not in dlc_by_id or version > dlc_by_id[dlc_app_id]['version']:
+                dlc_by_id[dlc_app_id] = {'version': version, 'owned': bool(owned)}
+        complete = all(d['owned'] for d in dlc_by_id.values()) if dlc_by_id else True
 
-        title.have_base = have_base
-        title.up_to_date = up_to_date
-        title.complete = complete
+        cursor.execute(
+            "UPDATE titles SET have_base = ?, up_to_date = ?, complete = ? WHERE id = ?",
+            (int(have_base), int(up_to_date), int(complete), title_db_id)
+        )
+        connection.commit()
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
 
-        # Commit every 100 titles to avoid excessive memory use
-        if (n + 1) % 100 == 0:
-            db.session.commit()
 
-    db.session.commit()
+def update_titles():
+    """Batch: recompute all titles. Also removes titles with no owned apps."""
+    titles_removed = remove_titles_without_owned_apps()
+    if titles_removed > 0:
+        logger.info(f"Removed {titles_removed} titles with no owned apps.")
+
+    for title in get_all_titles():
+        update_title_flags(title.title_id)
 
 def get_library_status(title_id):
     title = get_title(title_id)
