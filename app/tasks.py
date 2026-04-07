@@ -66,19 +66,50 @@ _current_task_id = None
 # --- Child task helpers ---
 
 def create_child_task(parent_id, task_name, input_data=None):
-    """Create a child task record linked to a parent. Returns the child Task."""
+    """Create a child task, deduped against existing active children of the same parent.
+    Uses BEGIN IMMEDIATE for atomic dedup+insert. Returns the child task id.
+    Caller must not hold uncommitted ORM state on the Tasks table."""
+    if task_name not in TASK_REGISTRY:
+        raise ValueError(f"Unknown task: {task_name}")
     input_data = input_data or {}
-    child = Task(
-        parent_id=parent_id,
-        task_name=task_name,
-        status='pending',
-        input_json=json.dumps(input_data, sort_keys=True),
-        input_hash=compute_input_hash(input_data),
-        created_at=datetime.datetime.utcnow(),
-    )
-    db.session.add(child)
-    db.session.flush()
-    return child
+    input_json = json.dumps(input_data, sort_keys=True)
+    input_hash = compute_input_hash(input_data)
+    now = datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
+
+    connection = db.engine.raw_connection()
+    try:
+        cursor = connection.cursor()
+        cursor.execute("BEGIN IMMEDIATE")
+        cursor.execute(
+            "SELECT id FROM tasks WHERE parent_id = ? AND task_name = ? AND input_hash = ? "
+            "AND status IN ('pending', 'running', 'waiting_for_children', 'completed') LIMIT 1",
+            (parent_id, task_name, input_hash)
+        )
+        row = cursor.fetchone()
+        if row:
+            connection.commit()
+            return row[0]
+        cursor.execute(
+            "INSERT INTO tasks (parent_id, task_name, status, completion_pct, input_json, input_hash, created_at) "
+            "VALUES (?, ?, 'pending', 0, ?, ?, ?)",
+            (parent_id, task_name, input_json, input_hash, now)
+        )
+        child_id = cursor.lastrowid
+        connection.commit()
+        return child_id
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
+
+
+def get_current_parent_id():
+    """Return the parent_id of the currently-running task, or None if top-level."""
+    if _current_task_id is None:
+        return None
+    task = db.session.get(Task, _current_task_id)
+    return task.parent_id if task else None
 
 
 def set_waiting_for_children():
@@ -308,6 +339,10 @@ def update_titledb_task(**kwargs):
     titledb.update_titledb(settings)
     for lib in get_libraries():
         enqueue_task('scan_library', {'library_path': lib.path})
+    # After titledb update, existing titles may have new DLC/update versions that
+    # need to surface as missing apps — per-file fan-out only covers newly-scanned
+    # files, so run the batch add_missing_apps chain (chains to batch update_titles).
+    enqueue_task('add_missing_apps')
     # Re-enqueue for next scheduled run
     interval_str = settings.get('scheduler', {}).get('scan_interval', '12h')
     delta = interval_string_to_timedelta(interval_str)
@@ -339,7 +374,6 @@ def scan_library_task(library_path, **kwargs):
     parent_id = _current_task_id
     for filepath in new_files:
         create_child_task(parent_id, 'add_file', {'library_path': library_path, 'filepath': filepath})
-    db.session.commit()
     set_waiting_for_children()
 
 
@@ -397,22 +431,28 @@ def identify_library_task(library_path, **kwargs):
     parent_id = _current_task_id
     for f in files_to_identify:
         create_child_task(parent_id, 'identify_file', {'filepath': f.filepath, 'file_id': f.id})
-    db.session.commit()
     set_waiting_for_children()
 
 
 @register_continuation('identify_library')
 def _identify_library_done(**kwargs):
-    enqueue_task('add_missing_apps')
+    # Per-file work already handled add_missing + update_titles per touched title;
+    # remove_missing_files handles the tail (deleted files → owned flips → batch update).
+    enqueue_task('remove_missing_files')
 
 
 @register_task('identify_file')
 def identify_file_task(filepath, file_id, **kwargs):
-    """Identify a single file and create Apps/Titles entries."""
+    """Identify a single file, upsert its Apps/Titles, then fan out per-title
+    add_missing_apps_for_title children (which each chain to update_titles_for_title)."""
+    identified_title_ids = []
+
     def _work():
+        nonlocal identified_title_ids
         import titles as titles_lib
         from db import Files, Apps, get_file_from_db, add_title_id_in_db, get_title_id_db_id
-        from db import get_app_by_id_and_version, add_file_to_app
+        from db import add_file_to_app
+        from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
         file = db.session.get(Files, file_id)
         if not file:
@@ -435,34 +475,30 @@ def identify_file_task(filepath, file_id, **kwargs):
             for file_content in file_contents:
                 logger.info(f'Found content Title ID: {file_content["title_id"]} App ID: {file_content["app_id"]} Type: {file_content["type"]} Version: {file_content["version"]}')
                 title_id_in_db = get_title_id_db_id(file_content["title_id"])
-                existing_app = get_app_by_id_and_version(file_content["app_id"], file_content["version"])
 
-                if existing_app:
-                    add_file_to_app(file_content["app_id"], file_content["version"], file_id)
-                else:
-                    try:
-                        new_app = Apps(
-                            app_id=file_content["app_id"],
-                            app_version=file_content["version"],
-                            app_type=file_content["type"],
-                            owned=True,
-                            title_id=title_id_in_db
-                        )
-                        db.session.add(new_app)
-                        db.session.flush()
-                        file_obj = get_file_from_db(file_id)
-                        if file_obj:
-                            new_app.files.append(file_obj)
-                    except Exception:
-                        # Another worker inserted the same app concurrently
-                        db.session.rollback()
-                        add_file_to_app(file_content["app_id"], file_content["version"], file_id)
+                # Atomic owned-OR upsert: on conflict, flip owned=True without
+                # clobbering an existing row's title_id/app_type.
+                stmt = sqlite_insert(Apps.__table__).values(
+                    app_id=file_content["app_id"],
+                    app_version=file_content["version"],
+                    app_type=file_content["type"],
+                    owned=True,
+                    title_id=title_id_in_db,
+                ).on_conflict_do_update(
+                    index_elements=['app_id', 'app_version'],
+                    set_={'owned': True},
+                )
+                db.session.execute(stmt)
+                db.session.commit()
+
+                add_file_to_app(file_content["app_id"], file_content["version"], file_id)
                 nb_content += 1
 
             if nb_content > 1:
                 file.multicontent = True
             file.nb_content = nb_content
             file.identified = True
+            identified_title_ids = title_ids
         else:
             logger.warning(f"Error identifying file {file.filename}: {error}")
             file.identification_error = error
@@ -475,26 +511,66 @@ def identify_file_task(filepath, file_id, **kwargs):
 
     _with_titledb(_work)
 
+    # After successful identification, create sibling tasks under our own parent
+    # (identify_library) for per-title add_missing_apps + update_titles follow-up.
+    # create_child_task dedups across files that share a title_id.
+    if identified_title_ids:
+        parent_id = get_current_parent_id()
+        for title_id in identified_title_ids:
+            if parent_id is not None:
+                create_child_task(parent_id, 'add_missing_apps_for_title', {'title_id': title_id})
+            else:
+                enqueue_task('add_missing_apps_for_title', {'title_id': title_id})
+
+
+@register_task('add_missing_apps_for_title')
+def add_missing_apps_for_title_task(title_id, **kwargs):
+    """Per-title: expand missing base/update/DLC apps (owned=False) for one title,
+    then fan out update_titles_for_title as a sibling (under the same parent)."""
+    from library import add_missing_apps_for_title
+
+    def _work():
+        add_missing_apps_for_title(title_id)
+    _with_titledb(_work)
+
+    parent_id = get_current_parent_id()
+    if parent_id is not None:
+        create_child_task(parent_id, 'update_titles_for_title', {'title_id': title_id})
+    else:
+        enqueue_task('update_titles_for_title', {'title_id': title_id})
+
+
+@register_task('update_titles_for_title')
+def update_titles_for_title_task(title_id, **kwargs):
+    """Per-title: recompute have_base / up_to_date / complete under BEGIN IMMEDIATE."""
+    from library import update_title_flags
+    update_title_flags(title_id)
+
 
 @register_task('add_missing_apps')
 def add_missing_apps_task(**kwargs):
+    """Batch: expand missing apps for every title. Used post-titledb-update."""
     from library import add_missing_apps_to_db
     _with_titledb(add_missing_apps_to_db)
-    enqueue_task('remove_missing_files')
+    enqueue_task('update_titles')
 
 
 @register_task('remove_missing_files')
 def remove_missing_files_task(**kwargs):
+    """Delete DB entries for files missing from disk, then recompute all title flags
+    (owned states may have flipped) and chain to organize_library."""
     from db import remove_missing_files_from_db
+    from library import update_titles
     remove_missing_files_from_db()
-    enqueue_task('update_titles')
+    update_titles()
+    enqueue_task('organize_library')
 
 
 @register_task('update_titles')
 def update_titles_task(**kwargs):
+    """Batch: recompute flags for every title. Used post-titledb-update."""
     from library import update_titles
     update_titles()
-    enqueue_task('organize_library')
 
 
 @register_task('organize_library')
