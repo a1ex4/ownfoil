@@ -2,9 +2,25 @@
 import hashlib
 import json
 import datetime
+import functools
 import logging
 import os
-from db import db
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+import titles as titles_lib
+import titledb
+from db import (
+    db, Files, Apps, get_library_id, get_library_path, get_library_file_paths,
+    get_libraries, add_title_id_in_db, get_title_id_db_id, add_file_to_app,
+    file_exists_in_db, update_file_path, delete_file_by_filepath,
+    set_library_scan_time, remove_missing_files_from_db,
+)
+from settings import get_settings
+from utils import interval_string_to_timedelta, delete_empty_folders
+from library import (
+    get_files_to_identify, add_missing_apps_for_title, update_title_flags,
+    add_missing_apps_to_db, update_titles, organize_file,
+    remove_outdated_update_files, generate_library,
+)
 
 logger = logging.getLogger('main')
 
@@ -66,9 +82,7 @@ _current_task_id = None
 # --- Child task helpers ---
 
 def create_child_task(parent_id, task_name, input_data=None):
-    """Create a child task, deduped against existing active children of the same parent.
-    Uses BEGIN IMMEDIATE for atomic dedup+insert. Returns the child task id.
-    Caller must not hold uncommitted ORM state on the Tasks table."""
+    """Create a child task, deduped against existing active children of the same parent."""
     if task_name not in TASK_REGISTRY:
         raise ValueError(f"Unknown task: {task_name}")
     input_data = input_data or {}
@@ -104,12 +118,11 @@ def create_child_task(parent_id, task_name, input_data=None):
         connection.close()
 
 
-def get_current_parent_id():
-    """Return the parent_id of the currently-running task, or None if top-level."""
-    if _current_task_id is None:
-        return None
-    task = db.session.get(Task, _current_task_id)
-    return task.parent_id if task else None
+def enqueue_or_child(task_name, input_data=None):
+    """Create as child of the running task, or top-level if called outside a task."""
+    if _current_task_id is not None:
+        return create_child_task(_current_task_id, task_name, input_data)
+    return enqueue_task(task_name, input_data)[0].id
 
 
 def set_waiting_for_children():
@@ -210,11 +223,7 @@ def compute_input_hash(input_data):
 
 
 def enqueue_task(task_name, input_data=None, run_after=None):
-    """Enqueue a task. Returns (task, created) — created is False if a duplicate exists.
-
-    When run_after is set, dedup only checks pending tasks (not running),
-    so a running task won't block scheduling its next occurrence.
-    """
+    """Enqueue a task. Returns (task, created) — created is False if a duplicate exists."""
     if task_name not in TASK_REGISTRY:
         raise ValueError(f"Unknown task: {task_name}")
 
@@ -300,7 +309,7 @@ def update_scheduled_task(task_name, run_after):
                 logger.debug(f"Created scheduled task '{task_name}' run_after={local_ra.strftime('%Y-%m-%d %H:%M:%S')}")
             else:
                 local_ra = run_after + (datetime.datetime.now() - datetime.datetime.utcnow())
-                logger.debug(f"Updated scheduled task '{task_name}' run_after={local_ra.strftime('%Y-%m-%d %H:%M:%S')}")
+                # logger.debug(f"Updated scheduled task '{task_name}' run_after={local_ra.strftime('%Y-%m-%d %H:%M:%S')}")
         connection.commit()
     except Exception:
         connection.rollback()
@@ -316,32 +325,38 @@ def get_task(task_id):
 
 # --- Titledb helper for tasks ---
 
+def _schedules_generate_library(func):
+    """Decorator: after func runs, (re)schedule generate_library with a debounce."""
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        result = func(*args, **kwargs)
+        update_scheduled_task('generate_library', datetime.datetime.utcnow() + datetime.timedelta(seconds=5))
+        return result
+    return wrapper
+
+
 def _with_titledb(func):
-    """Wrapper that loads titledb before and releases the reference after."""
-    import titles as titles_lib
-    titles_lib.load_titledb()
-    try:
-        return func()
-    finally:
-        titles_lib.identification_in_progress_count -= 1
-        titles_lib.unload_titledb()
+    """Decorator: load titledb before func runs, release after."""
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        titles_lib.load_titledb()
+        try:
+            return func(*args, **kwargs)
+        finally:
+            titles_lib.identification_in_progress_count -= 1
+            titles_lib.unload_titledb()
+    return wrapper
 
 
 # --- Pipeline tasks ---
 
 @register_task('update_titledb')
 def update_titledb_task(**kwargs):
-    import titledb
-    from settings import get_settings
-    from db import get_libraries
-    from utils import interval_string_to_timedelta
     settings = get_settings()
     titledb.update_titledb(settings)
     for lib in get_libraries():
         enqueue_task('scan_library', {'library_path': lib.path})
-    # After titledb update, existing titles may have new DLC/update versions that
-    # need to surface as missing apps — per-file fan-out only covers newly-scanned
-    # files, so run the batch add_missing_apps chain (chains to batch update_titles).
+    # After titledb update, existing titles may have new DLC/update versions
     enqueue_task('add_missing_apps')
     # Re-enqueue for next scheduled run
     interval_str = settings.get('scheduler', {}).get('scan_interval', '12h')
@@ -353,9 +368,6 @@ def update_titledb_task(**kwargs):
 @register_task('scan_library')
 def scan_library_task(library_path, **kwargs):
     """Scan a library path for new files, creating a child task per file."""
-    import titles as titles_lib
-    from db import get_library_id, get_library_file_paths
-
     library_id = get_library_id(library_path)
     if not os.path.isdir(library_path):
         logger.warning(f'Library path {library_path} does not exist.')
@@ -371,25 +383,21 @@ def scan_library_task(library_path, **kwargs):
         _scan_library_done(library_path=library_path)
         return
 
-    parent_id = _current_task_id
     for filepath in new_files:
-        create_child_task(parent_id, 'add_file', {'library_path': library_path, 'filepath': filepath})
+        enqueue_or_child('add_file', {'library_path': library_path, 'filepath': filepath})
     set_waiting_for_children()
 
 
 @register_continuation('scan_library')
 def _scan_library_done(library_path, **kwargs):
-    from db import set_library_scan_time, get_library_id
     set_library_scan_time(get_library_id(library_path))
     enqueue_task('remove_missing_files')
 
 
 @register_task('add_file')
+@_schedules_generate_library
 def add_file_task(library_path, filepath, **kwargs):
     """Add a single file to the library DB."""
-    import titles as titles_lib
-    from db import get_library_id, get_library_file_paths, Files
-
     library_id = get_library_id(library_path)
     # Check if already in DB
     if filepath in get_library_file_paths(library_id):
@@ -412,27 +420,24 @@ def add_file_task(library_path, filepath, **kwargs):
     db.session.add(new_file)
     db.session.commit()
 
-    enqueue_task('identify_file', {'filepath': filepath, 'file_id': new_file.id})
+    enqueue_or_child('identify_file', {'filepath': filepath, 'file_id': new_file.id})
+    if _current_task_id is not None:
+        set_waiting_for_children()
 
 
 @register_task('identify_library')
-def identify_library_task(library_path, **kwargs):
-    """Identify all unidentified files, creating a child task per file."""
-    from library import get_files_to_identify
-    from db import get_library_id
-
-    logger.info(f"Starting library identification process for library {library_path} ...")
-    library_id = get_library_id(library_path)
-    files_to_identify = get_files_to_identify(library_id)
+def identify_library_task(**kwargs):
+    """Identify all unidentified files across every library."""
+    logger.info("Starting library identification process ...")
+    files_to_identify = [f for lib in get_libraries() for f in get_files_to_identify(lib.id)]
 
     if not files_to_identify:
-        logger.info(f'No files to identify in {library_path}.')
-        _identify_library_done(library_path=library_path)
+        logger.info('No files to identify.')
+        _identify_library_done()
         return
 
-    parent_id = _current_task_id
     for f in files_to_identify:
-        create_child_task(parent_id, 'identify_file', {'filepath': f.filepath, 'file_id': f.id})
+        enqueue_or_child('identify_file', {'filepath': f.filepath, 'file_id': f.id})
     set_waiting_for_children()
 
 
@@ -444,140 +449,120 @@ def _identify_library_done(**kwargs):
 
 
 @register_task('identify_file')
+@_schedules_generate_library
+@_with_titledb
 def identify_file_task(filepath, file_id, **kwargs):
-    """Identify a single file, upsert its Apps/Titles, then fan out per-title
-    add_missing_apps_for_title children (which each chain to update_titles_for_title)."""
+    """Identify a single file, upsert its Apps/Titles, then enqueue add_missing_apps_for_title."""
     identified_title_ids = []
 
-    def _work():
-        nonlocal identified_title_ids
-        import titles as titles_lib
-        from db import Files, Apps, get_file_from_db, add_title_id_in_db, get_title_id_db_id
-        from db import add_file_to_app
-        from sqlalchemy.dialects.sqlite import insert as sqlite_insert
-
-        file = db.session.get(Files, file_id)
-        if not file:
-            return
-        if not os.path.exists(filepath):
-            logger.warning(f'File {file.filename} no longer exists, deleting from database.')
-            Files.query.filter_by(id=file_id).delete(synchronize_session=False)
-            db.session.commit()
-            return
-
-        logger.info(f'Identifying file: {file.filename}')
-        identification, success, file_contents, error = titles_lib.identify_file(filepath)
-
-        if success and file_contents and not error:
-            title_ids = list(dict.fromkeys([c['title_id'] for c in file_contents]))
-            for title_id in title_ids:
-                add_title_id_in_db(title_id)
-
-            nb_content = 0
-            for file_content in file_contents:
-                logger.info(f'Found content Title ID: {file_content["title_id"]} App ID: {file_content["app_id"]} Type: {file_content["type"]} Version: {file_content["version"]}')
-                title_id_in_db = get_title_id_db_id(file_content["title_id"])
-
-                # Atomic owned-OR upsert: on conflict, flip owned=True without
-                # clobbering an existing row's title_id/app_type.
-                stmt = sqlite_insert(Apps.__table__).values(
-                    app_id=file_content["app_id"],
-                    app_version=file_content["version"],
-                    app_type=file_content["type"],
-                    owned=True,
-                    title_id=title_id_in_db,
-                ).on_conflict_do_update(
-                    index_elements=['app_id', 'app_version'],
-                    set_={'owned': True},
-                )
-                db.session.execute(stmt)
-                db.session.commit()
-
-                add_file_to_app(file_content["app_id"], file_content["version"], file_id)
-                nb_content += 1
-
-            if nb_content > 1:
-                file.multicontent = True
-            file.nb_content = nb_content
-            file.identified = True
-            identified_title_ids = title_ids
-        else:
-            logger.warning(f"Error identifying file {file.filename}: {error}")
-            file.identification_error = error
-            file.identified = False
-
-        file.identification_type = identification
-        file.identification_attempts += 1
-        file.last_attempt = datetime.datetime.now()
+    file = db.session.get(Files, file_id)
+    if not file:
+        return
+    if not os.path.exists(filepath):
+        logger.warning(f'File {file.filename} no longer exists, deleting from database.')
+        Files.query.filter_by(id=file_id).delete(synchronize_session=False)
         db.session.commit()
+        return
 
-    _with_titledb(_work)
+    logger.info(f'Identifying file: {file.filename}')
+    identification, success, file_contents, error = titles_lib.identify_file(filepath)
+
+    if success and file_contents and not error:
+        title_ids = list(dict.fromkeys([c['title_id'] for c in file_contents]))
+        for title_id in title_ids:
+            add_title_id_in_db(title_id)
+
+        nb_content = 0
+        for file_content in file_contents:
+            logger.info(f'Found content Title ID: {file_content["title_id"]} App ID: {file_content["app_id"]} Type: {file_content["type"]} Version: {file_content["version"]}')
+            title_id_in_db = get_title_id_db_id(file_content["title_id"])
+
+            # Atomic owned-OR upsert: on conflict, flip owned=True without
+            # clobbering an existing row's title_id/app_type.
+            stmt = sqlite_insert(Apps.__table__).values(
+                app_id=file_content["app_id"],
+                app_version=file_content["version"],
+                app_type=file_content["type"],
+                owned=True,
+                title_id=title_id_in_db,
+            ).on_conflict_do_update(
+                index_elements=['app_id', 'app_version'],
+                set_={'owned': True},
+            )
+            db.session.execute(stmt)
+            db.session.commit()
+
+            add_file_to_app(file_content["app_id"], file_content["version"], file_id)
+            nb_content += 1
+
+        if nb_content > 1:
+            file.multicontent = True
+        file.nb_content = nb_content
+        file.identified = True
+        identified_title_ids = title_ids
+    else:
+        logger.warning(f"Error identifying file {file.filename}: {error}")
+        file.identification_error = error
+        file.identified = False
+
+    file.identification_type = identification
+    file.identification_attempts += 1
+    file.last_attempt = datetime.datetime.now()
+    db.session.commit()
 
     if identified_title_ids:
-        parent_id = get_current_parent_id()
         for title_id in identified_title_ids:
-            if parent_id is not None:
-                create_child_task(parent_id, 'add_missing_apps_for_title', {'title_id': title_id})
-            else:
-                enqueue_task('add_missing_apps_for_title', {'title_id': title_id})
+            enqueue_or_child('add_missing_apps_for_title', {'title_id': title_id})
+
+        if get_settings()['library']['management']['organizer']['enabled']:
+            enqueue_or_child('organize_file', {'file_id': file_id})
+
+        if _current_task_id is not None:
+            set_waiting_for_children()
 
 
 @register_task('add_missing_apps_for_title')
+@_schedules_generate_library
+@_with_titledb
 def add_missing_apps_for_title_task(title_id, **kwargs):
-    """Per-title: expand missing base/update/DLC apps (owned=False) for one title,
-    then fan out update_titles_for_title as a sibling (under the same parent)."""
-    from library import add_missing_apps_for_title
-
-    def _work():
-        add_missing_apps_for_title(title_id)
-    _with_titledb(_work)
-
-    parent_id = get_current_parent_id()
-    if parent_id is not None:
-        create_child_task(parent_id, 'update_titles_for_title', {'title_id': title_id})
-    else:
-        enqueue_task('update_titles_for_title', {'title_id': title_id})
+    """Per-title: expand missing base/update/DLC apps for one title, then enqueue update_titles_for_title."""
+    add_missing_apps_for_title(title_id)
+    enqueue_or_child('update_titles_for_title', {'title_id': title_id})
 
 
 @register_task('update_titles_for_title')
+@_schedules_generate_library
 def update_titles_for_title_task(title_id, **kwargs):
     """Per-title: recompute have_base / up_to_date / complete under BEGIN IMMEDIATE."""
-    from library import update_title_flags
     update_title_flags(title_id)
 
 
 @register_task('add_missing_apps')
+@_schedules_generate_library
 def add_missing_apps_task(**kwargs):
     """Batch: expand missing apps for every title. Used post-titledb-update."""
-    from library import add_missing_apps_to_db
-    _with_titledb(add_missing_apps_to_db)
+    _with_titledb(add_missing_apps_to_db)()
     enqueue_task('update_titles')
 
 
 @register_task('remove_missing_files')
+@_schedules_generate_library
 def remove_missing_files_task(**kwargs):
-    """Delete DB entries for files missing from disk, then recompute all title flags
-    (owned states may have flipped) and chain to organize_library."""
-    from db import remove_missing_files_from_db
-    from library import update_titles
+    """Delete DB entries for files missing from disk, then recompute all title flags."""
     remove_missing_files_from_db()
     update_titles()
-    enqueue_task('organize_library')
 
 
 @register_task('update_titles')
+@_schedules_generate_library
 def update_titles_task(**kwargs):
     """Batch: recompute flags for every title. Used post-titledb-update."""
-    from library import update_titles
     update_titles()
 
 
 @register_task('organize_library')
 def organize_library_task(**kwargs):
     """Organize all identified files, creating a child task per file."""
-    from settings import get_settings
-    from db import get_libraries, Files
-
     app_settings = get_settings()
     organizer_settings = app_settings['library']['management']['organizer']
 
@@ -585,34 +570,18 @@ def organize_library_task(**kwargs):
         _organize_library_done()
         return
 
-    parent_id = _current_task_id
-    libraries = get_libraries()
-    has_children = False
-    for library in libraries:
-        identified_files = Files.query.filter_by(library_id=library.id, identified=True).all()
-        for file_obj in identified_files:
-            create_child_task(parent_id, 'organize_file', {
-                'file_id': file_obj.id,
-                'library_path': library.path,
-                'organizer_settings': organizer_settings,
-            })
-            has_children = True
-    db.session.commit()
-
-    if not has_children:
+    files = Files.query.filter_by(identified=True).all()
+    if not files:
         logger.info('No files to organize.')
         _organize_library_done()
         return
-
+    for f in files:
+        enqueue_or_child('organize_file', {'file_id': f.id})
     set_waiting_for_children()
 
 
 @register_continuation('organize_library')
 def _organize_library_done(**kwargs):
-    from settings import get_settings
-    from db import get_libraries
-    from utils import delete_empty_folders
-
     app_settings = get_settings()
     organizer_settings = app_settings['library']['management']['organizer']
     if organizer_settings.get('enabled') and organizer_settings.get('remove_empty_folders'):
@@ -622,35 +591,28 @@ def _organize_library_done(**kwargs):
 
 
 @register_task('organize_file')
-def organize_file_task(file_id, library_path, organizer_settings, **kwargs):
+@_schedules_generate_library
+@_with_titledb
+def organize_file_task(file_id, **kwargs):
     """Organize a single file."""
-    def _work():
-        from library import organize_file
-        from db import Files
-
-        file_obj = db.session.get(Files, file_id)
-        if not file_obj:
-            return
-        organize_file(file_obj, library_path, organizer_settings)
-
-    _with_titledb(_work)
+    file_obj = db.session.get(Files, file_id)
+    if not file_obj:
+        return
+    organizer_settings = get_settings()['library']['management']['organizer']
+    organize_file(file_obj, get_library_path(file_obj.library_id), organizer_settings)
 
 
 @register_task('remove_outdated_updates')
+@_schedules_generate_library
 def remove_outdated_updates_task(**kwargs):
     """Remove outdated update files."""
-    from settings import get_settings
-    from library import remove_outdated_update_files
-
     app_settings = get_settings()
     if app_settings['library']['management']['delete_older_updates']:
-        _with_titledb(remove_outdated_update_files)
-    enqueue_task('generate_library')
+        _with_titledb(remove_outdated_update_files)()
 
 
 @register_task('generate_library')
 def generate_library_task(**kwargs):
-    from library import generate_library
     generate_library()
 
 
@@ -663,7 +625,6 @@ def handle_file_added_task(library_path, filepath, **kwargs):
 
 @register_task('handle_file_moved')
 def handle_file_moved_task(library_path, src_path, dest_path, **kwargs):
-    from db import file_exists_in_db, update_file_path
     if file_exists_in_db(src_path):
         update_file_path(library_path, src_path, dest_path)
     else:
@@ -671,7 +632,7 @@ def handle_file_moved_task(library_path, src_path, dest_path, **kwargs):
 
 
 @register_task('handle_file_deleted')
+@_schedules_generate_library
 def handle_file_deleted_task(filepath, **kwargs):
-    from db import delete_file_by_filepath
     delete_file_by_filepath(filepath)
     enqueue_task('update_titles')

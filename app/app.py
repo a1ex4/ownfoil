@@ -421,8 +421,7 @@ def upload_file():
             logger.info(f'Validating {file.filename}...')
             valid_keys, missing_keys, corrupt_keys = load_keys(KEYS_FILE)
             if valid_keys:
-                for lib in get_libraries():
-                    tasks_mod.enqueue_task('identify_library', {'library_path': lib.path})
+                tasks_mod.enqueue_task('identify_library')
             else:
                 logger.warning(f'Invalid keys from {file.filename}')
             success = True
