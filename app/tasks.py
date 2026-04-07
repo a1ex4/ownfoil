@@ -381,7 +381,7 @@ def scan_library_task(library_path, **kwargs):
 def _scan_library_done(library_path, **kwargs):
     from db import set_library_scan_time, get_library_id
     set_library_scan_time(get_library_id(library_path))
-    enqueue_task('identify_library', {'library_path': library_path})
+    enqueue_task('remove_missing_files')
 
 
 @register_task('add_file')
@@ -411,6 +411,8 @@ def add_file_task(library_path, filepath, **kwargs):
     )
     db.session.add(new_file)
     db.session.commit()
+
+    enqueue_task('identify_file', {'filepath': filepath, 'file_id': new_file.id})
 
 
 @register_task('identify_library')
@@ -511,9 +513,6 @@ def identify_file_task(filepath, file_id, **kwargs):
 
     _with_titledb(_work)
 
-    # After successful identification, create sibling tasks under our own parent
-    # (identify_library) for per-title add_missing_apps + update_titles follow-up.
-    # create_child_task dedups across files that share a title_id.
     if identified_title_ids:
         parent_id = get_current_parent_id()
         for title_id in identified_title_ids:
@@ -659,20 +658,16 @@ def generate_library_task(**kwargs):
 
 @register_task('handle_file_added')
 def handle_file_added_task(library_path, filepath, **kwargs):
-    from library import add_files_to_library
-    add_files_to_library(library_path, [filepath])
-    enqueue_task('identify_library', {'library_path': library_path})
+    enqueue_task('add_file', {'library_path': library_path, 'filepath': filepath})
 
 
 @register_task('handle_file_moved')
 def handle_file_moved_task(library_path, src_path, dest_path, **kwargs):
     from db import file_exists_in_db, update_file_path
-    from library import add_files_to_library
     if file_exists_in_db(src_path):
         update_file_path(library_path, src_path, dest_path)
     else:
-        add_files_to_library(library_path, [dest_path])
-    enqueue_task('identify_library', {'library_path': library_path})
+        enqueue_task('add_file', {'library_path': library_path, 'filepath': dest_path})
 
 
 @register_task('handle_file_deleted')
