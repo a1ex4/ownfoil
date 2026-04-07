@@ -558,31 +558,3 @@ def get_task_api(task_id):
         'children': children,
     })
 
-if __name__ == '__main__':
-    from run import WorkerPool
-
-    logger.info('Starting initialization of Ownfoil...')
-    init_db(app)
-    init_users(app)
-    with app.app_context():
-        from tasks import cleanup_tasks
-        cleanup_tasks()
-    init()
-
-    # Read initial worker count
-    initial_count = get_settings().get('worker', {}).get('count', 1)
-    max_workers = os.cpu_count() or 1
-    initial_count = max(1, min(initial_count, max_workers))
-
-    # Start worker pool — assign to module global so on_settings_change can scale it
-    pool = WorkerPool(initial_count=initial_count)
-
-    logger.info('Initialization steps done, starting server...')
-    app.run(debug=False, use_reloader=False, host="0.0.0.0", port=8465)
-
-    # Shutdown
-    logger.info('Shutting down server...')
-    pool.shutdown()
-    watcher.stop()
-    watcher_thread.join()
-    logger.debug('Watcher thread terminated.')
