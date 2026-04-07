@@ -210,61 +210,6 @@ def init_libraries(app, watcher, paths):
                 # Ensure watchdog is monitoring existing library
                 watcher.add_directory(path)
 
-def add_files_to_library(library, files):
-    if isinstance(library, int) or library.isdigit():
-        library_id = library
-        library_path = get_library_path(library_id)
-    else:
-        library_path = library
-        library_id = get_library_id(library_path)
-
-    library_path = get_library_path(library_id)
-    
-    # Get existing file paths in the library
-    filepaths_in_db = get_library_file_paths(library_id)
-    
-    # Filter out files that are already in the database
-    new_files_to_add = [f for f in files if f not in filepaths_in_db]
-    
-    if not new_files_to_add:
-        return
-
-    nb_to_identify = len(new_files_to_add)
-    for n, filepath in enumerate(new_files_to_add):
-        file = filepath.replace(library_path, "")
-        logger.info(f'Getting file info ({n+1}/{nb_to_identify}): {file}')
-
-        file_info = titles_lib.get_file_info(filepath)
-
-        if file_info is None:
-            logger.error(f'Failed to get info for file: {file} - file will be skipped.')
-            # in the future save identification error to be displayed and inspected in the UI
-            continue
-
-        new_file = Files(
-            filepath = filepath,
-            library_id = library_id,
-            folder = file_info["filedir"],
-            filename = file_info["filename"],
-            extension = file_info["extension"],
-            size = file_info["size"],
-        )
-        db.session.add(new_file)
-
-        try:
-            db.session.flush()
-        except Exception:
-            # Another worker already added this file concurrently
-            db.session.rollback()
-            continue
-
-        # Commit every 100 files to avoid excessive memory use
-        if (n + 1) % 100 == 0:
-            db.session.commit()
-
-    # Final commit
-    db.session.commit()
-
 def get_files_to_identify(library_id):
     non_identified_files = get_all_non_identified_files_from_library(library_id)
     if titles_lib.Keys.keys_loaded:
