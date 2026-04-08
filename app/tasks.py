@@ -13,7 +13,7 @@ from db import (
     get_libraries, add_title_id_in_db, get_title_id_db_id, add_file_to_app,
     file_exists_in_db, update_file_path, delete_file_by_filepath,
     set_library_scan_time, remove_missing_files_from_db,
-    remove_file_from_apps,
+    remove_file_from_apps, reset_file_identification,
 )
 from settings import get_settings
 from utils import interval_string_to_timedelta, delete_empty_folders
@@ -389,6 +389,7 @@ def add_file_task(library_path, filepath, **kwargs):
         filename=file_info["filename"],
         extension=file_info["extension"],
         size=file_info["size"],
+        mtime=file_info["mtime"],
     )
     db.session.add(new_file)
     db.session.commit()
@@ -610,8 +611,27 @@ def generate_library_task(**kwargs):
 
 # --- Watcher event handlers ---
 @register_task('handle_file_added')
+@_schedules_generate_library
 def handle_file_added_task(library_path, filepath, **kwargs):
-    enqueue_task('add_file', {'library_path': library_path, 'filepath': filepath})
+    file = Files.query.filter_by(filepath=filepath).first()
+    if file is None:
+        enqueue_task('add_file', {'library_path': library_path, 'filepath': filepath})
+        return
+
+    new_size = titles_lib.get_file_size(filepath)
+    new_mtime = os.path.getmtime(filepath)
+    if file.size == new_size and file.mtime == new_mtime:
+        return
+
+    logger.info(f'File changed on disk, re-identifying: {file.filename}')
+    remove_file_from_apps(file.id)
+    file.size = new_size
+    file.mtime = new_mtime
+    reset_file_identification(file)
+    db.session.commit()
+    enqueue_or_child('identify_file', {'filepath': filepath, 'file_id': file.id})
+    if _current_task_id is not None:
+        set_waiting_for_children()
 
 
 @register_task('handle_file_moved')

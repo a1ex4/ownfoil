@@ -81,6 +81,7 @@ class Files(db.Model):
     identification_error = db.Column(db.String)
     identification_attempts = db.Column(db.Integer, default=0)
     last_attempt = db.Column(db.DateTime, default=datetime.datetime.now())
+    mtime = db.Column(db.Float)
 
     library = db.relationship('Libraries', backref=db.backref('files', lazy=True, cascade="all, delete-orphan"))
 
@@ -268,7 +269,9 @@ def get_all_apps():
     return apps_list
 
 def get_all_non_identified_files_from_library(library_id):
-    return Files.query.filter_by(identified=False, library_id=library_id).all()
+    return Files.query.filter_by(
+        identified=False, library_id=library_id, identification_attempts=0
+    ).all()
 
 def get_files_with_identification_from_library(library_id, identification_type):
     return Files.query.filter_by(library_id=library_id, identification_type=identification_type).all()
@@ -378,6 +381,15 @@ def add_file_to_app(app_id, app_version, file_id):
                 db.session.rollback()
             return True
     return False
+
+def reset_file_identification(file):
+    """Clear identification state on a Files row so it will be re-identified."""
+    file.identified = False
+    file.identification_error = None
+    file.identification_type = None
+    file.identification_attempts = 0
+    file.nb_content = 0
+    file.multicontent = False
 
 def remove_file_from_apps(file_id):
     """Remove a file from all apps that reference it and update owned status"""
