@@ -9,7 +9,7 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 import titles as titles_lib
 import titledb
 from db import (
-    db, Files, Apps, get_library_id, get_library_path, get_library_file_paths,
+    db, Task, Files, Apps, get_library_id, get_library_path, get_library_file_paths,
     get_libraries, add_title_id_in_db, get_title_id_db_id, add_file_to_app,
     file_exists_in_db, update_file_path, delete_file_by_filepath,
     set_library_scan_time, remove_missing_files_from_db,
@@ -49,38 +49,10 @@ def get_registered_task(name):
     return TASK_REGISTRY.get(name)
 
 
-# --- Task Model ---
-class Task(db.Model):
-    __tablename__ = 'tasks'
-
-    id = db.Column(db.Integer, primary_key=True)
-    parent_id = db.Column(db.Integer, db.ForeignKey('tasks.id'), nullable=True)
-    task_name = db.Column(db.String, nullable=False, index=True)
-    status = db.Column(db.String, nullable=False, default='pending')
-    completion_pct = db.Column(db.Integer, default=0)
-    input_json = db.Column(db.Text, nullable=False, default='{}')
-    input_hash = db.Column(db.String(64), nullable=False)
-    output_json = db.Column(db.Text)
-    exit_code = db.Column(db.Integer)
-    error_message = db.Column(db.Text)
-    run_after = db.Column(db.DateTime, nullable=True)
-    created_at = db.Column(db.DateTime, nullable=False, default=datetime.datetime.utcnow)
-    started_at = db.Column(db.DateTime)
-    completed_at = db.Column(db.DateTime)
-
-    children = db.relationship('Task', backref=db.backref('parent', remote_side=[id]), lazy='dynamic')
-
-    __table_args__ = (
-        db.Index('ix_tasks_status_created', 'status', 'created_at'),
-        db.Index('ix_tasks_parent_id', 'parent_id'),
-    )
-
-
 # --- Progress ---
 _current_task_id = None
 
 # --- Child task helpers ---
-
 def create_child_task(parent_id, task_name, input_data=None):
     """Create a child task, deduped against existing active children of the same parent."""
     if task_name not in TASK_REGISTRY:
