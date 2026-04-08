@@ -365,6 +365,7 @@ def scan_library_task(library_path, **kwargs):
 def _scan_library_done(library_path, **kwargs):
     set_library_scan_time(get_library_id(library_path))
     enqueue_task('remove_missing_files')
+    enqueue_task('organize_library')
 
 
 @register_task('add_file')
