@@ -80,9 +80,7 @@ def on_settings_change():
     """Settings file changed: refresh cache in this process and scale worker pool if needed."""
     settings = get_settings()
     if pool is not None:
-        desired = settings.get('worker', {}).get('count', 1)
-        max_workers = os.cpu_count() or 1
-        desired = max(1, min(desired, max_workers))
+        desired = max(1, settings.get('worker', {}).get('count', 1))
         if desired != pool.count:
             logger.info(f'Settings changed: scaling workers from {pool.count} to {desired}')
             pool.scale(desired)
@@ -395,17 +393,11 @@ def set_worker_settings_api():
             count = int(count)
         except (TypeError, ValueError):
             return jsonify({'success': False, 'errors': [{'path': 'worker/count', 'error': 'Must be an integer'}]})
-        max_workers = os.cpu_count() or 1
-        if count < 1 or count > max_workers:
-            return jsonify({'success': False, 'errors': [{'path': 'worker/count', 'error': f'Must be between 1 and {max_workers}'}]})
+        if count < 1:
+            return jsonify({'success': False, 'errors': [{'path': 'worker/count', 'error': 'Must be at least 1'}]})
         data['count'] = count
     set_worker_settings(data)
     return jsonify({'success': True, 'errors': []})
-
-@app.get('/api/settings/worker-info')
-@access_required('admin')
-def get_worker_info():
-    return jsonify({'max_workers': os.cpu_count() or 1})
 
 @app.post('/api/upload')
 @access_required('admin')
