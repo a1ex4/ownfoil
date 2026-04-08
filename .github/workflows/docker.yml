@@ -52,11 +52,7 @@ jobs:
 
       - name: Set platforms based on branch or tag
         run: |
-          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
-            echo "PLATFORMS=linux/amd64,linux/arm64,linux/arm/v7,linux/arm/v6" >> $GITHUB_ENV
-          else
-            echo "PLATFORMS=linux/amd64,linux/arm64" >> $GITHUB_ENV
-          fi
+          echo "PLATFORMS=linux/amd64,linux/arm64,linux/arm/v7,linux/arm/v6" >> $GITHUB_ENV
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v7
