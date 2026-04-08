@@ -516,9 +516,9 @@ def list_tasks_api():
     status = request.args.get('status')
     limit = request.args.get('limit', 50, type=int)
     include_children = request.args.get('include_children', 'false').lower() == 'true'
-    query = tasks_mod.Task.query.order_by(tasks_mod.Task.created_at.desc())
+    query = Task.query.order_by(Task.created_at.desc())
     if not include_children:
-        query = query.filter(tasks_mod.Task.parent_id.is_(None))
+        query = query.filter(Task.parent_id.is_(None))
     if status:
         query = query.filter_by(status=status)
     return jsonify({'tasks': [_serialize_task(t) for t in query.limit(limit).all()]})

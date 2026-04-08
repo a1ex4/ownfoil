@@ -52,8 +52,8 @@ class TaskWorker:
             connection.close()
 
     def execute_task(self, task_id):
-        from tasks import Task, get_registered_task, on_task_completed
-        from db import db
+        from tasks import get_registered_task, on_task_completed
+        from db import db, Task
         from settings import get_settings
         import tasks as tasks_mod
 

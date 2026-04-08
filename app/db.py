@@ -139,6 +139,32 @@ class User(UserMixin, db.Model):
         elif access == 'backup':
             return self.has_backup_access()
 
+class Task(db.Model):
+    __tablename__ = 'tasks'
+
+    id = db.Column(db.Integer, primary_key=True)
+    parent_id = db.Column(db.Integer, db.ForeignKey('tasks.id'), nullable=True)
+    task_name = db.Column(db.String, nullable=False, index=True)
+    status = db.Column(db.String, nullable=False, default='pending')
+    completion_pct = db.Column(db.Integer, default=0)
+    input_json = db.Column(db.Text, nullable=False, default='{}')
+    input_hash = db.Column(db.String(64), nullable=False)
+    output_json = db.Column(db.Text)
+    exit_code = db.Column(db.Integer)
+    error_message = db.Column(db.Text)
+    run_after = db.Column(db.DateTime, nullable=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.datetime.utcnow)
+    started_at = db.Column(db.DateTime)
+    completed_at = db.Column(db.DateTime)
+
+    children = db.relationship('Task', backref=db.backref('parent', remote_side=[id]), lazy='dynamic')
+
+    __table_args__ = (
+        db.Index('ix_tasks_status_created', 'status', 'created_at'),
+        db.Index('ix_tasks_parent_id', 'parent_id'),
+    )
+
+
 class IgnoredEvent(db.Model):
     """File events the watcher should ignore (written by worker before move/delete)."""
     __tablename__ = 'ignored_events'
