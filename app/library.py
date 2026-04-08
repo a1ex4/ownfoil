@@ -1,5 +1,6 @@
 import hashlib
 import os
+import re
 import shutil
 from constants import *
 from db import *
@@ -76,6 +77,18 @@ def organize_file(file_obj, library_path, organizer_settings):
 
         if current_filepath == new_full_path:
             return
+
+        # Already organized with an "(n)" suffix from a previous collision:
+        # Avoid re-running the rename loop only to bail out at the same name.
+        new_dir_norm = os.path.dirname(new_full_path)
+        base_name = os.path.splitext(os.path.basename(new_full_path))[0]
+        current_dir = os.path.dirname(current_filepath)
+        current_name = os.path.basename(current_filepath)
+        if current_dir == new_dir_norm and re.fullmatch(
+            rf"{re.escape(base_name)}\(\d+\)\.{re.escape(file_obj.extension)}",
+            current_name,
+        ):
+            return
         
         # Ensure the directory exists
         new_dir = os.path.dirname(new_full_path)
@@ -86,7 +99,6 @@ def organize_file(file_obj, library_path, organizer_settings):
             return
         
         # Move the file, handling duplicates.
-        base_name = os.path.splitext(os.path.basename(new_full_path))[0]
         library_path_str = get_library_path(file_obj.library_id)
         logger.info(f'Organizing file: {file_obj.filename}')
 
