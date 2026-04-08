@@ -9,10 +9,11 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 import titles as titles_lib
 import titledb
 from db import (
-    db, Task, Files, Apps, get_library_id, get_library_path, get_library_file_paths,
+    db, Task, Files, Apps, Libraries, get_library_id, get_library_path, get_library_file_paths,
     get_libraries, add_title_id_in_db, get_title_id_db_id, add_file_to_app,
     file_exists_in_db, update_file_path, delete_file_by_filepath,
     set_library_scan_time, remove_missing_files_from_db,
+    remove_file_from_apps,
 )
 from settings import get_settings
 from utils import interval_string_to_timedelta, delete_empty_folders
@@ -320,8 +321,7 @@ def _with_titledb(func):
     return wrapper
 
 
-# --- Pipeline tasks ---
-
+# --- Periodic tasks ---
 @register_task('update_titledb')
 def update_titledb_task(**kwargs):
     settings = get_settings()
@@ -337,6 +337,7 @@ def update_titledb_task(**kwargs):
         enqueue_task('update_titledb', run_after=datetime.datetime.utcnow() + delta)
 
 
+# --- Scan pipeline ---
 @register_task('scan_library')
 def scan_library_task(library_path, **kwargs):
     """Scan a library path for new files, creating a child task per file."""
@@ -397,6 +398,7 @@ def add_file_task(library_path, filepath, **kwargs):
         set_waiting_for_children()
 
 
+# --- Identify pipeline ---
 @register_task('identify_library')
 def identify_library_task(**kwargs):
     """Identify all unidentified files across every library."""
@@ -416,8 +418,8 @@ def identify_library_task(**kwargs):
 @register_continuation('identify_library')
 def _identify_library_done(**kwargs):
     # Per-file work already handled add_missing + update_titles per touched title;
-    # remove_missing_files handles the tail (deleted files → owned flips → batch update).
-    enqueue_task('remove_missing_files')
+    # final pass GCs unowned titles and recomputes flags.
+    enqueue_task('update_titles')
 
 
 @register_task('identify_file')
@@ -509,29 +511,7 @@ def update_titles_for_title_task(title_id, **kwargs):
     update_title_flags(title_id)
 
 
-@register_task('add_missing_apps')
-@_schedules_generate_library
-def add_missing_apps_task(**kwargs):
-    """Batch: expand missing apps for every title. Used post-titledb-update."""
-    _with_titledb(add_missing_apps_to_db)()
-    enqueue_task('update_titles')
-
-
-@register_task('remove_missing_files')
-@_schedules_generate_library
-def remove_missing_files_task(**kwargs):
-    """Delete DB entries for files missing from disk, then recompute all title flags."""
-    remove_missing_files_from_db()
-    update_titles()
-
-
-@register_task('update_titles')
-@_schedules_generate_library
-def update_titles_task(**kwargs):
-    """Batch: recompute flags for every title. Used post-titledb-update."""
-    update_titles()
-
-
+# --- Organize pipeline ---
 @register_task('organize_library')
 def organize_library_task(**kwargs):
     """Organize all identified files, creating a child task per file."""
@@ -583,13 +563,52 @@ def remove_outdated_updates_task(**kwargs):
         _with_titledb(remove_outdated_update_files)()
 
 
+# --- Batch maintenance ---
+@register_task('add_missing_apps')
+@_schedules_generate_library
+def add_missing_apps_task(**kwargs):
+    """Batch: expand missing apps for every title. Used post-titledb-update."""
+    _with_titledb(add_missing_apps_to_db)()
+    enqueue_task('update_titles')
+
+
+@register_task('remove_missing_files')
+@_schedules_generate_library
+def remove_missing_files_task(**kwargs):
+    """Delete DB entries for files missing from disk, then recompute all title flags."""
+    remove_missing_files_from_db()
+    enqueue_task('update_titles')
+
+
+@register_task('update_titles')
+@_schedules_generate_library
+def update_titles_task(**kwargs):
+    """Batch: recompute flags for every title. Used post-titledb-update."""
+    update_titles()
+
+
+# --- Library lifecycle ---
+@register_task('remove_library')
+def remove_library_task(library_path, **kwargs):
+    """Delete a library and its files (flipping app ownership), then recompute titles."""
+    library = Libraries.query.filter_by(path=library_path).first()
+    if not library:
+        return
+    for file_id in [f.id for f in library.files]:
+        remove_file_from_apps(file_id)
+    db.session.delete(library)
+    db.session.commit()
+    logger.info(f"Removed library: {library_path}")
+    enqueue_task('update_titles')
+
+
+# --- Shop generation ---
 @register_task('generate_library')
 def generate_library_task(**kwargs):
     generate_library()
 
 
-# --- File event tasks ---
-
+# --- Watcher event handlers ---
 @register_task('handle_file_added')
 def handle_file_added_task(library_path, filepath, **kwargs):
     enqueue_task('add_file', {'library_path': library_path, 'filepath': filepath})
