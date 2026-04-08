@@ -522,6 +522,14 @@ def list_tasks_api():
     return jsonify({'tasks': [_serialize_task(t) for t in query.limit(limit).all()]})
 
 
+@app.delete('/api/tasks/failed')
+@access_required('admin')
+def clear_failed_tasks_api():
+    deleted = Task.query.filter_by(status='failed').delete()
+    db.session.commit()
+    return jsonify({'success': True, 'deleted': deleted})
+
+
 @app.get('/api/tasks/<int:task_id>')
 @access_required('admin')
 def get_task_api(task_id):
