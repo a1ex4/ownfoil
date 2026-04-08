@@ -41,6 +41,13 @@ class Watcher:
             return True
         return False
     
+    def add_file_callback(self, filepath, callback):
+        """Watch a single file via its parent directory; invoke callback() on change."""
+        parent = os.path.dirname(os.path.abspath(filepath)) or '.'
+        handler = _FileCallbackHandler(filepath, callback)
+        self.observer.schedule(handler, parent, recursive=False)
+        logger.debug(f'Watching {filepath} for changes.')
+
     def remove_directory(self, directory):
         logger.debug(f'Removing {directory} from watchdog monitoring...')
         if directory in self.directories:
@@ -54,7 +61,20 @@ class Watcher:
             logger.info(f'{directory} not in watchdog, nothing to do.')
         return False
 
-import threading # Keep threading for the lock
+class _FileCallbackHandler(FileSystemEventHandler):
+    def __init__(self, filepath, callback):
+        self.filepath = os.path.abspath(filepath)
+        self.callback = callback
+
+    def on_any_event(self, event):
+        if event.is_directory or os.path.abspath(event.src_path) != self.filepath:
+            return
+        try:
+            self.callback()
+        except Exception as e:
+            logger.error(f'File callback error for {self.filepath}: {e}')
+
+
 class Handler(FileSystemEventHandler):
     def __init__(self, callback, stability_duration=5):
         self._raw_callback = callback  # Callback to invoke for stable files
@@ -62,8 +82,6 @@ class Handler(FileSystemEventHandler):
         self.stability_duration = stability_duration  # Stability duration in seconds
         self.tracked_files = {}  # Tracks files being copied
         self.debounced_check_final = self._debounce(self._check_file_stability, stability_duration)
-        self.ignored_events_tuples = set() # Set to store (src, dest) paths of file operations to ignore
-        self.ignored_events_lock = threading.Lock() # Lock for thread-safe access to ignored_events_tuples
 
     def add_directory(self, directory):
         if directory not in self.directories:
@@ -140,30 +158,6 @@ class Handler(FileSystemEventHandler):
         self._check_file_stability()
 
     def on_any_event(self, event):
-        with self.ignored_events_lock:
-            if event.event_type == 'moved':
-                move_tuple = (event.src_path, event.dest_path)
-                if move_tuple in self.ignored_events_tuples:
-                    self.ignored_events_tuples.remove(move_tuple)
-                    # logger.debug(f"Ignoring internally generated 'moved' event: {event.src_path} -> {event.dest_path}")
-                    return
-            elif event.event_type == 'deleted':
-                # Check if this deleted event is part of an internally generated move
-                for src, dest in list(self.ignored_events_tuples): # Iterate over a copy to allow modification
-                    if event.src_path == src:
-                        if not dest:
-                            # This is an internal delete event
-                            self.ignored_events_tuples.remove((src, dest))
-                        # logger.debug(f"Ignoring internally generated 'deleted' event (part of move): {event.src_path}")
-                        return
-            elif event.event_type == 'created':
-                # Check if this created event is part of an internally generated move
-                for src, dest in list(self.ignored_events_tuples): # Iterate over a copy to allow modification
-                    if event.src_path == dest:
-                        self.ignored_events_tuples.remove((src, dest))
-                        # logger.debug(f"Ignoring internally generated 'created' event (part of move): {event.src_path}")
-                        return
-
         for directory in self.directories:
             if event.src_path.startswith(directory):
                 self.collect_event(event, directory)

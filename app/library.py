@@ -8,8 +8,7 @@ import datetime
 import sys
 from pathlib import Path
 from utils import *
-from settings import load_settings
-from db import update_file_path 
+from db import update_file_path
 
 def sanitize_filename(name, windows_compatible=False):
     if sys.platform == 'win32' or windows_compatible:
@@ -30,7 +29,7 @@ def sanitize_filename(name, windows_compatible=False):
 
     return sanitized
 
-def organize_file(file_obj, library_path, organizer_settings, watcher):
+def organize_file(file_obj, library_path, organizer_settings):
     try:
         templates = organizer_settings['templates']
         
@@ -100,9 +99,8 @@ def organize_file(file_obj, library_path, organizer_settings, watcher):
         logger.info(f'Organizing file: {file_obj.filename}')
         try:
             # Add the move event to the ignored list before performing the move
-            with watcher.event_handler.ignored_events_lock:
-                watcher.event_handler.ignored_events_tuples.add((current_filepath, final_new_full_path))
-            
+            add_ignored_event(current_filepath, final_new_full_path)
+
             shutil.move(current_filepath, final_new_full_path)
             logger.info(f"Moved '{current_filepath}' to '{final_new_full_path}'")
             
@@ -110,14 +108,11 @@ def organize_file(file_obj, library_path, organizer_settings, watcher):
             # Get the library path from the library ID
             library_path_str = get_library_path(file_obj.library_id)
             update_file_path(library_path_str, current_filepath, final_new_full_path)
-            # logger.info(f"Updated database for file '{current_filepath}' to '{final_new_full_path}'")
 
         except (shutil.Error, OSError) as e:
             logger.error(f"Error moving file from '{current_filepath}' to '{final_new_full_path}': {e}")
-            # If an error occurs, ensure the event is removed from the ignored list
-            with watcher.event_handler.ignored_events_lock:
-                if (current_filepath, final_new_full_path) in watcher.event_handler.ignored_events_tuples:
-                    watcher.event_handler.ignored_events_tuples.remove((current_filepath, final_new_full_path))
+            # If an error occurs, remove from the ignored list
+            pop_ignored_event(src_path=current_filepath, dest_path=final_new_full_path)
         # No finally block needed for removing from ignored_move_events, as it's removed by the watchdog handler
 
     except Exception as e:
@@ -158,40 +153,15 @@ def add_library_complete(app, watcher, path):
         return True, []
 
 def remove_library_complete(app, watcher, path):
-    """Remove a library from settings, database, and watchdog with proper cleanup"""
+    """Remove a library: stop watching, drop from settings, enqueue DB cleanup task."""
     from settings import delete_library_path_from_settings
-    
+    import tasks as tasks_mod
+
     with app.app_context():
-        # Remove from watchdog first
         watcher.remove_directory(path)
-        
-        # Get library object before deletion
-        library = Libraries.query.filter_by(path=path).first()
-        if library:
-            # Get all file IDs from this library before deletion
-            file_ids = [f.id for f in library.files]
-            
-            # Update Apps table to remove file references and update ownership
-            total_apps_updated = 0
-            for file_id in file_ids:
-                apps_updated = remove_file_from_apps(file_id)
-                total_apps_updated += apps_updated
-            
-            # Remove titles that no longer have any owned apps
-            titles_removed = remove_titles_without_owned_apps()
-            
-            # Delete library (cascade will delete files automatically)
-            db.session.delete(library)
-            db.session.commit()
-            
-            logger.info(f"Removed library: {path}")
-            if total_apps_updated > 0:
-                logger.info(f"Updated {total_apps_updated} app entries to remove library file references.")
-            if titles_removed > 0:
-                logger.info(f"Removed {titles_removed} titles with no owned apps.")
-        
-        # Remove from settings
         success, errors = delete_library_path_from_settings(path)
+        if success:
+            tasks_mod.enqueue_task('remove_library', {'library_path': path})
         return success, errors
 
 def init_libraries(app, watcher, paths):
@@ -216,67 +186,6 @@ def init_libraries(app, watcher, paths):
                 # Ensure watchdog is monitoring existing library
                 watcher.add_directory(path)
 
-def add_files_to_library(library, files):
-    if isinstance(library, int) or library.isdigit():
-        library_id = library
-        library_path = get_library_path(library_id)
-    else:
-        library_path = library
-        library_id = get_library_id(library_path)
-
-    library_path = get_library_path(library_id)
-    
-    # Get existing file paths in the library
-    filepaths_in_db = get_library_file_paths(library_id)
-    
-    # Filter out files that are already in the database
-    new_files_to_add = [f for f in files if f not in filepaths_in_db]
-    
-    if not new_files_to_add:
-        return
-
-    nb_to_identify = len(new_files_to_add)
-    for n, filepath in enumerate(new_files_to_add):
-        file = filepath.replace(library_path, "")
-        logger.info(f'Getting file info ({n+1}/{nb_to_identify}): {file}')
-
-        file_info = titles_lib.get_file_info(filepath)
-
-        if file_info is None:
-            logger.error(f'Failed to get info for file: {file} - file will be skipped.')
-            # in the future save identification error to be displayed and inspected in the UI
-            continue
-
-        new_file = Files(
-            filepath = filepath,
-            library_id = library_id,
-            folder = file_info["filedir"],
-            filename = file_info["filename"],
-            extension = file_info["extension"],
-            size = file_info["size"],
-        )
-        db.session.add(new_file)
-
-        # Commit every 100 files to avoid excessive memory use
-        if (n + 1) % 100 == 0:
-            db.session.commit()
-
-    # Final commit
-    db.session.commit()
-
-def scan_library_path(library_path):
-    library_id = get_library_id(library_path)
-    logger.info(f'Scanning library path {library_path} ...')
-    if not os.path.isdir(library_path):
-        logger.warning(f'Library path {library_path} does not exists.')
-        return
-    _, files = titles_lib.getDirsAndFiles(library_path)
-
-    filepaths_in_library = get_library_file_paths(library_id)
-    new_files = [f for f in files if f not in filepaths_in_library]
-    add_files_to_library(library_id, new_files)
-    set_library_scan_time(library_id)
-
 def get_files_to_identify(library_id):
     non_identified_files = get_all_non_identified_files_from_library(library_id)
     if titles_lib.Keys.keys_loaded:
@@ -284,211 +193,63 @@ def get_files_to_identify(library_id):
         non_identified_files = list(set(non_identified_files).union(files_to_identify_with_cnmt))
     return non_identified_files
 
-def identify_library_files(library):
-    if isinstance(library, int) or library.isdigit():
-        library_id = library
-        library_path = get_library_path(library_id)
-    else:
-        library_path = library
-        library_id = get_library_id(library_path)
-    files_to_identify = get_files_to_identify(library_id)
-    nb_to_identify = len(files_to_identify)
-    for n, file in enumerate(files_to_identify):
-        try:
-            file_id = file.id
-            filepath = file.filepath
-            filename = file.filename
+def _insert_missing_app_if_absent(app_id, app_version, app_type, title_db_id):
+    """Insert an app as owned=False only if no row with (app_id, app_version) exists.
+    Uses SQLite ON CONFLICT DO NOTHING to handle concurrent inserts without clobbering
+    an owned=True row a peer worker may have just written. Returns True if inserted."""
+    from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+    stmt = sqlite_insert(Apps.__table__).values(
+        app_id=app_id,
+        app_version=app_version,
+        app_type=app_type,
+        owned=False,
+        title_id=title_db_id,
+    ).on_conflict_do_nothing(index_elements=['app_id', 'app_version'])
+    result = db.session.execute(stmt)
+    return result.rowcount > 0
 
-            if not os.path.exists(filepath):
-                logger.warning(f'Identifying file ({n+1}/{nb_to_identify}): {filename} no longer exists, deleting from database.')
-                Files.query.filter_by(id=file_id).delete(synchronize_session=False)
-                continue
 
-            logger.info(f'Identifying file ({n+1}/{nb_to_identify}): {filename}')
-            identification, success, file_contents, error = titles_lib.identify_file(filepath)
-            if success and file_contents and not error:
-                # find all unique Titles ID to add to the Titles db
-                title_ids = list(dict.fromkeys([c['title_id'] for c in file_contents]))
+def add_missing_apps_for_title(title_id):
+    """Expand missing base/update/DLC apps (owned=False) for a single title.
+    Safe to run concurrently with other workers expanding the same title."""
+    title_db_id = get_title_id_db_id(title_id)
+    apps_added = 0
 
-                for title_id in title_ids:
-                    add_title_id_in_db(title_id)
+    existing_bases = [a for a in get_all_title_apps(title_id) if a.get('app_type') == APP_TYPE_BASE]
+    if not existing_bases:
+        if _insert_missing_app_if_absent(title_id, "0", APP_TYPE_BASE, title_db_id):
+            apps_added += 1
 
-                nb_content = 0
-                for file_content in file_contents:
-                    logger.info(f'Identifying file ({n+1}/{nb_to_identify}) - Found content Title ID: {file_content["title_id"]} App ID : {file_content["app_id"]} Title Type: {file_content["type"]} Version: {file_content["version"]}')
-                    # now add the content to Apps
-                    title_id_in_db = get_title_id_db_id(file_content["title_id"])
-                    
-                    # Check if app already exists
-                    existing_app = get_app_by_id_and_version(
-                        file_content["app_id"],
-                        file_content["version"]
-                    )
-                    
-                    if existing_app:
-                        # Add file to existing app using many-to-many relationship
-                        add_file_to_app(file_content["app_id"], file_content["version"], file_id)
-                    else:
-                        # Create new app entry and add file using many-to-many relationship
-                        new_app = Apps(
-                            app_id=file_content["app_id"],
-                            app_version=file_content["version"],
-                            app_type=file_content["type"],
-                            owned=True,
-                            title_id=title_id_in_db
-                        )
-                        db.session.add(new_app)
-                        db.session.flush()  # Flush to get the app ID
-                        
-                        # Add the file to the new app
-                        file_obj = get_file_from_db(file_id)
-                        if file_obj:
-                            new_app.files.append(file_obj)
-                    
-                    nb_content += 1
+    update_app_id = title_id[:-3] + '800'
+    for version_info in titles_lib.get_all_existing_versions(title_id):
+        version = str(version_info['version'])
+        if _insert_missing_app_if_absent(update_app_id, version, APP_TYPE_UPD, title_db_id):
+            apps_added += 1
 
-                if nb_content > 1:
-                    file.multicontent = True
-                file.nb_content = nb_content
-                file.identified = True
-            else:
-                logger.warning(f"Error identifying file {filename}: {error}")
-                file.identification_error = error
-                file.identified = False
+    for dlc_app_id in titles_lib.get_all_existing_dlc(title_id):
+        dlc_versions = titles_lib.get_all_app_existing_versions(dlc_app_id) or []
+        for dlc_version in dlc_versions:
+            if _insert_missing_app_if_absent(dlc_app_id, str(dlc_version), APP_TYPE_DLC, title_db_id):
+                apps_added += 1
 
-            file.identification_type = identification
-
-        except Exception as e:
-            logger.warning(f"Error identifying file {filename}: {e}")
-            file.identification_error = str(e)
-            file.identified = False
-
-        # and finally update the File with identification info
-        file.identification_attempts += 1
-        file.last_attempt = datetime.datetime.now()
-
-        # Commit every 100 files to avoid excessive memory use
-        if (n + 1) % 100 == 0:
-            db.session.commit()
-
-    # Final commit
     db.session.commit()
+    if apps_added:
+        logger.debug(f'Added {apps_added} missing apps for title {title_id}')
+    return apps_added
+
 
 def add_missing_apps_to_db():
+    """Batch: expand missing apps for every title. Used post-titledb-update."""
     logger.info('Adding missing apps to database...')
     titles = get_all_titles()
-    apps_added = 0
-    
+    total = 0
     for n, title in enumerate(titles):
-        title_id = title.title_id
-        title_db_id = get_title_id_db_id(title_id)
-        
-        # Add base game if not present at all (any version)
-        existing_bases = [
-            a for a in get_all_title_apps(title_id)
-            if a.get("app_type") == APP_TYPE_BASE
-        ]
-
-        if not existing_bases:
-            new_base_app = Apps(
-                app_id=title_id,
-                app_version="0",
-                app_type=APP_TYPE_BASE,
-                owned=False,
-                title_id=title_db_id
-            )
-            db.session.add(new_base_app)
-            apps_added += 1
-            logger.debug(f'Added missing base app: {title_id}')
-        
-        # Add missing update versions
-        title_versions = titles_lib.get_all_existing_versions(title_id)
-        for version_info in title_versions:
-            version = str(version_info['version'])
-            update_app_id = title_id[:-3] + '800'  # Convert base ID to update ID
-            
-            existing_update = get_app_by_id_and_version(update_app_id, version)
-            
-            if not existing_update:
-                new_update_app = Apps(
-                    app_id=update_app_id,
-                    app_version=version,
-                    app_type=APP_TYPE_UPD,
-                    owned=False,
-                    title_id=title_db_id
-                )
-                db.session.add(new_update_app)
-                apps_added += 1
-                logger.debug(f'Added missing update app: {update_app_id} v{version}')
-        
-        # Add missing DLC
-        title_dlc_ids = titles_lib.get_all_existing_dlc(title_id)
-        for dlc_app_id in title_dlc_ids:
-            dlc_versions = titles_lib.get_all_app_existing_versions(dlc_app_id)
-            if dlc_versions:
-                for dlc_version in dlc_versions:
-                    existing_dlc = get_app_by_id_and_version(dlc_app_id, str(dlc_version))
-                    
-                    if not existing_dlc:
-                        new_dlc_app = Apps(
-                            app_id=dlc_app_id,
-                            app_version=str(dlc_version),
-                            app_type=APP_TYPE_DLC,
-                            owned=False,
-                            title_id=title_db_id
-                        )
-                        db.session.add(new_dlc_app)
-                        apps_added += 1
-                        logger.debug(f'Added missing DLC app: {dlc_app_id} v{dlc_version}')
-        
-        # Commit every 100 titles to avoid excessive memory use
+        total += add_missing_apps_for_title(title.title_id)
         if (n + 1) % 100 == 0:
-            db.session.commit()
-            logger.info(f'Processed {n + 1}/{len(titles)} titles, added {apps_added} missing apps so far')
-    
-    # Final commit
-    db.session.commit()
-    logger.info(f'Finished adding missing apps to database. Total apps added: {apps_added}')
+            logger.info(f'Processed {n + 1}/{len(titles)} titles, added {total} missing apps so far')
+    logger.info(f'Finished adding missing apps to database. Total apps added: {total}')
 
-def process_library_identification(app):
-    logger.info(f"Starting library identification process for all libraries...")
-    try:
-        with app.app_context():
-            libraries = get_libraries()
-            for library in libraries:
-                identify_library_files(library.path)
-
-    except Exception as e:
-        logger.error(f"Error during library identification process: {e}")
-    logger.info(f"Library identification process for all libraries completed.")
-
-def process_library_organization(app, watcher):
-    logger.info(f"Starting library organization process for all libraries...")
-    try:
-        app_settings = load_settings()
-        organizer_settings = app_settings['library']['management']['organizer']
-        if organizer_settings['enabled']:
-            with app.app_context():
-                libraries = get_libraries()
-                for library in libraries:
-                    library_path = library.path
-                    # Get all identified files for the current library
-                    identified_files = Files.query.filter_by(library_id=library.id, identified=True).all()
-                    for file_obj in identified_files:
-                        organize_file(file_obj, library_path, organizer_settings, watcher)
-                    
-                    # Remove empty directories if needed
-                    if organizer_settings['remove_empty_folders']:
-                        delete_empty_folders(library_path)
-
-        # Remove outdated update files
-        if app_settings['library']['management']['delete_older_updates']:
-            remove_outdated_update_files(watcher)
-    except Exception as e:
-        logger.error(f"Error during library organization process: {e}")
-    logger.info(f"Library organization process for all libraries completed.")
-
-def remove_outdated_update_files(watcher):
+def remove_outdated_update_files():
     logger.info("Starting removal of outdated update files...")
     try:
         titles = get_all_titles()
@@ -533,8 +294,7 @@ def remove_outdated_update_files(watcher):
                                     if os.path.exists(file_obj.filepath):
                                         try:
                                             # Add the delete event to the ignored list before performing the remove
-                                            with watcher.event_handler.ignored_events_lock:
-                                                watcher.event_handler.ignored_events_tuples.add((file_obj.filepath, ""))
+                                            add_ignored_event(file_obj.filepath, '')
                                             os.remove(file_obj.filepath)
                                             logger.debug(f"Deleted physical file: {file_obj.filepath}")
                                             # Remove from database and update app owned status
@@ -542,10 +302,8 @@ def remove_outdated_update_files(watcher):
                                             remove_file_from_apps(file_obj.id)
                                         except OSError as e:
                                             logger.error(f"Error deleting physical file {file_obj.filepath}: {e}")
-                                            # If an error occurs, ensure the event is removed from the ignored list
-                                            with watcher.event_handler.ignored_events_lock:
-                                                if (file_obj.filepath, "") in watcher.event_handler.ignored_events_tuples:
-                                                    watcher.event_handler.ignored_events_tuples.remove((file_obj.filepath, ""))
+                                            # If an error occurs, remove from the ignored list
+                                            pop_ignored_event(src_path=file_obj.filepath, dest_path='')
                                     else:
                                         logger.warning(f"Physical file not found for deletion: {file_obj.filepath}")
                                     
@@ -553,71 +311,73 @@ def remove_outdated_update_files(watcher):
     except Exception as e:
         logger.error(f"Error during removal of outdated update files: {e}")
 
-def update_titles():
-    # Remove titles that no longer have any owned apps
-    titles_removed = remove_titles_without_owned_apps()
-    if titles_removed > 0:
-            logger.info(f"Removed {titles_removed} titles with no owned apps.")
+def update_title_flags(title_id):
+    """Recompute have_base / up_to_date / complete for a single title.
+    Wrapped in BEGIN IMMEDIATE to serialize concurrent recomputes and prevent
+    lost updates when another worker is mutating owned state for the same title."""
+    connection = db.engine.raw_connection()
+    try:
+        cursor = connection.cursor()
+        cursor.execute("BEGIN IMMEDIATE")
 
-    titles = get_all_titles()
-    for n, title in enumerate(titles):
-        have_base = False
-        up_to_date = False
-        complete = False
+        cursor.execute("SELECT id FROM titles WHERE title_id = ?", (title_id,))
+        row = cursor.fetchone()
+        if not row:
+            connection.commit()
+            return
+        title_db_id = row[0]
 
-        title_id = title.title_id
-        title_apps = get_all_title_apps(title_id)
+        cursor.execute(
+            "SELECT app_type, app_version, owned FROM apps WHERE title_id = ?",
+            (title_db_id,)
+        )
+        title_apps = [{'app_type': r[0], 'app_version': r[1], 'owned': bool(r[2])} for r in cursor.fetchall()]
 
-        # check have_base - look for owned base apps
-        owned_base_apps = [app for app in title_apps if app.get('app_type') == APP_TYPE_BASE and app.get('owned')]
+        owned_base_apps = [a for a in title_apps if a['app_type'] == APP_TYPE_BASE and a['owned']]
         have_base = len(owned_base_apps) > 0
 
-        # check up_to_date - find highest owned update version
-        owned_update_apps = [app for app in title_apps if app.get('app_type') == APP_TYPE_UPD and app.get('owned')]
-        available_update_apps = [app for app in title_apps if app.get('app_type') == APP_TYPE_UPD]
-        
+        available_update_apps = [a for a in title_apps if a['app_type'] == APP_TYPE_UPD]
+        owned_update_apps = [a for a in available_update_apps if a['owned']]
         if not available_update_apps:
-            # No updates available, consider up to date
             up_to_date = True
         elif not owned_update_apps:
-            # Updates available but none owned
             up_to_date = False
         else:
-            # Find highest available version and highest owned version
-            highest_available_version = max(int(app['app_version']) for app in available_update_apps)
-            highest_owned_version = max(int(app['app_version']) for app in owned_update_apps)
-            up_to_date = highest_owned_version >= highest_available_version
+            highest_available = max(int(a['app_version']) for a in available_update_apps)
+            highest_owned = max(int(a['app_version']) for a in owned_update_apps)
+            up_to_date = highest_owned >= highest_available
 
-        # check complete - latest version of all available DLC are owned
-        available_dlc_apps = [app for app in title_apps if app.get('app_type') == APP_TYPE_DLC]
-        
-        if not available_dlc_apps:
-            # No DLC available, consider complete
-            complete = True
-        else:
-            # Group DLC by app_id and find latest version for each
-            dlc_by_id = {}
-            for app in available_dlc_apps:
-                app_id = app['app_id']
-                version = int(app['app_version'])
-                if app_id not in dlc_by_id or version > dlc_by_id[app_id]['version']:
-                    dlc_by_id[app_id] = {
-                        'version': version,
-                        'owned': app.get('owned', False)
-                    }
-            
-            # Check if latest version of each DLC is owned
-            complete = all(dlc_info['owned'] for dlc_info in dlc_by_id.values())
+        cursor.execute(
+            "SELECT app_id, app_version, owned FROM apps WHERE title_id = ? AND app_type = ?",
+            (title_db_id, APP_TYPE_DLC)
+        )
+        dlc_by_id = {}
+        for dlc_app_id, version_str, owned in cursor.fetchall():
+            version = int(version_str)
+            if dlc_app_id not in dlc_by_id or version > dlc_by_id[dlc_app_id]['version']:
+                dlc_by_id[dlc_app_id] = {'version': version, 'owned': bool(owned)}
+        complete = all(d['owned'] for d in dlc_by_id.values()) if dlc_by_id else True
 
-        title.have_base = have_base
-        title.up_to_date = up_to_date
-        title.complete = complete
+        cursor.execute(
+            "UPDATE titles SET have_base = ?, up_to_date = ?, complete = ? WHERE id = ?",
+            (int(have_base), int(up_to_date), int(complete), title_db_id)
+        )
+        connection.commit()
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
 
-        # Commit every 100 titles to avoid excessive memory use
-        if (n + 1) % 100 == 0:
-            db.session.commit()
 
-    db.session.commit()
+def update_titles():
+    """Batch: recompute all titles. Also removes titles with no owned apps."""
+    titles_removed = remove_titles_without_owned_apps()
+    if titles_removed > 0:
+        logger.info(f"Removed {titles_removed} titles with no owned apps.")
+
+    for title in get_all_titles():
+        update_title_flags(title.title_id)
 
 def get_library_status(title_id):
     title = get_title(title_id)

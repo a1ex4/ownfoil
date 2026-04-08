@@ -12,6 +12,24 @@ import logging
 settings_lock = threading.Lock()
 keys_lock = threading.Lock()
 
+_cached_settings = None
+_cached_mtimes = (None, None)
+
+def _safe_mtime(path):
+    try:
+        return os.path.getmtime(path)
+    except OSError:
+        return None
+
+def get_settings():
+    """Return settings, re-reading when settings.yaml or keys.txt mtime changes."""
+    global _cached_settings, _cached_mtimes
+    mtimes = (_safe_mtime(CONFIG_FILE), _safe_mtime(KEYS_FILE))
+    if _cached_settings is None or mtimes != _cached_mtimes:
+        _cached_settings = load_settings()
+        _cached_mtimes = mtimes
+    return _cached_settings
+
 # Retrieve main logger
 logger = logging.getLogger('main')
 
@@ -137,11 +155,8 @@ def load_settings():
             with open(CONFIG_FILE, 'w') as yaml_file:
                 yaml.dump(settings, yaml_file)
         
-        # Get Keys informations
-        valid_keys, missing_keys, corrupt_keys = load_keys()
-        settings['titles']['valid_keys'] = valid_keys
-        settings['titles']['missing_keys'] = missing_keys
-        settings['titles']['corrupt_keys'] = corrupt_keys
+        # Prime Keys.keys_loaded for this process (used by identification code)
+        load_keys()
         return settings
 
 def verify_settings(section, data):
@@ -245,6 +260,13 @@ def set_shop_settings(data):
 def set_scheduler_settings(data):
     settings = load_settings()
     settings['scheduler'].update(data)
+    with settings_lock:
+        with open(CONFIG_FILE, 'w') as yaml_file:
+            yaml.dump(settings, yaml_file)
+
+def set_worker_settings(data):
+    settings = load_settings()
+    settings['worker'].update(data)
     with settings_lock:
         with open(CONFIG_FILE, 'w') as yaml_file:
             yaml.dump(settings, yaml_file)

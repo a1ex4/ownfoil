@@ -405,6 +405,23 @@
                         onClick='submitSchedulerSettings()'>Submit</button>
                 </div>
 
+                <hr class="hr-settings">
+                <h2 class="pb-2">Worker</h2>
+                <p>Configure the number of task worker processes. More workers allow parallel processing of tasks (e.g., scanning, identifying files).</p>
+                <div class="row mb-3">
+                    <div class="col-6">
+                        <label for="workerCountInput" class="form-label">Worker count:</label>
+                        <input type="number" class="form-control" id="workerCountInput" min="1" step="1">
+                        <div id="workerCountFeedback"></div>
+                        <div id="workerCountHelp" class="form-text">Number of worker processes.</div>
+                    </div>
+                </div>
+
+                <div class="mb-3">
+                    <button type="button" id="submitWorkerSettingsBtn" class="btn btn-primary"
+                        onClick='submitWorkerSettings()'>Submit</button>
+                </div>
+
             </div>
         </div>
     </div>
@@ -1080,6 +1097,40 @@
         });
     }
 
+    function submitWorkerSettings() {
+        $('#submitWorkerSettingsBtn').prop('disabled', true);
+        data = {
+            count: parseInt($('#workerCountInput').val())
+        }
+
+        $.ajax({
+            url: "/api/settings/worker",
+            type: 'POST',
+            data: JSON.stringify(data),
+            contentType: "application/json",
+            success: function (result) {
+                if (!result['success']) {
+                    if (result['errors']) {
+                        result['errors'].forEach(error => {
+                            if (error['path'] === 'worker/count') {
+                                $('#workerCountFeedback').text(error['error']);
+                                $('#workerCountFeedback').addClass('invalid-feedback d-block');
+                                $("#workerCountInput").removeClass('is-valid');
+                                $("#workerCountInput").addClass('is-invalid');
+                            }
+                        });
+                    }
+                } else {
+                    $('#workerCountFeedback').text('');
+                    $('#workerCountFeedback').removeClass('invalid-feedback d-block');
+                    $("#workerCountInput").removeClass('is-invalid');
+                    $("#workerCountInput").addClass('is-valid');
+                }
+                $('#submitWorkerSettingsBtn').prop('disabled', false);
+            }
+        });
+    }
+
     $(document).ready(function () {
         fillUserTable();
         fillLibraryTable();
@@ -1149,6 +1200,12 @@
             schedulerSettings = result['scheduler'];
             if (schedulerSettings && schedulerSettings['scan_interval'] !== undefined) {
                 setInputVal("scanIntervalInput", schedulerSettings['scan_interval']);
+            }
+
+            // Worker settings
+            workerSettings = result['worker'];
+            if (workerSettings && workerSettings['count'] !== undefined) {
+                $('#workerCountInput').val(workerSettings['count']);
             }
 
             // Shop settings

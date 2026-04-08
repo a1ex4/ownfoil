@@ -146,7 +146,7 @@ def load_titledb():
     identification_in_progress_count += 1
     if not _titles_db_loaded:
         logger.info("Loading TitleDBs into memory...")
-        app_settings = load_settings()
+        app_settings = get_settings()
         with open(os.path.join(TITLEDB_DIR, 'cnmts.json'), "r", encoding="utf-8") as f:
             _cnmts_db = json.load(f)
 

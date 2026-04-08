@@ -66,6 +66,9 @@ DEFAULT_SETTINGS = {
     },
     "scheduler": {
         "scan_interval": "12h",
+    },
+    "worker": {
+        "count": 2,
     }
 }
 
