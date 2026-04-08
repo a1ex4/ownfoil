@@ -126,6 +126,7 @@ def main():
         'worker_class': 'gthread',
         'threads': 4,
         'accesslog': '-',
+        'proc_name': 'ownfoil',
         'post_fork': post_fork,
         'post_worker_init': post_worker_init,
         'worker_exit': worker_exit,

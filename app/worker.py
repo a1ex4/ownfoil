@@ -116,7 +116,9 @@ class TaskWorker:
 def start_worker_process(stop_event, worker_id=1):
     """Entry point for the worker subprocess."""
     import signal
+    from setproctitle import setproctitle
     signal.signal(signal.SIGINT, signal.SIG_IGN)
+    setproctitle(f'ownfoil-worker-{worker_id}')
 
     from app import create_app
     import tasks  # noqa: F401 — registers @register_task decorators
