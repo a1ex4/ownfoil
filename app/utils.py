@@ -2,7 +2,9 @@ import logging
 import re
 import threading
 import time
+from datetime import timedelta
 from functools import wraps
+from typing import Optional, Tuple
 import json
 import os
 import tempfile
@@ -177,6 +179,31 @@ def merge_dicts_recursive(source, destination):
         # we don't overwrite existing settings unless explicitly told to.
         # For this task, we only add missing keys.
     return changed
+
+def parse_interval_string(interval_str: str) -> Tuple[int, str]:
+    """Parse interval string like '2h', '30m', '1d', '45s' or '0' into (value, unit)."""
+    if not interval_str or interval_str == '0':
+        return 0, 'h'
+    match = re.match(r'^(\d+)([smhd])$', str(interval_str))
+    if match:
+        return int(match.group(1)), match.group(2)
+    return 0, 'h'
+
+def validate_interval_string(interval_str: str) -> Tuple[bool, Optional[str]]:
+    """Validate interval string format."""
+    if interval_str == '0':
+        return True, None
+    if re.match(r'^\d+[smhd]$', str(interval_str)):
+        return True, None
+    return False, 'Interval must be in format: number+unit (e.g., "2h", "30m", "1d", "45s") or "0" to disable'
+
+def interval_string_to_timedelta(interval_str: str) -> Optional[timedelta]:
+    """Convert interval string to timedelta object."""
+    interval_value, unit = parse_interval_string(interval_str)
+    if interval_value == 0:
+        return None
+    unit_map = {'s': 'seconds', 'm': 'minutes', 'h': 'hours', 'd': 'days'}
+    return timedelta(**{unit_map.get(unit, 'hours'): interval_value})
 
 def delete_empty_folders(path):
     """
