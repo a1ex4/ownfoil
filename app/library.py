@@ -153,39 +153,15 @@ def add_library_complete(app, watcher, path):
         return True, []
 
 def remove_library_complete(app, watcher, path):
-    """Remove a library from settings, database, and watchdog with proper cleanup"""
+    """Remove a library: stop watching, drop from settings, enqueue DB cleanup task."""
     from settings import delete_library_path_from_settings
-    
+    import tasks as tasks_mod
+
     with app.app_context():
-        # Remove from watchdog first
         watcher.remove_directory(path)
-        
-        # Get library object before deletion
-        library = Libraries.query.filter_by(path=path).first()
-        if library:
-            # Get all file IDs from this library before deletion
-            file_ids = [f.id for f in library.files]
-            
-            # Remove file-app associations
-            for file_id in file_ids:
-                remove_file_from_apps(file_id)
-
-            # Delete library (cascade will delete files automatically)
-            db.session.delete(library)
-            db.session.commit()
-
-            # Clean up orphaned apps and titles
-            apps_removed = remove_apps_without_files()
-            titles_removed = remove_titles_without_apps()
-
-            logger.info(f"Removed library: {path}")
-            if apps_removed > 0:
-                logger.info(f"Removed {apps_removed} orphaned apps.")
-            if titles_removed > 0:
-                logger.info(f"Removed {titles_removed} orphaned titles.")
-        
-        # Remove from settings
         success, errors = delete_library_path_from_settings(path)
+        if success:
+            tasks_mod.enqueue_task('remove_library', {'library_path': path})
         return success, errors
 
 def init_libraries(app, watcher, paths):

@@ -194,7 +194,6 @@ def pop_ignored_event(src_path=None, dest_path=None):
 
 
 def init_db(app):
-    import tasks  # noqa: F401 — ensure Task model is registered before create_all
     with app.app_context():
         # Ensure foreign keys are enforced when the SQLite connection is opened
         @event.listens_for(db.engine, "connect")
@@ -425,26 +424,6 @@ def remove_titles_without_owned_apps():
         db.session.commit()
     return titles_removed
 
-def remove_apps_without_files():
-    """Remove apps that have no associated files."""
-    apps_removed = Apps.query.filter(~Apps.files.any()).delete(synchronize_session='fetch')
-    if apps_removed:
-        db.session.commit()
-        logger.debug(f"Removed {apps_removed} apps with no associated files.")
-    return apps_removed
-
-def remove_titles_without_apps():
-    """Remove titles that have no apps."""
-    titles_removed = 0
-    for title in get_all_titles():
-        if not Apps.query.filter_by(title_id=title.id).first():
-            logger.debug(f"Removing title {title.title_id} - no apps remaining")
-            db.session.delete(title)
-            titles_removed += 1
-    if titles_removed:
-        db.session.commit()
-    return titles_removed
-
 def delete_file_by_filepath(filepath):
     try:
         # Find file with the given filepath
@@ -472,18 +451,18 @@ def delete_file_by_filepath(filepath):
         logger.error(f"An error occurred while removing the file path: {str(e)}")
 
 def remove_missing_files_from_db():
-    try:
-        # Query all entries in the Files table
-        files = Files.query.all()
-        
-        for file_entry in files:
-            # Check if the file exists on disk
-            if not os.path.exists(file_entry.filepath):
-                logger.debug(f"File not found, marking file for deletion: {file_entry.filepath}")
-                delete_file_by_filepath(file_entry.filepath)
-    
-    except Exception as e:
-        logger.error(f"An error occurred while removing missing files: {str(e)}")
+    """Bulk-delete Files rows whose path no longer exists on disk; recompute affected app ownership."""
+    missing = [f for f in Files.query.all() if not os.path.exists(f.filepath)]
+    if not missing:
+        return
+    affected_apps = {a for f in missing for a in f.apps}
+    for f in missing:
+        db.session.delete(f)
+    db.session.flush()
+    for app in affected_apps:
+        app.owned = len(app.files) > 0
+    db.session.commit()
+    logger.info(f"Removed {len(missing)} missing files from database.")
 
 def increment_download_count(filepath):
     """Increment the download count for a file by filepath"""
@@ -502,14 +481,5 @@ def increment_download_count(filepath):
 
 @throttle(60, key_func=lambda filepath, host: (filepath, host))
 def increment_download_count_throttled(filepath, host):
-    """Throttled wrapper around increment_download_count.
-
-    Ensures the download count is incremented at most once per (filepath, host) pair
-    within a 60-second window. This prevents clients that use HTTP range requests from
-    inflating the count with the many sub-requests that make up a single download.
-
-    Args:
-        filepath: Absolute path of the file being served.
-        host: IP address (or identifier) of the requesting client.
-    """
+    """Throttled wrapper around increment_download_count per (filepath, host) pair."""
     increment_download_count(filepath)

@@ -339,8 +339,6 @@ def library_paths_api():
     elif request.method == 'DELETE':
         data = request.json
         success, errors = remove_library_complete(app, watcher, data['path'])
-        if success:
-            tasks_mod.enqueue_task('update_titles')
         resp = {
             'success': success,
             'errors': errors
