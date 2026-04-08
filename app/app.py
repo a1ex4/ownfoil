@@ -473,8 +473,6 @@ def scan_library_api():
     return jsonify({'success': True, 'errors': []})
 
 
-# --- Task Queue API ---
-
 @app.post('/api/tasks')
 @access_required('admin')
 def enqueue_task_api():
@@ -492,6 +490,25 @@ def enqueue_task_api():
     except ValueError as e:
         return jsonify({'success': False, 'error': str(e)}), 400
 
+def _serialize_task(t, detail=False):
+    iso = lambda d: d.isoformat() if d else None
+    data = {
+        'id': t.id,
+        'task_name': t.task_name,
+        'status': t.status,
+        'completion_pct': t.completion_pct,
+        'exit_code': t.exit_code,
+        'error_message': t.error_message,
+        'created_at': iso(t.created_at),
+        'started_at': iso(t.started_at),
+        'completed_at': iso(t.completed_at),
+    }
+    if detail:
+        data['input'] = json.loads(t.input_json) if t.input_json else {}
+        data['output'] = json.loads(t.output_json) if t.output_json else None
+    return data
+
+
 @app.get('/api/tasks')
 @access_required('admin')
 def list_tasks_api():
@@ -504,20 +521,8 @@ def list_tasks_api():
         query = query.filter(tasks_mod.Task.parent_id.is_(None))
     if status:
         query = query.filter_by(status=status)
-    task_list = query.limit(limit).all()
-    return jsonify({
-        'tasks': [{
-            'id': t.id,
-            'task_name': t.task_name,
-            'status': t.status,
-            'completion_pct': t.completion_pct,
-            'exit_code': t.exit_code,
-            'error_message': t.error_message,
-            'created_at': t.created_at.isoformat() if t.created_at else None,
-            'started_at': t.started_at.isoformat() if t.started_at else None,
-            'completed_at': t.completed_at.isoformat() if t.completed_at else None,
-        } for t in task_list]
-    })
+    return jsonify({'tasks': [_serialize_task(t) for t in query.limit(limit).all()]})
+
 
 @app.get('/api/tasks/<int:task_id>')
 @access_required('admin')
@@ -525,28 +530,7 @@ def get_task_api(task_id):
     task = tasks_mod.get_task(task_id)
     if not task:
         return jsonify({'error': 'Task not found'}), 404
-    children = [{
-        'id': c.id,
-        'task_name': c.task_name,
-        'status': c.status,
-        'input': json.loads(c.input_json) if c.input_json else {},
-        'exit_code': c.exit_code,
-        'error_message': c.error_message,
-        'completed_at': c.completed_at.isoformat() if c.completed_at else None,
-    } for c in task.children.all()]
-
-    return jsonify({
-        'id': task.id,
-        'task_name': task.task_name,
-        'status': task.status,
-        'completion_pct': task.completion_pct,
-        'input': json.loads(task.input_json) if task.input_json else {},
-        'output': json.loads(task.output_json) if task.output_json else None,
-        'exit_code': task.exit_code,
-        'error_message': task.error_message,
-        'created_at': task.created_at.isoformat() if task.created_at else None,
-        'started_at': task.started_at.isoformat() if task.started_at else None,
-        'completed_at': task.completed_at.isoformat() if task.completed_at else None,
-        'children': children,
-    })
+    data = _serialize_task(task, detail=True)
+    data['children'] = [_serialize_task(c, detail=True) for c in task.children.all()]
+    return jsonify(data)
 
