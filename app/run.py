@@ -1,6 +1,5 @@
 """Production entrypoint — Gunicorn HTTP server + task worker pool."""
 import logging
-import os
 import threading
 from multiprocessing import Process, Event as MPEvent
 from gunicorn.app.base import BaseApplication
@@ -111,9 +110,7 @@ def main():
             db.engine.dispose()
         init()
         # Start worker pool and expose it to app module so on_settings_change can scale it
-        initial_count = get_settings().get('worker', {}).get('count', 1)
-        max_workers = os.cpu_count() or 1
-        initial_count = max(1, min(initial_count, max_workers))
+        initial_count = max(1, get_settings().get('worker', {}).get('count', 1))
         app_mod.pool = WorkerPool(initial_count=initial_count)
 
     def worker_exit(server, worker):
