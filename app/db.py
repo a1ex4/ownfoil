@@ -3,6 +3,7 @@ from sqlalchemy import create_engine
 from sqlalchemy import event
 from sqlalchemy.orm import joinedload
 from sqlalchemy.orm.exc import NoResultFound
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.dialects.sqlite import insert
 from flask_migrate import Migrate, upgrade
 from alembic.runtime.migration import MigrationContext
@@ -250,6 +251,9 @@ def update_file_path(library, old_path, new_path):
     
     except NoResultFound:
         logger.warning(f"No file entry found for the path: {old_path}.")
+    except IntegrityError:
+        db.session.rollback()
+        raise
     except Exception as e:
         db.session.rollback()  # Roll back the session in case of an error
         logger.error(f"An error occurred while updating the file path: {str(e)}")

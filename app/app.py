@@ -298,7 +298,7 @@ def set_titles_settings_api():
     current = get_settings()
     if region != current['titles']['region'] or language != current['titles']['language']:
         set_titles_settings(region, language)
-        tasks_mod.enqueue_task('update_titledb')
+        tasks_mod.update_scheduled_task('update_titledb', datetime.datetime.utcnow())
 
     resp = {
         'success': True,

@@ -3,6 +3,7 @@ import os
 import shutil
 from constants import *
 from db import *
+from sqlalchemy.exc import IntegrityError
 import titles as titles_lib
 import datetime
 import sys
@@ -84,35 +85,38 @@ def organize_file(file_obj, library_path, organizer_settings):
             logger.error(f"Error creating directory {new_dir} for file {file_obj.filename}: {e}")
             return
         
-        # Move the file, handling duplicates
+        # Move the file, handling duplicates.
         base_name = os.path.splitext(os.path.basename(new_full_path))[0]
-        
-        counter = 1
-        final_new_full_path = new_full_path
-        while os.path.exists(final_new_full_path):
-            if final_new_full_path == current_filepath:
-                return
-            counter += 1
-            new_filename = f"{base_name}({counter}).{file_obj.extension}"
-            final_new_full_path = os.path.join(new_dir, new_filename)
-        
+        library_path_str = get_library_path(file_obj.library_id)
         logger.info(f'Organizing file: {file_obj.filename}')
-        try:
-            # Add the move event to the ignored list before performing the move
-            add_ignored_event(current_filepath, final_new_full_path)
 
-            shutil.move(current_filepath, final_new_full_path)
-            logger.info(f"Moved '{current_filepath}' to '{final_new_full_path}'")
-            
-            # Update the file path in the database
-            # Get the library path from the library ID
-            library_path_str = get_library_path(file_obj.library_id)
-            update_file_path(library_path_str, current_filepath, final_new_full_path)
-
-        except (shutil.Error, OSError) as e:
-            logger.error(f"Error moving file from '{current_filepath}' to '{final_new_full_path}': {e}")
-            # If an error occurs, remove from the ignored list
-            pop_ignored_event(src_path=current_filepath, dest_path=final_new_full_path)
+        counter = 1
+        candidate = new_full_path
+        src = current_filepath
+        while True:
+            if candidate == current_filepath:
+                return
+            try:
+                add_ignored_event(src, candidate)
+                if os.path.exists(candidate):
+                    raise FileExistsError(candidate)
+                shutil.move(src, candidate)
+                update_file_path(library_path_str, current_filepath, candidate)
+                logger.info(f"Moved '{current_filepath}' to '{candidate}'")
+                break
+            except (FileExistsError, IntegrityError) as e:
+                pop_ignored_event(src_path=src, dest_path=candidate)
+                # If the move already happened, the file is now at `candidate`;
+                # the next iteration must move from there, not from the original.
+                if os.path.exists(candidate) and not os.path.exists(src):
+                    src = candidate
+                counter += 1
+                candidate = os.path.join(new_dir, f"{base_name}({counter}).{file_obj.extension}")
+                logger.debug(f"Organize collision ({type(e).__name__}), retrying as {candidate}")
+            except (shutil.Error, OSError) as e:
+                logger.error(f"Error moving file from '{src}' to '{candidate}': {e}")
+                pop_ignored_event(src_path=src, dest_path=candidate)
+                return
         # No finally block needed for removing from ignored_move_events, as it's removed by the watchdog handler
 
     except Exception as e:
