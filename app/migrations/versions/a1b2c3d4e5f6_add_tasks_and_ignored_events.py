@@ -44,8 +44,18 @@ def upgrade():
         sa.PrimaryKeyConstraint('id'),
     )
 
+    op.add_column('files', sa.Column('mtime', sa.Float(), nullable=True))
+
+    # Give previously-failed identifications a fresh shot now that the
+    # identify pipeline will skip files with attempts > 0.
+    op.execute(
+        "UPDATE files SET identification_attempts = 0 "
+        "WHERE identified = 0 AND identification_error IS NOT NULL"
+    )
+
 
 def downgrade():
+    op.drop_column('files', 'mtime')
     op.drop_table('ignored_events')
     op.drop_index('ix_tasks_parent_id', table_name='tasks')
     op.drop_index('ix_tasks_status_created', table_name='tasks')

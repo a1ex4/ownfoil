@@ -80,6 +80,7 @@ def get_file_info(filepath):
         'extension': extension,
         'compressed': compressed,
         'size': get_file_size(filepath),
+        'mtime': os.path.getmtime(filepath),
     }
 
 def identify_appId(app_id):
