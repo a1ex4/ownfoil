@@ -229,7 +229,6 @@ def enqueue_task(task_name, input_data=None, run_after=None):
         if existing:
             connection.commit()
             task = db.session.get(Task, existing[0])
-            logger.debug(f"Task '{task_name}' already exists (id={existing[0]}), skipping")
             return task, False
 
         now = datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
@@ -384,7 +383,7 @@ def _scan_library_done(library_path, **kwargs):
 
 def _insert_file(library_path, library_id, filepath):
     """Read file info from disk and insert a Files row. Returns the row, or None on failure."""
-    file_display = filepath.replace(library_path, "")
+    file_display = filepath.replace(library_path, "").lstrip("/")
     logger.info(f'Getting file info: {file_display}')
     file_info = titles_lib.get_file_info(filepath)
     if file_info is None:
@@ -539,13 +538,14 @@ def organize_library_task(**kwargs):
     set_waiting_for_children()
 
 
+@register_task('organize_library_done')
 @register_continuation('organize_library')
-def _organize_library_done(**kwargs):
-    app_settings = get_settings()
-    organizer_settings = app_settings['library']['management']['organizer']
+def _organize_library_done(library_path=None, **kwargs):
+    organizer_settings = get_settings()['library']['management']['organizer']
     if organizer_settings.get('enabled') and organizer_settings.get('remove_empty_folders'):
-        for library in get_libraries():
-            delete_empty_folders(library.path)
+        paths = [library_path] if library_path else [lib.path for lib in get_libraries()]
+        for path in paths:
+            delete_empty_folders(path)
     enqueue_task('remove_outdated_updates')
 
 
@@ -555,8 +555,10 @@ def organize_file_task(file_id, **kwargs):
     file_obj = db.session.get(Files, file_id)
     if not file_obj:
         return
+    library_path = get_library_path(file_obj.library_id)
     organizer_settings = get_settings()['library']['management']['organizer']
-    organize_file(file_obj, get_library_path(file_obj.library_id), organizer_settings)
+    organize_file(file_obj, library_path, organizer_settings)
+    enqueue_task('organize_library_done', {'library_path': library_path})
 
 
 @register_task('remove_outdated_updates')

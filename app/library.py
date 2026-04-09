@@ -101,7 +101,7 @@ def organize_file(file_obj, library_path, organizer_settings):
         
         # Move the file, handling duplicates.
         library_path_str = get_library_path(file_obj.library_id)
-        logger.info(f'Organizing file: {file_obj.filename}')
+        original_filename = file_obj.filename
 
         counter = 1
         candidate = new_full_path
@@ -115,7 +115,8 @@ def organize_file(file_obj, library_path, organizer_settings):
                     raise FileExistsError(candidate)
                 shutil.move(src, candidate)
                 update_file_path(library_path_str, current_filepath, candidate)
-                logger.info(f"Moved '{current_filepath}' to '{candidate}'")
+                rel = os.path.relpath(candidate, library_path_str)
+                logger.info(f'Organizing file: {original_filename} → {rel}')
                 break
             except (FileExistsError, IntegrityError) as e:
                 pop_ignored_event(src_path=src, dest_path=candidate)
