@@ -58,15 +58,16 @@ def download_titledb_files(rzf, files):
 
 
 def update_titledb_files(app_settings):
+    """Download changed titledb files. Returns the list of files written."""
     files_to_update = []
-    
+
     region_titles_file = get_region_titles_file(app_settings)
     region_titles_file_present = region_titles_file in os.listdir(TITLEDB_DIR)
 
     r = requests.get(TITLEDB_ARTEFACTS_URL, allow_redirects = False)
     direct_url = r.next.url
     rzf = unzip_http.RemoteZipFile(direct_url)
-    
+
     if is_titledb_update_available(rzf):
         files_to_update = TITLEDB_DEFAULT_FILES + [region_titles_file]
         old_region_titles_files = [f for f in os.listdir(TITLEDB_DIR) if re.match(r"titles\.[A-Z]{2}\.[a-z]{2}\.json", f) and f not in files_to_update]
@@ -77,12 +78,19 @@ def update_titledb_files(app_settings):
 
     if len(files_to_update):
         download_titledb_files(rzf, files_to_update)
+    return files_to_update
 
 
 def update_titledb(app_settings):
+    """Download titledb JSON updates and (re)build titles.db if anything changed."""
+    import titledb_store  # local import to avoid circular import
     logger.info('Updating titledb...')
     if not os.path.isdir(TITLEDB_DIR):
         os.makedirs(TITLEDB_DIR, exist_ok=True)
 
-    update_titledb_files(app_settings)
+    downloaded = update_titledb_files(app_settings)
+    current_locale = f"{app_settings['titles']['region']}.{app_settings['titles']['language']}"
+    imported_locale = titledb_store.get_imported_locale()
+    if downloaded or imported_locale != current_locale:
+        titledb_store.import_from_json(app_settings)
     logger.info('titledb update done.')
