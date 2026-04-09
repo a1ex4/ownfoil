@@ -13,7 +13,7 @@ from db import (
     get_libraries, add_title_id_in_db, get_title_id_db_id, add_file_to_app,
     file_exists_in_db, update_file_path, delete_file_by_filepath,
     set_library_scan_time, remove_missing_files_from_db,
-    remove_file_from_apps, reset_file_identification,
+    remove_file_from_apps, reset_file_identification, create_file,
 )
 from settings import get_settings
 from utils import interval_string_to_timedelta, delete_empty_folders
@@ -348,7 +348,7 @@ def scan_library_task(library_path, **kwargs):
 
     logger.info(f'Scanning library path {library_path} ...')
     _, files = titles_lib.getDirsAndFiles(library_path)
-    filepaths_in_db = get_library_file_paths(library_id)
+    filepaths_in_db = set(get_library_file_paths(library_id))
     new_files = [f for f in files if f not in filepaths_in_db]
 
     if not new_files:
@@ -356,8 +356,18 @@ def scan_library_task(library_path, **kwargs):
         _scan_library_done(library_path=library_path)
         return
 
-    for filepath in new_files:
-        enqueue_or_child('add_file', {'library_path': library_path, 'filepath': filepath})
+    added = []
+    for fp in new_files:
+        new_file = _insert_file(library_path, library_id, fp)
+        if new_file is not None:
+            added.append((fp, new_file.id))
+
+    if not added:
+        _scan_library_done(library_path=library_path)
+        return
+
+    for fp, file_id in added:
+        enqueue_or_child('identify_file', {'filepath': fp, 'file_id': file_id})
     set_waiting_for_children()
 
 
@@ -368,32 +378,28 @@ def _scan_library_done(library_path, **kwargs):
     enqueue_task('organize_library')
 
 
+def _insert_file(library_path, library_id, filepath):
+    """Read file info from disk and insert a Files row. Returns the row, or None on failure."""
+    file_display = filepath.replace(library_path, "")
+    logger.info(f'Getting file info: {file_display}')
+    file_info = titles_lib.get_file_info(filepath)
+    if file_info is None:
+        logger.error(f'Failed to get info for file: {file_display}')
+        return None
+    return create_file(library_id, filepath, file_info)
+
+
 @register_task('add_file')
 @_schedules_generate_library
 def add_file_task(library_path, filepath, **kwargs):
     """Add a single file to the library DB."""
     library_id = get_library_id(library_path)
-    # Check if already in DB
     if filepath in get_library_file_paths(library_id):
         return
 
-    file_display = filepath.replace(library_path, "")
-    logger.info(f'Getting file info: {file_display}')
-    file_info = titles_lib.get_file_info(filepath)
-    if file_info is None:
-        raise ValueError(f'Failed to get info for file: {file_display}')
-
-    new_file = Files(
-        filepath=filepath,
-        library_id=library_id,
-        folder=file_info["filedir"],
-        filename=file_info["filename"],
-        extension=file_info["extension"],
-        size=file_info["size"],
-        mtime=file_info["mtime"],
-    )
-    db.session.add(new_file)
-    db.session.commit()
+    new_file = _insert_file(library_path, library_id, filepath)
+    if new_file is None:
+        raise ValueError(f'Failed to add file: {filepath}')
 
     enqueue_or_child('identify_file', {'filepath': filepath, 'file_id': new_file.id})
     if _current_task_id is not None:
