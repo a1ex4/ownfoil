@@ -503,6 +503,22 @@ def get_app_id_version_from_versions_txt(app_id):
         conn.close()
 
 
+def get_all_dlc_versions(title_id):
+    """Return [(app_id_upper, cnmt_version), ...] for every DLC of the given title."""
+    conn = _connect_ro()
+    if conn is None:
+        return []
+    try:
+        rows = conn.execute(
+            'SELECT app_id, cnmt_version FROM cnmts '
+            'WHERE other_application_id = ? AND title_type = 130',
+            (title_id.lower(),),
+        ).fetchall()
+        return [(r['app_id'].upper(), r['cnmt_version']) for r in rows]
+    finally:
+        conn.close()
+
+
 def get_all_existing_dlc(title_id):
     conn = _connect_ro()
     if conn is None:

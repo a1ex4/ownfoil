@@ -39,7 +39,7 @@ def init():
 
     # Enqueue initial titledb update (re-enqueues itself on completion)
     with app.app_context():
-        tasks_mod.enqueue_task('update_titledb')
+        tasks_mod.enqueue_task('startup')
 
 os.makedirs(CONFIG_DIR, exist_ok=True)
 os.makedirs(DATA_DIR, exist_ok=True)

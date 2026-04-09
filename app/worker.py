@@ -10,10 +10,13 @@ logger = logging.getLogger('worker')
 
 class TaskWorker:
     def __init__(self, app, poll_interval=2.0, stop_event=None, worker_id=1):
+        from settings import get_settings
         self.app = app
         self.poll_interval = poll_interval
         self.stop_event = stop_event or Event()
         self.worker_id = worker_id
+
+        get_settings()  # prime settings cache and Keys.keys_loaded
 
     def claim_task(self):
         """Atomically claim the oldest pending task. Returns task_id or None."""
@@ -54,11 +57,7 @@ class TaskWorker:
     def execute_task(self, task_id):
         from tasks import get_registered_task, on_task_completed
         from db import db, Task
-        from settings import get_settings
         import tasks as tasks_mod
-
-        # Refresh settings + prime Keys.keys_loaded before each task
-        get_settings()
 
         task = db.session.get(Task, task_id)
         task_func = get_registered_task(task.task_name)

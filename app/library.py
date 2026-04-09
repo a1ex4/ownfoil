@@ -5,6 +5,7 @@ import shutil
 from constants import *
 from db import *
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 import titles as titles_lib
 import datetime
 import sys
@@ -124,7 +125,6 @@ def organize_file(file_obj, library_path, organizer_settings):
                     src = candidate
                 counter += 1
                 candidate = os.path.join(new_dir, f"{base_name}({counter}).{file_obj.extension}")
-                logger.debug(f"Organize collision ({type(e).__name__}), retrying as {candidate}")
             except (shutil.Error, OSError) as e:
                 logger.error(f"Error moving file from '{src}' to '{candidate}': {e}")
                 pop_ignored_event(src_path=src, dest_path=candidate)
@@ -209,48 +209,31 @@ def get_files_to_identify(library_id):
         non_identified_files = list(set(non_identified_files).union(files_to_identify_with_cnmt))
     return non_identified_files
 
-def _insert_missing_app_if_absent(app_id, app_version, app_type, title_db_id):
-    """Insert an app as owned=False only if no row with (app_id, app_version) exists.
-    Uses SQLite ON CONFLICT DO NOTHING to handle concurrent inserts without clobbering
-    an owned=True row a peer worker may have just written. Returns True if inserted."""
-    from sqlalchemy.dialects.sqlite import insert as sqlite_insert
-    stmt = sqlite_insert(Apps.__table__).values(
-        app_id=app_id,
-        app_version=app_version,
-        app_type=app_type,
-        owned=False,
-        title_id=title_db_id,
-    ).on_conflict_do_nothing(index_elements=['app_id', 'app_version'])
-    result = db.session.execute(stmt)
-    return result.rowcount > 0
-
-
 def add_missing_apps_for_title(title_id):
-    """Expand missing base/update/DLC apps (owned=False) for a single title.
+    """Expand missing base/update/DLC apps (owned=False) for a single title via one bulk upsert.
     Safe to run concurrently with other workers expanding the same title."""
     title_db_id = get_title_id_db_id(title_id)
-    apps_added = 0
 
-    existing_bases = [a for a in get_all_title_apps(title_id) if a.get('app_type') == APP_TYPE_BASE]
-    if not existing_bases:
-        if _insert_missing_app_if_absent(title_id, "0", APP_TYPE_BASE, title_db_id):
-            apps_added += 1
+    rows = [dict(app_id=title_id, app_version="0", app_type=APP_TYPE_BASE,
+                 owned=False, title_id=title_db_id)]
 
     update_app_id = title_id[:-3] + '800'
     for version_info in titles_lib.get_all_existing_versions(title_id):
-        version = str(version_info['version'])
-        if _insert_missing_app_if_absent(update_app_id, version, APP_TYPE_UPD, title_db_id):
-            apps_added += 1
+        rows.append(dict(app_id=update_app_id, app_version=str(version_info['version']),
+                         app_type=APP_TYPE_UPD, owned=False, title_id=title_db_id))
 
-    for dlc_app_id in titles_lib.get_all_existing_dlc(title_id):
-        dlc_versions = titles_lib.get_all_app_existing_versions(dlc_app_id) or []
-        for dlc_version in dlc_versions:
-            if _insert_missing_app_if_absent(dlc_app_id, str(dlc_version), APP_TYPE_DLC, title_db_id):
-                apps_added += 1
+    for dlc_app_id, dlc_version in titles_lib.get_all_dlc_versions(title_id):
+        rows.append(dict(app_id=dlc_app_id, app_version=str(dlc_version),
+                         app_type=APP_TYPE_DLC, owned=False, title_id=title_db_id))
 
+    stmt = sqlite_insert(Apps.__table__).values(rows).on_conflict_do_nothing(
+        index_elements=['app_id', 'app_version']
+    )
+    result = db.session.execute(stmt)
     db.session.commit()
+    apps_added = result.rowcount or 0
     if apps_added:
-        logger.debug(f'Added {apps_added} missing apps for title {title_id}')
+        logger.debug(f'Added {apps_added} missing apps for Title ID {title_id}')
     return apps_added
 
 
