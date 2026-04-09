@@ -223,6 +223,22 @@ def file_exists_in_db(filepath):
 def get_file_from_db(file_id):
     return Files.query.filter_by(id=file_id).first()
 
+def create_file(library_id, filepath, file_info):
+    """Insert a Files row from an already-fetched file_info dict. Returns the new row."""
+    new_file = Files(
+        filepath=filepath,
+        library_id=library_id,
+        folder=file_info["filedir"],
+        filename=file_info["filename"],
+        extension=file_info["extension"],
+        size=file_info["size"],
+        mtime=file_info["mtime"],
+    )
+    db.session.add(new_file)
+    db.session.commit()
+    return new_file
+
+
 def update_file_path(library, old_path, new_path):
     try:
         # Find the file entry in the database using the old_path
