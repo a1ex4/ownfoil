@@ -19,7 +19,8 @@ TITLEDB_DEFAULT_FILES = [
     'versions.txt',
     'languages.json',
 ]
-
+TITLES_DB_FILE = os.path.join(CONFIG_DIR, 'titles.db')
+CUSTOM_TITLES_FILE = os.path.join(CONFIG_DIR, 'custom_titles.json')
 OWNFOIL_DB = 'sqlite:///' + DB_FILE
 
 DEFAULT_SETTINGS = {

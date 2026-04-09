@@ -18,6 +18,7 @@ from utils import *
 from library import *
 import json
 import tasks as tasks_mod
+import titledb_store
 import os
 from clients import CyberFoilClient, TinfoilClient, SphairaClient
 
@@ -435,6 +436,35 @@ def upload_file():
         resp['data']['corrupt_keys'] = corrupt_keys
 
     return jsonify(resp)
+
+
+@app.get('/api/titledb/custom')
+@access_required('admin')
+def list_custom_titles_api():
+    return jsonify({'success': True, 'entries': titledb_store.list_custom_titles()})
+
+
+@app.post('/api/titledb/custom')
+@access_required('admin')
+def add_custom_title_api():
+    data = request.json or {}
+    title_id = data.get('id')
+    if not title_id:
+        return jsonify({'success': False, 'errors': [{'path': 'id', 'error': 'id is required'}]}), 400
+    ok, err = titledb_store.add_custom_title(data)
+    if not ok:
+        return jsonify({'success': False, 'errors': [{'path': 'id', 'error': err}]}), 400
+    tasks_mod.enqueue_task('identify_library')
+    return jsonify({'success': True, 'errors': []}), 201
+
+
+@app.delete('/api/titledb/custom/<title_id>')
+@access_required('admin')
+def delete_custom_title_api(title_id):
+    ok, err = titledb_store.delete_custom_title(title_id)
+    if not ok:
+        return jsonify({'success': False, 'errors': [{'path': 'id', 'error': err}]}), 404
+    return jsonify({'success': True, 'errors': []})
 
 
 @app.route('/api/titles', methods=['GET'])

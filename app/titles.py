@@ -1,9 +1,9 @@
 import os
 import sys
 import re
-import json
 
 import titledb
+import titledb_store
 from constants import *
 from utils import *
 from settings import *
@@ -22,13 +22,13 @@ Pfs0.Print.silent = True
 app_id_regex = r"\[([0-9A-Fa-f]{16})\]"
 version_regex = r"\[v(\d+)\]"
 
-# Global variables for TitleDB data
-identification_in_progress_count = 0
-_titles_db_loaded = False
-_cnmts_db = None
-_titles_db = None
-_versions_db = None
-_versions_txt_db = None
+# Re-export titledb_store query functions so existing callers
+# (titles_lib.get_game_info, titles_lib.get_all_existing_versions, ...) keep working.
+get_game_info = titledb_store.get_game_info
+get_all_existing_versions = titledb_store.get_all_existing_versions
+get_all_app_existing_versions = titledb_store.get_all_app_existing_versions
+get_app_id_version_from_versions_txt = titledb_store.get_app_id_version_from_versions_txt
+get_all_existing_dlc = titledb_store.get_all_existing_dlc
 
 def getDirsAndFiles(path):
     entries = os.listdir(path)
@@ -85,109 +85,35 @@ def get_file_info(filepath):
 
 def identify_appId(app_id):
     app_id = app_id.lower()
-    
-    global _cnmts_db
-    if _cnmts_db is None:
-        logger.error("cnmts_db is not loaded. Call load_titledb first.")
-        return None, None
 
-    if app_id in _cnmts_db:
-        app_id_keys = list(_cnmts_db[app_id].keys())
-        if len(app_id_keys):
-            app = _cnmts_db[app_id][app_id_keys[-1]]
-            
-            if app['titleType'] == 128:
-                app_type = APP_TYPE_BASE
-                title_id = app_id.upper()
-            elif app['titleType'] == 129:
-                app_type = APP_TYPE_UPD
-                if 'otherApplicationId' in app:
-                    title_id = app['otherApplicationId'].upper()
-                else:
-                    title_id = get_title_id_from_app_id(app_id, app_type)
-            elif app['titleType'] == 130:
-                app_type = APP_TYPE_DLC
-                if 'otherApplicationId' in app:
-                    title_id = app['otherApplicationId'].upper()
-                else:
-                    title_id = get_title_id_from_app_id(app_id, app_type)
-        else:
-            logger.warning(f'{app_id} has no keys in cnmts_db, fallback to default identification.')
-            if app_id.endswith('000'):
-                app_type = APP_TYPE_BASE
-                title_id = app_id
-            elif app_id.endswith('800'):
-                app_type = APP_TYPE_UPD
-                title_id = get_title_id_from_app_id(app_id, app_type)
-            else:
-                app_type = APP_TYPE_DLC
-                title_id = get_title_id_from_app_id(app_id, app_type)
-    else:
-        logger.warning(f'{app_id} not in cnmts_db, fallback to default identification.')
+    cnmt = titledb_store.get_cnmt_latest(app_id)
+    if cnmt is None:
+        logger.warning(f'{app_id} not in cnmts, fallback to default identification.')
         if app_id.endswith('000'):
-            app_type = APP_TYPE_BASE
-            title_id = app_id
-        elif app_id.endswith('800'):
-            app_type = APP_TYPE_UPD
-            title_id = get_title_id_from_app_id(app_id, app_type)
-        else:
-            app_type = APP_TYPE_DLC
-            title_id = get_title_id_from_app_id(app_id, app_type)
-    
-    return title_id.upper(), app_type
+            return app_id.upper(), APP_TYPE_BASE
+        if app_id.endswith('800'):
+            return get_title_id_from_app_id(app_id, APP_TYPE_UPD), APP_TYPE_UPD
+        return get_title_id_from_app_id(app_id, APP_TYPE_DLC), APP_TYPE_DLC
 
-def load_titledb():
-    global _cnmts_db
-    global _titles_db
-    global _versions_db
-    global _versions_txt_db
-    global identification_in_progress_count
-    global _titles_db_loaded
+    title_type = cnmt.get('titleType')
+    other_app_id = cnmt.get('otherApplicationId')
+    if title_type == 128:
+        return app_id.upper(), APP_TYPE_BASE
+    if title_type == 129:
+        if other_app_id:
+            return other_app_id.upper(), APP_TYPE_UPD
+        return get_title_id_from_app_id(app_id, APP_TYPE_UPD), APP_TYPE_UPD
+    if title_type == 130:
+        if other_app_id:
+            return other_app_id.upper(), APP_TYPE_DLC
+        return get_title_id_from_app_id(app_id, APP_TYPE_DLC), APP_TYPE_DLC
 
-    identification_in_progress_count += 1
-    if not _titles_db_loaded:
-        logger.info("Loading TitleDBs into memory...")
-        app_settings = get_settings()
-        with open(os.path.join(TITLEDB_DIR, 'cnmts.json'), "r", encoding="utf-8") as f:
-            _cnmts_db = json.load(f)
-
-        with open(os.path.join(TITLEDB_DIR, titledb.get_region_titles_file(app_settings)), "r", encoding="utf-8") as f:
-            _titles_db = json.load(f)
-
-        with open(os.path.join(TITLEDB_DIR, 'versions.json'), "r", encoding="utf-8") as f:
-            _versions_db = json.load(f)
-
-        _versions_txt_db = {}
-        with open(os.path.join(TITLEDB_DIR, 'versions.txt'), "r", encoding="utf-8") as f:
-            for line in f:
-                line_strip = line.rstrip("\n")
-                app_id, rightsId, version = line_strip.split('|')
-                if not version:
-                    version = "0"
-                _versions_txt_db[app_id] = version
-        _titles_db_loaded = True
-        logger.info("TitleDBs loaded.")
-
-@debounce(30)
-def unload_titledb():
-    global _cnmts_db
-    global _titles_db
-    global _versions_db
-    global _versions_txt_db
-    global identification_in_progress_count
-    global _titles_db_loaded
-
-    if identification_in_progress_count:
-        logger.debug('Identification still in progress, not unloading TitleDB.')
-        return
-
-    logger.info("Unloading TitleDBs from memory...")
-    _cnmts_db = None
-    _titles_db = None
-    _versions_db = None
-    _versions_txt_db = None
-    _titles_db_loaded = False
-    logger.info("TitleDBs unloaded.")
+    logger.warning(f'{app_id} has unknown titleType {title_type}, fallback to default identification.')
+    if app_id.endswith('000'):
+        return app_id.upper(), APP_TYPE_BASE
+    if app_id.endswith('800'):
+        return get_title_id_from_app_id(app_id, APP_TYPE_UPD), APP_TYPE_UPD
+    return get_title_id_from_app_id(app_id, APP_TYPE_DLC), APP_TYPE_DLC
 
 def identify_file_from_filename(filename):
     title_id = None
@@ -305,94 +231,8 @@ def identify_file(filepath):
     return identification, success, contents, error
 
 
-def get_game_info(title_id):
-    global _titles_db
-    if _titles_db is None:
-        logger.error("titles_db is not loaded. Call load_titledb first.")
-        return None
-
-    try:
-        title_info = [_titles_db[t] for t in list(_titles_db.keys()) if _titles_db[t]['id'] == title_id][0]
-        return {
-            'name': title_info['name'],
-            'bannerUrl': title_info['bannerUrl'],
-            'iconUrl': title_info['iconUrl'],
-            'id': title_info['id'],
-            'category': title_info['category'],
-        }
-    except Exception:
-        logger.error(f"Title ID not found in titledb: {title_id}")
-        return {
-            'name': 'Unrecognized',
-            'bannerUrl': '//placehold.it/400x200',
-            'iconUrl': '',
-            'id': title_id + ' not found in titledb',
-            'category': '',
-        }
-
 def get_update_number(version):
     return int(version)//65536
 
 def get_game_latest_version(all_existing_versions):
     return max(v['version'] for v in all_existing_versions)
-
-def get_all_existing_versions(titleid):
-    global _versions_db
-    if _versions_db is None:
-        logger.error("versions_db is not loaded. Call load_titledb first.")
-        return []
-
-    titleid = titleid.lower()
-    if titleid not in _versions_db:
-        # print(f'Title ID not in versions.json: {titleid.upper()}')
-        return []
-
-    versions_from_db = _versions_db[titleid].keys()
-    return [
-        {
-            'version': int(version_from_db),
-            'update_number': get_update_number(version_from_db),
-            'release_date': _versions_db[titleid][str(version_from_db)],
-        }
-        for version_from_db in versions_from_db
-    ]
-
-def get_all_app_existing_versions(app_id):
-    global _cnmts_db
-    if _cnmts_db is None:
-        logger.error("cnmts_db is not loaded. Call load_titledb first.")
-        return None
-
-    app_id = app_id.lower()
-    if app_id in _cnmts_db:
-        versions_from_cnmts_db = _cnmts_db[app_id].keys()
-        if len(versions_from_cnmts_db):
-            return sorted(versions_from_cnmts_db)
-        else:
-            logger.warning(f'No keys in cnmts.json for app ID: {app_id.upper()}')
-            return None
-    else:
-        # print(f'DLC app ID not in cnmts.json: {app_id.upper()}')
-        return None
-    
-def get_app_id_version_from_versions_txt(app_id):
-    global _versions_txt_db
-    if _versions_txt_db is None:
-        logger.error("versions_txt_db is not loaded. Call load_titledb first.")
-        return None
-    return _versions_txt_db.get(app_id, None)
-    
-def get_all_existing_dlc(title_id):
-    global _cnmts_db
-    if _cnmts_db is None:
-        logger.error("cnmts_db is not loaded. Call load_titledb first.")
-        return []
-
-    title_id = title_id.lower()
-    dlcs = []
-    for app_id in _cnmts_db.keys():
-        for version, version_description in _cnmts_db[app_id].items():
-            if version_description.get('titleType') == 130 and version_description.get('otherApplicationId') == title_id:
-                if app_id.upper() not in dlcs:
-                    dlcs.append(app_id.upper())
-    return dlcs
