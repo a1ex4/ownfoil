@@ -470,7 +470,6 @@ def generate_library():
             return saved_library['library']
     
     logger.info(f'Generating library ...')
-    titles_lib.load_titledb()
     titles = get_all_apps()
     games_info = []
     processed_dlc_apps = set()  # Track processed DLC app_ids to avoid duplicates
@@ -575,9 +574,6 @@ def generate_library():
     }
 
     save_library_to_disk(library_data)
-
-    titles_lib.identification_in_progress_count -= 1
-    titles_lib.unload_titledb()
 
     logger.info(f'Generating library done.')
 

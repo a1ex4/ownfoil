@@ -308,19 +308,6 @@ def _schedules_generate_library(func):
     return wrapper
 
 
-def _with_titledb(func):
-    """Decorator: load titledb before func runs, release after."""
-    @functools.wraps(func)
-    def wrapper(*args, **kwargs):
-        titles_lib.load_titledb()
-        try:
-            return func(*args, **kwargs)
-        finally:
-            titles_lib.identification_in_progress_count -= 1
-            titles_lib.unload_titledb()
-    return wrapper
-
-
 # --- Periodic tasks ---
 @register_task('update_titledb')
 def update_titledb_task(**kwargs):
@@ -328,6 +315,8 @@ def update_titledb_task(**kwargs):
     titledb.update_titledb(settings)
     for lib in get_libraries():
         enqueue_task('scan_library', {'library_path': lib.path})
+    # Re-identify any files that could now be matched with fresh metadata
+    enqueue_task('identify_library')
     # After titledb update, existing titles may have new DLC/update versions
     enqueue_task('add_missing_apps')
     # Re-enqueue for next scheduled run
@@ -432,7 +421,6 @@ def _identify_library_done(**kwargs):
 
 @register_task('identify_file')
 @_schedules_generate_library
-@_with_titledb
 def identify_file_task(filepath, file_id, **kwargs):
     """Identify a single file, upsert its Apps/Titles, then enqueue add_missing_apps_for_title."""
     identified_title_ids = []
@@ -505,7 +493,6 @@ def identify_file_task(filepath, file_id, **kwargs):
 
 @register_task('add_missing_apps_for_title')
 @_schedules_generate_library
-@_with_titledb
 def add_missing_apps_for_title_task(title_id, **kwargs):
     """Per-title: expand missing base/update/DLC apps for one title, then enqueue update_titles_for_title."""
     add_missing_apps_for_title(title_id)
@@ -552,7 +539,6 @@ def _organize_library_done(**kwargs):
 
 @register_task('organize_file')
 @_schedules_generate_library
-@_with_titledb
 def organize_file_task(file_id, **kwargs):
     """Organize a single file."""
     file_obj = db.session.get(Files, file_id)
@@ -568,7 +554,7 @@ def remove_outdated_updates_task(**kwargs):
     """Remove outdated update files."""
     app_settings = get_settings()
     if app_settings['library']['management']['delete_older_updates']:
-        _with_titledb(remove_outdated_update_files)()
+        remove_outdated_update_files()
 
 
 # --- Batch maintenance ---
@@ -576,7 +562,7 @@ def remove_outdated_updates_task(**kwargs):
 @_schedules_generate_library
 def add_missing_apps_task(**kwargs):
     """Batch: expand missing apps for every title. Used post-titledb-update."""
-    _with_titledb(add_missing_apps_to_db)()
+    add_missing_apps_to_db()
     enqueue_task('update_titles')
 
 
