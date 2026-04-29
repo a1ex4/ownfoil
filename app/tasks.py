@@ -541,12 +541,14 @@ def organize_library_task(**kwargs):
 @register_task('organize_library_done')
 @register_continuation('organize_library')
 def _organize_library_done(library_path=None, **kwargs):
-    organizer_settings = get_settings()['library']['management']['organizer']
+    settings = get_settings()
+    organizer_settings = settings['library']['management']['organizer']
     if organizer_settings.get('enabled') and organizer_settings.get('remove_empty_folders'):
         paths = [library_path] if library_path else [lib.path for lib in get_libraries()]
         for path in paths:
             delete_empty_folders(path)
-    enqueue_task('remove_outdated_updates')
+    if settings['library']['management']['delete_older_updates']:
+        enqueue_task('remove_outdated_updates')
 
 
 @register_task('organize_file')
@@ -564,10 +566,8 @@ def organize_file_task(file_id, **kwargs):
 @register_task('remove_outdated_updates')
 def remove_outdated_updates_task(**kwargs):
     """Remove outdated update files."""
-    app_settings = get_settings()
-    if app_settings['library']['management']['delete_older_updates']:
-        remove_outdated_update_files()
-        enqueue_task('update_titles')
+    remove_outdated_update_files()
+    enqueue_task('update_titles')
 
 # --- Batch maintenance ---
 @register_task('add_missing_apps')
