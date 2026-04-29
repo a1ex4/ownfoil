@@ -82,6 +82,7 @@ class Files(db.Model):
     identification_error = db.Column(db.String)
     identification_attempts = db.Column(db.Integer, default=0)
     last_attempt = db.Column(db.DateTime, default=datetime.datetime.now())
+    organized = db.Column(db.Boolean, default=False)
     mtime = db.Column(db.Float)
 
     library = db.relationship('Libraries', backref=db.backref('files', lazy=True, cascade="all, delete-orphan"))
@@ -513,3 +514,9 @@ def increment_download_count(filepath):
 def increment_download_count_throttled(filepath, host):
     """Throttled wrapper around increment_download_count per (filepath, host) pair."""
     increment_download_count(filepath)
+
+
+def reset_files_organized():
+    """Reset the organized flag on all files so the organizer re-evaluates them."""
+    Files.query.update({Files.organized: False})
+    db.session.commit()

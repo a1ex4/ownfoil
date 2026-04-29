@@ -77,7 +77,7 @@ def organize_file(file_obj, library_path, organizer_settings):
         new_full_path = os.path.join(library_path, new_relative_path)
 
         if current_filepath == new_full_path:
-            return
+            return True
 
         # Already organized with an "(n)" suffix from a previous collision:
         # Avoid re-running the rename loop only to bail out at the same name.
@@ -89,7 +89,7 @@ def organize_file(file_obj, library_path, organizer_settings):
             rf"{re.escape(base_name)}\(\d+\)\.{re.escape(file_obj.extension)}",
             current_name,
         ):
-            return
+            return True
         
         # Ensure the directory exists
         new_dir = os.path.dirname(new_full_path)
@@ -108,7 +108,7 @@ def organize_file(file_obj, library_path, organizer_settings):
         src = current_filepath
         while True:
             if candidate == current_filepath:
-                return
+                return True
             try:
                 add_ignored_event(src, candidate)
                 if os.path.exists(candidate):
@@ -117,7 +117,7 @@ def organize_file(file_obj, library_path, organizer_settings):
                 update_file_path(library_path_str, current_filepath, candidate)
                 rel = os.path.relpath(candidate, library_path_str)
                 logger.info(f'Organizing file: {original_filename} → {rel}')
-                break
+                return True
             except (FileExistsError, IntegrityError) as e:
                 pop_ignored_event(src_path=src, dest_path=candidate)
                 # If the move already happened, the file is now at `candidate`;

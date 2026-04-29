@@ -528,7 +528,7 @@ def organize_library_task(**kwargs):
         _organize_library_done()
         return
 
-    files = Files.query.filter_by(identified=True).all()
+    files = Files.query.filter_by(identified=True, organized=False).all()
     if not files:
         logger.info('No files to organize.')
         _organize_library_done()
@@ -559,7 +559,9 @@ def organize_file_task(file_id, **kwargs):
         return
     library_path = get_library_path(file_obj.library_id)
     organizer_settings = get_settings()['library']['management']['organizer']
-    organize_file(file_obj, library_path, organizer_settings)
+    if organize_file(file_obj, library_path, organizer_settings):
+        file_obj.organized = True
+        db.session.commit()
     enqueue_task('organize_library_done', {'library_path': library_path})
 
 
@@ -629,6 +631,7 @@ def handle_file_added_task(library_path, filepath, **kwargs):
     remove_file_from_apps(file.id)
     file.size = new_size
     file.mtime = new_mtime
+    file.organized = False
     reset_file_identification(file)
     db.session.commit()
     enqueue_task('identify_file', {'filepath': filepath, 'file_id': file.id})
