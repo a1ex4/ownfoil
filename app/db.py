@@ -1,6 +1,7 @@
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import create_engine
 from sqlalchemy import event
+from sqlalchemy.engine import Engine
 from sqlalchemy.orm import joinedload
 from sqlalchemy.orm.exc import NoResultFound
 from sqlalchemy.exc import IntegrityError
@@ -23,6 +24,16 @@ logger = logging.getLogger('main')
 
 db = SQLAlchemy()
 migrate = Migrate()
+
+
+@event.listens_for(Engine, "connect")
+def _set_sqlite_pragmas(dbapi_connection, connection_record):
+    cursor = dbapi_connection.cursor()
+    cursor.execute("PRAGMA foreign_keys=ON")
+    cursor.execute("PRAGMA journal_mode=WAL")
+    cursor.execute("PRAGMA synchronous=NORMAL")
+    cursor.execute("PRAGMA busy_timeout=30000")
+    cursor.close()
 
 # Alembic functions
 def get_alembic_cfg():
@@ -198,13 +209,6 @@ def pop_ignored_event(src_path=None, dest_path=None):
 
 def init_db(app):
     with app.app_context():
-        # Ensure foreign keys are enforced when the SQLite connection is opened
-        @event.listens_for(db.engine, "connect")
-        def set_sqlite_pragma(dbapi_connection, connection_record):
-            cursor = dbapi_connection.cursor()
-            cursor.execute("PRAGMA foreign_keys=ON;")
-            cursor.close()
-
         # create or migrate database
         if "db" not in sys.argv:
             if not os.path.exists(DB_FILE):

@@ -82,6 +82,7 @@ def create_child_task(parent_id, task_name, input_data=None):
             (parent_id, task_name, input_json, input_hash, now)
         )
         child_id = cursor.lastrowid
+        # logger.debug(f"Enqueued task child '{task_name}' (id={child_id}) of parent_id={parent_id}")
         connection.commit()
         return child_id
     except Exception:
@@ -508,6 +509,7 @@ def add_missing_apps_for_title_task(title_id, **kwargs):
     """Per-title: expand missing base/update/DLC apps for one title, then enqueue update_titles_for_title."""
     add_missing_apps_for_title(title_id)
     enqueue_or_child('update_titles_for_title', {'title_id': title_id})
+    set_waiting_for_children()
 
 
 @register_task('update_titles_for_title')
