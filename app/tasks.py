@@ -481,9 +481,6 @@ def startup_task(**kwargs):
 def update_titledb_task(**kwargs):
     settings = get_settings()
     titledb.update_titledb(settings)
-    # titles.db was atomically replaced; recycle pooled connections so the next
-    # checkout re-ATTACHes the new inode instead of seeing the old one.
-    db.engine.dispose()
     enqueue_task('organize_library')
     add_missing_apps_to_db()
     update_titles()

@@ -26,6 +26,14 @@ db = SQLAlchemy()
 migrate = Migrate()
 
 
+def _titledb_signature():
+    try:
+        st = os.stat(TITLES_DB_FILE)
+        return (st.st_dev, st.st_ino)
+    except FileNotFoundError:
+        return None
+
+
 @event.listens_for(Engine, "connect")
 def _set_sqlite_pragmas(dbapi_connection, connection_record):
     cursor = dbapi_connection.cursor()
@@ -34,18 +42,37 @@ def _set_sqlite_pragmas(dbapi_connection, connection_record):
     cursor.execute("PRAGMA synchronous=NORMAL")
     cursor.execute("PRAGMA busy_timeout=30000")
 
-    # ATTACH titles.db on every new connection to the ownfoil DB so resolvers
-    # can JOIN across both. Skipped when titles.db is absent (first run before
-    # titledb import) to avoid SQLite creating an empty file at that path.
     rows = cursor.execute("PRAGMA database_list").fetchall()
     main_path = next((r[2] for r in rows if r[1] == 'main'), None)
-    if (
-        main_path
-        and os.path.realpath(main_path) == os.path.realpath(DB_FILE)
-        and os.path.exists(TITLES_DB_FILE)
-    ):
-        cursor.execute("ATTACH DATABASE ? AS titledb", (TITLES_DB_FILE,))
+    is_main = bool(
+        main_path and os.path.realpath(main_path) == os.path.realpath(DB_FILE)
+    )
+    connection_record.info['is_main_db'] = is_main
+    connection_record.info['titledb_signature'] = None
     cursor.close()
+
+
+@event.listens_for(Engine, "checkout")
+def _sync_titledb_attach(dbapi_connection, connection_record, connection_proxy):
+    # Keep `titledb` ATTACH state in sync with the on-disk titles.db inode.
+    # Handles two cases the connect-time ATTACH cannot: titles.db not yet
+    # built when the connection was opened, and atomic replacement of
+    # titles.db by another process (the new inode replaces the old one).
+    info = connection_record.info
+    if not info.get('is_main_db'):
+        return
+    current_sig = _titledb_signature()
+    if current_sig == info.get('titledb_signature'):
+        return
+    cursor = dbapi_connection.cursor()
+    try:
+        if info.get('titledb_signature') is not None:
+            cursor.execute("DETACH DATABASE titledb")
+        if current_sig is not None:
+            cursor.execute("ATTACH DATABASE ? AS titledb", (TITLES_DB_FILE,))
+        info['titledb_signature'] = current_sig
+    finally:
+        cursor.close()
 
 # Alembic functions
 def get_alembic_cfg():
