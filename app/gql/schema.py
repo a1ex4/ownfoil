@@ -16,7 +16,7 @@ class Query:
 
     @strawberry.field
     def title(self, info: Info, title_id: strawberry.ID) -> Optional[Title]:
-        return resolve_title(str(title_id), info.context)
+        return resolve_title(str(title_id), info.context, info)
 
     @strawberry.field
     def titles(
@@ -28,7 +28,7 @@ class Query:
     ) -> TitleConnection:
         return resolve_titles(
             owned=owned, filter=filter,
-            page=page, page_size=page_size, ctx=info.context,
+            page=page, page_size=page_size, ctx=info.context, info=info,
         )
 
     @strawberry.field
@@ -41,7 +41,7 @@ class Query:
     ) -> AppConnection:
         return resolve_apps(
             owned=owned, filter=filter,
-            page=page, page_size=page_size, ctx=info.context,
+            page=page, page_size=page_size, ctx=info.context, info=info,
         )
 
     @strawberry.field
@@ -52,7 +52,7 @@ class Query:
         page_size: int = 100,
     ) -> FileConnection:
         return resolve_files(
-            filter=filter, page=page, page_size=page_size, ctx=info.context,
+            filter=filter, page=page, page_size=page_size, ctx=info.context, info=info,
         )
 
 

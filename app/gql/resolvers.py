@@ -11,6 +11,7 @@ from .filters import (
     AppFilter, FileFilter, TitleFilter,
     APP_FIELDS, FILE_FIELDS, TITLE_FIELDS, build_clauses,
 )
+from .selection import Selection
 from .types import (
     App, AppConnection, File, FileConnection, Ownership,
     Title, TitleConnection, Version, decode_json_list,
@@ -150,9 +151,19 @@ def _build_file(row, *, include_filepath: bool) -> File:
 
 
 # ------------- batch helpers -------------
+#
+# Each *with_xxx* flag mirrors a sub-selection in the GraphQL query: if the
+# client didn't ask for that nested field, we skip the SQL round-trip entirely.
 
-def _load_apps_for_titles(title_ids_uc: List[str], app_filter: Optional[AppFilter],
-                           with_files: bool) -> Dict[str, List[App]]:
+def _load_apps_for_titles(
+    title_ids_uc: List[str],
+    app_filter: Optional[AppFilter],
+    *,
+    with_files: bool,
+    with_titledb: bool,
+    with_files_apps: bool = False,
+    with_files_apps_titledb: bool = False,
+) -> Dict[str, List[App]]:
     """Return apps keyed by uppercase title_id."""
     if not title_ids_uc:
         return {}
@@ -189,13 +200,20 @@ def _load_apps_for_titles(title_ids_uc: List[str], app_filter: Optional[AppFilte
             app_pks.append(int(r.id))
 
     if with_files and app_pks:
-        _hydrate_app_files(app_pks, apps_by_pk)
-    if all_apps:
+        _hydrate_app_files(
+            app_pks, apps_by_pk,
+            with_apps=with_files_apps,
+            with_apps_titledb=with_files_apps_titledb,
+        )
+    if with_titledb and all_apps:
         _hydrate_apps_titledb(all_apps)
     return out
 
 
-def _hydrate_app_files(app_pks: List[int], apps_by_pk: Dict[int, App]) -> None:
+def _hydrate_app_files(
+    app_pks: List[int], apps_by_pk: Dict[int, App], *,
+    with_apps: bool, with_apps_titledb: bool,
+) -> None:
     """Populate .files_loaded on each app in apps_by_pk, including back-link apps."""
     placeholders = ",".join(f":a_{i}" for i in range(len(app_pks)))
     params = {f"a_{i}": pk for i, pk in enumerate(app_pks)}
@@ -211,14 +229,20 @@ def _hydrate_app_files(app_pks: List[int], apps_by_pk: Dict[int, App]) -> None:
         if app is None:
             continue
         f = _build_file(r, include_filepath=True)
-        f.apps_loaded = []
+        f.apps_loaded = [] if with_apps else None
         app.files_loaded.append(f)
         files_by_pk[int(r.id)] = f
-    if files_by_pk:
-        _hydrate_file_apps(list(files_by_pk.keys()), files_by_pk)
+    if with_apps and files_by_pk:
+        _hydrate_file_apps(
+            list(files_by_pk.keys()), files_by_pk,
+            with_titledb=with_apps_titledb,
+        )
 
 
-def _hydrate_file_apps(file_pks: List[int], files_by_pk: Dict[int, "File"]) -> None:
+def _hydrate_file_apps(
+    file_pks: List[int], files_by_pk: Dict[int, "File"], *,
+    with_titledb: bool,
+) -> None:
     """Populate .apps_loaded on each file (m2m back-direction across app_files)."""
     placeholders = ",".join(f":f_{i}" for i in range(len(file_pks)))
     params = {f"f_{i}": pk for i, pk in enumerate(file_pks)}
@@ -248,7 +272,7 @@ def _hydrate_file_apps(file_pks: List[int], files_by_pk: Dict[int, "File"]) -> N
         )
         f.apps_loaded.append(a)
         backlinked.append(a)
-    if backlinked:
+    if with_titledb and backlinked:
         _hydrate_apps_titledb(backlinked)
 
 
@@ -311,10 +335,22 @@ def _load_versions_for_titles(title_ids_uc: List[str]) -> Dict[str, List[Version
 
 # ------------- top-level resolvers -------------
 
-def resolve_title(title_id: str, ctx: GraphQLContext) -> Optional[Title]:
+def resolve_title(title_id: str, ctx: GraphQLContext, info) -> Optional[Title]:
     if not ctx.can_shop:
         return None
     tid = title_id.upper()
+
+    sel = Selection.from_info(info)
+    apps_sel = sel.child("apps")
+    files_sel = apps_sel.child("files")
+    files_apps_sel = files_sel.child("apps")
+    want_apps = ctx.can_shop and sel.has("apps")
+    want_apps_files = ctx.can_admin and want_apps and apps_sel.has("files")
+    want_apps_titledb = want_apps and apps_sel.has("titledb")
+    want_apps_files_apps = want_apps_files and files_sel.has("apps")
+    want_apps_files_apps_titledb = want_apps_files_apps and files_apps_sel.has("titledb")
+    want_versions = sel.has("availableVersions")
+
     # Drive from main.titles when this title is owned (so unrecognized titles surface),
     # otherwise drive from titledb. Both stores keep title_id in uppercase.
     sql = f"""
@@ -332,21 +368,42 @@ def resolve_title(title_id: str, ctx: GraphQLContext) -> Optional[Title]:
     row = db.session.execute(text(sql), {"tid": tid}).first()
     if not row:
         return None
-    title = _build_title(row, with_apps=ctx.can_shop, with_files=ctx.can_admin)
-    if ctx.can_shop:
-        apps_map = _load_apps_for_titles([tid], None, with_files=ctx.can_admin)
+    title = _build_title(row, with_apps=want_apps, with_files=want_apps_files)
+    if want_apps:
+        apps_map = _load_apps_for_titles(
+            [tid], None,
+            with_files=want_apps_files,
+            with_titledb=want_apps_titledb,
+            with_files_apps=want_apps_files_apps,
+            with_files_apps_titledb=want_apps_files_apps_titledb,
+        )
         title.apps_loaded = apps_map.get(tid, [])
-    versions_map = _load_versions_for_titles([tid])
-    title.available_versions = versions_map.get(tid, [])
+    if want_versions:
+        versions_map = _load_versions_for_titles([tid])
+        title.available_versions = versions_map.get(tid, [])
     return title
 
 
 def resolve_titles(*, owned: Optional[bool], filter: Optional[TitleFilter],
-                    page: int, page_size: int, ctx: GraphQLContext) -> TitleConnection:
+                    page: int, page_size: int, ctx: GraphQLContext, info) -> TitleConnection:
     if not ctx.can_shop:
         return TitleConnection(total=0, items=[])
     page = max(1, page)
     page_size = max(1, min(page_size, 500))
+
+    sel = Selection.from_info(info)
+    items_sel = sel.child("items")
+    apps_sel = items_sel.child("apps")
+    files_sel = apps_sel.child("files")
+    files_apps_sel = files_sel.child("apps")
+    want_items = sel.has("items")
+    want_apps = want_items and items_sel.has("apps")
+    want_apps_files = ctx.can_admin and want_apps and apps_sel.has("files")
+    want_apps_titledb = want_apps and apps_sel.has("titledb")
+    want_apps_files_apps = want_apps_files and files_sel.has("apps")
+    want_apps_files_apps_titledb = want_apps_files_apps and files_apps_sel.has("titledb")
+    want_versions = want_items and items_sel.has("availableVersions")
+    want_total = sel.has("total")
 
     params: dict = {}
     where = build_clauses(filter, TITLE_FIELDS, params)
@@ -378,8 +435,13 @@ def resolve_titles(*, owned: Optional[bool], filter: Optional[TitleFilter],
 
     where_sql = (" WHERE " + " AND ".join(where)) if where else ""
 
-    count_sql = f"SELECT COUNT(*) {from_sql}{where_sql}"
-    total = db.session.execute(text(count_sql), params).scalar() or 0
+    total = 0
+    if want_total:
+        count_sql = f"SELECT COUNT(*) {from_sql}{where_sql}"
+        total = db.session.execute(text(count_sql), params).scalar() or 0
+
+    if not want_items:
+        return TitleConnection(total=int(total), items=[])
 
     page_sql = f"""
     SELECT {cols}
@@ -391,16 +453,22 @@ def resolve_titles(*, owned: Optional[bool], filter: Optional[TitleFilter],
     page_params = dict(params, limit=page_size, offset=(page - 1) * page_size)
     rows = db.session.execute(text(page_sql), page_params).all()
 
-    titles = [_build_title(r, with_apps=ctx.can_shop, with_files=ctx.can_admin)
+    titles = [_build_title(r, with_apps=want_apps, with_files=want_apps_files)
               for r in rows]
     title_ids_uc = [(r.title_id or "").upper() for r in rows]
 
-    if ctx.can_shop and title_ids_uc:
-        apps_map = _load_apps_for_titles(title_ids_uc, None, with_files=ctx.can_admin)
+    if want_apps and title_ids_uc:
+        apps_map = _load_apps_for_titles(
+            title_ids_uc, None,
+            with_files=want_apps_files,
+            with_titledb=want_apps_titledb,
+            with_files_apps=want_apps_files_apps,
+            with_files_apps_titledb=want_apps_files_apps_titledb,
+        )
         for t, tid in zip(titles, title_ids_uc):
             t.apps_loaded = apps_map.get(tid, [])
 
-    if title_ids_uc:
+    if want_versions and title_ids_uc:
         versions_map = _load_versions_for_titles(title_ids_uc)
         for t, tid in zip(titles, title_ids_uc):
             t.available_versions = versions_map.get(tid, [])
@@ -409,11 +477,22 @@ def resolve_titles(*, owned: Optional[bool], filter: Optional[TitleFilter],
 
 
 def resolve_apps(*, owned: Optional[bool], filter: Optional[AppFilter],
-                  page: int, page_size: int, ctx: GraphQLContext) -> AppConnection:
+                  page: int, page_size: int, ctx: GraphQLContext, info) -> AppConnection:
     if not ctx.can_shop:
         return AppConnection(total=0, items=[])
     page = max(1, page)
     page_size = max(1, min(page_size, 1000))
+
+    sel = Selection.from_info(info)
+    items_sel = sel.child("items")
+    files_sel = items_sel.child("files")
+    files_apps_sel = files_sel.child("apps")
+    want_items = sel.has("items")
+    want_files = ctx.can_admin and want_items and items_sel.has("files")
+    want_titledb = want_items and items_sel.has("titledb")
+    want_files_apps = want_files and files_sel.has("apps")
+    want_files_apps_titledb = want_files_apps and files_apps_sel.has("titledb")
+    want_total = sel.has("total")
 
     params: dict = {}
     where = build_clauses(filter, APP_FIELDS, params)
@@ -422,10 +501,15 @@ def resolve_apps(*, owned: Optional[bool], filter: Optional[AppFilter],
         where.append("a.owned = :owned_arg")
     where_sql = (" WHERE " + " AND ".join(where)) if where else ""
 
-    count_sql = f"""
-    SELECT COUNT(*) FROM apps a JOIN main.titles ot ON ot.id = a.title_id{where_sql}
-    """
-    total = db.session.execute(text(count_sql), params).scalar() or 0
+    total = 0
+    if want_total:
+        count_sql = f"""
+        SELECT COUNT(*) FROM apps a JOIN main.titles ot ON ot.id = a.title_id{where_sql}
+        """
+        total = db.session.execute(text(count_sql), params).scalar() or 0
+
+    if not want_items:
+        return AppConnection(total=int(total), items=[])
 
     page_sql = f"""
     SELECT a.id AS id, a.app_id AS app_id, a.app_version AS app_version,
@@ -447,33 +531,50 @@ def resolve_apps(*, owned: Optional[bool], filter: Optional[AppFilter],
             app_version=r.app_version,
             app_type=r.app_type,
             owned=bool(r.owned),
-            files_loaded=[] if ctx.can_admin else None,
+            files_loaded=[] if want_files else None,
         )
         items.append(a)
-        if ctx.can_admin:
+        if want_files:
             apps_by_pk[int(r.id)] = a
 
-    if ctx.can_admin and apps_by_pk:
-        _hydrate_app_files(list(apps_by_pk.keys()), apps_by_pk)
-    if items:
+    if want_files and apps_by_pk:
+        _hydrate_app_files(
+            list(apps_by_pk.keys()), apps_by_pk,
+            with_apps=want_files_apps,
+            with_apps_titledb=want_files_apps_titledb,
+        )
+    if want_titledb and items:
         _hydrate_apps_titledb(items)
 
     return AppConnection(total=int(total), items=items)
 
 
 def resolve_files(*, filter: Optional[FileFilter], page: int, page_size: int,
-                   ctx: GraphQLContext) -> FileConnection:
+                   ctx: GraphQLContext, info) -> FileConnection:
     if not ctx.can_admin:
         return FileConnection(total=0, items=[])
     page = max(1, page)
     page_size = max(1, min(page_size, 1000))
 
+    sel = Selection.from_info(info)
+    items_sel = sel.child("items")
+    apps_sel = items_sel.child("apps")
+    want_items = sel.has("items")
+    want_apps = want_items and items_sel.has("apps")
+    want_apps_titledb = want_apps and apps_sel.has("titledb")
+    want_total = sel.has("total")
+
     params: dict = {}
     where = build_clauses(filter, FILE_FIELDS, params)
     where_sql = (" WHERE " + " AND ".join(where)) if where else ""
 
-    count_sql = f"SELECT COUNT(*) FROM files f{where_sql}"
-    total = db.session.execute(text(count_sql), params).scalar() or 0
+    total = 0
+    if want_total:
+        count_sql = f"SELECT COUNT(*) FROM files f{where_sql}"
+        total = db.session.execute(text(count_sql), params).scalar() or 0
+
+    if not want_items:
+        return FileConnection(total=int(total), items=[])
 
     page_sql = f"""
     SELECT {_FILE_COLS}
@@ -489,9 +590,13 @@ def resolve_files(*, filter: Optional[FileFilter], page: int, page_size: int,
     files_by_pk: Dict[int, File] = {}
     for r in rows:
         f = _build_file(r, include_filepath=True)
-        f.apps_loaded = []
+        f.apps_loaded = [] if want_apps else None
         items.append(f)
-        files_by_pk[int(r.id)] = f
-    if files_by_pk:
-        _hydrate_file_apps(list(files_by_pk.keys()), files_by_pk)
+        if want_apps:
+            files_by_pk[int(r.id)] = f
+    if want_apps and files_by_pk:
+        _hydrate_file_apps(
+            list(files_by_pk.keys()), files_by_pk,
+            with_titledb=want_apps_titledb,
+        )
     return FileConnection(total=int(total), items=items)
