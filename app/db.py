@@ -144,10 +144,13 @@ class Titles(db.Model):
     up_to_date = db.Column(db.Boolean, default=False)
     complete = db.Column(db.Boolean, default=False)
 
-# Association table for many-to-many relationship between Apps and Files
+# Association table for many-to-many relationship between Apps and Files.
+# The composite PK indexes (app_id, file_id) left-to-right, so the explicit
+# index on file_id is what makes back-link queries (WHERE file_id IN ...) fast.
 app_files = db.Table('app_files',
     db.Column('app_id', db.Integer, db.ForeignKey('apps.id', ondelete="CASCADE"), primary_key=True),
-    db.Column('file_id', db.Integer, db.ForeignKey('files.id', ondelete="CASCADE"), primary_key=True)
+    db.Column('file_id', db.Integer, db.ForeignKey('files.id', ondelete="CASCADE"), primary_key=True),
+    db.Index('ix_app_files_file_id', 'file_id'),
 )
 
 class Apps(db.Model):

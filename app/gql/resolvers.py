@@ -20,47 +20,62 @@ from .types import (
 
 # ------------- column lists -------------
 
-_TITLE_FIELDS = """
-td.name          AS name,
-td.banner_url    AS banner_url,
-td.icon_url      AS icon_url,
-td.front_box_art AS front_box_art,
-td.description   AS description,
-td.intro         AS intro,
-td.developer     AS developer,
-td.publisher     AS publisher,
-td.release_date  AS release_date,
-td.category      AS category,
-td.is_demo       AS is_demo,
-td.nsu_id        AS nsu_id,
-td.number_of_players AS number_of_players,
-td.parent_id     AS parent_id,
-td.rank          AS rank,
-td.rating        AS rating,
-td.rating_content AS rating_content,
-td.region        AS region,
-td.regions       AS regions,
-td.languages     AS languages,
-td.language      AS language,
-td.rights_id     AS rights_id,
-td.screenshots   AS screenshots,
-td.size          AS size,
-td.version       AS version,
-td.nca_key       AS nca_key,
-td.ids           AS ids,
-ot.have_base     AS have_base,
-ot.up_to_date    AS up_to_date,
-ot.complete      AS complete,
-ot.id            AS ownership_pk
-"""
+# Map of GraphQL camelCase field name on the Title type → SQL fragment to add
+# to the SELECT list. Built dynamically so a query asking for only
+# `{titleId, name, bannerUrl}` doesn't drag `description`, `intro`,
+# `screenshots`, etc. through SQLite + Python + JSON serialization for every
+# title in the page.
+_TITLE_COL_MAP = {
+    'name':            'td.name AS name',
+    'bannerUrl':       'td.banner_url AS banner_url',
+    'iconUrl':         'td.icon_url AS icon_url',
+    'frontBoxArt':     'td.front_box_art AS front_box_art',
+    'description':     'td.description AS description',
+    'intro':           'td.intro AS intro',
+    'developer':       'td.developer AS developer',
+    'publisher':       'td.publisher AS publisher',
+    'releaseDate':     'td.release_date AS release_date',
+    'category':        'td.category AS category',
+    'isDemo':          'td.is_demo AS is_demo',
+    'nsuId':           'td.nsu_id AS nsu_id',
+    'numberOfPlayers': 'td.number_of_players AS number_of_players',
+    'parentId':        'td.parent_id AS parent_id',
+    'rank':            'td.rank AS rank',
+    'rating':          'td.rating AS rating',
+    'ratingContent':   'td.rating_content AS rating_content',
+    'region':          'td.region AS region',
+    'regions':         'td.regions AS regions',
+    'languages':       'td.languages AS languages',
+    'language':        'td.language AS language',
+    'rightsId':        'td.rights_id AS rights_id',
+    'screenshots':     'td.screenshots AS screenshots',
+    'size':            'td.size AS size',
+    'version':         'td.version AS version',
+    'ncaKey':          'td.nca_key AS nca_key',
+    'ids':             'td.ids AS ids',
+}
 
 
-def _title_cols(driver: str) -> str:
-    """SELECT clause: drive title_id and source from `ot` for owned-driven queries
-    so unrecognized titles (no titledb match) still surface."""
+def _title_cols(driver: str, sel: "Selection") -> str:
+    """Build the title SELECT list, projecting only the columns the client
+    actually selected. Drives title_id/source from `ot` for owned-driven
+    queries so unrecognized titles (no titledb match) still surface."""
+    cols = []
     if driver == "owned":
-        return f"UPPER(ot.title_id) AS title_id, COALESCE(td.source, 'unrecognized') AS source, {_TITLE_FIELDS}"
-    return f"UPPER(td.id) AS title_id, td.source AS source, {_TITLE_FIELDS}"
+        cols.append("UPPER(ot.title_id) AS title_id")
+        cols.append("COALESCE(td.source, 'unrecognized') AS source")
+    else:
+        cols.append("UPPER(td.id) AS title_id")
+        cols.append("td.source AS source")
+    for gql_name, sql_expr in _TITLE_COL_MAP.items():
+        if sel.has(gql_name):
+            cols.append(sql_expr)
+    if sel.has("ownership"):
+        cols.append("ot.id AS ownership_pk")
+        cols.append("ot.have_base AS have_base")
+        cols.append("ot.up_to_date AS up_to_date")
+        cols.append("ot.complete AS complete")
+    return ", ".join(cols)
 
 _FILE_COLS = """
 f.id AS id, f.library_id AS library_id, f.filepath AS filepath,
@@ -86,42 +101,48 @@ _TITLEDB_DEDUPED = """(
 # ------------- builders -------------
 
 def _build_title(row, *, with_apps: bool, with_files: bool) -> Title:
-    has_ownership = row.ownership_pk is not None
+    # `m.get(col)` returns None for columns the resolver didn't project,
+    # which lets `_title_cols` skip unselected columns without us crashing
+    # on row-attribute access here.
+    m = row._mapping
+    ownership = None
+    if 'ownership_pk' in m and m['ownership_pk'] is not None:
+        ownership = Ownership(
+            have_base=bool(m.get('have_base')),
+            up_to_date=bool(m.get('up_to_date')),
+            complete=bool(m.get('complete')),
+        )
     return Title(
-        title_id=strawberry.ID((row.title_id or "").upper()),
-        source=row.source or "upstream",
-        name=row.name,
-        banner_url=row.banner_url,
-        icon_url=row.icon_url,
-        front_box_art=row.front_box_art,
-        description=row.description,
-        intro=row.intro,
-        developer=row.developer,
-        publisher=row.publisher,
-        release_date=row.release_date,
-        category=decode_json_list(row.category),
-        is_demo=row.is_demo,
-        nsu_id=row.nsu_id,
-        number_of_players=row.number_of_players,
-        parent_id=row.parent_id,
-        rank=row.rank,
-        rating=row.rating,
-        rating_content=decode_json_list(row.rating_content),
-        region=row.region,
-        regions=decode_json_list(row.regions),
-        languages=decode_json_list(row.languages),
-        language=row.language,
-        rights_id=row.rights_id,
-        screenshots=decode_json_list(row.screenshots),
-        size=row.size,
-        version=row.version,
-        nca_key=row.nca_key,
-        ids=decode_json_list(row.ids),
-        ownership=Ownership(
-            have_base=bool(row.have_base),
-            up_to_date=bool(row.up_to_date),
-            complete=bool(row.complete),
-        ) if has_ownership else None,
+        title_id=strawberry.ID((m.get('title_id') or "").upper()),
+        source=m.get('source') or "upstream",
+        name=m.get('name'),
+        banner_url=m.get('banner_url'),
+        icon_url=m.get('icon_url'),
+        front_box_art=m.get('front_box_art'),
+        description=m.get('description'),
+        intro=m.get('intro'),
+        developer=m.get('developer'),
+        publisher=m.get('publisher'),
+        release_date=m.get('release_date'),
+        category=decode_json_list(m.get('category')),
+        is_demo=m.get('is_demo'),
+        nsu_id=m.get('nsu_id'),
+        number_of_players=m.get('number_of_players'),
+        parent_id=m.get('parent_id'),
+        rank=m.get('rank'),
+        rating=m.get('rating'),
+        rating_content=decode_json_list(m.get('rating_content')),
+        region=m.get('region'),
+        regions=decode_json_list(m.get('regions')),
+        languages=decode_json_list(m.get('languages')),
+        language=m.get('language'),
+        rights_id=m.get('rights_id'),
+        screenshots=decode_json_list(m.get('screenshots')),
+        size=m.get('size'),
+        version=m.get('version'),
+        nca_key=m.get('nca_key'),
+        ids=decode_json_list(m.get('ids')),
+        ownership=ownership,
         apps_loaded=[] if with_apps else None,
         available_versions=[],
     )
@@ -162,6 +183,8 @@ def _load_apps_for_titles(
     with_titledb: bool,
     with_files_apps: bool = False,
     with_files_apps_titledb: bool = False,
+    titledb_sel: "Selection",
+    files_apps_titledb_sel: "Selection",
 ) -> Dict[str, List[App]]:
     """Return apps keyed by uppercase title_id."""
     if not title_ids_uc:
@@ -203,15 +226,17 @@ def _load_apps_for_titles(
             app_pks, apps_by_pk,
             with_apps=with_files_apps,
             with_apps_titledb=with_files_apps_titledb,
+            back_titledb_sel=files_apps_titledb_sel,
         )
     if with_titledb and all_apps:
-        _hydrate_apps_titledb(all_apps)
+        _hydrate_apps_titledb(all_apps, titledb_sel)
     return out
 
 
 def _hydrate_app_files(
     app_pks: List[int], apps_by_pk: Dict[int, App], *,
     with_apps: bool, with_apps_titledb: bool,
+    back_titledb_sel: "Selection",
 ) -> None:
     """Populate .files_loaded on each app in apps_by_pk, including back-link apps."""
     placeholders = ",".join(f":a_{i}" for i in range(len(app_pks)))
@@ -235,12 +260,14 @@ def _hydrate_app_files(
         _hydrate_file_apps(
             list(files_by_pk.keys()), files_by_pk,
             with_titledb=with_apps_titledb,
+            titledb_sel=back_titledb_sel,
         )
 
 
 def _hydrate_file_apps(
     file_pks: List[int], files_by_pk: Dict[int, "File"], *,
     with_titledb: bool,
+    titledb_sel: "Selection",
 ) -> None:
     """Populate .apps_loaded on each file (m2m back-direction across app_files)."""
     placeholders = ",".join(f":f_{i}" for i in range(len(file_pks)))
@@ -272,10 +299,10 @@ def _hydrate_file_apps(
         f.apps_loaded.append(a)
         backlinked.append(a)
     if with_titledb and backlinked:
-        _hydrate_apps_titledb(backlinked)
+        _hydrate_apps_titledb(backlinked, titledb_sel)
 
 
-def _hydrate_apps_titledb(apps: List[App]) -> None:
+def _hydrate_apps_titledb(apps: List[App], sel: "Selection") -> None:
     """For each App, attach its own titledb entry keyed by app_id (uppercase).
     Most useful for DLC apps (their titledb row is their own metadata, not the
     parent title's). Single batch SELECT, distinct app_ids only."""
@@ -285,7 +312,7 @@ def _hydrate_apps_titledb(apps: List[App]) -> None:
     params = {f"i_{i}": x for i, x in enumerate(distinct_ids)}
     placeholders = ",".join(f":i_{i}" for i in range(len(distinct_ids)))
     sql = f"""
-    SELECT {_title_cols('titledb')}
+    SELECT {_title_cols('titledb', sel)}
     FROM {_TITLEDB_DEDUPED} td
     LEFT JOIN main.titles ot ON ot.title_id = td.id
     WHERE td.id IN ({placeholders})
@@ -352,6 +379,8 @@ def resolve_title(title_id: str, ctx: GraphQLContext, info) -> Optional[Title]:
     apps_sel = sel.child("apps")
     files_sel = apps_sel.child("files")
     files_apps_sel = files_sel.child("apps")
+    apps_titledb_sel = apps_sel.child("titledb")
+    files_apps_titledb_sel = files_apps_sel.child("titledb")
     want_apps = ctx.can_shop and sel.has("apps")
     want_apps_files = ctx.can_admin and want_apps and apps_sel.has("files")
     want_apps_titledb = want_apps and apps_sel.has("titledb")
@@ -362,12 +391,12 @@ def resolve_title(title_id: str, ctx: GraphQLContext, info) -> Optional[Title]:
     # Drive from main.titles when this title is owned (so unrecognized titles surface),
     # otherwise drive from titledb. Both stores keep title_id in uppercase.
     sql = f"""
-    SELECT {_title_cols('owned')}
+    SELECT {_title_cols('owned', sel)}
     FROM main.titles ot
     LEFT JOIN {_TITLEDB_DEDUPED} td ON td.id = ot.title_id
     WHERE ot.title_id = :tid
     UNION ALL
-    SELECT {_title_cols('titledb')}
+    SELECT {_title_cols('titledb', sel)}
     FROM {_TITLEDB_DEDUPED} td
     LEFT JOIN main.titles ot ON ot.title_id = td.id
     WHERE td.id = :tid AND ot.id IS NULL
@@ -384,6 +413,8 @@ def resolve_title(title_id: str, ctx: GraphQLContext, info) -> Optional[Title]:
             with_titledb=want_apps_titledb,
             with_files_apps=want_apps_files_apps,
             with_files_apps_titledb=want_apps_files_apps_titledb,
+            titledb_sel=apps_titledb_sel,
+            files_apps_titledb_sel=files_apps_titledb_sel,
         )
         title.apps_loaded = apps_map.get(tid, [])
     if want_versions:
@@ -404,6 +435,8 @@ def resolve_titles(*, owned: Optional[bool], filter: Optional[TitleFilter],
     apps_sel = items_sel.child("apps")
     files_sel = apps_sel.child("files")
     files_apps_sel = files_sel.child("apps")
+    apps_titledb_sel = apps_sel.child("titledb")
+    files_apps_titledb_sel = files_apps_sel.child("titledb")
     want_items = sel.has("items")
     want_apps = want_items and items_sel.has("apps")
     want_apps_files = ctx.can_admin and want_apps and apps_sel.has("files")
@@ -424,7 +457,7 @@ def resolve_titles(*, owned: Optional[bool], filter: Optional[TitleFilter],
             f"LEFT JOIN {_TITLEDB_DEDUPED} td ON td.id = ot.title_id"
         )
         order_by = "ot.title_id"
-        cols = _title_cols("owned")
+        cols = _title_cols("owned", items_sel)
     elif owned is False:
         from_sql = (
             f"FROM {_TITLEDB_DEDUPED} td "
@@ -432,14 +465,14 @@ def resolve_titles(*, owned: Optional[bool], filter: Optional[TitleFilter],
         )
         where.append("ot.id IS NULL")
         order_by = "td.id"
-        cols = _title_cols("titledb")
+        cols = _title_cols("titledb", items_sel)
     else:
         from_sql = (
             f"FROM {_TITLEDB_DEDUPED} td "
             f"LEFT JOIN main.titles ot ON ot.title_id = td.id"
         )
         order_by = "td.id"
-        cols = _title_cols("titledb")
+        cols = _title_cols("titledb", items_sel)
 
     where_sql = (" WHERE " + " AND ".join(where)) if where else ""
 
@@ -472,6 +505,8 @@ def resolve_titles(*, owned: Optional[bool], filter: Optional[TitleFilter],
             with_titledb=want_apps_titledb,
             with_files_apps=want_apps_files_apps,
             with_files_apps_titledb=want_apps_files_apps_titledb,
+            titledb_sel=apps_titledb_sel,
+            files_apps_titledb_sel=files_apps_titledb_sel,
         )
         for t, tid in zip(titles, title_ids_uc):
             t.apps_loaded = apps_map.get(tid, [])
@@ -495,6 +530,8 @@ def resolve_apps(*, owned: Optional[bool], filter: Optional[AppFilter],
     items_sel = sel.child("items")
     files_sel = items_sel.child("files")
     files_apps_sel = files_sel.child("apps")
+    titledb_sel = items_sel.child("titledb")
+    files_apps_titledb_sel = files_apps_sel.child("titledb")
     want_items = sel.has("items")
     want_files = ctx.can_admin and want_items and items_sel.has("files")
     want_titledb = want_items and items_sel.has("titledb")
@@ -550,9 +587,10 @@ def resolve_apps(*, owned: Optional[bool], filter: Optional[AppFilter],
             list(apps_by_pk.keys()), apps_by_pk,
             with_apps=want_files_apps,
             with_apps_titledb=want_files_apps_titledb,
+            back_titledb_sel=files_apps_titledb_sel,
         )
     if want_titledb and items:
-        _hydrate_apps_titledb(items)
+        _hydrate_apps_titledb(items, titledb_sel)
 
     return AppConnection(total=int(total), items=items)
 
@@ -567,6 +605,7 @@ def resolve_files(*, filter: Optional[FileFilter], page: int, page_size: int,
     sel = Selection.from_info(info)
     items_sel = sel.child("items")
     apps_sel = items_sel.child("apps")
+    apps_titledb_sel = apps_sel.child("titledb")
     want_items = sel.has("items")
     want_apps = want_items and items_sel.has("apps")
     want_apps_titledb = want_apps and apps_sel.has("titledb")
@@ -606,5 +645,6 @@ def resolve_files(*, filter: Optional[FileFilter], page: int, page_size: int,
         _hydrate_file_apps(
             list(files_by_pk.keys()), files_by_pk,
             with_titledb=want_apps_titledb,
+            titledb_sel=apps_titledb_sel,
         )
     return FileConnection(total=int(total), items=items)
