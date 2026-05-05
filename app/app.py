@@ -513,15 +513,13 @@ def delete_custom_title_api(title_id):
     return jsonify({'success': True, 'errors': []})
 
 
-@app.route('/api/titles', methods=['GET'])
-@access_required('shop')
-def get_all_titles_api():
-    titles_library = generate_library()
+from gql import graphql_dispatch
 
-    return jsonify({
-        'total': len(titles_library),
-        'games': titles_library
-    })
+app.add_url_rule(
+    '/api/graphql',
+    view_func=graphql_dispatch,
+    methods=['GET', 'POST'],
+)
 
 @app.route('/api/get_game/<int:id>')
 @file_access

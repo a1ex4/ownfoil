@@ -148,17 +148,132 @@
     let cardSize = 3; // Default card size
     let currentView = 'card'; // Default view is 'card'
 
-    function fetchGames() {
-        return new Promise((resolve, reject) => {
-            $.get(`/api/titles`, function (data) {
-                totalGames = data.total;
-                games = data.games;
-                filteredGames = games;
-                resolve();
-            }).fail(function() {
-                reject();
-            });
+    async function gqlFetch(query, variables) {
+        // GET (not POST) so the browser's HTTP cache automatically revalidates
+        // via If-None-Match against the ETag the server sets on every response.
+        const params = new URLSearchParams({query});
+        if (variables && Object.keys(variables).length) {
+            params.set('variables', JSON.stringify(variables));
+        }
+        const r = await fetch('/api/graphql?' + params.toString(), {
+            method: 'GET',
+            headers: {'Accept': 'application/json'},
+            credentials: 'same-origin',
         });
+        if (!r.ok) throw new Error(`GraphQL HTTP ${r.status}`);
+        const body = await r.json();
+        if (body.errors && body.errors.length) {
+            throw new Error('GraphQL errors: ' + JSON.stringify(body.errors));
+        }
+        return body.data;
+    }
+
+    const OWNED_TITLES_QUERY = `
+        query OwnedTitles($page: Int!, $pageSize: Int!) {
+            titles(owned: true, page: $page, pageSize: $pageSize) {
+                total
+                items {
+                    titleId
+                    name
+                    bannerUrl
+                    iconUrl
+                    ownership { haveBase upToDate complete }
+                    apps {
+                        appId appVersion appType owned
+                        titledb { titleId name bannerUrl iconUrl }
+                    }
+                    availableVersions { version owned releaseDate }
+                }
+            }
+        }`;
+
+    async function fetchAllOwnedTitles() {
+        const pageSize = 200;
+        let page = 1;
+        const items = [];
+        while (true) {
+            const d = await gqlFetch(OWNED_TITLES_QUERY, {page, pageSize});
+            items.push(...d.titles.items);
+            if (items.length >= d.titles.total) break;
+            page += 1;
+        }
+        return items;
+    }
+
+    const PLACEHOLDER_BANNER = '//placehold.it/400x200';
+
+    function flattenForUI(titles) {
+        const rows = [];
+        const seenDlcAppIds = new Set();
+        for (const t of titles) {
+            const ownership = t.ownership || {haveBase: false, upToDate: false, complete: false};
+            const versionList = (t.availableVersions || []).map(v => ({
+                version: v.version, owned: v.owned, release_date: v.releaseDate || 'Unknown',
+            })).sort((a, b) => a.version - b.version);
+            const recognized = !!t.name;
+            const baseName = t.name || 'Unrecognized';
+
+            // BASE row
+            rows.push({
+                id: recognized ? t.titleId : t.titleId + ' not found in titledb',
+                title_id: t.titleId,
+                title_id_name: baseName,
+                name: baseName,
+                bannerUrl: t.bannerUrl || PLACEHOLDER_BANNER,
+                iconUrl: t.iconUrl || '',
+                app_id: t.titleId,
+                app_type: 'BASE',
+                owned: ownership.haveBase,
+                has_base: ownership.haveBase,
+                has_latest_version: ownership.haveBase && ownership.upToDate,
+                has_all_dlcs: ownership.complete,
+                version: versionList,
+            });
+
+            // DLC rows: one per unique DLC app_id, metadata from App.titledb (same query)
+            const dlcApps = (t.apps || []).filter(a => a.appType === 'DLC');
+            const grouped = new Map();
+            for (const a of dlcApps) {
+                if (!grouped.has(a.appId)) grouped.set(a.appId, []);
+                grouped.get(a.appId).push(a);
+            }
+            for (const [appId, group] of grouped.entries()) {
+                if (seenDlcAppIds.has(appId)) continue;
+                seenDlcAppIds.add(appId);
+                const meta = group[0].titledb || {};
+                const dlcVersionList = group.map(a => ({
+                    version: parseInt(a.appVersion, 10),
+                    owned: a.owned,
+                    release_date: 'Unknown',
+                })).sort((a, b) => a.version - b.version);
+                const ownedVersions = dlcVersionList.filter(v => v.owned).map(v => v.version);
+                const highest = dlcVersionList.length
+                    ? Math.max(...dlcVersionList.map(v => v.version)) : 0;
+                rows.push({
+                    id: meta.name ? appId : appId + ' not found in titledb',
+                    title_id: t.titleId,
+                    title_id_name: baseName,
+                    name: meta.name || 'Unrecognized',
+                    bannerUrl: meta.bannerUrl || PLACEHOLDER_BANNER,
+                    iconUrl: meta.iconUrl || '',
+                    app_id: appId,
+                    app_type: 'DLC',
+                    owned: group.some(a => a.owned),
+                    has_latest_version: ownedVersions.length > 0 && Math.max(...ownedVersions) >= highest,
+                    version: dlcVersionList,
+                });
+            }
+        }
+        return rows.sort((a, b) =>
+            (a.title_id_name || '').localeCompare(b.title_id_name || '')
+            || (a.app_id || '').localeCompare(b.app_id || ''));
+    }
+
+    async function fetchGames() {
+        const titles = await fetchAllOwnedTitles();
+        games = flattenForUI(titles);
+        totalGames = games.length;
+        filteredGames = games;
     }
 
     function renderGames() {

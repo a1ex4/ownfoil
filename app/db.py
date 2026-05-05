@@ -33,6 +33,18 @@ def _set_sqlite_pragmas(dbapi_connection, connection_record):
     cursor.execute("PRAGMA journal_mode=WAL")
     cursor.execute("PRAGMA synchronous=NORMAL")
     cursor.execute("PRAGMA busy_timeout=30000")
+
+    # ATTACH titles.db on every new connection to the ownfoil DB so resolvers
+    # can JOIN across both. Skipped when titles.db is absent (first run before
+    # titledb import) to avoid SQLite creating an empty file at that path.
+    rows = cursor.execute("PRAGMA database_list").fetchall()
+    main_path = next((r[2] for r in rows if r[1] == 'main'), None)
+    if (
+        main_path
+        and os.path.realpath(main_path) == os.path.realpath(DB_FILE)
+        and os.path.exists(TITLES_DB_FILE)
+    ):
+        cursor.execute("ATTACH DATABASE ? AS titledb", (TITLES_DB_FILE,))
     cursor.close()
 
 # Alembic functions

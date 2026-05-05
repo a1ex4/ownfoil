@@ -2,7 +2,6 @@
 import hashlib
 import json
 import datetime
-import functools
 import logging
 import os
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
@@ -24,7 +23,7 @@ from utils import interval_string_to_timedelta, delete_empty_folders, human_size
 from library import (
     get_files_to_identify, add_missing_apps_for_title, update_title_flags,
     add_missing_apps_to_db, update_titles, organize_file,
-    remove_outdated_update_files, generate_library,
+    remove_outdated_update_files,
 )
 
 logger = logging.getLogger('main')
@@ -471,17 +470,6 @@ def get_task(task_id):
 
 
 
-# --- Titledb helper for tasks ---
-
-def _schedules_generate_library(func):
-    """Decorator: after func runs, (re)schedule generate_library with a debounce."""
-    @functools.wraps(func)
-    def wrapper(*args, **kwargs):
-        result = func(*args, **kwargs)
-        update_scheduled_task('generate_library', datetime.datetime.utcnow() + datetime.timedelta(seconds=5))
-        return result
-    return wrapper
-
 @register_task('startup')
 def startup_task(**kwargs):
     """Startup task: cleanup and kick off periodic titledb update."""
@@ -493,6 +481,9 @@ def startup_task(**kwargs):
 def update_titledb_task(**kwargs):
     settings = get_settings()
     titledb.update_titledb(settings)
+    # titles.db was atomically replaced; recycle pooled connections so the next
+    # checkout re-ATTACHes the new inode instead of seeing the old one.
+    db.engine.dispose()
     enqueue_task('organize_library')
     add_missing_apps_to_db()
     update_titles()
@@ -681,7 +672,6 @@ def identify_file_task(filepath, file_id, **kwargs):
 
 
 @register_task('add_missing_apps_for_title')
-@_schedules_generate_library
 def add_missing_apps_for_title_task(title_id, **kwargs):
     """Per-title: expand missing base/update/DLC apps for one title, then enqueue update_titles_for_title."""
     add_missing_apps_for_title(title_id)
@@ -690,7 +680,6 @@ def add_missing_apps_for_title_task(title_id, **kwargs):
 
 
 @register_task('update_titles_for_title')
-@_schedules_generate_library
 def update_titles_for_title_task(title_id, **kwargs):
     """Per-title: recompute have_base / up_to_date / complete under BEGIN IMMEDIATE."""
     update_title_flags(title_id)
@@ -896,7 +885,6 @@ def remove_missing_files_task(**kwargs):
 
 
 @register_task('update_titles')
-@_schedules_generate_library
 def update_titles_task(**kwargs):
     """Batch: recompute flags for every title. Used post-titledb-update."""
     update_titles()
@@ -915,12 +903,6 @@ def remove_library_task(library_path, **kwargs):
     db.session.commit()
     logger.info(f"Removed library: {library_path}")
     enqueue_task('update_titles')
-
-
-# --- Shop generation ---
-@register_task('generate_library')
-def generate_library_task(**kwargs):
-    generate_library()
 
 
 # --- Watcher event handlers ---

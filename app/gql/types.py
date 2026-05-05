@@ -1,0 +1,167 @@
+"""Strawberry GraphQL types for ownfoil."""
+import json
+import strawberry
+from strawberry import Private
+from typing import List, Optional
+
+from .filters import AppFilter, FileFilter, match_app, match_file
+from .scalars import BigInt
+
+
+def decode_json_list(value) -> Optional[List[str]]:
+    if value is None:
+        return None
+    if isinstance(value, list):
+        return [str(x) for x in value]
+    try:
+        decoded = json.loads(value)
+    except (TypeError, ValueError):
+        return None
+    if isinstance(decoded, list):
+        return [str(x) for x in decoded]
+    return None
+
+
+@strawberry.type
+class Ownership:
+    have_base: bool
+    up_to_date: bool
+    complete: bool
+
+
+@strawberry.type
+class Version:
+    version: int
+    release_date: Optional[str] = None
+    owned: bool = False
+
+
+@strawberry.type
+class File:
+    id: strawberry.ID
+    library_id: int
+    filename: str
+    folder: Optional[str] = None
+    extension: Optional[str] = None
+    size: Optional[BigInt] = None
+    compressed: bool = False
+    multicontent: bool = False
+    nb_content: int = 0
+    download_count: int = 0
+    identified: bool = False
+    identification_type: Optional[str] = None
+    identification_error: Optional[str] = None
+    identification_attempts: int = 0
+    organized: bool = False
+    mtime: Optional[float] = None
+    filepath: Optional[str] = None  # admin-only; null for non-admin
+
+    # Apps linked to this file via the app_files m2m table. Eagerly batch-loaded
+    # by resolvers; None means "not exposed for this path/role".
+    apps_loaded: Private[Optional[List["App"]]] = None
+
+    @strawberry.field
+    def apps(
+        self,
+        owned: Optional[bool] = None,
+        filter: Optional[AppFilter] = None,
+    ) -> Optional[List["App"]]:
+        if self.apps_loaded is None:
+            return None
+        return [a for a in self.apps_loaded if match_app(a, owned, filter)]
+
+
+@strawberry.type
+class App:
+    id: strawberry.ID
+    title_id: str
+    app_id: str
+    app_version: str
+    app_type: str
+    owned: bool
+
+    # Eagerly batch-loaded by the apps/titles resolvers (admin only). None means
+    # "not exposed for this role"; an empty list means "exposed but no files".
+    files_loaded: Private[Optional[List[File]]] = None
+    titledb_loaded: Private[Optional["Title"]] = None
+
+    @strawberry.field
+    def files(self, filter: Optional[FileFilter] = None) -> Optional[List[File]]:
+        if self.files_loaded is None:
+            return None
+        return [f for f in self.files_loaded if match_file(f, filter)]
+
+    @strawberry.field
+    def titledb(self) -> Optional["Title"]:
+        """Titledb entry keyed by this app's app_id (the DLC's own metadata for
+        DLC apps, the parent title's metadata for BASE apps, often null for
+        UPDATE apps not present in titledb)."""
+        return self.titledb_loaded
+
+
+@strawberry.type
+class Title:
+    title_id: strawberry.ID
+    source: str
+    name: Optional[str] = None
+    banner_url: Optional[str] = None
+    icon_url: Optional[str] = None
+    front_box_art: Optional[str] = None
+    description: Optional[str] = None
+    intro: Optional[str] = None
+    developer: Optional[str] = None
+    publisher: Optional[str] = None
+    release_date: Optional[str] = None
+    category: Optional[List[str]] = None
+    is_demo: Optional[str] = None
+    nsu_id: Optional[str] = None
+    number_of_players: Optional[str] = None
+    parent_id: Optional[str] = None
+    rank: Optional[str] = None
+    rating: Optional[str] = None
+    rating_content: Optional[List[str]] = None
+    region: Optional[str] = None
+    regions: Optional[List[str]] = None
+    languages: Optional[List[str]] = None
+    language: Optional[str] = None
+    rights_id: Optional[str] = None
+    screenshots: Optional[List[str]] = None
+    size: Optional[str] = None
+    version: Optional[str] = None
+    nca_key: Optional[str] = None
+    ids: Optional[List[str]] = None
+    ownership: Optional[Ownership] = None
+    available_versions: List[Version] = strawberry.field(default_factory=list)
+
+    # Eagerly batch-loaded by the titles resolver. None means "not exposed for
+    # this role"; an empty list means "exposed but no apps". Hidden from the
+    # schema via Private; clients access it through the apps() resolver below.
+    apps_loaded: Private[Optional[List[App]]] = None
+
+    @strawberry.field
+    def apps(
+        self,
+        owned: Optional[bool] = None,
+        filter: Optional[AppFilter] = None,
+    ) -> Optional[List[App]]:
+        if self.apps_loaded is None:
+            return None
+        return [a for a in self.apps_loaded if match_app(a, owned, filter)]
+
+
+@strawberry.type
+class TitleConnection:
+    total: int
+    items: List[Title]
+
+
+@strawberry.type
+class AppConnection:
+    total: int
+    items: List[App]
+
+
+@strawberry.type
+class FileConnection:
+    total: int
+    items: List[File]

@@ -6,6 +6,7 @@ Custom admin-added entries are persisted separately in
 ``config/custom_titles.json`` and merged into the DB on every rebuild.
 """
 import contextlib
+import datetime
 import json
 import logging
 import os
@@ -163,6 +164,10 @@ def import_from_json(app_settings):
         conn.execute(
             'INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)',
             ('imported_locale', f"{app_settings['titles']['region']}.{app_settings['titles']['language']}"),
+        )
+        conn.execute(
+            'INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)',
+            ('imported_at', datetime.datetime.utcnow().isoformat(timespec='seconds') + 'Z'),
         )
         conn.commit()
     finally:
@@ -336,6 +341,7 @@ def add_custom_title(record):
     if os.path.isfile(TITLES_DB_FILE):
         with contextlib.closing(sqlite3.connect(TITLES_DB_FILE)) as conn:
             _upsert_custom_title(conn, record)
+            _bump_imported_at(conn)
             conn.commit()
     return True, None
 
@@ -350,8 +356,17 @@ def delete_custom_title(title_id):
     if os.path.isfile(TITLES_DB_FILE):
         with contextlib.closing(sqlite3.connect(TITLES_DB_FILE)) as conn:
             conn.execute('DELETE FROM titles WHERE "id" = ? AND source = ?', (title_id, SOURCE_CUSTOM))
+            _bump_imported_at(conn)
             conn.commit()
     return True, None
+
+
+def _bump_imported_at(conn):
+    """Mark titles.db as changed so cached GraphQL responses get invalidated."""
+    conn.execute(
+        'INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)',
+        ('imported_at', datetime.datetime.utcnow().isoformat(timespec='seconds') + 'Z'),
+    )
 
 
 # ---------------------------------------------------------------------------
