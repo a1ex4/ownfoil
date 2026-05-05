@@ -68,10 +68,14 @@ _CNMTS_COLUMNS = [
 
 def _titles_schema():
     cols = ',\n    '.join(f'"{c}"' for _, c, _ in _TITLES_COLUMNS if c != 'id')
+    # is_overridden: set on upstream rows that have a 'custom' counterpart for
+    # the same id. Lets the GraphQL dedup filter become a column predicate
+    # (`source = 'custom' OR is_overridden = 0`) instead of a NOT EXISTS scan.
     return f'''
     CREATE TABLE titles (
         "id" TEXT NOT NULL,
         source TEXT NOT NULL,
+        is_overridden INTEGER NOT NULL DEFAULT 0,
         {cols},
         PRIMARY KEY ("id", source)
     );
@@ -160,6 +164,7 @@ def import_from_json(app_settings):
         _import_versions(conn, versions_file)
         _import_versions_txt(conn, versions_txt_file)
         _import_customs(conn)
+        _recompute_overridden(conn)
 
         conn.execute(
             'INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)',
@@ -286,6 +291,24 @@ def _import_customs(conn):
     logger.info(f'  custom titles: {len(records)} rows')
 
 
+def _recompute_overridden(conn):
+    """Set is_overridden=1 on every non-custom row whose id has a custom counterpart."""
+    conn.execute('UPDATE titles SET is_overridden = 0 WHERE is_overridden != 0')
+    conn.execute('''
+        UPDATE titles
+        SET is_overridden = 1
+        WHERE source != 'custom'
+          AND "id" IN (SELECT "id" FROM titles WHERE source = 'custom')
+    ''')
+
+
+def _set_overridden_for_id(conn, title_id, value):
+    conn.execute(
+        'UPDATE titles SET is_overridden = ? WHERE source != ? AND "id" = ?',
+        (1 if value else 0, SOURCE_CUSTOM, title_id),
+    )
+
+
 # ---------------------------------------------------------------------------
 # Custom entries
 # ---------------------------------------------------------------------------
@@ -341,6 +364,7 @@ def add_custom_title(record):
     if os.path.isfile(TITLES_DB_FILE):
         with contextlib.closing(sqlite3.connect(TITLES_DB_FILE)) as conn:
             _upsert_custom_title(conn, record)
+            _set_overridden_for_id(conn, title_id, True)
             _bump_imported_at(conn)
             conn.commit()
     return True, None
@@ -356,6 +380,7 @@ def delete_custom_title(title_id):
     if os.path.isfile(TITLES_DB_FILE):
         with contextlib.closing(sqlite3.connect(TITLES_DB_FILE)) as conn:
             conn.execute('DELETE FROM titles WHERE "id" = ? AND source = ?', (title_id, SOURCE_CUSTOM))
+            _set_overridden_for_id(conn, title_id, False)
             _bump_imported_at(conn)
             conn.commit()
     return True, None

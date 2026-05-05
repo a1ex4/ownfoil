@@ -74,13 +74,12 @@ f.organized AS organized, f.mtime AS mtime
 """
 
 # Subquery returning a single row per titledb id, custom-source preferred.
+# `is_overridden` is set at import time on every upstream row whose id has a
+# custom counterpart, so the dedup predicate is a column check rather than a
+# correlated NOT EXISTS scan.
 _TITLEDB_DEDUPED = """(
     SELECT t.* FROM titledb.titles t
-    WHERE t.source = 'custom'
-       OR NOT EXISTS (
-            SELECT 1 FROM titledb.titles c
-            WHERE c.id = t.id AND c.source = 'custom'
-       )
+    WHERE t.source = 'custom' OR t.is_overridden = 0
 )"""
 
 
@@ -176,7 +175,7 @@ def _load_apps_for_titles(
            a.app_type AS app_type, a.owned AS owned, ot.title_id AS tuc
     FROM apps a JOIN main.titles ot ON ot.id = a.title_id
     WHERE ot.title_id IN ({placeholders}){extra_sql}
-    ORDER BY a.app_id, CAST(a.app_version AS INTEGER)
+    ORDER BY a.app_id, CAST(a.app_version AS INTEGER), a.id
     """
     rows = db.session.execute(text(sql), params).all()
     out: Dict[str, List[App]] = {tid: [] for tid in title_ids_uc}
@@ -303,32 +302,41 @@ def _hydrate_apps_titledb(apps: List[App]) -> None:
 
 def _load_versions_for_titles(title_ids_uc: List[str]) -> Dict[str, List[Version]]:
     """Return versions keyed by uppercase title_id. titledb.versions stores ids
-    lowercase, so we lowercase the bindings and uppercase the result."""
+    lowercase, so we lowercase the bindings and uppercase the result.
+
+    Two non-correlated queries instead of a per-row correlated subquery: one
+    pulls the available versions for the requested titles, the other pulls the
+    set of (lc title_id, owned UPDATE version) pairs from main, and we join in
+    Python."""
     if not title_ids_uc:
         return {}
     params = {f"t_{i}": tid.lower() for i, tid in enumerate(title_ids_uc)}
     placeholders = ",".join(f":t_{i}" for i in range(len(title_ids_uc)))
-    sql = f"""
-    SELECT v.title_id AS tlc, v.version AS version, v.release_date AS release_date,
-           COALESCE((
-             SELECT 1 FROM apps a JOIN main.titles ot ON ot.id = a.title_id
-             WHERE LOWER(ot.title_id) = v.title_id
-               AND a.app_type = 'UPDATE'
-               AND CAST(a.app_version AS INTEGER) = v.version
-               AND a.owned = 1
-             LIMIT 1
-           ), 0) AS owned
+
+    versions_sql = f"""
+    SELECT v.title_id AS tlc, v.version AS version, v.release_date AS release_date
     FROM titledb.versions v
     WHERE v.title_id IN ({placeholders})
     ORDER BY v.title_id, v.version
     """
-    rows = db.session.execute(text(sql), params).all()
+    owned_sql = f"""
+    SELECT LOWER(ot.title_id) AS tlc, CAST(a.app_version AS INTEGER) AS v
+    FROM apps a JOIN main.titles ot ON ot.id = a.title_id
+    WHERE a.app_type = 'UPDATE' AND a.owned = 1
+      AND LOWER(ot.title_id) IN ({placeholders})
+    """
+
+    owned_rows = db.session.execute(text(owned_sql), params).all()
+    owned_set = {(r.tlc, r.v) for r in owned_rows}
+
+    rows = db.session.execute(text(versions_sql), params).all()
     out: Dict[str, List[Version]] = {tid: [] for tid in title_ids_uc}
     for r in rows:
+        v = int(r.version)
         out.setdefault((r.tlc or "").upper(), []).append(Version(
-            version=int(r.version),
+            version=v,
             release_date=r.release_date,
-            owned=bool(r.owned),
+            owned=(r.tlc, v) in owned_set,
         ))
     return out
 
