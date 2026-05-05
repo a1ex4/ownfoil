@@ -29,11 +29,12 @@ class WorkerPool:
         self._next_id = 1
         self._scale_to(initial_count)
 
-    def _start_worker(self):
-        """Start a single worker process with the next available ID."""
+    def _start_worker(self, worker_id=None):
+        """Start a single worker process. Reuses worker_id if given, else allocates a new one."""
         from worker import start_worker_process
-        worker_id = self._next_id
-        self._next_id += 1
+        if worker_id is None:
+            worker_id = self._next_id
+            self._next_id += 1
         stop_event = MPEvent()
         proc = Process(target=start_worker_process, args=(stop_event, worker_id))
         proc.start()
@@ -41,16 +42,32 @@ class WorkerPool:
         logger.info(f'Worker-{worker_id} started (pid={proc.pid}).')
         return worker_id
 
-    def _stop_worker(self, worker_id):
-        """Gracefully stop a worker by ID."""
+    def _stop_worker(self, worker_id, force=False):
+        """Stop a worker by ID. If force, terminate immediately instead of waiting for graceful exit."""
         if worker_id not in self.workers:
             return
         proc, stop_event = self.workers.pop(worker_id)
-        stop_event.set()
-        proc.join(timeout=10)
-        if proc.is_alive():
+        if force:
             proc.terminate()
+            proc.join(timeout=5)
+            if proc.is_alive():
+                proc.kill()
+                proc.join(timeout=2)
+        else:
+            stop_event.set()
+            proc.join(timeout=10)
+            if proc.is_alive():
+                proc.terminate()
         logger.info(f'Worker-{worker_id} stopped.')
+
+    def restart_worker(self, worker_id):
+        """Forcefully stop a worker mid-task and start a replacement reusing the same id."""
+        with self._lock:
+            if worker_id not in self.workers:
+                return False
+            self._stop_worker(worker_id, force=True)
+            self._start_worker(worker_id=worker_id)
+            return True
 
     def _scale_to(self, desired_count):
         """Scale the pool to the desired number of workers."""

@@ -38,8 +38,8 @@ class TaskWorker:
             task_id = row[0]
             now = datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
             cursor.execute(
-                "UPDATE tasks SET status = 'running', started_at = ? WHERE id = ? AND status = 'pending'",
-                (now, task_id)
+                "UPDATE tasks SET status = 'running', started_at = ?, worker_id = ? WHERE id = ? AND status = 'pending'",
+                (now, self.worker_id, task_id)
             )
             if cursor.rowcount == 0:
                 connection.commit()

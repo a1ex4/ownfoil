@@ -570,3 +570,12 @@ def get_task_api(task_id):
     data['children'] = [_serialize_task(c, detail=True) for c in task.children.all()]
     return jsonify(data)
 
+
+@app.delete('/api/tasks/<int:task_id>')
+@access_required('admin')
+def cancel_task_api(task_id):
+    cancelled = tasks_mod.cancel_task(task_id)
+    if not cancelled:
+        return jsonify({'error': 'Task not found or already terminal'}), 404
+    return '', 204
+

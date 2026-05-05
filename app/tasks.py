@@ -28,6 +28,7 @@ logger = logging.getLogger('main')
 # --- Task Registry ---
 TASK_REGISTRY = {}
 TASK_CONTINUATIONS = {}
+TASK_CLEANUP = {}
 
 
 def register_task(name):
@@ -42,6 +43,19 @@ def register_continuation(task_name):
     """Register a function to call when all children of a parent task complete."""
     def decorator(func):
         TASK_CONTINUATIONS[task_name] = func
+        return func
+    return decorator
+
+
+def register_cleanup(task_name):
+    """Register a function to call when a running task is cancelled.
+
+    Receives the task's input_data as kwargs. Should be idempotent — the task
+    may have been killed at any point, so any intermediate state (temp files,
+    partial output) should be removed if present and ignored otherwise.
+    """
+    def decorator(func):
+        TASK_CLEANUP[task_name] = func
         return func
     return decorator
 
@@ -103,6 +117,7 @@ def set_waiting_for_children():
     """Mark the current task as waiting for its children to complete."""
     task = db.session.get(Task, _current_task_id)
     task.status = 'waiting_for_children'
+    task.worker_id = None
     db.session.commit()
 
 
@@ -170,6 +185,93 @@ def _try_complete_parent(parent_id):
         raise
     finally:
         connection.close()
+
+
+# --- Cancellation ---
+
+def _cancel_atomic(task_id):
+    """Delete the task and any pending descendants under one transaction.
+    Running descendants are orphaned (parent_id=NULL) so they finish naturally
+    and self-delete on completion. Waiting descendants are recursed into.
+
+    Returns (found, parent_id, running_worker_id, task_name, input_json).
+    running_worker_id and task_name/input_json are only set when the cancelled
+    task itself was running (so the caller can restart its worker and run cleanup).
+    """
+    connection = db.engine.raw_connection()
+    try:
+        cursor = connection.cursor()
+        cursor.execute("BEGIN IMMEDIATE")
+        cursor.execute(
+            "SELECT status, task_name, input_json, parent_id, worker_id FROM tasks WHERE id = ?",
+            (task_id,)
+        )
+        row = cursor.fetchone()
+        if not row:
+            connection.commit()
+            return False, None, None, None, None
+        status, task_name, input_json, parent_id, worker_id = row
+        if status in ('completed', 'failed'):
+            connection.commit()
+            return False, None, None, None, None
+
+        running_worker_id = worker_id if status == 'running' else None
+        cancelled_task_name = task_name if status == 'running' else None
+        cancelled_input_json = input_json if status == 'running' else None
+
+        def _walk(pid):
+            cursor.execute("SELECT id, status FROM tasks WHERE parent_id = ?", (pid,))
+            for child_id, child_status in cursor.fetchall():
+                if child_status == 'pending':
+                    cursor.execute("DELETE FROM tasks WHERE id = ?", (child_id,))
+                elif child_status == 'running':
+                    cursor.execute("UPDATE tasks SET parent_id = NULL WHERE id = ?", (child_id,))
+                elif child_status == 'waiting_for_children':
+                    _walk(child_id)
+                    cursor.execute("DELETE FROM tasks WHERE id = ?", (child_id,))
+
+        if status == 'waiting_for_children':
+            _walk(task_id)
+
+        cursor.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
+        connection.commit()
+        return True, parent_id, running_worker_id, cancelled_task_name, cancelled_input_json
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
+
+
+def cancel_task(task_id):
+    """Cancel a task. Returns True if cancelled, False if not found or already terminal.
+
+    - pending: deleted.
+    - running: worker is restarted (mid-task termination), cleanup hook runs.
+    - waiting_for_children: pending descendants deleted, running descendants
+      orphaned (allowed to finish), parent deleted.
+    """
+    found, parent_id, worker_id, task_name, input_json = _cancel_atomic(task_id)
+    if not found:
+        return False
+
+    if worker_id is not None:
+        import app as app_mod
+        if app_mod.pool is not None:
+            app_mod.pool.restart_worker(worker_id)
+
+    if task_name is not None:
+        cleanup = TASK_CLEANUP.get(task_name)
+        if cleanup:
+            input_data = json.loads(input_json) if input_json else {}
+            try:
+                cleanup(**input_data)
+            except Exception as e:
+                logger.error(f"Cleanup hook for cancelled task '{task_name}' failed: {e}")
+
+    if parent_id:
+        _try_complete_parent(parent_id)
+    return True
 
 
 # --- Startup cleanup ---
