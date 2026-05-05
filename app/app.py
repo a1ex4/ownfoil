@@ -232,7 +232,7 @@ def setup_page():
 
     # Check if we're accessing via the configured remote host
     # If so, hide the local tab since we're already remote
-    show_local_tab = remote_host and (remote_host != request.host)
+    show_local_tab = not remote_host or remote_host != request.host
     if show_local_tab:
         local_address = request.host.split(':')[0]
         local_port = request.host.split(':')[1] if ':' in request.host else 80

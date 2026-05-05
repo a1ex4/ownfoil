@@ -87,8 +87,8 @@
         </div>
         <div class="card-body">
             <!-- Nav tabs -->
-            {% if show_local_tab %}
             <ul class="nav nav-tabs mb-3" id="setupTabs" role="tablist">
+                {% if show_local_tab %}
                 <li class="nav-item" role="presentation">
                     <button class="nav-link active" id="local-tab" data-bs-toggle="tab" data-bs-target="#local-setup" type="button" role="tab" aria-controls="local-setup" aria-selected="true">
                         <i class="bi bi-house-fill"></i> Local Access
@@ -99,16 +99,22 @@
                         <i class="bi bi-cloud-fill"></i> Remote Access
                     </button>
                 </li>
+                {% else %}
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link active" id="remote-tab" data-bs-toggle="tab" data-bs-target="#remote-setup" type="button" role="tab" aria-controls="remote-setup" aria-selected="true">
+                        <i class="bi bi-cloud-fill"></i> Remote Access
+                    </button>
+                </li>
+                {% endif %}
             </ul>
-            {% endif %}
             
             <!-- Tab contents -->
             <div class="tab-content" id="setupTabsContent">
                 <!-- Local Access Tab -->
                 {% if show_local_tab %}
-                <div class="tab-pane fade show active" id="local-setup" role="tabpanel" aria-labelledby="local-tab">
+                <div class="tab-pane show active" id="local-setup" role="tabpanel" aria-labelledby="local-tab">
                 {% else %}
-                <div class="tab-pane fade" id="local-setup" role="tabpanel" aria-labelledby="local-tab">
+                <div class="tab-pane" id="local-setup" role="tabpanel" aria-labelledby="local-tab">
                 {% endif %}
                     <div class="alert alert-info">
                         <i class="bi bi-info-circle-fill"></i>
@@ -321,12 +327,14 @@
                 
                 <!-- Remote Access Tab -->
                 {% if show_local_tab %}
-                <div class="tab-pane fade" id="remote-setup" role="tabpanel" aria-labelledby="remote-tab">
+                <div class="tab-pane" id="remote-setup" role="tabpanel" aria-labelledby="remote-tab">
+                {% else %}
+                <div class="tab-pane show active" id="remote-setup" role="tabpanel" aria-labelledby="remote-tab">
+                {% endif %}
                     <div class="alert alert-info">
                         <i class="bi bi-info-circle-fill"></i>
                         <strong>Remote Access</strong> allows you to access your Ownfoil shop from anywhere over the internet. Requires proper port forwarding or a reverse proxy setup.
                     </div>
-                {% endif %}
                     
                     {% if not remote_host %}
                     <div class="alert alert-warning">
