@@ -375,22 +375,3 @@ def update_titles():
     for title in get_all_titles():
         update_title_flags(title.title_id)
 
-def get_library_status(title_id):
-    title = get_title(title_id)
-    title_apps = get_all_title_apps(title_id)
-
-    available_versions = titles_lib.get_all_existing_versions(title_id)
-    for version in available_versions:
-        if len(list(filter(lambda x: x.get('app_type') == APP_TYPE_UPD and str(x.get('app_version')) == str(version['version']), title_apps))):
-            version['owned'] = True
-        else:
-            version['owned'] = False
-
-    library_status = {
-        'has_base': title.have_base,
-        'has_latest_version': title.up_to_date,
-        'version': available_versions,
-        'has_all_dlcs': title.complete
-    }
-    return library_status
-

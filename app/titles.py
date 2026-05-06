@@ -27,7 +27,6 @@ version_regex = r"\[v(\d+)\]"
 get_game_info = titledb_store.get_game_info
 get_all_existing_versions = titledb_store.get_all_existing_versions
 get_all_app_existing_versions = titledb_store.get_all_app_existing_versions
-get_app_id_version_from_versions_txt = titledb_store.get_app_id_version_from_versions_txt
 get_all_existing_dlc = titledb_store.get_all_existing_dlc
 get_all_dlc_versions = titledb_store.get_all_dlc_versions
 

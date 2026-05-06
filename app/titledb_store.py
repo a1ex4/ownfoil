@@ -105,11 +105,6 @@ CREATE TABLE versions (
     PRIMARY KEY (title_id, version)
 );
 
-CREATE TABLE versions_txt (
-    app_id  TEXT PRIMARY KEY,
-    version TEXT NOT NULL
-);
-
 CREATE TABLE meta (
     key   TEXT PRIMARY KEY,
     value TEXT
@@ -141,9 +136,8 @@ def import_from_json(app_settings):
     region_file = os.path.join(TITLEDB_DIR, titledb.get_region_titles_file(app_settings))
     cnmts_file = os.path.join(TITLEDB_DIR, 'cnmts.json')
     versions_file = os.path.join(TITLEDB_DIR, 'versions.json')
-    versions_txt_file = os.path.join(TITLEDB_DIR, 'versions.txt')
 
-    for path in (region_file, cnmts_file, versions_file, versions_txt_file):
+    for path in (region_file, cnmts_file, versions_file):
         if not os.path.isfile(path):
             logger.warning(f'Cannot build titles.db, missing file: {path}')
             return
@@ -162,7 +156,6 @@ def import_from_json(app_settings):
         _import_titles(conn, region_file)
         _import_cnmts(conn, cnmts_file)
         _import_versions(conn, versions_file)
-        _import_versions_txt(conn, versions_txt_file)
         _import_customs(conn)
         _recompute_overridden(conn)
 
@@ -260,26 +253,6 @@ def _import_versions(conn, path):
     )
     count = len(batch)
     logger.info(f'  versions: {count} rows')
-
-
-def _import_versions_txt(conn, path):
-    batch = []
-    with open(path, 'r', encoding='utf-8') as f:
-        for line in f:
-            line = line.rstrip('\n')
-            if not line:
-                continue
-            parts = line.split('|')
-            if len(parts) < 3:
-                continue
-            app_id = parts[0]
-            version = parts[2] or '0'
-            batch.append((app_id, version))
-    conn.executemany(
-        'INSERT OR REPLACE INTO versions_txt(app_id, version) VALUES (?, ?)',
-        batch,
-    )
-    logger.info(f'  versions_txt: {len(batch)} rows')
 
 
 def _import_customs(conn):
@@ -526,19 +499,6 @@ def get_all_app_existing_versions(app_id):
         if not rows:
             return None
         return [r['cnmt_version'] for r in rows]
-    finally:
-        conn.close()
-
-
-def get_app_id_version_from_versions_txt(app_id):
-    conn = _connect_ro()
-    if conn is None:
-        return None
-    try:
-        row = conn.execute(
-            'SELECT version FROM versions_txt WHERE app_id = ?', (app_id,)
-        ).fetchone()
-        return row['version'] if row else None
     finally:
         conn.close()
 
