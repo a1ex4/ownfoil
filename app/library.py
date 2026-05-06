@@ -204,20 +204,24 @@ def add_missing_apps_for_title(title_id):
     Safe to run concurrently with other workers expanding the same title."""
     title_db_id = get_title_id_db_id(title_id)
 
-    rows = [dict(app_id=title_id, app_version="0", app_type=APP_TYPE_BASE,
-                 owned=False, title_id=title_db_id, release_date=None)]
-
+    rows = []
     update_app_id = title_id[:-3] + '800'
-    get_all_existing_versions = titles_lib.get_all_existing_versions(title_id)
-    for version_info in get_all_existing_versions:
-        if str(version_info['version']) == '0':
-            rows.append(dict(app_id=title_id, app_version=str(version_info['version']),
-                         app_type=APP_TYPE_BASE, owned=False, title_id=title_db_id,
-                         release_date=version_info.get('release_date')))
+    base_added = False
+    for version_info in titles_lib.get_all_existing_versions(title_id):
+        v = str(version_info['version'])
+        if v == '0':
+            rows.append(dict(app_id=title_id, app_version=v, app_type=APP_TYPE_BASE,
+                             owned=False, title_id=title_db_id,
+                             release_date=version_info.get('release_date')))
+            base_added = True
         else:
-            rows.append(dict(app_id=update_app_id, app_version=str(version_info['version']),
-                        app_type=APP_TYPE_UPD, owned=False, title_id=title_db_id,
-                        release_date=version_info.get('release_date')))
+            rows.append(dict(app_id=update_app_id, app_version=v, app_type=APP_TYPE_UPD,
+                             owned=False, title_id=title_db_id,
+                             release_date=version_info.get('release_date')))
+
+    if not base_added:
+        rows.append(dict(app_id=title_id, app_version="0", app_type=APP_TYPE_BASE,
+                         owned=False, title_id=title_db_id, release_date=None))
 
     for dlc_app_id, dlc_version, dlc_release_date in titles_lib.get_all_dlc_versions(title_id):
         rows.append(dict(app_id=dlc_app_id, app_version=str(dlc_version),
@@ -231,13 +235,14 @@ def add_missing_apps_for_title(title_id):
     stmt = stmt.on_conflict_do_update(
         index_elements=['app_id', 'app_version'],
         set_={'release_date': stmt.excluded.release_date},
+        where=Apps.__table__.c.release_date.is_not(stmt.excluded.release_date),
     )
     result = db.session.execute(stmt)
     db.session.commit()
-    apps_added = result.rowcount or 0
-    if apps_added:
-        logger.debug(f'Upserted {apps_added} apps for Title ID {title_id}')
-    return apps_added
+    apps_upserted = result.rowcount or 0
+    if apps_upserted:
+        logger.debug(f'Upserted {apps_upserted} apps for Title ID {title_id}')
+    return apps_upserted
 
 
 def add_missing_apps_to_db():
@@ -248,8 +253,8 @@ def add_missing_apps_to_db():
     for n, title in enumerate(titles):
         total += add_missing_apps_for_title(title.title_id)
         if (n + 1) % 100 == 0:
-            logger.info(f'Processed {n + 1}/{len(titles)} titles, added {total} missing apps so far')
-    logger.info(f'Finished adding missing apps to database. Total apps added: {total}')
+            logger.info(f'Processed {n + 1}/{len(titles)} titles, upserted {total} apps so far')
+    logger.info(f'Finished adding missing apps to database. Total apps upserted: {total}')
 
 def remove_outdated_update_files():
     logger.info("Starting removal of outdated update files...")
