@@ -160,6 +160,7 @@ class Apps(db.Model):
     app_version = db.Column(db.String)
     app_type = db.Column(db.String)
     owned = db.Column(db.Boolean, default=False)
+    release_date = db.Column(db.String)
 
     title = db.relationship('Titles', backref=db.backref('apps', lazy=True, cascade="all, delete-orphan"))
     files = db.relationship('Files', secondary=app_files, backref=db.backref('apps', lazy='select'))

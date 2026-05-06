@@ -205,25 +205,32 @@ def add_missing_apps_for_title(title_id):
     title_db_id = get_title_id_db_id(title_id)
 
     rows = [dict(app_id=title_id, app_version="0", app_type=APP_TYPE_BASE,
-                 owned=False, title_id=title_db_id)]
+                 owned=False, title_id=title_db_id, release_date=None)]
 
     update_app_id = title_id[:-3] + '800'
     for version_info in titles_lib.get_all_existing_versions(title_id):
         rows.append(dict(app_id=update_app_id, app_version=str(version_info['version']),
-                         app_type=APP_TYPE_UPD, owned=False, title_id=title_db_id))
+                         app_type=APP_TYPE_UPD, owned=False, title_id=title_db_id,
+                         release_date=version_info.get('release_date')))
 
     for dlc_app_id, dlc_version in titles_lib.get_all_dlc_versions(title_id):
         rows.append(dict(app_id=dlc_app_id, app_version=str(dlc_version),
-                         app_type=APP_TYPE_DLC, owned=False, title_id=title_db_id))
+                         app_type=APP_TYPE_DLC, owned=False, title_id=title_db_id,
+                         release_date=None))
 
-    stmt = sqlite_insert(Apps.__table__).values(rows).on_conflict_do_nothing(
-        index_elements=['app_id', 'app_version']
+    # Only refresh release_date on conflict — never touch `owned` or any other
+    # column, since this same row may have been flipped to owned=True by a file
+    # scan in between.
+    stmt = sqlite_insert(Apps.__table__).values(rows)
+    stmt = stmt.on_conflict_do_update(
+        index_elements=['app_id', 'app_version'],
+        set_={'release_date': stmt.excluded.release_date},
     )
     result = db.session.execute(stmt)
     db.session.commit()
     apps_added = result.rowcount or 0
     if apps_added:
-        logger.debug(f'Added {apps_added} missing apps for Title ID {title_id}')
+        logger.debug(f'Upserted {apps_added} apps for Title ID {title_id}')
     return apps_added
 
 

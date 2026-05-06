@@ -14,7 +14,7 @@ from .filters import (
 from .selection import Selection
 from .types import (
     App, AppConnection, File, FileConnection, Ownership,
-    Title, TitleConnection, Version, decode_json_list,
+    Title, TitleConnection, decode_json_list,
 )
 
 
@@ -144,7 +144,6 @@ def _build_title(row, *, with_apps: bool, with_files: bool) -> Title:
         ids=decode_json_list(m.get('ids')),
         ownership=ownership,
         apps_loaded=[] if with_apps else None,
-        available_versions=[],
     )
 
 
@@ -195,7 +194,8 @@ def _load_apps_for_titles(
     extra_sql = (" AND " + " AND ".join(extra)) if extra else ""
     sql = f"""
     SELECT a.id AS id, a.app_id AS app_id, a.app_version AS app_version,
-           a.app_type AS app_type, a.owned AS owned, ot.title_id AS tuc
+           a.app_type AS app_type, a.owned AS owned,
+           a.release_date AS release_date, ot.title_id AS tuc
     FROM apps a JOIN main.titles ot ON ot.id = a.title_id
     WHERE ot.title_id IN ({placeholders}){extra_sql}
     ORDER BY a.app_id, CAST(a.app_version AS INTEGER), a.id
@@ -213,6 +213,7 @@ def _load_apps_for_titles(
             app_version=r.app_version,
             app_type=r.app_type,
             owned=bool(r.owned),
+            release_date=r.release_date,
             files_loaded=[] if with_files else None,
         )
         out.setdefault(r.tuc, []).append(a)
@@ -275,7 +276,8 @@ def _hydrate_file_apps(
     sql = f"""
     SELECT af.file_id AS pk,
            a.id AS id, a.app_id AS app_id, a.app_version AS app_version,
-           a.app_type AS app_type, a.owned AS owned, ot.title_id AS title_id
+           a.app_type AS app_type, a.owned AS owned,
+           a.release_date AS release_date, ot.title_id AS title_id
     FROM app_files af JOIN apps a ON a.id = af.app_id
     JOIN main.titles ot ON ot.id = a.title_id
     WHERE af.file_id IN ({placeholders})
@@ -294,6 +296,7 @@ def _hydrate_file_apps(
             app_version=r.app_version,
             app_type=r.app_type,
             owned=bool(r.owned),
+            release_date=r.release_date,
             files_loaded=None,  # don't recursively load files for back-linked apps
         )
         f.apps_loaded.append(a)
@@ -327,47 +330,6 @@ def _hydrate_apps_titledb(apps: List[App], sel: "Selection") -> None:
         a.titledb_loaded = by_id.get(a.app_id)
 
 
-def _load_versions_for_titles(title_ids_uc: List[str]) -> Dict[str, List[Version]]:
-    """Return versions keyed by uppercase title_id. titledb.versions stores ids
-    lowercase, so we lowercase the bindings and uppercase the result.
-
-    Two non-correlated queries instead of a per-row correlated subquery: one
-    pulls the available versions for the requested titles, the other pulls the
-    set of (lc title_id, owned UPDATE version) pairs from main, and we join in
-    Python."""
-    if not title_ids_uc:
-        return {}
-    params = {f"t_{i}": tid.lower() for i, tid in enumerate(title_ids_uc)}
-    placeholders = ",".join(f":t_{i}" for i in range(len(title_ids_uc)))
-
-    versions_sql = f"""
-    SELECT v.title_id AS tlc, v.version AS version, v.release_date AS release_date
-    FROM titledb.versions v
-    WHERE v.title_id IN ({placeholders})
-    ORDER BY v.title_id, v.version
-    """
-    owned_sql = f"""
-    SELECT LOWER(ot.title_id) AS tlc, CAST(a.app_version AS INTEGER) AS v
-    FROM apps a JOIN main.titles ot ON ot.id = a.title_id
-    WHERE a.app_type = 'UPDATE' AND a.owned = 1
-      AND LOWER(ot.title_id) IN ({placeholders})
-    """
-
-    owned_rows = db.session.execute(text(owned_sql), params).all()
-    owned_set = {(r.tlc, r.v) for r in owned_rows}
-
-    rows = db.session.execute(text(versions_sql), params).all()
-    out: Dict[str, List[Version]] = {tid: [] for tid in title_ids_uc}
-    for r in rows:
-        v = int(r.version)
-        out.setdefault((r.tlc or "").upper(), []).append(Version(
-            version=v,
-            release_date=r.release_date,
-            owned=(r.tlc, v) in owned_set,
-        ))
-    return out
-
-
 # ------------- top-level resolvers -------------
 
 def resolve_title(title_id: str, ctx: GraphQLContext, info) -> Optional[Title]:
@@ -386,7 +348,6 @@ def resolve_title(title_id: str, ctx: GraphQLContext, info) -> Optional[Title]:
     want_apps_titledb = want_apps and apps_sel.has("titledb")
     want_apps_files_apps = want_apps_files and files_sel.has("apps")
     want_apps_files_apps_titledb = want_apps_files_apps and files_apps_sel.has("titledb")
-    want_versions = sel.has("availableVersions")
 
     # Drive from main.titles when this title is owned (so unrecognized titles surface),
     # otherwise drive from titledb. Both stores keep title_id in uppercase.
@@ -417,9 +378,6 @@ def resolve_title(title_id: str, ctx: GraphQLContext, info) -> Optional[Title]:
             files_apps_titledb_sel=files_apps_titledb_sel,
         )
         title.apps_loaded = apps_map.get(tid, [])
-    if want_versions:
-        versions_map = _load_versions_for_titles([tid])
-        title.available_versions = versions_map.get(tid, [])
     return title
 
 
@@ -443,7 +401,6 @@ def resolve_titles(*, owned: Optional[bool], filter: Optional[TitleFilter],
     want_apps_titledb = want_apps and apps_sel.has("titledb")
     want_apps_files_apps = want_apps_files and files_sel.has("apps")
     want_apps_files_apps_titledb = want_apps_files_apps and files_apps_sel.has("titledb")
-    want_versions = want_items and items_sel.has("availableVersions")
     want_total = sel.has("total")
 
     params: dict = {}
@@ -511,11 +468,6 @@ def resolve_titles(*, owned: Optional[bool], filter: Optional[TitleFilter],
         for t, tid in zip(titles, title_ids_uc):
             t.apps_loaded = apps_map.get(tid, [])
 
-    if want_versions and title_ids_uc:
-        versions_map = _load_versions_for_titles(title_ids_uc)
-        for t, tid in zip(titles, title_ids_uc):
-            t.available_versions = versions_map.get(tid, [])
-
     return TitleConnection(total=int(total), items=titles)
 
 
@@ -558,7 +510,8 @@ def resolve_apps(*, owned: Optional[bool], filter: Optional[AppFilter],
 
     page_sql = f"""
     SELECT a.id AS id, a.app_id AS app_id, a.app_version AS app_version,
-           a.app_type AS app_type, a.owned AS owned, ot.title_id AS title_id
+           a.app_type AS app_type, a.owned AS owned,
+           a.release_date AS release_date, ot.title_id AS title_id
     FROM apps a JOIN main.titles ot ON ot.id = a.title_id{where_sql}
     ORDER BY a.id
     LIMIT :limit OFFSET :offset
@@ -576,6 +529,7 @@ def resolve_apps(*, owned: Optional[bool], filter: Optional[AppFilter],
             app_version=r.app_version,
             app_type=r.app_type,
             owned=bool(r.owned),
+            release_date=r.release_date,
             files_loaded=[] if want_files else None,
         )
         items.append(a)

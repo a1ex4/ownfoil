@@ -179,10 +179,9 @@
                     iconUrl
                     ownership { haveBase upToDate complete }
                     apps {
-                        appId appVersion appType owned
+                        appId appVersion appType owned releaseDate
                         titledb { titleId name bannerUrl iconUrl }
                     }
-                    availableVersions { version owned releaseDate }
                 }
             }
         }`;
@@ -207,8 +206,11 @@
         const seenDlcAppIds = new Set();
         for (const t of titles) {
             const ownership = t.ownership || {haveBase: false, upToDate: false, complete: false};
-            const versionList = (t.availableVersions || []).map(v => ({
-                version: v.version, owned: v.owned, release_date: v.releaseDate || 'Unknown',
+            const updateApps = (t.apps || []).filter(a => a.appType === 'UPDATE');
+            const versionList = updateApps.map(a => ({
+                version: parseInt(a.appVersion, 10),
+                owned: a.owned,
+                release_date: a.releaseDate || 'Unknown',
             })).sort((a, b) => a.version - b.version);
             const recognized = !!t.name;
             const baseName = t.name || 'Unrecognized';

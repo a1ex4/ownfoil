@@ -30,13 +30,6 @@ class Ownership:
 
 
 @strawberry.type
-class Version:
-    version: int
-    release_date: Optional[str] = None
-    owned: bool = False
-
-
-@strawberry.type
 class File:
     id: strawberry.ID
     library_id: int
@@ -79,6 +72,7 @@ class App:
     app_version: str
     app_type: str
     owned: bool
+    release_date: Optional[str] = None
 
     # Eagerly batch-loaded by the apps/titles resolvers (admin only). None means
     # "not exposed for this role"; an empty list means "exposed but no files".
@@ -131,7 +125,6 @@ class Title:
     nca_key: Optional[str] = None
     ids: Optional[List[str]] = None
     ownership: Optional[Ownership] = None
-    available_versions: List[Version] = strawberry.field(default_factory=list)
 
     # Eagerly batch-loaded by the titles resolver. None means "not exposed for
     # this role"; an empty list means "exposed but no apps". Hidden from the
