@@ -208,15 +208,21 @@ def add_missing_apps_for_title(title_id):
                  owned=False, title_id=title_db_id, release_date=None)]
 
     update_app_id = title_id[:-3] + '800'
-    for version_info in titles_lib.get_all_existing_versions(title_id):
-        rows.append(dict(app_id=update_app_id, app_version=str(version_info['version']),
-                         app_type=APP_TYPE_UPD, owned=False, title_id=title_db_id,
+    get_all_existing_versions = titles_lib.get_all_existing_versions(title_id)
+    for version_info in get_all_existing_versions:
+        if str(version_info['version']) == '0':
+            rows.append(dict(app_id=title_id, app_version=str(version_info['version']),
+                         app_type=APP_TYPE_BASE, owned=False, title_id=title_db_id,
                          release_date=version_info.get('release_date')))
+        else:
+            rows.append(dict(app_id=update_app_id, app_version=str(version_info['version']),
+                        app_type=APP_TYPE_UPD, owned=False, title_id=title_db_id,
+                        release_date=version_info.get('release_date')))
 
-    for dlc_app_id, dlc_version in titles_lib.get_all_dlc_versions(title_id):
+    for dlc_app_id, dlc_version, dlc_release_date in titles_lib.get_all_dlc_versions(title_id):
         rows.append(dict(app_id=dlc_app_id, app_version=str(dlc_version),
                          app_type=APP_TYPE_DLC, owned=False, title_id=title_db_id,
-                         release_date=None))
+                         release_date=dlc_release_date))
 
     # Only refresh release_date on conflict — never touch `owned` or any other
     # column, since this same row may have been flipped to owned=True by a file

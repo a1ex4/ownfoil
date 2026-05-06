@@ -246,7 +246,7 @@ def _import_versions(conn, path):
                 version_int = int(version)
             except (TypeError, ValueError):
                 continue
-            batch.append((title_id, version_int, release_date))
+            batch.append((title_id.upper(), version_int, release_date))
     conn.executemany(
         'INSERT OR IGNORE INTO versions(title_id, version, release_date) VALUES (?, ?, ?)',
         batch,
@@ -471,18 +471,40 @@ def get_all_existing_versions(title_id):
     if conn is None:
         return []
     try:
+        row = conn.execute(
+            'SELECT release_date FROM titles WHERE id = ?',
+            (title_id.upper(),),
+        ).fetchone()
+
+        all_versions = []
+
+        if row and row['release_date']:
+            # Add the "version 0" entry from the titles table
+            rd = str(row['release_date'])
+            if rd:
+                rd = f"{rd[:4]}-{rd[4:6]}-{rd[6:8]}"
+            else:
+                rd = None
+            all_versions.append({
+                'version': 0,
+                'update_number': 0,
+                'release_date': rd,
+            })
+
         rows = conn.execute(
             'SELECT version, release_date FROM versions WHERE title_id = ?',
-            (title_id.lower(),),
+            (title_id.upper(),),
         ).fetchall()
-        return [
-            {
+
+        # Add other versions
+        for r in rows:
+            all_versions.append({
                 'version': r['version'],
                 'update_number': int(r['version']) // 65536,
                 'release_date': r['release_date'],
-            }
-            for r in rows
-        ]
+            })
+
+        return all_versions
     finally:
         conn.close()
 
@@ -504,17 +526,28 @@ def get_all_app_existing_versions(app_id):
 
 
 def get_all_dlc_versions(title_id):
-    """Return [(app_id_upper, cnmt_version), ...] for every DLC of the given title."""
+    """Return [(app_id_upper, cnmt_version, release_date), ...] for every DLC of the given title."""
     conn = _connect_ro()
     if conn is None:
         return []
     try:
         rows = conn.execute(
-            'SELECT app_id, cnmt_version FROM cnmts '
-            'WHERE other_application_id = ? AND title_type = 130',
+            'SELECT upper(c.app_id) AS app_id, c.cnmt_version, td.release_date '
+            'FROM cnmts c '
+            'LEFT JOIN titles td ON td.id = upper(c.app_id) '
+            'WHERE c.other_application_id = ? AND c.title_type = 130',
             (title_id.lower(),),
         ).fetchall()
-        return [(r['app_id'].upper(), r['cnmt_version']) for r in rows]
+        out = []
+        for r in rows:
+            rd = r['release_date']
+            if rd:
+                rd = str(rd)
+                rd = f"{rd[:4]}-{rd[4:6]}-{rd[6:8]}"
+            else:
+                rd = None
+            out.append((r['app_id'], r['cnmt_version'], rd))
+        return out
     finally:
         conn.close()
 
