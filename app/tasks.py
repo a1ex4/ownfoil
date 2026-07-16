@@ -611,6 +611,9 @@ def identify_file_task(filepath, file_id, **kwargs):
             enqueue_task('compress_file', {'file_id': file_id})
 
         set_waiting_for_children()
+    elif get_settings()['library']['management']['compress_files']:
+        # Unidentified files are still compressed (compression needs keys, not identification).
+        enqueue_task('compress_file', {'file_id': file_id})
 
 
 @register_task('add_missing_apps_for_title')
@@ -724,12 +727,11 @@ def _replace_in_place(file_obj, out, target, new_extension, compressed):
 
 @register_task('compress_library')
 def compress_library_task(**kwargs):
-    """Compress every uncompressed, identified game file, one child task per file."""
+    """Compress every uncompressed game file, one child task per file."""
     if not get_settings()['library']['management']['compress_files']:
         return
     files = Files.query.filter(
         Files.compressed.is_(False),
-        Files.identified.is_(True),
         Files.extension.in_(list(COMPRESS_EXT.keys())),
     ).all()
     enqueued = 0

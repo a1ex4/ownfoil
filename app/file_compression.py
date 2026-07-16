@@ -50,12 +50,14 @@ def _use_block(ext, opts):
 
 
 def compress_to(source, out_dir, opts):
-    """Compress source into out_dir, verify, and return the compressed file path.
+    """Compress source into out_dir, verify bit-identical against the source, and
+    return the compressed file path.
 
     Raises VerificationException (or RuntimeError) on failure, leaving source
-    untouched. Verification is NCA-hash based (nsz downgrades full --verify to
-    this whenever --keep is off, since dropped NDV0 fragments otherwise read as
-    corruption); it proves the content is intact and installable.
+    untouched. Compression uses keep=True so the compressed file is bit-identically
+    restorable; verification then fully reconstructs it and SHA256-compares against
+    the still-present original (nsz's full --verify), catching any divergence from
+    the actual source bytes rather than just re-checking each NCA's own hash header.
     """
     _ensure_keys()
     source = Path(source).resolve()
@@ -68,17 +70,17 @@ def compress_to(source, out_dir, opts):
     if _use_block(ext, opts):
         bs = int(opts.get('block_size_exponent', 20))
         block_threads = threads if threads > 0 else cpu_count()
-        out = nsz.blockCompress(source, level, False, False, long_mode, bs, out_dir, block_threads)
+        out = nsz.blockCompress(source, level, True, False, long_mode, bs, out_dir, block_threads)
     else:
         solid_threads = threads if threads > 0 else 3
-        out = nsz.solidCompress(source, level, False, False, long_mode, out_dir, solid_threads, {}, 0, None)
+        out = nsz.solidCompress(source, level, True, False, long_mode, out_dir, solid_threads, {}, 0, None)
 
     out = Path(out)
     if not out.is_file():
         raise RuntimeError(f'Compression produced no output for {source.name}')
 
-    logger.info(f'Verifying compressed file: {out.name}')
-    nsz.verify(out, False, True, False, None)
+    logger.info(f'Verifying compressed file (bit-identical): {out.name}')
+    nsz.verify(out, False, True, True, source)
     return out
 
 

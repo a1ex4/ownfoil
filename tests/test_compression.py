@@ -109,6 +109,35 @@ def test_decompressed_path(src, expected):
     assert str(compression.decompressed_path(src)) == expected
 
 
+# --- verification contract (#1: keep + full bit-identical verify) ------------------------
+
+@pytest.mark.parametrize("name,fn", [("Game.nsp", "solidCompress"), ("Cart.xci", "blockCompress")])
+def test_compress_to_keeps_and_verifies_against_source(tmp_path, monkeypatch, name, fn):
+    source = tmp_path / name
+    source.write_bytes(b"RAW")
+    out_dir = tmp_path / "work"
+    out_dir.mkdir()
+    calls = {}
+
+    def fake_compress(filePath, level, keep, *rest):
+        calls["keep"] = keep
+        out = out_dir / os.path.basename(str(compression.compressed_path(source)))
+        out.write_bytes(b"C")
+        return out
+
+    def fake_verify(out, fixPadding, raiseExc, raisePfs0, originalFilePath):
+        calls["verify_original"] = str(originalFilePath)
+
+    monkeypatch.setattr(compression, "_ensure_keys", lambda: None)
+    monkeypatch.setattr(compression.nsz, fn, fake_compress)
+    monkeypatch.setattr(compression.nsz, "verify", fake_verify)
+
+    compression.compress_to(source, out_dir, {"solid": "auto"})
+
+    assert calls["keep"] is True                       # bit-identical restore possible
+    assert calls["verify_original"] == str(source.resolve())  # compared against the source
+
+
 # --- compress_file -----------------------------------------------------------------------
 
 @pytest.mark.parametrize("name,comp_ext", [("Game.nsp", "nsz"), ("Cart.xci", "xcz")])
@@ -211,12 +240,12 @@ def test_compress_library_selects_eligible(env):
 
     ok1 = env.seed("A.nsp")
     ok2 = env.seed("B.xci")
-    env.seed("C.nsz", compressed=True)       # already compressed
-    env.seed("D.nsp", identified=False)      # unidentified
+    ok3 = env.seed("D.nsp", identified=False)  # unidentified files are compressed too
+    env.seed("C.nsz", compressed=True)         # already compressed: excluded
 
     tasks.compress_library_task()
 
-    assert sorted(fid for _, fid in enqueued) == sorted([ok1.id, ok2.id])
+    assert sorted(fid for _, fid in enqueued) == sorted([ok1.id, ok2.id, ok3.id])
     assert all(name == "compress_file" for name, _ in enqueued)
 
 

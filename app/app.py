@@ -580,6 +580,21 @@ def compress_library_api():
     return jsonify({'success': True})
 
 
+@app.post('/api/files/<int:file_id>/compress')
+@access_required('admin')
+def compress_file_api(file_id):
+    """Compress a single file to NSZ/XCZ."""
+    file = db.session.get(Files, file_id)
+    if not file:
+        return jsonify({'error': 'File not found'}), 404
+    if file.compressed:
+        return jsonify({'error': 'File is already compressed'}), 400
+    if file.extension not in COMPRESS_EXT:
+        return jsonify({'error': 'File type cannot be compressed'}), 400
+    tasks_mod.enqueue_task('compress_file', {'file_id': file_id})
+    return jsonify({'success': True})
+
+
 @app.post('/api/files/<int:file_id>/decompress')
 @access_required('admin')
 def decompress_file_api(file_id):
