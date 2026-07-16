@@ -19,17 +19,28 @@ class TaskWorker:
         get_settings()  # prime settings cache and Keys.keys_loaded
 
     def claim_task(self):
-        """Atomically claim the oldest pending task. Returns task_id or None."""
+        """Atomically claim the oldest pending task whose concurrency group has a free slot.
+        Returns task_id or None."""
         from db import db
+        import tasks as tasks_mod
         connection = db.engine.raw_connection()
         try:
             cursor = connection.cursor()
             cursor.execute("BEGIN IMMEDIATE")
-            cursor.execute(
-                "SELECT id FROM tasks WHERE status = 'pending' "
-                "AND (run_after IS NULL OR run_after <= datetime('now')) "
-                "ORDER BY created_at ASC LIMIT 1"
-            )
+
+            # Exclude task types whose concurrency group is already at its limit (BEGIN IMMEDIATE
+            # serializes writers, so the running counts seen here are consistent across workers).
+            cursor.execute("SELECT task_name FROM tasks WHERE status = 'running'")
+            blocked = tasks_mod.blocked_task_names([r[0] for r in cursor.fetchall()])
+
+            query = ("SELECT id FROM tasks WHERE status = 'pending' "
+                     "AND (run_after IS NULL OR run_after <= datetime('now'))")
+            params = []
+            if blocked:
+                query += " AND task_name NOT IN (%s)" % ",".join("?" * len(blocked))
+                params = list(blocked)
+            query += " ORDER BY created_at ASC LIMIT 1"
+            cursor.execute(query, params)
             row = cursor.fetchone()
             if row is None:
                 connection.commit()

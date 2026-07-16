@@ -33,14 +33,34 @@ logger = logging.getLogger('main')
 TASK_REGISTRY = {}
 TASK_CONTINUATIONS = {}
 TASK_CLEANUP = {}
+TASK_GROUPS = {}  # task_name -> concurrency-group name
 
 
-def register_task(name):
-    """Decorator to register a callable as a named task."""
+def register_task(name, group=None):
+    """Register a callable as a named task. `group` assigns it to a concurrency group whose
+    parallelism is capped by worker.group_limits (e.g. disk-heavy compress/verify -> 'io')."""
     def decorator(func):
         TASK_REGISTRY[name] = func
+        if group:
+            TASK_GROUPS[name] = group
         return func
     return decorator
+
+
+def blocked_task_names(running_task_names):
+    """Task names that must not be claimed right now because their concurrency group is already
+    at its configured limit, given the task_names currently running. Groups with no configured
+    limit (or no group) are unbounded. Used by the worker's claim to honour group_limits."""
+    limits = get_settings().get('worker', {}).get('group_limits', {})
+    if not limits:
+        return set()
+    running_per_group = {}
+    for name in running_task_names:
+        group = TASK_GROUPS.get(name)
+        if group is not None:
+            running_per_group[group] = running_per_group.get(group, 0) + 1
+    full = {g for g, limit in limits.items() if running_per_group.get(g, 0) >= limit}
+    return {name for name, group in TASK_GROUPS.items() if group in full}
 
 
 def register_continuation(task_name):
@@ -825,7 +845,7 @@ def compress_library_task(**kwargs):
         set_waiting_for_children()
 
 
-@register_task('compress_file')
+@register_task('compress_file', group='io')
 def compress_file_task(file_id, **kwargs):
     """Compress a single file in place: NSP->NSZ / XCI->XCZ, preserving its DB row."""
     file_obj = db.session.get(Files, file_id)
@@ -845,7 +865,7 @@ def compress_file_task(file_id, **kwargs):
                   COMPRESS_EXT[file_obj.extension], True)
 
 
-@register_task('decompress_file')
+@register_task('decompress_file', group='io')
 def decompress_file_task(file_id, **kwargs):
     """Decompress a single file in place: NSZ->NSP / XCZ->XCI, preserving its DB row."""
     file_obj = db.session.get(Files, file_id)

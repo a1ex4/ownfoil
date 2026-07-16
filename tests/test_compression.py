@@ -5,6 +5,7 @@ disk and in the database — independently of how (solid/block) a file is compre
 The invariant under test is that the source is only ever removed after a verified
 replacement exists, and that the same Files row is carried across the extension change.
 """
+import datetime
 import os
 import time
 import types
@@ -28,13 +29,16 @@ DEFAULT_COMPRESSION = {
 }
 
 
-def _settings(compress_files=True, organizer=False, delete_older=False):
-    return {"library": {"management": {
+def _settings(compress_files=True, organizer=False, delete_older=False, group_limits=None):
+    s = {"library": {"management": {
         "compress_files": compress_files,
         "compression": dict(DEFAULT_COMPRESSION),
         "delete_older_updates": delete_older,
         "organizer": {"enabled": organizer, "remove_empty_folders": False},
     }}}
+    if group_limits is not None:
+        s["worker"] = {"group_limits": group_limits}
+    return s
 
 
 @pytest.fixture
@@ -346,6 +350,50 @@ def test_reap_worker_task_runs_cleanup(env):
 def test_reap_worker_task_noop_without_running_task(env):
     """No running task for the worker (clean exit / already cancelled): reap does nothing."""
     tasks.reap_worker_task(99)  # must not raise
+
+
+def test_compress_decompress_registered_in_io_group():
+    """The disk-heavy (de)compression tasks belong to the 'io' concurrency group."""
+    assert tasks.TASK_GROUPS.get("compress_file") == "io"
+    assert tasks.TASK_GROUPS.get("decompress_file") == "io"
+
+
+def test_blocked_task_names(env):
+    """A group at its limit blocks every task in that group; ungrouped tasks are never blocked."""
+    env.monkeypatch.setattr(tasks, "get_settings", lambda: _settings(group_limits={"io": 1}))
+    assert tasks.blocked_task_names([]) == set()
+    blocked = tasks.blocked_task_names(["compress_file"])
+    assert {"compress_file", "decompress_file"} <= blocked   # whole io group blocked
+    assert "organize_file" not in blocked                    # ungrouped stays claimable
+    # No limits configured -> nothing is blocked.
+    env.monkeypatch.setattr(tasks, "get_settings", lambda: _settings())
+    assert tasks.blocked_task_names(["compress_file"]) == set()
+
+
+def test_claim_task_respects_group_cap(env):
+    """With io capped at 1 and one io task running, the worker skips an older pending io task
+    and claims a newer light task instead; when only io work remains it claims nothing."""
+    env.monkeypatch.setattr(tasks, "get_settings", lambda: _settings(group_limits={"io": 1}))
+    from worker import TaskWorker
+
+    base = datetime.datetime(2026, 1, 1)
+    running = Task(task_name="compress_file", status="running", worker_id=2,
+                   input_hash="r", created_at=base)
+    io_pending = Task(task_name="compress_file", status="pending",
+                      input_hash="a", created_at=base + datetime.timedelta(seconds=1))
+    light_pending = Task(task_name="organize_file", status="pending",
+                         input_hash="b", created_at=base + datetime.timedelta(seconds=2))
+    db.session.add_all([running, io_pending, light_pending])
+    db.session.commit()
+    light_id, io_id = light_pending.id, io_pending.id
+
+    worker = TaskWorker(env.app, worker_id=1)
+    # io slot is full -> older io_pending is skipped for the newer light task.
+    assert worker.claim_task() == light_id
+    # io still capped (only the light task also runs now) -> the pending io task stays unclaimed.
+    assert worker.claim_task() is None
+    db.session.expire_all()
+    assert db.session.get(Task, io_id).status == "pending"
 
 
 def test_task_progress_writes_completion_pct(env):

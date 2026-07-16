@@ -81,6 +81,12 @@ DEFAULT_SETTINGS = {
     },
     "worker": {
         "count": 2,
+        # Per-concurrency-group cap: at most N tasks of a group run at once, regardless of
+        # worker count. 'io' holds the disk-heavy (de)compression/verify tasks — default 1 to
+        # avoid seek-thrash from parallel multi-GB reads on a single disk.
+        "group_limits": {
+            "io": 1,
+        },
     }
 }
 
