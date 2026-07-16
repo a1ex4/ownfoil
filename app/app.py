@@ -572,6 +572,27 @@ def clear_failed_tasks_api():
     return jsonify({'success': True, 'deleted': deleted})
 
 
+@app.post('/api/tasks/compress')
+@access_required('admin')
+def compress_library_api():
+    """Compress every eligible uncompressed file across all libraries."""
+    tasks_mod.enqueue_task('compress_library')
+    return jsonify({'success': True})
+
+
+@app.post('/api/files/<int:file_id>/decompress')
+@access_required('admin')
+def decompress_file_api(file_id):
+    """Decompress a single compressed file back to NSP/XCI."""
+    file = db.session.get(Files, file_id)
+    if not file:
+        return jsonify({'error': 'File not found'}), 404
+    if not file.compressed:
+        return jsonify({'error': 'File is not compressed'}), 400
+    tasks_mod.enqueue_task('decompress_file', {'file_id': file_id})
+    return jsonify({'success': True})
+
+
 @app.get('/api/tasks/<int:task_id>')
 @access_required('admin')
 def get_task_api(task_id):

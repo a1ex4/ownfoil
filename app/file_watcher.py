@@ -15,6 +15,11 @@ logger = logging.getLogger('main')
 NEW_DIR_GRACE_SECONDS = 300
 
 
+def _under_compress_tmp(path):
+    """True if path lies within a compression working directory."""
+    return bool(path) and COMPRESS_TMP_DIRNAME in path.split(os.sep)
+
+
 class Watcher:
     def __init__(self, callback):
         self.directories = set()  # Use a set to store directories
@@ -242,6 +247,15 @@ class Handler(FileSystemEventHandler):
 
     def collect_event(self, source_event, directory):
         """Track file events and trigger the stability check."""
+        # Ignore the compression working dir's own lifecycle events (temp dir/file
+        # create/delete). The move OUT of it onto a real library path is allowed
+        # through so the compression task's ignored-event for the target is consumed.
+        src_tmp = _under_compress_tmp(source_event.src_path)
+        if src_tmp and (source_event.event_type != 'moved'
+                        or not source_event.dest_path
+                        or _under_compress_tmp(source_event.dest_path)):
+            return
+
         if source_event.is_directory:
             # A folder moved out emits only this dir event (no per-file deletes), so remove its
             # files by prefix. A folder appearing/being populated (a cross-drive copy fires

@@ -5,14 +5,17 @@ import datetime
 import functools
 import logging
 import os
+import shutil
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 import titles as titles_lib
 import titledb
+import compression
+from constants import COMPRESS_EXT, DECOMPRESS_EXT, COMPRESS_TMP_DIRNAME
 from db import (
     db, Task, Files, Apps, Libraries, get_library_id, get_library_path, get_library_file_paths,
     get_libraries, add_title_id_in_db, get_title_id_db_id, add_file_to_app,
     file_exists_in_db, update_file_path, delete_file_by_filepath,
-    delete_files_under_dir,
+    delete_files_under_dir, add_ignored_event, pop_ignored_event,
     set_library_scan_time, remove_missing_files_from_db,
     remove_file_from_apps, reset_file_identification, create_file,
 )
@@ -600,8 +603,12 @@ def identify_file_task(filepath, file_id, **kwargs):
         for title_id in identified_title_ids:
             enqueue_or_child('add_missing_apps_for_title', {'title_id': title_id})
 
-        if get_settings()['library']['management']['organizer']['enabled']:
+        mgmt = get_settings()['library']['management']
+        if mgmt['organizer']['enabled']:
+            # Organizer runs first; it enqueues compression after the file is in place.
             enqueue_or_child('organize_file', {'file_id': file_id})
+        elif mgmt['compress_files']:
+            enqueue_task('compress_file', {'file_id': file_id})
 
         set_waiting_for_children()
 
@@ -654,6 +661,8 @@ def _organize_library_done(library_path=None, **kwargs):
             delete_empty_folders(path)
     if settings['library']['management']['delete_older_updates']:
         enqueue_task('remove_outdated_updates')
+    if settings['library']['management']['compress_files']:
+        enqueue_task('compress_library')
 
 
 @register_task('organize_file')
@@ -667,6 +676,8 @@ def organize_file_task(file_id, **kwargs):
     if organize_file(file_obj, library_path, organizer_settings):
         file_obj.organized = True
         db.session.commit()
+    if get_settings()['library']['management']['compress_files']:
+        enqueue_task('compress_file', {'file_id': file_id})
     enqueue_task('organize_library_done', {'library_path': library_path})
 
 
@@ -675,6 +686,122 @@ def remove_outdated_updates_task(**kwargs):
     """Remove outdated update files."""
     remove_outdated_update_files()
     enqueue_task('update_titles')
+
+
+# --- Compression pipeline ---
+def _compress_tmp_dir(library_path, file_id):
+    """Per-file working dir under the library root (same filesystem as the source,
+    so os.replace into place is atomic; hidden from scanner and watcher)."""
+    return os.path.join(library_path, COMPRESS_TMP_DIRNAME, str(file_id))
+
+
+def _replace_in_place(file_obj, out, target, new_extension, compressed):
+    """Atomically move a produced file onto target and update the DB row, bracketing
+    the source-delete and target-create so the watcher ignores our own writes."""
+    source = file_obj.filepath
+    # Suppress our own writes across both observer shapes: native inotify reports the
+    # move out of the temp dir as moved(out -> target); a polling observer reports it as
+    # a bare created(target). Plus the source deletion.
+    add_ignored_event(target, '')
+    add_ignored_event(str(out), target)
+    add_ignored_event(source, '')
+    try:
+        os.replace(str(out), target)
+        # DB now points at a file that exists on disk; only then drop the source.
+        file_obj.filepath = target
+        file_obj.extension = new_extension
+        file_obj.size = os.path.getsize(target)
+        file_obj.compressed = compressed
+        db.session.commit()
+        if os.path.abspath(source) != os.path.abspath(target):
+            os.remove(source)
+    except Exception:
+        pop_ignored_event(src_path=target, dest_path='')
+        pop_ignored_event(src_path=str(out), dest_path=target)
+        pop_ignored_event(src_path=source, dest_path='')
+        raise
+
+
+@register_task('compress_library')
+def compress_library_task(**kwargs):
+    """Compress every uncompressed, identified game file, one child task per file."""
+    if not get_settings()['library']['management']['compress_files']:
+        return
+    files = Files.query.filter(
+        Files.compressed.is_(False),
+        Files.identified.is_(True),
+        Files.extension.in_(list(COMPRESS_EXT.keys())),
+    ).all()
+    enqueued = 0
+    for f in files:
+        enqueue_or_child('compress_file', {'file_id': f.id})
+        enqueued += 1
+    if enqueued:
+        set_waiting_for_children()
+
+
+@register_task('compress_file')
+def compress_file_task(file_id, **kwargs):
+    """Compress a single file in place: NSP->NSZ / XCI->XCZ, preserving its DB row."""
+    file_obj = db.session.get(Files, file_id)
+    if not file_obj or file_obj.compressed or file_obj.extension not in COMPRESS_EXT:
+        return
+    source = file_obj.filepath
+    if not os.path.exists(source):
+        return
+
+    tmp_dir = _compress_tmp_dir(get_library_path(file_obj.library_id), file_id)
+    target = str(compression.compressed_path(source))
+    opts = get_settings()['library']['management']['compression']
+    shutil.rmtree(tmp_dir, ignore_errors=True)
+    os.makedirs(tmp_dir, exist_ok=True)
+    try:
+        out = compression.compress_to(source, tmp_dir, opts)
+        _replace_in_place(file_obj, out, target, COMPRESS_EXT[file_obj.extension], True)
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+    logger.info(f'Compressed {os.path.basename(source)} -> {os.path.basename(target)}')
+
+
+@register_task('decompress_file')
+def decompress_file_task(file_id, **kwargs):
+    """Decompress a single file in place: NSZ->NSP / XCZ->XCI, preserving its DB row."""
+    file_obj = db.session.get(Files, file_id)
+    if not file_obj or not file_obj.compressed or file_obj.extension not in DECOMPRESS_EXT:
+        return
+    source = file_obj.filepath
+    if not os.path.exists(source):
+        return
+
+    tmp_dir = _compress_tmp_dir(get_library_path(file_obj.library_id), file_id)
+    target = str(compression.decompressed_path(source))
+    shutil.rmtree(tmp_dir, ignore_errors=True)
+    os.makedirs(tmp_dir, exist_ok=True)
+    try:
+        out = compression.decompress_to(source, tmp_dir)
+        _replace_in_place(file_obj, out, target, DECOMPRESS_EXT[file_obj.extension], False)
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+    logger.info(f'Decompressed {os.path.basename(source)} -> {os.path.basename(target)}')
+
+
+@register_cleanup('compress_file')
+@register_cleanup('decompress_file')
+def _compression_cleanup(file_id, **kwargs):
+    """Idempotent cancel/crash cleanup: drop the working dir and any queued ignored
+    events. The source is never mutated before its verified replacement exists, so
+    there is nothing else to undo."""
+    file_obj = db.session.get(Files, file_id)
+    if not file_obj:
+        return
+    shutil.rmtree(_compress_tmp_dir(get_library_path(file_obj.library_id), file_id), ignore_errors=True)
+    paths = {file_obj.filepath}
+    if file_obj.extension in COMPRESS_EXT:
+        paths.add(str(compression.compressed_path(file_obj.filepath)))
+    if file_obj.extension in DECOMPRESS_EXT:
+        paths.add(str(compression.decompressed_path(file_obj.filepath)))
+    for p in paths:
+        pop_ignored_event(src_path=p, dest_path='')
 
 # --- Batch maintenance ---
 @register_task('add_missing_apps')

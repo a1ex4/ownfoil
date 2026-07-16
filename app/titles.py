@@ -37,6 +37,8 @@ def getDirsAndFiles(path):
     allDirs = []
 
     for entry in entries:
+        if entry == COMPRESS_TMP_DIRNAME:
+            continue
         fullPath = os.path.join(path, entry)
         if os.path.isdir(fullPath):
             allDirs.append(fullPath)
