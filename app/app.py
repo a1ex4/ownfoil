@@ -50,10 +50,7 @@ watcher_thread = None
 pool = None  # Set by entrypoint after WorkerPool is created
 
 # Configure logging
-formatter = ColoredFormatter(
-    '[%(asctime)s.%(msecs)03d] %(levelname)s (%(module)s) %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S',
-)
+formatter = ColoredFormatter(LOG_FORMAT, datefmt=LOG_DATEFMT)
 handler = logging.StreamHandler(sys.stdout)
 handler.setFormatter(formatter)
 

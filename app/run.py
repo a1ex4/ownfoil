@@ -3,6 +3,22 @@ import logging
 import threading
 from multiprocessing import Process, Event as MPEvent
 from gunicorn.app.base import BaseApplication
+from gunicorn.glogging import Logger as GunicornLogger
+
+from utils import ColoredFormatter, LOG_FORMAT, LOG_DATEFMT
+
+
+class OwnfoilLogger(GunicornLogger):
+    """Route Gunicorn's error/access logs through the app's colored format and drop SIGWINCH noise."""
+
+    def setup(self, cfg):
+        super().setup(cfg)
+        # Show a fixed '(gunicorn)' source; the real module would just be 'glogging'.
+        formatter = ColoredFormatter(LOG_FORMAT.replace('%(module)s', 'gunicorn'), datefmt=LOG_DATEFMT)
+        for log in (self.error_log, self.access_log):
+            for handler in log.handlers:
+                handler.setFormatter(formatter)
+        self.error_log.addFilter(lambda record: record.getMessage() != 'Handling signal: winch')
 
 
 class OwnfoilServer(BaseApplication):
@@ -143,6 +159,8 @@ def main():
         'worker_class': 'gthread',
         'threads': 4,
         'accesslog': '-',
+        'access_log_format': 'Handled request: %(h)s %(u)s %(s)s %(L)ss %(m)s %(U)s',
+        'logger_class': OwnfoilLogger,
         'proc_name': 'ownfoil',
         'post_fork': post_fork,
         'post_worker_init': post_worker_init,

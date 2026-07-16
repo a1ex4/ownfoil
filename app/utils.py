@@ -12,6 +12,11 @@ import tempfile
 # Global lock for all JSON writes in this process
 _json_write_lock = threading.Lock()
 
+# Shared log format used by the app, workers and the Gunicorn logger
+LOG_FORMAT = '[%(asctime)s.%(msecs)03d] %(levelname)s (%(module)s) %(message)s'
+LOG_DATEFMT = '%Y-%m-%d %H:%M:%S'
+
+
 # Custom logging formatter to support colors
 class ColoredFormatter(logging.Formatter):
     # Define color codes
