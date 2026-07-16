@@ -20,7 +20,7 @@ from db import (
     remove_file_from_apps, reset_file_identification, create_file,
 )
 from settings import get_settings
-from utils import interval_string_to_timedelta, delete_empty_folders
+from utils import interval_string_to_timedelta, delete_empty_folders, human_size
 from library import (
     get_files_to_identify, add_missing_apps_for_title, update_title_flags,
     add_missing_apps_to_db, update_titles, organize_file,
@@ -815,16 +815,21 @@ def _convert_file(file_obj, produce, new_extension, compressed):
     if Files.query.filter(Files.filepath == target, Files.id != file_obj.id).first() is not None:
         # A duplicate (e.g. the source's already-compressed sibling) already occupies the target.
         # Finalizing would collide on the unique filepath; leave dedup to the organizer.
-        logger.info(f'Skipping conversion of {os.path.basename(source)}: '
-                    f'{os.path.basename(target)} is already in the library.')
+        logger.warning(f'Skipping conversion of {os.path.basename(source)}: '
+                       f'{os.path.basename(target)} is already in the library.')
         return
+    before = file_obj.size
     add_temp_file(target)
     try:
         out = str(produce(source, os.path.dirname(source)))
         _finalize_conversion(file_obj, out, new_extension, compressed)
     finally:
         remove_temp_file(target)
-    logger.info(f'{os.path.basename(source)} -> {os.path.basename(target)}')
+    after = file_obj.size
+    ratio = after / before if before else 0
+    verb = 'compressing' if compressed else 'decompressing'
+    logger.info(f'Finished {verb} {os.path.basename(target)}: '
+                f'{human_size(before)} -> {human_size(after)} (ratio {ratio:.1%})')
 
 
 @register_task('compress_library')

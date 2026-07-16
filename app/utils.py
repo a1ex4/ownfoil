@@ -269,3 +269,12 @@ def delete_empty_folders(path):
 
         if not deleted_any_in_pass:
             break # No more empty directories found in this pass, so we are done
+
+
+def human_size(n):
+    """Format a byte count as a human-readable size (e.g. '2.7 GB')."""
+    size = float(n)
+    for unit in ('B', 'KB', 'MB', 'GB', 'TB'):
+        if size < 1024 or unit == 'TB':
+            return f'{size:.1f} {unit}'
+        size /= 1024
