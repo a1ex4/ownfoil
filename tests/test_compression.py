@@ -12,7 +12,7 @@ import pytest
 
 import file_compression as compression
 import tasks
-from db import (db, Files, Libraries, IgnoredEvent, TempFile,
+from db import (db, Files, Libraries, IgnoredEvent, TempFile, Task,
                 add_ignored_event, add_temp_file)
 from nsz.NszDecompressor import VerificationException
 
@@ -258,6 +258,40 @@ def test_compression_cleanup_removes_partial_and_mark(env):
     assert not os.path.exists(target)                 # partial removed
     assert TempFile.query.count() == 0   # mark cleared
     assert IgnoredEvent.query.count() == 0            # source-deletion event popped
+
+
+def test_cleanup_clears_pending_and_fails_running(env):
+    """The whole pending queue is cleared on startup (regenerable; must not preempt the fresh
+    startup pipeline), while interrupted running/waiting tasks are failed."""
+    def task(name, status):
+        t = Task(task_name=name, status=status, input_hash="x")
+        db.session.add(t)
+        return t
+
+    task("compress_file", "pending")
+    task("organize_library", "pending")   # library-level leftover that would re-spawn compression
+    task("identify_file", "pending")
+    running = task("compress_file", "running")
+    waiting = task("organize_library", "waiting_for_children")
+    db.session.commit()
+    running_id, waiting_id = running.id, waiting.id
+
+    tasks.cleanup_tasks()
+
+    assert Task.query.filter_by(status="pending").count() == 0     # entire queue cleared
+    assert db.session.get(Task, running_id).status == "failed"     # interrupted run failed
+    assert db.session.get(Task, waiting_id).status == "failed"
+
+
+def test_startup_enqueues_identify_library(env):
+    """startup re-derives identification so clearing the queue can't strand unidentified files."""
+    enqueued = []
+    env.monkeypatch.setattr(tasks, "update_titledb_task", lambda **k: None)
+    env.monkeypatch.setattr(tasks, "scan_libraries_task", lambda **k: None)
+    env.monkeypatch.setattr(tasks, "enqueue_task",
+                            lambda name, data=None: enqueued.append(name))
+    tasks.startup_task()
+    assert "identify_library" in enqueued
 
 
 def test_startup_purge_keeps_committed_output(env):

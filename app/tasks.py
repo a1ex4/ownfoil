@@ -281,12 +281,19 @@ def cancel_task(task_id):
 # --- Startup cleanup ---
 
 def cleanup_tasks():
-    """Startup cleanup: remove completed/scheduled tasks and fail stale running tasks."""
+    """Startup cleanup: clear the pending queue and fail interrupted tasks.
+
+    The whole pending queue is regenerable: a restart re-derives the full pipeline via the
+    'startup' task (and init re-enqueues scheduled tasks). Resuming any stale pending task
+    would run ahead of that pipeline (older created_at) and ignore settings changed while
+    stopped — e.g. a queued organize_library re-spawning compression before a region change
+    takes effect. So we drop pending work wholesale rather than resume it.
+    """
     # Remove completed tasks
     Task.query.filter_by(status='completed').delete()
 
-    # Remove pending scheduled tasks — they'll be re-enqueued by init()
-    Task.query.filter(Task.status == 'pending', Task.run_after.isnot(None)).delete()
+    # Clear the entire pending queue — startup + init regenerate everything still needed.
+    Task.query.filter_by(status='pending').delete()
 
     # Mark running/waiting tasks as failed — they can't survive a restart
     stale = Task.query.filter(Task.status.in_(['running', 'waiting_for_children'])).all()
@@ -423,8 +430,12 @@ def _schedules_generate_library(func):
 
 @register_task('startup')
 def startup_task(**kwargs):
-    """Startup task: cleanup and kick off periodic titledb update."""
+    """Startup task: kick off titledb update, re-identify unidentified files, and scan.
+
+    identify_library covers files left unidentified when the pending queue was cleared on
+    restart (and re-tries previously-unidentifiable files against the refreshed titledb)."""
     update_titledb_task()
+    enqueue_task('identify_library')
     scan_libraries_task()
 
 # --- Periodic tasks ---
