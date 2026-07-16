@@ -23,9 +23,12 @@ TITLES_DB_FILE = os.path.join(CONFIG_DIR, 'titles.db')
 CUSTOM_TITLES_FILE = os.path.join(CONFIG_DIR, 'custom_titles.json')
 OWNFOIL_DB = 'sqlite:///' + DB_FILE
 
+# Per-library-path file watcher defaults
+DEFAULT_WATCHER = {"enabled": True, "polling_interval": 60}
+
 DEFAULT_SETTINGS = {
     "library": {
-        "paths": ["/games"],
+        "paths": [{"path": "/games", "watcher": dict(DEFAULT_WATCHER)}],
         "management": {
             "compress_files": False,
             "delete_older_updates": False,
@@ -80,6 +83,14 @@ ALLOWED_EXTENSIONS = [
     'xci',
     'xcz',
 ]
+
+# Filesystems that native OS watchers cannot reliably observe (server-side changes
+# emit no inotify/FSEvents), so paths on these must be polled.
+NETWORK_FSTYPES = {
+    'nfs', 'nfs4', 'cifs', 'smbfs', 'smb3', 'smb2', 'afs', 'ncpfs', '9p',
+    'fuse.sshfs', 'fuse.rclone', 'fuse.glusterfs', 'fuse.cephfs', 'ceph',
+    'glusterfs', 'lustre', 'beegfs',
+}
 
 APP_TYPE_BASE = 'BASE'
 APP_TYPE_UPD = 'UPDATE'

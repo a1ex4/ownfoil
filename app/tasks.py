@@ -12,6 +12,7 @@ from db import (
     db, Task, Files, Apps, Libraries, get_library_id, get_library_path, get_library_file_paths,
     get_libraries, add_title_id_in_db, get_title_id_db_id, add_file_to_app,
     file_exists_in_db, update_file_path, delete_file_by_filepath,
+    delete_files_under_dir,
     set_library_scan_time, remove_missing_files_from_db,
     remove_file_from_apps, reset_file_identification, create_file,
 )
@@ -753,3 +754,10 @@ def handle_file_moved_task(library_path, src_path, dest_path, **kwargs):
 def handle_file_deleted_task(filepath, **kwargs):
     delete_file_by_filepath(filepath)
     enqueue_task('update_titles')
+
+
+@register_task('handle_dir_deleted')
+def handle_dir_deleted_task(dirpath, **kwargs):
+    """A folder was moved out/removed: delete all its files from the library."""
+    if delete_files_under_dir(dirpath):
+        enqueue_task('update_titles')

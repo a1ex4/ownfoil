@@ -453,6 +453,20 @@ def remove_titles_without_owned_apps():
         db.session.commit()
     return titles_removed
 
+def _dir_prefix_like(dirpath):
+    """LIKE pattern matching files directly or recursively under dirpath, escaping wildcards."""
+    escaped = dirpath.rstrip('/').replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
+    return escaped + '/%'
+
+def delete_files_under_dir(dirpath):
+    """Delete all library files under a directory (folder moved out/removed). Returns count."""
+    files = Files.query.filter(Files.filepath.like(_dir_prefix_like(dirpath), escape='\\')).all()
+    for f in files:
+        remove_file_from_apps(f.id)
+        db.session.delete(f)
+    db.session.commit()
+    return len(files)
+
 def delete_file_by_filepath(filepath):
     try:
         # Find file with the given filepath

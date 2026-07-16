@@ -34,7 +34,7 @@ def init():
     watcher_thread.start()
 
     # init libraries
-    library_paths = get_settings()['library']['paths']
+    library_paths = get_library_paths()
     init_libraries(app, watcher, library_paths)
 
     # Enqueue initial titledb update (re-enqueues itself on completion)
@@ -75,13 +75,17 @@ def load_user(user_id):
     return User.query.filter_by(id=user_id).first()
 
 def on_settings_change():
-    """Settings file changed: refresh cache in this process and scale worker pool if needed."""
+    """Settings file changed: refresh cache, scale workers, and re-apply watcher config."""
     settings = get_settings()
     if pool is not None:
         desired = max(1, settings.get('worker', {}).get('count', 1))
         if desired != pool.count:
             logger.info(f'Settings changed: scaling workers from {pool.count} to {desired}')
             pool.scale(desired)
+    if watcher is not None:
+        # Reconcile off this thread: this callback runs inside the native observer's dispatch,
+        # which holds the observer lock that schedule/unschedule also need.
+        threading.Thread(target=watcher.reconcile, daemon=True).start()
 
 def on_library_change(events):
     """Enqueue individual tasks per file event, skipping ignored events."""
@@ -116,6 +120,9 @@ def on_library_change(events):
                     'library_path': event.directory,
                     'filepath': event.src_path,
                 })
+            elif event.type == 'dir_deleted':
+                # A folder was moved out/removed; its files are gone, delete them by path prefix.
+                tasks_mod.enqueue_task('handle_dir_deleted', {'dirpath': event.src_path})
 
 def create_app(db_uri=None):
     app = Flask(__name__)
@@ -329,11 +336,14 @@ def library_paths_api():
             'errors': errors
         }
     elif request.method == 'GET':
-        resp = {
-            'success': True,
-            'errors': [],
-            'paths': get_settings()['library']['paths']
-        }
+        paths = get_library_paths()
+        watchers = {}
+        for path in paths or []:
+            fstype = get_path_fstype(path)
+            watchers[path] = {**get_watcher_config(path),
+                              'network': fstype is None or fstype in NETWORK_FSTYPES,
+                              'fstype': fstype}
+        resp = {'success': True, 'errors': [], 'paths': paths, 'watchers': watchers}
     elif request.method == 'DELETE':
         data = request.json
         success, errors = remove_library_complete(app, watcher, data['path'])
@@ -342,6 +352,22 @@ def library_paths_api():
             'errors': errors
         }
     return jsonify(resp)
+
+@app.post('/api/settings/library/watcher')
+@access_required('admin')
+def set_library_watcher_settings_api():
+    global watcher
+    data = request.json
+    path = data.get('path')
+    if not path or path not in get_library_paths():
+        return jsonify({'success': False, 'errors': [{'path': 'library/watcher', 'error': 'Unknown library path.'}]})
+    success, errors = set_watcher_settings(path, data)
+    if not success:
+        return jsonify({'success': success, 'errors': errors})
+    # Re-apply the watcher live with the new config (runs in the request thread, not the observer thread)
+    watcher.remove_directory(path)
+    watcher.add_directory(path)
+    return jsonify({'success': True, 'errors': []})
 
 @app.post('/api/settings/library/management')
 @access_required('admin')

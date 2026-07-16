@@ -127,6 +127,27 @@ def migrate_shop_settings(settings):
             migrated = True
     return migrated
 
+def normalize_library_paths(settings):
+    """Convert library.paths from the legacy string list to [{path, watcher}] objects and
+    fill missing watcher defaults. Returns True if anything changed."""
+    library = settings.setdefault('library', {})
+    changed = False
+    normalized = []
+    for entry in library.get('paths') or []:
+        if isinstance(entry, str):
+            path, watcher = entry, dict(DEFAULT_WATCHER)
+            changed = True
+        else:
+            path = entry.get('path')
+            if not path:
+                continue
+            watcher = {**DEFAULT_WATCHER, **(entry.get('watcher') or {})}
+            if entry.get('watcher') != watcher or set(entry) != {'path', 'watcher'}:
+                changed = True
+        normalized.append({'path': path, 'watcher': watcher})
+    library['paths'] = normalized
+    return changed
+
 def load_settings():
     settings_updated = False
     with settings_lock:
@@ -137,6 +158,10 @@ def load_settings():
 
             # Migrate old shop settings format
             if migrate_shop_settings(settings):
+                settings_updated = True
+
+            # Normalise library paths to objects carrying per-path watcher config
+            if normalize_library_paths(settings):
                 settings_updated = True
 
             # Remove obsolete keys from loaded settings
@@ -174,6 +199,10 @@ def verify_settings(section, data):
                 break
     return success, errors
 
+def get_library_paths():
+    """Return the configured library paths as a plain list of path strings."""
+    return [entry['path'] for entry in get_settings()['library']['paths']]
+
 def add_library_path_to_settings(path):
     success = True
     errors = []
@@ -187,18 +216,14 @@ def add_library_path_to_settings(path):
 
     settings = load_settings()
     library_paths = settings['library']['paths']
-    if library_paths:
-        if path in library_paths:
-            success = False
-            errors.append({
-                'path': 'library/paths',
-                'error': f"Path {path} already configured."
-            })
-            return success, errors
-        library_paths.append(path)
-    else:
-        library_paths = [path]
-    settings['library']['paths'] = library_paths
+    if any(entry['path'] == path for entry in library_paths):
+        success = False
+        errors.append({
+            'path': 'library/paths',
+            'error': f"Path {path} already configured."
+        })
+        return success, errors
+    library_paths.append({'path': path, 'watcher': dict(DEFAULT_WATCHER)})
     with settings_lock:
         with open(CONFIG_FILE, 'w') as yaml_file:
             yaml.dump(settings, yaml_file)
@@ -211,24 +236,53 @@ def set_library_management_settings(data):
         with open(CONFIG_FILE, 'w') as yaml_file:
             yaml.dump(settings, yaml_file)
 
+def get_watcher_config(path):
+    """Return the file watcher config for a library path, merged over defaults."""
+    for entry in get_settings()['library']['paths']:
+        if entry['path'] == path:
+            return {**DEFAULT_WATCHER, **(entry.get('watcher') or {})}
+    return dict(DEFAULT_WATCHER)
+
+def set_watcher_settings(path, data):
+    """Validate and persist the file watcher config for a single library path."""
+    settings = load_settings()
+    entry = next((e for e in settings['library']['paths'] if e['path'] == path), None)
+    if entry is None:
+        return False, [{'path': 'library/watcher', 'error': f"Path {path} not configured."}]
+    config = {**DEFAULT_WATCHER, **(entry.get('watcher') or {})}
+    if 'enabled' in data:
+        config['enabled'] = bool(data['enabled'])
+    if 'polling_interval' in data:
+        try:
+            interval = int(data['polling_interval'])
+        except (TypeError, ValueError):
+            return False, [{'path': 'library/watcher', 'error': 'Polling interval must be an integer.'}]
+        if interval < 1:
+            return False, [{'path': 'library/watcher', 'error': 'Polling interval must be at least 1 second.'}]
+        config['polling_interval'] = interval
+    entry['watcher'] = config
+    with settings_lock:
+        with open(CONFIG_FILE, 'w') as yaml_file:
+            yaml.dump(settings, yaml_file)
+    return True, []
+
 def delete_library_path_from_settings(path):
     success = True
     errors = []
     settings = load_settings()
     library_paths = settings['library']['paths']
-    if library_paths:
-        if path in library_paths:
-            library_paths.remove(path)
-            settings['library']['paths'] = library_paths
-            with settings_lock:
-                with open(CONFIG_FILE, 'w') as yaml_file:
-                    yaml.dump(settings, yaml_file)
-        else:
-            success = False
-            errors.append({
-                    'path': 'library/paths',
-                    'error': f"Path {path} not configured."
-                })
+    entry = next((e for e in library_paths if e['path'] == path), None)
+    if entry is not None:
+        library_paths.remove(entry)
+        with settings_lock:
+            with open(CONFIG_FILE, 'w') as yaml_file:
+                yaml.dump(settings, yaml_file)
+    else:
+        success = False
+        errors.append({
+                'path': 'library/paths',
+                'error': f"Path {path} not configured."
+            })
     return success, errors
 
 def set_titles_settings(region, language):

@@ -123,3 +123,11 @@ p.game-description {
     background: none;
     box-shadow: none;
 }
+/* Library path watcher expand/collapse caret */
+.watcher-caret .bi {
+    display: inline-block;
+    transition: transform 0.15s ease;
+}
+.watcher-caret[aria-expanded="true"] .bi {
+    transform: rotate(90deg);
+}

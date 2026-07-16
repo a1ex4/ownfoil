@@ -149,6 +149,31 @@ def throttle(wait, key_func=None):
         return throttled
     return decorator
 
+def get_path_fstype(path):
+    """Return the filesystem type backing path via /proc/mounts, or None if undeterminable."""
+    try:
+        with open('/proc/mounts') as f:
+            mounts = [(p[1], p[2]) for p in (line.split() for line in f) if len(p) >= 3]
+    except OSError:
+        return None
+    abspath = os.path.abspath(path)
+    best_mount, best_fstype = '', None
+    for mountpoint, fstype in mounts:
+        mountpoint = mountpoint.replace('\\040', ' ')
+        if (abspath == mountpoint or abspath.startswith(mountpoint.rstrip('/') + '/')) \
+                and len(mountpoint) >= len(best_mount):
+            best_mount, best_fstype = mountpoint, fstype
+    return best_fstype
+
+def is_network_path(path):
+    """True if path is on a network filesystem that native watchers can't observe.
+    Undeterminable filesystems (e.g. non-Linux) are treated as network so they are polled."""
+    from constants import NETWORK_FSTYPES
+    fstype = get_path_fstype(path)
+    if fstype is None:
+        return True
+    return fstype in NETWORK_FSTYPES
+
 def allowed_file(filename):
     return '.' in filename and \
            filename.rsplit('.', 1)[1].lower() in ['keys', 'txt']
