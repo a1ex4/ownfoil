@@ -6,6 +6,7 @@ The invariant under test is that the source is only ever removed after a verifie
 replacement exists, and that the same Files row is carried across the extension change.
 """
 import os
+import time
 import types
 
 import pytest
@@ -72,7 +73,7 @@ def env(tmp_path, monkeypatch):
 
 def _stub_produce(out_bytes=b"COMPRESSEDPAYLOAD"):
     """Return a compress/decompress stub that writes a fake verified output file."""
-    def produce(source, out_dir, *args):
+    def produce(source, out_dir, *args, **kwargs):
         # Name matches nsz's own convention (stem + mapped extension).
         out_name = os.path.basename(str(
             compression.compressed_path(source) if str(source).endswith(("nsp", "xci"))
@@ -110,6 +111,42 @@ def test_decompressed_path(src, expected):
     assert str(compression.decompressed_path(src)) == expected
 
 
+# --- progress reporting + bar suppression ------------------------------------------------
+
+def test_progress_bars_and_chatter_suppressed():
+    """nsz's enlighten bar is neutralised and its verbose info printing is off."""
+    import enlighten
+    from nsz.nut import Print
+    assert enlighten.Counter is compression._NoBar
+    assert Print.enableInfo is False
+
+
+def test_with_progress_none_runs_inline():
+    """No callback: run the phase directly with statusReportInfo=None, no poller thread."""
+    seen = []
+    result = compression._with_progress(lambda sri: seen.append(sri) or "out", None, 0, 50)
+    assert result == "out" and seen == [None]
+
+
+def test_with_progress_maps_status_report_to_span(monkeypatch):
+    """The poller maps report[key]=[cur,_,total,phase] onto base..base+span and forces the end."""
+    monkeypatch.setattr(compression, "POLL_INTERVAL", 0.01)
+    seen = []
+
+    def run(sri):
+        report, key = sri
+        for cur in (0, 50, 100):
+            report[key] = [cur, 0, 100, "Verifying"]
+            time.sleep(0.03)
+        return "out"
+
+    result = compression._with_progress(run, seen.append, 50, 50)
+    assert result == "out"
+    assert seen and all(50 <= p <= 100 for p in seen)  # mapped into the verify half
+    assert seen[-1] == 100                              # phase end forced on success
+    assert seen == sorted(seen)                         # monotonic
+
+
 # --- verification contract (#1: keep + full bit-identical verify) ------------------------
 
 @pytest.mark.parametrize("name,fn", [("Game.nsp", "solidCompress"), ("Cart.xci", "blockCompress")])
@@ -126,7 +163,7 @@ def test_compress_to_keeps_and_verifies_against_source(tmp_path, monkeypatch, na
         out.write_bytes(b"C")
         return out
 
-    def fake_verify(out, fixPadding, raiseExc, raisePfs0, originalFilePath):
+    def fake_verify(out, fixPadding, raiseExc, raisePfs0, originalFilePath, *rest):
         calls["verify_original"] = str(originalFilePath)
 
     monkeypatch.setattr(compression, "_ensure_keys", lambda: None)
@@ -309,6 +346,28 @@ def test_reap_worker_task_runs_cleanup(env):
 def test_reap_worker_task_noop_without_running_task(env):
     """No running task for the worker (clean exit / already cancelled): reap does nothing."""
     tasks.reap_worker_task(99)  # must not raise
+
+
+def test_task_progress_writes_completion_pct(env):
+    """The progress callback updates a running task's completion_pct; no-op outside a task."""
+    assert tasks._task_progress(None) is None
+
+    t = Task(task_name="compress_file", status="running", input_hash="x")
+    db.session.add(t)
+    db.session.commit()
+
+    report = tasks._task_progress(t.id)
+    report(37)
+    db.session.expire_all()
+    assert db.session.get(Task, t.id).completion_pct == 37
+
+    # Only running tasks are updated (a finished task isn't dragged back).
+    t2 = Task(task_name="compress_file", status="completed", completion_pct=100, input_hash="y")
+    db.session.add(t2)
+    db.session.commit()
+    tasks._task_progress(t2.id)(10)
+    db.session.expire_all()
+    assert db.session.get(Task, t2.id).completion_pct == 100
 
 
 def test_startup_purge_keeps_committed_output(env):

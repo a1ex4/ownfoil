@@ -733,6 +733,33 @@ def remove_outdated_updates_task(**kwargs):
 
 
 # --- Compression pipeline ---
+def _task_progress(task_id):
+    """Return a callback that writes live percent to a task row, or None outside a task.
+
+    Invoked from file_compression's poller thread, so it captures db.engine now (under the
+    task's app context) and drives a raw connection the bare thread can use. Logs at each 5%
+    step so the live-progress path is observable without a UI."""
+    if task_id is None:
+        return None
+    engine = db.engine
+    logged = [-1]
+
+    def report(pct):
+        connection = engine.raw_connection()
+        try:
+            cursor = connection.cursor()
+            cursor.execute("UPDATE tasks SET completion_pct = ? WHERE id = ? AND status = 'running'",
+                           (pct, task_id))
+            connection.commit()
+        finally:
+            connection.close()
+        if pct // 5 != logged[0]:
+            logged[0] = pct // 5
+            logger.debug(f"Task {task_id} progress: {pct}%")
+
+    return report
+
+
 def _conversion_target(file_obj):
     """The output path a (de)compression of this file would produce, or None."""
     if not file_obj.compressed and file_obj.extension in COMPRESS_EXT:
@@ -812,8 +839,9 @@ def compress_file_task(file_id, **kwargs):
         return
     logger.info(f'Compressing file: {file_obj.filename}')
     opts = mgmt['compression']
+    progress = _task_progress(_current_task_id)
     _convert_file(file_obj,
-                  lambda source, out_dir: compression.compress_to(source, out_dir, opts),
+                  lambda source, out_dir: compression.compress_to(source, out_dir, opts, progress=progress),
                   COMPRESS_EXT[file_obj.extension], True)
 
 
@@ -825,7 +853,9 @@ def decompress_file_task(file_id, **kwargs):
         return
     if not os.path.exists(file_obj.filepath):
         return
-    _convert_file(file_obj, compression.decompress_to,
+    progress = _task_progress(_current_task_id)
+    _convert_file(file_obj,
+                  lambda source, out_dir: compression.decompress_to(source, out_dir, progress=progress),
                   DECOMPRESS_EXT[file_obj.extension], False)
 
 
