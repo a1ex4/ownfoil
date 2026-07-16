@@ -32,6 +32,13 @@ DEFAULT_SETTINGS = {
         "watcher": dict(DEFAULT_WATCHER),
         "management": {
             "compress_files": False,
+            "compression": {
+                "level": 18,
+                "long_distance": False,
+                "solid": "auto",
+                "block_size_exponent": 20,
+                "threads": 0,
+            },
             "delete_older_updates": False,
             "organizer": {
                 "enabled": False,
@@ -96,6 +103,13 @@ NETWORK_FSTYPES = {
 APP_TYPE_BASE = 'BASE'
 APP_TYPE_UPD = 'UPDATE'
 APP_TYPE_DLC = 'DLC'
+
+# File compression (nsz): uncompressed -> compressed extension mapping and back.
+COMPRESS_EXT = {'nsp': 'nsz', 'xci': 'xcz'}
+DECOMPRESS_EXT = {v: k for k, v in COMPRESS_EXT.items()}
+# In-library working directory for compression output; must be invisible to the
+# scanner and file watcher so its transient files are never picked up as library files.
+COMPRESS_TMP_DIRNAME = '.ownfoil-compress'
 APP_TYPE_MAP = {
     128: APP_TYPE_BASE,
     129: APP_TYPE_UPD,
