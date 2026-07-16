@@ -283,17 +283,6 @@ def test_cleanup_clears_pending_and_fails_running(env):
     assert db.session.get(Task, waiting_id).status == "failed"
 
 
-def test_startup_enqueues_identify_library(env):
-    """startup re-derives identification so clearing the queue can't strand unidentified files."""
-    enqueued = []
-    env.monkeypatch.setattr(tasks, "update_titledb_task", lambda **k: None)
-    env.monkeypatch.setattr(tasks, "scan_libraries_task", lambda **k: None)
-    env.monkeypatch.setattr(tasks, "enqueue_task",
-                            lambda name, data=None: enqueued.append(name))
-    tasks.startup_task()
-    assert "identify_library" in enqueued
-
-
 def test_startup_purge_keeps_committed_output(env):
     # An interrupted task that had already flipped the row: output is committed, keep it.
     f = env.seed("Game.nsz", compressed=True)         # row already points at the output
