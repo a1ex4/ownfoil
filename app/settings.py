@@ -1,7 +1,7 @@
 from constants import *
 from utils import *
 import yaml
-import os, sys
+import os, sys, tempfile
 import threading
 import hashlib
 
@@ -9,8 +9,29 @@ from nsz.nut import Keys
 
 import logging
 
-settings_lock = threading.Lock()
+# Reentrant: load_settings holds this lock and calls _dump_settings, which re-acquires it.
+settings_lock = threading.RLock()
 keys_lock = threading.Lock()
+
+
+def _dump_settings(settings):
+    """Persist settings atomically so a concurrent reader never sees a truncated file.
+    Writing directly with open(...,'w') truncates in place; another process reading in
+    that window gets an empty file (yaml.safe_load -> None) and crashes."""
+    with settings_lock:
+        fd, tmp = tempfile.mkstemp(dir=os.path.dirname(CONFIG_FILE), prefix='.settings-', suffix='.tmp')
+        try:
+            with os.fdopen(fd, 'w') as yaml_file:
+                yaml.dump(settings, yaml_file)
+                yaml_file.flush()
+                os.fsync(yaml_file.fileno())
+            os.replace(tmp, CONFIG_FILE)
+        except BaseException:
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
+            raise
 
 _cached_settings = None
 _cached_mtimes = (None, None)
@@ -151,6 +172,9 @@ def load_settings():
             logger.debug('Reading configuration file.')
             with open(CONFIG_FILE, 'r') as yaml_file:
                 settings = yaml.safe_load(yaml_file)
+            if settings is None:  # empty file: rebuild from defaults
+                settings = {}
+                settings_updated = True
 
             # Migrate old shop settings format
             if migrate_shop_settings(settings):
@@ -173,9 +197,8 @@ def load_settings():
             settings_updated = True
 
         if settings_updated:
-            with open(CONFIG_FILE, 'w') as yaml_file:
-                yaml.dump(settings, yaml_file)
-        
+            _dump_settings(settings)
+
         # Prime Keys.keys_loaded for this process (used by identification code)
         load_keys()
         return settings
@@ -220,17 +243,13 @@ def add_library_path_to_settings(path):
         })
         return success, errors
     library_paths.append(path)
-    with settings_lock:
-        with open(CONFIG_FILE, 'w') as yaml_file:
-            yaml.dump(settings, yaml_file)
+    _dump_settings(settings)
     return success, errors
 
 def set_library_management_settings(data):
     settings = load_settings()
     settings['library']['management'].update(data)
-    with settings_lock:
-        with open(CONFIG_FILE, 'w') as yaml_file:
-            yaml.dump(settings, yaml_file)
+    _dump_settings(settings)
 
 def get_watcher_config():
     """Return the global file watcher config, merged over defaults."""
@@ -251,9 +270,7 @@ def set_watcher_settings(data):
             return False, [{'path': 'library/watcher', 'error': 'Polling interval must be at least 1 second.'}]
         config['polling_interval'] = interval
     settings['library']['watcher'] = config
-    with settings_lock:
-        with open(CONFIG_FILE, 'w') as yaml_file:
-            yaml.dump(settings, yaml_file)
+    _dump_settings(settings)
     return True, []
 
 def delete_library_path_from_settings(path):
@@ -263,9 +280,7 @@ def delete_library_path_from_settings(path):
     library_paths = settings['library']['paths']
     if path in library_paths:
         library_paths.remove(path)
-        with settings_lock:
-            with open(CONFIG_FILE, 'w') as yaml_file:
-                yaml.dump(settings, yaml_file)
+        _dump_settings(settings)
     else:
         success = False
         errors.append({
@@ -278,9 +293,7 @@ def set_titles_settings(region, language):
     settings = load_settings()
     settings['titles']['region'] = region
     settings['titles']['language'] = language
-    with settings_lock:
-        with open(CONFIG_FILE, 'w') as yaml_file:
-            yaml.dump(settings, yaml_file)
+    _dump_settings(settings)
 
 def set_shop_settings(data):
     settings = load_settings()
@@ -296,20 +309,14 @@ def set_shop_settings(data):
         for client_name, client_data in data['clients'].items():
             settings['shop']['clients'][client_name].update(client_data)
 
-    with settings_lock:
-        with open(CONFIG_FILE, 'w') as yaml_file:
-            yaml.dump(settings, yaml_file)
+    _dump_settings(settings)
 
 def set_scheduler_settings(data):
     settings = load_settings()
     settings['scheduler'].update(data)
-    with settings_lock:
-        with open(CONFIG_FILE, 'w') as yaml_file:
-            yaml.dump(settings, yaml_file)
+    _dump_settings(settings)
 
 def set_worker_settings(data):
     settings = load_settings()
     settings['worker'].update(data)
-    with settings_lock:
-        with open(CONFIG_FILE, 'w') as yaml_file:
-            yaml.dump(settings, yaml_file)
+    _dump_settings(settings)
