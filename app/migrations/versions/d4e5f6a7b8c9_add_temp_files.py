@@ -1,4 +1,4 @@
-"""Add compression_in_progress table
+"""Add temp_files table
 
 Revision ID: d4e5f6a7b8c9
 Revises: c3d4e5f6a7b8
@@ -16,7 +16,7 @@ depends_on = None
 
 def upgrade():
     op.create_table(
-        'compression_in_progress',
+        'temp_files',
         sa.Column('id', sa.Integer(), nullable=False),
         sa.Column('filepath', sa.String(), nullable=False),
         sa.PrimaryKeyConstraint('id'),
@@ -25,4 +25,4 @@ def upgrade():
 
 
 def downgrade():
-    op.drop_table('compression_in_progress')
+    op.drop_table('temp_files')

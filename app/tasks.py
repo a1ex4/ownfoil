@@ -15,8 +15,7 @@ from db import (
     get_libraries, add_title_id_in_db, get_title_id_db_id, add_file_to_app,
     file_exists_in_db, update_file_path, delete_file_by_filepath,
     delete_files_under_dir, add_ignored_event, pop_ignored_event,
-    add_compression_in_progress, remove_compression_in_progress,
-    get_compression_in_progress_paths, purge_compression_in_progress,
+    add_temp_file, remove_temp_file, get_temp_file_paths, purge_temp_files,
     set_library_scan_time, remove_missing_files_from_db,
     remove_file_from_apps, reset_file_identification, create_file,
 )
@@ -301,7 +300,7 @@ def cleanup_tasks():
     db.session.commit()
 
     # Sweep leftover output from any (de)compression interrupted by the restart.
-    purge_compression_in_progress()
+    purge_temp_files()
 
 
 # --- Helpers ---
@@ -465,7 +464,7 @@ def scan_library_task(library_path, **kwargs):
 
     logger.info(f'Scanning library path {library_path} ...')
     _, files = titles_lib.getDirsAndFiles(library_path)
-    skip = set(get_library_file_paths(library_id)) | get_compression_in_progress_paths()
+    skip = set(get_library_file_paths(library_id)) | get_temp_file_paths()
     new_files = [f for f in files if f not in skip]
 
     if not new_files:
@@ -725,15 +724,15 @@ def _convert_file(file_obj, produce, new_extension, compressed):
     """Run a (de)compression: produce the verified output at its final path while it is
     marked in-progress (scanner/watcher skip it), then finalize. The output is written
     directly in the source's directory; nsz unlinks it on failure, and an interrupted
-    task's leftover is swept by purge_compression_in_progress at startup / the cleanup hook."""
+    task's leftover is swept by purge_temp_files at startup / the cleanup hook."""
     source = file_obj.filepath
     target = _conversion_target(file_obj)
-    add_compression_in_progress(target)
+    add_temp_file(target)
     try:
         out = str(produce(source, os.path.dirname(source)))
         _finalize_conversion(file_obj, out, new_extension, compressed)
     finally:
-        remove_compression_in_progress(target)
+        remove_temp_file(target)
     logger.info(f'{os.path.basename(source)} -> {os.path.basename(target)}')
 
 
@@ -790,7 +789,7 @@ def _compression_cleanup(file_id, **kwargs):
         return
     target = _conversion_target(file_obj)
     if target:
-        remove_compression_in_progress(target)
+        remove_temp_file(target)
         if Files.query.filter_by(filepath=target).first() is None and os.path.exists(target):
             os.remove(target)
     pop_ignored_event(src_path=file_obj.filepath, dest_path='')

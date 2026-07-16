@@ -208,43 +208,44 @@ def pop_ignored_event(src_path=None, dest_path=None):
     return False
 
 
-class CompressionInProgress(db.Model):
-    """Output paths currently being written by a (de)compression task. The scanner and
-    watcher skip these so a partial, real-named file is never picked up; entries are
-    cleared on task completion/cancel, and purged (with any leftover partial) at startup."""
-    __tablename__ = 'compression_in_progress'
+class TempFile(db.Model):
+    """A path a background task is actively writing that is not a library file yet
+    (e.g. compression output, later uploads). The scanner and watcher skip these so a
+    partial, real-named file is never picked up; entries are cleared when the task
+    finalizes/cancels, and purged (with any leftover partial) at startup."""
+    __tablename__ = 'temp_files'
     id = db.Column(db.Integer, primary_key=True)
     filepath = db.Column(db.String, unique=True, nullable=False)
 
 
-def add_compression_in_progress(filepath):
-    stmt = insert(CompressionInProgress).values(filepath=filepath).on_conflict_do_nothing()
+def add_temp_file(filepath):
+    stmt = insert(TempFile).values(filepath=filepath).on_conflict_do_nothing()
     db.session.execute(stmt)
     db.session.commit()
 
 
-def remove_compression_in_progress(filepath):
-    CompressionInProgress.query.filter_by(filepath=filepath).delete()
+def remove_temp_file(filepath):
+    TempFile.query.filter_by(filepath=filepath).delete()
     db.session.commit()
 
 
-def is_compression_in_progress(filepath):
-    return CompressionInProgress.query.filter_by(filepath=filepath).first() is not None
+def is_temp_file(filepath):
+    return TempFile.query.filter_by(filepath=filepath).first() is not None
 
 
-def get_compression_in_progress_paths():
-    return {row.filepath for row in CompressionInProgress.query.all()}
+def get_temp_file_paths():
+    return {row.filepath for row in TempFile.query.all()}
 
 
-def purge_compression_in_progress():
-    """Startup cleanup: drop every in-flight entry, deleting any leftover partial output
-    that no committed Files row points at (a completed-but-uncommitted file is kept)."""
-    for entry in CompressionInProgress.query.all():
+def purge_temp_files():
+    """Startup cleanup: drop every temp-file entry, deleting any leftover partial that no
+    committed Files row points at (a completed-but-uncommitted output is kept)."""
+    for entry in TempFile.query.all():
         committed = Files.query.filter_by(filepath=entry.filepath).first()
         if committed is None and os.path.exists(entry.filepath):
             try:
                 os.remove(entry.filepath)
-                logger.info(f"Removed interrupted compression output: {entry.filepath}")
+                logger.info(f"Removed interrupted temp file: {entry.filepath}")
             except OSError:
                 pass
         db.session.delete(entry)

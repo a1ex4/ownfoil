@@ -12,8 +12,8 @@ import pytest
 
 import file_compression as compression
 import tasks
-from db import (db, Files, Libraries, IgnoredEvent, CompressionInProgress,
-                add_ignored_event, add_compression_in_progress)
+from db import (db, Files, Libraries, IgnoredEvent, TempFile,
+                add_ignored_event, add_temp_file)
 from nsz.NszDecompressor import VerificationException
 
 from app import create_app
@@ -159,7 +159,7 @@ def test_compress_file_success(env, name, comp_ext):
     assert os.path.exists(target) and not os.path.exists(source)
     # Source deletion is suppressed; the in-progress mark is cleared at the end.
     assert _ignored(source, "")
-    assert CompressionInProgress.query.count() == 0
+    assert TempFile.query.count() == 0
 
 
 def test_compress_file_verify_failure_keeps_source(env):
@@ -177,7 +177,7 @@ def test_compress_file_verify_failure_keeps_source(env):
     assert os.path.exists(source)
     assert not os.path.exists(source.rsplit(".", 1)[0] + ".nsz")
     assert IgnoredEvent.query.count() == 0        # nothing queued before the failure
-    assert CompressionInProgress.query.count() == 0  # in-progress mark cleared in finally
+    assert TempFile.query.count() == 0  # in-progress mark cleared in finally
 
 
 @pytest.mark.parametrize("name,identified,compressed", [
@@ -220,47 +220,47 @@ def test_decompress_file_success(env):
 def test_compression_cleanup_removes_partial_and_mark(env):
     f = env.seed("Game.nsp")
     target = str(compression.compressed_path(f.filepath))
-    add_compression_in_progress(target)
+    add_temp_file(target)
     add_ignored_event(f.filepath, "")
     open(target, "wb").close()  # a partial, uncommitted output
 
     tasks._compression_cleanup(file_id=f.id)
 
     assert not os.path.exists(target)                 # partial removed
-    assert CompressionInProgress.query.count() == 0   # mark cleared
+    assert TempFile.query.count() == 0   # mark cleared
     assert IgnoredEvent.query.count() == 0            # source-deletion event popped
 
 
 def test_startup_purge_keeps_committed_output(env):
     # An interrupted task that had already flipped the row: output is committed, keep it.
     f = env.seed("Game.nsz", compressed=True)         # row already points at the output
-    add_compression_in_progress(f.filepath)
+    add_temp_file(f.filepath)
     # And a genuinely partial one that no row points at.
     partial = str(env.lib_dir / "Half.nsz")
     open(partial, "wb").close()
-    add_compression_in_progress(partial)
+    add_temp_file(partial)
 
-    from db import purge_compression_in_progress
-    purge_compression_in_progress()
+    from db import purge_temp_files
+    purge_temp_files()
 
     assert os.path.exists(f.filepath)      # committed output kept
     assert not os.path.exists(partial)     # orphan partial removed
-    assert CompressionInProgress.query.count() == 0
+    assert TempFile.query.count() == 0
 
 
 def test_scan_and_watcher_skip_in_progress(env):
     """Scanner and watcher both ignore a file while it is marked in-progress."""
     target = str(env.lib_dir / "Being.nsz")
     open(target, "wb").close()
-    add_compression_in_progress(target)
+    add_temp_file(target)
 
-    from db import get_compression_in_progress_paths, is_compression_in_progress
+    from db import get_temp_file_paths, is_temp_file
     # Scanner: in-progress path is excluded from the scan's new-file set.
     _, files = __import__("titles").getDirsAndFiles(str(env.lib_dir))
-    skip = get_compression_in_progress_paths()
+    skip = get_temp_file_paths()
     assert target in files and target not in [f for f in files if f not in skip]
     # Watcher gate.
-    assert is_compression_in_progress(target) is True
+    assert is_temp_file(target) is True
 
 
 # --- compress_library fan-out ------------------------------------------------------------
