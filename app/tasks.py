@@ -9,7 +9,7 @@ import shutil
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 import titles as titles_lib
 import titledb
-import compression
+import file_compression as compression
 from constants import COMPRESS_EXT, DECOMPRESS_EXT, COMPRESS_TMP_DIRNAME
 from db import (
     db, Task, Files, Apps, Libraries, get_library_id, get_library_path, get_library_file_paths,
