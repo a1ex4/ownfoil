@@ -265,17 +265,48 @@ def cancel_task(task_id):
             app_mod.pool.restart_worker(worker_id)
 
     if task_name is not None:
-        cleanup = TASK_CLEANUP.get(task_name)
-        if cleanup:
-            input_data = json.loads(input_json) if input_json else {}
-            try:
-                cleanup(**input_data)
-            except Exception as e:
-                logger.error(f"Cleanup hook for cancelled task '{task_name}' failed: {e}")
+        _run_cleanup_hook(task_name, input_json)
 
     if parent_id:
         _try_complete_parent(parent_id)
     return True
+
+
+def _run_cleanup_hook(task_name, input_json):
+    """Run a task's registered @register_cleanup hook (idempotent) if it has one."""
+    cleanup = TASK_CLEANUP.get(task_name)
+    if not cleanup:
+        return
+    input_data = json.loads(input_json) if input_json else {}
+    try:
+        cleanup(**input_data)
+    except Exception as e:
+        logger.error(f"Cleanup hook for task '{task_name}' failed: {e}")
+
+
+def reap_worker_task(worker_id):
+    """Fail and clean up the task a worker was running when it was stopped mid-task.
+
+    Every worker termination (app shutdown, scale-down, restart) funnels through
+    WorkerPool._stop_worker, which calls this (under an app context) after the process is
+    gone. It runs the task's cleanup hook so temp files / partial output are removed even
+    when the task ends via a worker stop rather than an explicit cancel. Idempotent and a
+    no-op when the worker held no running task (it exited cleanly between tasks, or the
+    task was already removed by cancel_task before its worker was restarted).
+    """
+    task = Task.query.filter_by(status='running', worker_id=worker_id).first()
+    if task is None:
+        return
+    task_name, input_json, parent_id = task.task_name, task.input_json, task.parent_id
+    task.status = 'failed'
+    task.error_message = 'Interrupted by worker stop'
+    task.exit_code = 1
+    task.completed_at = datetime.datetime.utcnow()
+    db.session.commit()
+    logger.info(f"Reaped task {task.id} ({task_name}) from stopped worker {worker_id}")
+    _run_cleanup_hook(task_name, input_json)
+    if parent_id:
+        _try_complete_parent(parent_id)
 
 
 # --- Startup cleanup ---

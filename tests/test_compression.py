@@ -283,6 +283,34 @@ def test_cleanup_clears_pending_and_fails_running(env):
     assert db.session.get(Task, waiting_id).status == "failed"
 
 
+def test_reap_worker_task_runs_cleanup(env):
+    """Stopping a worker mid-compression fails its running task and runs the cleanup hook,
+    so the partial output and TempFile mark are removed (no explicit cancel needed)."""
+    f = env.seed("Game.nsp")
+    target = str(compression.compressed_path(f.filepath))
+    add_temp_file(target)
+    add_ignored_event(f.filepath, "")
+    open(target, "wb").close()  # partial output left by the killed worker
+
+    t = Task(task_name="compress_file", status="running", worker_id=7,
+             input_hash="x", input_json='{"file_id": %d}' % f.id)
+    db.session.add(t)
+    db.session.commit()
+    tid = t.id
+
+    tasks.reap_worker_task(7)
+
+    assert db.session.get(Task, tid).status == "failed"
+    assert not os.path.exists(target)          # partial removed by the cleanup hook
+    assert TempFile.query.count() == 0         # in-progress mark cleared
+    assert IgnoredEvent.query.count() == 0     # source-deletion event popped
+
+
+def test_reap_worker_task_noop_without_running_task(env):
+    """No running task for the worker (clean exit / already cancelled): reap does nothing."""
+    tasks.reap_worker_task(99)  # must not raise
+
+
 def test_startup_purge_keeps_committed_output(env):
     # An interrupted task that had already flipped the row: output is committed, keep it.
     f = env.seed("Game.nsz", compressed=True)         # row already points at the output
