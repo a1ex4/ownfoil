@@ -200,6 +200,35 @@ def test_compress_file_missing_source_noop(env):
     tasks.compress_file_task(file_id=f.id)  # returns cleanly, does not call nsz
 
 
+def test_compress_file_defers_unorganized(env):
+    """With the organizer on, an identified-but-unorganized file must not be compressed;
+    organize_file re-triggers compression once the file is placed."""
+    env.monkeypatch.setattr(tasks, "get_settings", lambda: _settings(organizer=True))
+    env.monkeypatch.setattr(compression, "compress_to", lambda *a, **k: 1 / 0)
+    f = env.seed("Game.nsp")           # organized defaults to False
+    source, fid = f.filepath, f.id
+
+    tasks.compress_file_task(file_id=fid)  # returns without invoking nsz
+
+    f = db.session.get(Files, fid)
+    assert f.compressed is False and f.filepath == source and f.extension == "nsp"
+
+
+def test_compress_file_compresses_organized(env):
+    """The same file, once organized, is compressed even with the organizer on."""
+    env.monkeypatch.setattr(tasks, "get_settings", lambda: _settings(organizer=True))
+    env.monkeypatch.setattr(compression, "compress_to", _stub_produce())
+    f = env.seed("Game.nsp")
+    f.organized = True
+    db.session.commit()
+    fid = f.id
+
+    tasks.compress_file_task(file_id=fid)
+
+    f = db.session.get(Files, fid)
+    assert f.compressed is True and f.extension == "nsz"
+
+
 # --- decompress_file ---------------------------------------------------------------------
 
 def test_decompress_file_success(env):
@@ -280,6 +309,26 @@ def test_compress_library_selects_eligible(env):
 
     assert sorted(fid for _, fid in enqueued) == sorted([ok1.id, ok2.id, ok3.id])
     assert all(name == "compress_file" for name, _ in enqueued)
+
+
+def test_compress_library_excludes_awaiting_organization(env):
+    """With the organizer on, files still awaiting organization are skipped by the sweep;
+    organized files and unorganizable (unidentified) files stay eligible."""
+    enqueued = []
+    env.monkeypatch.setattr(tasks, "get_settings", lambda: _settings(organizer=True))
+    env.monkeypatch.setattr(tasks, "enqueue_or_child",
+                            lambda name, data=None: enqueued.append(data["file_id"]))
+    env.monkeypatch.setattr(tasks, "set_waiting_for_children", lambda: None)
+
+    organized = env.seed("A.nsp")
+    organized.organized = True
+    unidentified = env.seed("D.nsp", identified=False)  # organizer can't place it
+    env.seed("B.xci")  # identified, not organized: deferred
+    db.session.commit()
+
+    tasks.compress_library_task()
+
+    assert sorted(enqueued) == sorted([organized.id, unidentified.id])
 
 
 def test_compress_library_disabled_noop(env):

@@ -739,12 +739,19 @@ def _convert_file(file_obj, produce, new_extension, compressed):
 @register_task('compress_library')
 def compress_library_task(**kwargs):
     """Compress every uncompressed game file, one child task per file."""
-    if not get_settings()['library']['management']['compress_files']:
+    mgmt = get_settings()['library']['management']
+    if not mgmt['compress_files']:
         return
-    files = Files.query.filter(
+    query = Files.query.filter(
         Files.compressed.is_(False),
         Files.extension.in_(list(COMPRESS_EXT.keys())),
-    ).all()
+    )
+    if mgmt['organizer']['enabled']:
+        # Files still awaiting organization are compressed by organize_file once placed;
+        # don't sweep them here before they've been organized.
+        query = query.filter(~(Files.identified.is_(True) & Files.organized.is_(False)))
+    files = query.all()
+    logger.info(f'Compressing library: {len(files)} file(s) to compress.')
     enqueued = 0
     for f in files:
         enqueue_or_child('compress_file', {'file_id': f.id})
@@ -761,7 +768,12 @@ def compress_file_task(file_id, **kwargs):
         return
     if not os.path.exists(file_obj.filepath):
         return
-    opts = get_settings()['library']['management']['compression']
+    mgmt = get_settings()['library']['management']
+    if mgmt['organizer']['enabled'] and file_obj.identified and not file_obj.organized:
+        # Must be organized first; organize_file re-triggers compression once placed.
+        return
+    logger.info(f'Compressing file: {file_obj.filename}')
+    opts = mgmt['compression']
     _convert_file(file_obj,
                   lambda source, out_dir: compression.compress_to(source, out_dir, opts),
                   COMPRESS_EXT[file_obj.extension], True)
