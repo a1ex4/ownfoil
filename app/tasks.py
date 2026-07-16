@@ -430,12 +430,8 @@ def _schedules_generate_library(func):
 
 @register_task('startup')
 def startup_task(**kwargs):
-    """Startup task: kick off titledb update, re-identify unidentified files, and scan.
-
-    identify_library covers files left unidentified when the pending queue was cleared on
-    restart (and re-tries previously-unidentifiable files against the refreshed titledb)."""
+    """Startup task: cleanup and kick off periodic titledb update."""
     update_titledb_task()
-    enqueue_task('identify_library')
     scan_libraries_task()
 
 # --- Periodic tasks ---
