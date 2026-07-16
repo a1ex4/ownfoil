@@ -217,9 +217,55 @@
                 <h3 class="pt-4 pb-2">Management</h3>
                 <p>Configure automated library management.</p>
                 <div class="mb-3 form-check">
-                    <input type="checkbox" class="form-check-input" id="compressFilesCheck" disabled>
+                    <input type="checkbox" class="form-check-input" id="compressFilesCheck">
                     <label class="form-check-label" for="compressFilesCheck">Compress files</label>
-                    <div class="form-text">Compress files to NSZ/XCZ format after adding them to the library (not yet implemented).</div>
+                    <div class="form-text">Compress files to NSZ/XCZ (NSP→NSZ, XCI→XCZ) after they are added and organized.
+                        Every compressed file is verified before the original is removed.</div>
+                </div>
+                <div class="row">
+                    <div class="col-7">
+                        <div class="mb-3">
+                            <label for="compressionLevelInput" class="form-label">Compression level: <span id="compressionLevelValue"></span></label>
+                            <input type="range" class="form-range" min="1" max="22" id="compressionLevelInput"
+                                oninput="document.getElementById('compressionLevelValue').textContent = this.value">
+                            <div class="form-text">zstandard level (1–22). Higher = smaller files but slower. Default: 18.</div>
+                        </div>
+                        <button class="btn btn-sm btn-outline-secondary mb-3" type="button" data-bs-toggle="collapse"
+                            data-bs-target="#compressionAdvanced" aria-expanded="false" aria-controls="compressionAdvanced">
+                            Advanced compression options
+                        </button>
+                        <div class="collapse" id="compressionAdvanced">
+                            <div class="mb-3 form-check">
+                                <input type="checkbox" class="form-check-input" id="compressLongDistanceCheck">
+                                <label class="form-check-label" for="compressLongDistanceCheck">Long-distance mode</label>
+                                <div class="form-text">Enables zstandard long-distance matching for a better ratio on large files, at higher memory use.</div>
+                            </div>
+                            <div class="mb-3">
+                                <label for="compressSolidSelect" class="form-label">Compression mode:</label>
+                                <select class="form-select" id="compressSolidSelect">
+                                    <option value="auto">Auto (solid for NSP, block for XCI)</option>
+                                    <option value="solid">Solid (best ratio, not randomly readable)</option>
+                                    <option value="block">Block (random read access, slightly larger)</option>
+                                </select>
+                                <div class="form-text">Block compression allows streaming/mounting without full decompression.</div>
+                            </div>
+                            <div class="mb-3">
+                                <label for="compressBlockSizeInput" class="form-label">Block size exponent:</label>
+                                <input type="number" class="form-control" min="14" max="32" id="compressBlockSizeInput">
+                                <div class="form-text">Block size is 2^x (14–32). Default: 20 (1 MB). Only used in block mode.</div>
+                            </div>
+                            <div class="mb-3">
+                                <label for="compressThreadsInput" class="form-label">Threads per file:</label>
+                                <input type="number" class="form-control" min="0" max="64" id="compressThreadsInput">
+                                <div class="form-text">Threads each compression task uses (0 = automatic). Note: this multiplies with the
+                                    number of workers — high values across many workers can oversubscribe the CPU.</div>
+                            </div>
+                        </div>
+                        <div class="mb-3">
+                            <button class="btn btn-outline-primary" type="button" id="compressNowBtn" onClick="compressLibraryNow()">Compress library now</button>
+                            <div class="form-text">Queue compression of every eligible uncompressed file in the library.</div>
+                        </div>
+                    </div>
                 </div>
                 <div class="mb-3 form-check">
                     <input type="checkbox" class="form-check-input" id="deleteOlderUpdatesCheck">
@@ -1087,6 +1133,13 @@
         $('#submitLibraryManagementSettingsBtn').prop('disabled', true);
         data = {
             compress_files: getCheckboxStatus("compressFilesCheck"),
+            compression: {
+                level: parseInt(getInputVal("compressionLevelInput")),
+                long_distance: getCheckboxStatus("compressLongDistanceCheck"),
+                solid: getInputVal("compressSolidSelect"),
+                block_size_exponent: parseInt(getInputVal("compressBlockSizeInput")),
+                threads: parseInt(getInputVal("compressThreadsInput"))
+            },
             delete_older_updates: getCheckboxStatus("deleteOlderUpdatesCheck"),
             organizer: {
                 enabled: getCheckboxStatus("organizerEnabledCheck"),
@@ -1111,6 +1164,22 @@
                     console.log('Not Success!');
                 }
                 $('#submitLibraryManagementSettingsBtn').prop('disabled', false);
+            }
+        });
+    }
+
+    function compressLibraryNow() {
+        const btn = $('#compressNowBtn');
+        btn.prop('disabled', true);
+        $.ajax({
+            url: "/api/tasks/compress",
+            type: 'POST',
+            complete: function () {
+                const original = btn.text();
+                btn.text("Compression queued");
+                setTimeout(function () {
+                    btn.text(original).prop('disabled', false);
+                }, 2000);
             }
         });
     }
@@ -1234,6 +1303,13 @@
             librarySettings = result['library'];
             // Populate library management settings
             $("#compressFilesCheck").prop("checked", librarySettings['management']['compress_files']);
+            const compression = librarySettings['management']['compression'];
+            setInputVal("compressionLevelInput", compression['level']);
+            $("#compressionLevelValue").text(compression['level']);
+            $("#compressLongDistanceCheck").prop("checked", compression['long_distance']);
+            setInputVal("compressSolidSelect", compression['solid']);
+            setInputVal("compressBlockSizeInput", compression['block_size_exponent']);
+            setInputVal("compressThreadsInput", compression['threads']);
             $("#deleteOlderUpdatesCheck").prop("checked", librarySettings['management']['delete_older_updates']);
             $("#organizerEnabledCheck").prop("checked", librarySettings['management']['organizer']['enabled']);
             $("#removeEmptyFoldersCheck").prop("checked", librarySettings['management']['organizer']['remove_empty_folders']);
