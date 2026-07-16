@@ -668,11 +668,11 @@ def identify_file_task(filepath, file_id, **kwargs):
         if mgmt['organizer']['enabled']:
             # Organizer runs first; it enqueues compression after the file is in place.
             enqueue_or_child('organize_file', {'file_id': file_id})
-        elif mgmt['compress_files']:
+        elif mgmt['compress_files'] and not file.compressed:
             enqueue_task('compress_file', {'file_id': file_id})
 
         set_waiting_for_children()
-    elif get_settings()['library']['management']['compress_files']:
+    elif get_settings()['library']['management']['compress_files'] and not file.compressed:
         # Unidentified files are still compressed (compression needs keys, not identification).
         enqueue_task('compress_file', {'file_id': file_id})
 
@@ -740,7 +740,7 @@ def organize_file_task(file_id, **kwargs):
     if organize_file(file_obj, library_path, organizer_settings):
         file_obj.organized = True
         db.session.commit()
-    if get_settings()['library']['management']['compress_files']:
+    if get_settings()['library']['management']['compress_files'] and not file_obj.compressed:
         enqueue_task('compress_file', {'file_id': file_id})
     enqueue_task('organize_library_done', {'library_path': library_path})
 

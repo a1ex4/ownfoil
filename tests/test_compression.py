@@ -241,6 +241,21 @@ def test_compress_file_missing_source_noop(env):
     tasks.compress_file_task(file_id=f.id)  # returns cleanly, does not call nsz
 
 
+def test_organize_file_skips_compress_when_already_compressed(env):
+    """organize_file only enqueues compress_file for an uncompressed file."""
+    enqueued = []
+    env.monkeypatch.setattr(tasks, "organize_file", lambda *a, **k: False)
+    env.monkeypatch.setattr(tasks, "enqueue_task", lambda name, data=None: enqueued.append(name))
+
+    already = env.seed("Game.nsz", compressed=True)
+    tasks.organize_file_task(file_id=already.id)
+    assert "compress_file" not in enqueued
+
+    raw = env.seed("Other.nsp")
+    tasks.organize_file_task(file_id=raw.id)
+    assert "compress_file" in enqueued
+
+
 def test_compress_file_skips_when_target_row_exists(env):
     """A duplicate whose compressed target is already a library file is skipped, not compressed
     into a UNIQUE(filepath) collision at finalize."""
