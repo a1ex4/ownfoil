@@ -5,17 +5,18 @@ import datetime
 import functools
 import logging
 import os
-import shutil
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 import titles as titles_lib
 import titledb
 import file_compression as compression
-from constants import COMPRESS_EXT, DECOMPRESS_EXT, COMPRESS_TMP_DIRNAME
+from constants import COMPRESS_EXT, DECOMPRESS_EXT
 from db import (
     db, Task, Files, Apps, Libraries, get_library_id, get_library_path, get_library_file_paths,
     get_libraries, add_title_id_in_db, get_title_id_db_id, add_file_to_app,
     file_exists_in_db, update_file_path, delete_file_by_filepath,
     delete_files_under_dir, add_ignored_event, pop_ignored_event,
+    add_compression_in_progress, remove_compression_in_progress,
+    get_compression_in_progress_paths, purge_compression_in_progress,
     set_library_scan_time, remove_missing_files_from_db,
     remove_file_from_apps, reset_file_identification, create_file,
 )
@@ -299,6 +300,9 @@ def cleanup_tasks():
 
     db.session.commit()
 
+    # Sweep leftover output from any (de)compression interrupted by the restart.
+    purge_compression_in_progress()
+
 
 # --- Helpers ---
 
@@ -461,8 +465,8 @@ def scan_library_task(library_path, **kwargs):
 
     logger.info(f'Scanning library path {library_path} ...')
     _, files = titles_lib.getDirsAndFiles(library_path)
-    filepaths_in_db = set(get_library_file_paths(library_id))
-    new_files = [f for f in files if f not in filepaths_in_db]
+    skip = set(get_library_file_paths(library_id)) | get_compression_in_progress_paths()
+    new_files = [f for f in files if f not in skip]
 
     if not new_files:
         logger.info(f'No new files found in {library_path}.')
@@ -692,37 +696,45 @@ def remove_outdated_updates_task(**kwargs):
 
 
 # --- Compression pipeline ---
-def _compress_tmp_dir(library_path, file_id):
-    """Per-file working dir under the library root (same filesystem as the source,
-    so os.replace into place is atomic; hidden from scanner and watcher)."""
-    return os.path.join(library_path, COMPRESS_TMP_DIRNAME, str(file_id))
+def _conversion_target(file_obj):
+    """The output path a (de)compression of this file would produce, or None."""
+    if not file_obj.compressed and file_obj.extension in COMPRESS_EXT:
+        return str(compression.compressed_path(file_obj.filepath))
+    if file_obj.compressed and file_obj.extension in DECOMPRESS_EXT:
+        return str(compression.decompressed_path(file_obj.filepath))
+    return None
 
 
-def _replace_in_place(file_obj, out, target, new_extension, compressed):
-    """Atomically move a produced file onto target and update the DB row, bracketing
-    the source-delete and target-create so the watcher ignores our own writes."""
+def _finalize_conversion(file_obj, target, new_extension, compressed):
+    """Flip the Files row onto the verified output, then drop the now-redundant source.
+    The row is committed pointing at the (already existing, verified) target before the
+    source is removed, so a committed row never references a missing file."""
     source = file_obj.filepath
-    # Suppress our own writes across both observer shapes: native inotify reports the
-    # move out of the temp dir as moved(out -> target); a polling observer reports it as
-    # a bare created(target). Plus the source deletion.
-    add_ignored_event(target, '')
-    add_ignored_event(str(out), target)
-    add_ignored_event(source, '')
+    add_ignored_event(source, '')  # our own deletion of the source
+    file_obj.filepath = target
+    file_obj.extension = new_extension
+    file_obj.size = os.path.getsize(target)
+    file_obj.mtime = os.path.getmtime(target)
+    file_obj.compressed = compressed
+    db.session.commit()
+    if os.path.abspath(source) != os.path.abspath(target):
+        os.remove(source)
+
+
+def _convert_file(file_obj, produce, new_extension, compressed):
+    """Run a (de)compression: produce the verified output at its final path while it is
+    marked in-progress (scanner/watcher skip it), then finalize. The output is written
+    directly in the source's directory; nsz unlinks it on failure, and an interrupted
+    task's leftover is swept by purge_compression_in_progress at startup / the cleanup hook."""
+    source = file_obj.filepath
+    target = _conversion_target(file_obj)
+    add_compression_in_progress(target)
     try:
-        os.replace(str(out), target)
-        # DB now points at a file that exists on disk; only then drop the source.
-        file_obj.filepath = target
-        file_obj.extension = new_extension
-        file_obj.size = os.path.getsize(target)
-        file_obj.compressed = compressed
-        db.session.commit()
-        if os.path.abspath(source) != os.path.abspath(target):
-            os.remove(source)
-    except Exception:
-        pop_ignored_event(src_path=target, dest_path='')
-        pop_ignored_event(src_path=str(out), dest_path=target)
-        pop_ignored_event(src_path=source, dest_path='')
-        raise
+        out = str(produce(source, os.path.dirname(source)))
+        _finalize_conversion(file_obj, out, new_extension, compressed)
+    finally:
+        remove_compression_in_progress(target)
+    logger.info(f'{os.path.basename(source)} -> {os.path.basename(target)}')
 
 
 @register_task('compress_library')
@@ -748,21 +760,12 @@ def compress_file_task(file_id, **kwargs):
     file_obj = db.session.get(Files, file_id)
     if not file_obj or file_obj.compressed or file_obj.extension not in COMPRESS_EXT:
         return
-    source = file_obj.filepath
-    if not os.path.exists(source):
+    if not os.path.exists(file_obj.filepath):
         return
-
-    tmp_dir = _compress_tmp_dir(get_library_path(file_obj.library_id), file_id)
-    target = str(compression.compressed_path(source))
     opts = get_settings()['library']['management']['compression']
-    shutil.rmtree(tmp_dir, ignore_errors=True)
-    os.makedirs(tmp_dir, exist_ok=True)
-    try:
-        out = compression.compress_to(source, tmp_dir, opts)
-        _replace_in_place(file_obj, out, target, COMPRESS_EXT[file_obj.extension], True)
-    finally:
-        shutil.rmtree(tmp_dir, ignore_errors=True)
-    logger.info(f'Compressed {os.path.basename(source)} -> {os.path.basename(target)}')
+    _convert_file(file_obj,
+                  lambda source, out_dir: compression.compress_to(source, out_dir, opts),
+                  COMPRESS_EXT[file_obj.extension], True)
 
 
 @register_task('decompress_file')
@@ -771,39 +774,26 @@ def decompress_file_task(file_id, **kwargs):
     file_obj = db.session.get(Files, file_id)
     if not file_obj or not file_obj.compressed or file_obj.extension not in DECOMPRESS_EXT:
         return
-    source = file_obj.filepath
-    if not os.path.exists(source):
+    if not os.path.exists(file_obj.filepath):
         return
-
-    tmp_dir = _compress_tmp_dir(get_library_path(file_obj.library_id), file_id)
-    target = str(compression.decompressed_path(source))
-    shutil.rmtree(tmp_dir, ignore_errors=True)
-    os.makedirs(tmp_dir, exist_ok=True)
-    try:
-        out = compression.decompress_to(source, tmp_dir)
-        _replace_in_place(file_obj, out, target, DECOMPRESS_EXT[file_obj.extension], False)
-    finally:
-        shutil.rmtree(tmp_dir, ignore_errors=True)
-    logger.info(f'Decompressed {os.path.basename(source)} -> {os.path.basename(target)}')
+    _convert_file(file_obj, compression.decompress_to,
+                  DECOMPRESS_EXT[file_obj.extension], False)
 
 
 @register_cleanup('compress_file')
 @register_cleanup('decompress_file')
 def _compression_cleanup(file_id, **kwargs):
-    """Idempotent cancel/crash cleanup: drop the working dir and any queued ignored
-    events. The source is never mutated before its verified replacement exists, so
-    there is nothing else to undo."""
+    """Idempotent cancel/crash cleanup: clear the in-progress mark, remove the partial
+    output if it isn't a committed file, and pop the source-deletion ignored event."""
     file_obj = db.session.get(Files, file_id)
     if not file_obj:
         return
-    shutil.rmtree(_compress_tmp_dir(get_library_path(file_obj.library_id), file_id), ignore_errors=True)
-    paths = {file_obj.filepath}
-    if file_obj.extension in COMPRESS_EXT:
-        paths.add(str(compression.compressed_path(file_obj.filepath)))
-    if file_obj.extension in DECOMPRESS_EXT:
-        paths.add(str(compression.decompressed_path(file_obj.filepath)))
-    for p in paths:
-        pop_ignored_event(src_path=p, dest_path='')
+    target = _conversion_target(file_obj)
+    if target:
+        remove_compression_in_progress(target)
+        if Files.query.filter_by(filepath=target).first() is None and os.path.exists(target):
+            os.remove(target)
+    pop_ignored_event(src_path=file_obj.filepath, dest_path='')
 
 # --- Batch maintenance ---
 @register_task('add_missing_apps')

@@ -208,6 +208,49 @@ def pop_ignored_event(src_path=None, dest_path=None):
     return False
 
 
+class CompressionInProgress(db.Model):
+    """Output paths currently being written by a (de)compression task. The scanner and
+    watcher skip these so a partial, real-named file is never picked up; entries are
+    cleared on task completion/cancel, and purged (with any leftover partial) at startup."""
+    __tablename__ = 'compression_in_progress'
+    id = db.Column(db.Integer, primary_key=True)
+    filepath = db.Column(db.String, unique=True, nullable=False)
+
+
+def add_compression_in_progress(filepath):
+    stmt = insert(CompressionInProgress).values(filepath=filepath).on_conflict_do_nothing()
+    db.session.execute(stmt)
+    db.session.commit()
+
+
+def remove_compression_in_progress(filepath):
+    CompressionInProgress.query.filter_by(filepath=filepath).delete()
+    db.session.commit()
+
+
+def is_compression_in_progress(filepath):
+    return CompressionInProgress.query.filter_by(filepath=filepath).first() is not None
+
+
+def get_compression_in_progress_paths():
+    return {row.filepath for row in CompressionInProgress.query.all()}
+
+
+def purge_compression_in_progress():
+    """Startup cleanup: drop every in-flight entry, deleting any leftover partial output
+    that no committed Files row points at (a completed-but-uncommitted file is kept)."""
+    for entry in CompressionInProgress.query.all():
+        committed = Files.query.filter_by(filepath=entry.filepath).first()
+        if committed is None and os.path.exists(entry.filepath):
+            try:
+                os.remove(entry.filepath)
+                logger.info(f"Removed interrupted compression output: {entry.filepath}")
+            except OSError:
+                pass
+        db.session.delete(entry)
+    db.session.commit()
+
+
 def init_db(app):
     with app.app_context():
         # create or migrate database

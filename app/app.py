@@ -91,6 +91,11 @@ def on_library_change(events):
     """Enqueue individual tasks per file event, skipping ignored events."""
     with app.app_context():
         for event in events:
+            # A file currently being produced by a (de)compression task is not yet a
+            # library file; skip every event touching it until the task finalizes it.
+            if is_compression_in_progress(event.src_path) or (
+                    event.dest_path and is_compression_in_progress(event.dest_path)):
+                continue
             if event.type == 'moved':
                 if pop_ignored_event(src_path=event.src_path, dest_path=event.dest_path):
                     continue
