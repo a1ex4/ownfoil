@@ -241,6 +241,23 @@ def test_compress_file_missing_source_noop(env):
     tasks.compress_file_task(file_id=f.id)  # returns cleanly, does not call nsz
 
 
+def test_compress_file_skips_when_target_row_exists(env):
+    """A duplicate whose compressed target is already a library file is skipped, not compressed
+    into a UNIQUE(filepath) collision at finalize."""
+    called = []
+    env.monkeypatch.setattr(compression, "compress_to", lambda *a, **k: called.append(1))
+    src = env.seed("Game.nsp")
+    other = env.seed("Game.nsz", compressed=True)  # already occupies Game.nsz (the target path)
+    src_id, other_id = src.id, other.id
+
+    tasks.compress_file_task(file_id=src_id)
+
+    assert called == []                                        # compression skipped
+    src = db.session.get(Files, src_id)
+    assert src.compressed is False and src.extension == "nsp"  # source row untouched
+    assert db.session.get(Files, other_id) is not None         # existing row intact
+
+
 def test_compress_file_defers_unorganized(env):
     """With the organizer on, an identified-but-unorganized file must not be compressed;
     organize_file re-triggers compression once the file is placed."""

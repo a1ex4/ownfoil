@@ -812,6 +812,12 @@ def _convert_file(file_obj, produce, new_extension, compressed):
     task's leftover is swept by purge_temp_files at startup / the cleanup hook."""
     source = file_obj.filepath
     target = _conversion_target(file_obj)
+    if Files.query.filter(Files.filepath == target, Files.id != file_obj.id).first() is not None:
+        # A duplicate (e.g. the source's already-compressed sibling) already occupies the target.
+        # Finalizing would collide on the unique filepath; leave dedup to the organizer.
+        logger.info(f'Skipping conversion of {os.path.basename(source)}: '
+                    f'{os.path.basename(target)} is already in the library.')
+        return
     add_temp_file(target)
     try:
         out = str(produce(source, os.path.dirname(source)))
