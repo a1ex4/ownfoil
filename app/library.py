@@ -85,7 +85,7 @@ def organize_file(file_obj, library_path, organizer_settings):
         base_name = os.path.splitext(os.path.basename(new_full_path))[0]
         current_dir = os.path.dirname(current_filepath)
         current_name = os.path.basename(current_filepath)
-        if current_dir == new_dir_norm and re.fullmatch(
+        if current_dir == new_dir_norm and os.path.exists(new_full_path) and re.fullmatch(
             rf"{re.escape(base_name)}\(\d+\)\.{re.escape(file_obj.extension)}",
             current_name,
         ):
