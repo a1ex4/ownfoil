@@ -487,6 +487,27 @@
                     </div>
                 </div>
 
+                <div class="row mb-3">
+                    <div class="col-6">
+                        <label for="ioLimitInput" class="form-label">Max concurrent compression tasks:</label>
+                        <input type="number" class="form-control" id="ioLimitInput" min="1" step="1">
+                        <div id="ioLimitFeedback"></div>
+                        <div id="ioLimitHelp" class="form-text">
+                            How many disk-heavy tasks (compression, decompression) run at once, independent of
+                            worker count. Compressing several multi-GB files in parallel from one disk makes the
+                            heads seek back and forth and can collapse throughput, so more is not always faster.
+                            Pick based on where your library lives:
+                            <ul class="mb-0">
+                                <li><strong>Network share or a single hard drive (HDD): 1</strong> — avoids seek
+                                    thrashing; the safe default.</li>
+                                <li><strong>SATA SSD: 2–3</strong> — no seek penalty, so limited by CPU.</li>
+                                <li><strong>NVMe with spare CPU cores: raise toward your core count</strong> — each
+                                    compression uses ~3–4 threads, so the CPU, not the disk, is the ceiling.</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+
                 <div class="mb-3">
                     <button type="button" id="submitWorkerSettingsBtn" class="btn btn-primary"
                         onClick='submitWorkerSettings()'>Submit</button>
@@ -1225,7 +1246,8 @@
     function submitWorkerSettings() {
         $('#submitWorkerSettingsBtn').prop('disabled', true);
         data = {
-            count: parseInt($('#workerCountInput').val())
+            count: parseInt($('#workerCountInput').val()),
+            group_limits: { io: parseInt($('#ioLimitInput').val()) }
         }
 
         $.ajax({
@@ -1242,6 +1264,11 @@
                                 $('#workerCountFeedback').addClass('invalid-feedback d-block');
                                 $("#workerCountInput").removeClass('is-valid');
                                 $("#workerCountInput").addClass('is-invalid');
+                            } else if (error['path'] === 'worker/group_limits') {
+                                $('#ioLimitFeedback').text(error['error']);
+                                $('#ioLimitFeedback').addClass('invalid-feedback d-block');
+                                $("#ioLimitInput").removeClass('is-valid');
+                                $("#ioLimitInput").addClass('is-invalid');
                             }
                         });
                     }
@@ -1250,6 +1277,10 @@
                     $('#workerCountFeedback').removeClass('invalid-feedback d-block');
                     $("#workerCountInput").removeClass('is-invalid');
                     $("#workerCountInput").addClass('is-valid');
+                    $('#ioLimitFeedback').text('');
+                    $('#ioLimitFeedback').removeClass('invalid-feedback d-block');
+                    $("#ioLimitInput").removeClass('is-invalid');
+                    $("#ioLimitInput").addClass('is-valid');
                 }
                 $('#submitWorkerSettingsBtn').prop('disabled', false);
             }
@@ -1338,6 +1369,9 @@
             workerSettings = result['worker'];
             if (workerSettings && workerSettings['count'] !== undefined) {
                 $('#workerCountInput').val(workerSettings['count']);
+            }
+            if (workerSettings && workerSettings['group_limits'] && workerSettings['group_limits']['io'] !== undefined) {
+                $('#ioLimitInput').val(workerSettings['group_limits']['io']);
             }
 
             // Shop settings

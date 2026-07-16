@@ -412,6 +412,17 @@ def set_worker_settings_api():
         if count < 1:
             return jsonify({'success': False, 'errors': [{'path': 'worker/count', 'error': 'Must be at least 1'}]})
         data['count'] = count
+    group_limits = data.get('group_limits')
+    if group_limits is not None:
+        try:
+            io = int(group_limits['io'])
+        except (TypeError, ValueError, KeyError):
+            return jsonify({'success': False, 'errors': [{'path': 'worker/group_limits', 'error': 'Must be an integer'}]})
+        if io < 1:
+            return jsonify({'success': False, 'errors': [{'path': 'worker/group_limits', 'error': 'Must be at least 1'}]})
+        # Merge into current limits so any other groups are preserved.
+        current = get_settings().get('worker', {}).get('group_limits', {})
+        data['group_limits'] = {**current, 'io': io}
     set_worker_settings(data)
     return jsonify({'success': True, 'errors': []})
 
