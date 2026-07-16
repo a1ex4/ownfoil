@@ -4,6 +4,7 @@ import yaml
 import os, sys, tempfile
 import threading
 import hashlib
+from contextlib import contextmanager
 
 from nsz.nut import Keys
 
@@ -32,6 +33,17 @@ def _dump_settings(settings):
             except OSError:
                 pass
             raise
+
+
+@contextmanager
+def settings_transaction():
+    """Hold settings_lock across a read-modify-write so two concurrent saves can't clobber
+    each other. Yields the current settings; the caller mutates them in place and they are
+    persisted atomically on exit. (settings_lock is an RLock, so the nested load/dump are fine.)"""
+    with settings_lock:
+        settings = load_settings()
+        yield settings
+        _dump_settings(settings)
 
 _cached_settings = None
 _cached_mtimes = (None, None)
@@ -233,23 +245,23 @@ def add_library_path_to_settings(path):
         })
         return success, errors
 
-    settings = load_settings()
-    library_paths = settings['library']['paths']
-    if path in library_paths:
-        success = False
-        errors.append({
-            'path': 'library/paths',
-            'error': f"Path {path} already configured."
-        })
-        return success, errors
-    library_paths.append(path)
-    _dump_settings(settings)
+    with settings_lock:
+        settings = load_settings()
+        library_paths = settings['library']['paths']
+        if path in library_paths:
+            success = False
+            errors.append({
+                'path': 'library/paths',
+                'error': f"Path {path} already configured."
+            })
+            return success, errors
+        library_paths.append(path)
+        _dump_settings(settings)
     return success, errors
 
 def set_library_management_settings(data):
-    settings = load_settings()
-    settings['library']['management'].update(data)
-    _dump_settings(settings)
+    with settings_transaction() as settings:
+        settings['library']['management'].update(data)
 
 def get_watcher_config():
     """Return the global file watcher config, merged over defaults."""
@@ -257,66 +269,63 @@ def get_watcher_config():
 
 def set_watcher_settings(data):
     """Validate and persist the global file watcher config."""
-    settings = load_settings()
-    config = {**DEFAULT_WATCHER, **(settings['library'].get('watcher') or {})}
-    if 'enabled' in data:
-        config['enabled'] = bool(data['enabled'])
-    if 'polling_interval' in data:
-        try:
-            interval = int(data['polling_interval'])
-        except (TypeError, ValueError):
-            return False, [{'path': 'library/watcher', 'error': 'Polling interval must be an integer.'}]
-        if interval < 1:
-            return False, [{'path': 'library/watcher', 'error': 'Polling interval must be at least 1 second.'}]
-        config['polling_interval'] = interval
-    settings['library']['watcher'] = config
-    _dump_settings(settings)
+    with settings_lock:
+        settings = load_settings()
+        config = {**DEFAULT_WATCHER, **(settings['library'].get('watcher') or {})}
+        if 'enabled' in data:
+            config['enabled'] = bool(data['enabled'])
+        if 'polling_interval' in data:
+            try:
+                interval = int(data['polling_interval'])
+            except (TypeError, ValueError):
+                return False, [{'path': 'library/watcher', 'error': 'Polling interval must be an integer.'}]
+            if interval < 1:
+                return False, [{'path': 'library/watcher', 'error': 'Polling interval must be at least 1 second.'}]
+            config['polling_interval'] = interval
+        settings['library']['watcher'] = config
+        _dump_settings(settings)
     return True, []
 
 def delete_library_path_from_settings(path):
     success = True
     errors = []
-    settings = load_settings()
-    library_paths = settings['library']['paths']
-    if path in library_paths:
-        library_paths.remove(path)
-        _dump_settings(settings)
-    else:
-        success = False
-        errors.append({
-                'path': 'library/paths',
-                'error': f"Path {path} not configured."
-            })
+    with settings_lock:
+        settings = load_settings()
+        library_paths = settings['library']['paths']
+        if path in library_paths:
+            library_paths.remove(path)
+            _dump_settings(settings)
+        else:
+            success = False
+            errors.append({
+                    'path': 'library/paths',
+                    'error': f"Path {path} not configured."
+                })
     return success, errors
 
 def set_titles_settings(region, language):
-    settings = load_settings()
-    settings['titles']['region'] = region
-    settings['titles']['language'] = language
-    _dump_settings(settings)
+    with settings_transaction() as settings:
+        settings['titles']['region'] = region
+        settings['titles']['language'] = language
 
 def set_shop_settings(data):
-    settings = load_settings()
-    # Clean host URL if present
-    if 'host' in data and '://' in data['host']:
-        data['host'] = data['host'].split('://')[-1]
-    # Update shop-level settings
-    for key in ['host', 'motd', 'public']:
-        if key in data:
-            settings['shop'][key] = data[key]
-    # Update client-specific settings
-    if 'clients' in data:
-        for client_name, client_data in data['clients'].items():
-            settings['shop']['clients'][client_name].update(client_data)
-
-    _dump_settings(settings)
+    with settings_transaction() as settings:
+        # Clean host URL if present
+        if 'host' in data and '://' in data['host']:
+            data['host'] = data['host'].split('://')[-1]
+        # Update shop-level settings
+        for key in ['host', 'motd', 'public']:
+            if key in data:
+                settings['shop'][key] = data[key]
+        # Update client-specific settings
+        if 'clients' in data:
+            for client_name, client_data in data['clients'].items():
+                settings['shop']['clients'][client_name].update(client_data)
 
 def set_scheduler_settings(data):
-    settings = load_settings()
-    settings['scheduler'].update(data)
-    _dump_settings(settings)
+    with settings_transaction() as settings:
+        settings['scheduler'].update(data)
 
 def set_worker_settings(data):
-    settings = load_settings()
-    settings['worker'].update(data)
-    _dump_settings(settings)
+    with settings_transaction() as settings:
+        settings['worker'].update(data)
