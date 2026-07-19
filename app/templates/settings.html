@@ -190,6 +190,30 @@
                     </div>
                 </div>
 
+                <h3 class="pt-4 pb-2">File watcher</h3>
+                <p>Monitor library paths for changes. Local paths use native OS events; network
+                    filesystems are polled at the interval below.</p>
+                <div class="row g-3 align-items-center mb-3">
+                    <div class="col-auto">
+                        <div class="form-check form-switch mb-0">
+                            <input type="checkbox" class="form-check-input" id="watcherEnabledCheck">
+                            <label class="form-check-label" for="watcherEnabledCheck">Enable file watcher</label>
+                        </div>
+                    </div>
+                    <div class="col-auto">
+                        <label class="col-form-label" for="watcherIntervalInput">Polling interval</label>
+                    </div>
+                    <div class="col-auto">
+                        <div class="input-group">
+                            <input type="number" min="1" class="form-control" id="watcherIntervalInput" style="width:100px;">
+                            <span class="input-group-text">s</span>
+                        </div>
+                        <div id="watcherIntervalFeedback"></div>
+                    </div>
+                </div>
+                <button type="button" id="submitWatcherSettingsBtn" class="btn btn-primary mb-3"
+                    onClick='submitWatcherSettings()'>Save</button>
+
                 <h3 class="pt-4 pb-2">Management</h3>
                 <p>Configure automated library management.</p>
                 <div class="mb-3 form-check">
@@ -484,60 +508,31 @@
                 }
             }
             paths = result.paths;
-            watchers = result.watchers || {};
             if (paths === null || !paths.length) {
                 $('#pathsTable tbody').append(
                     '<tr><td>-</td><td>-</td><td>');
             } else {
-                paths.forEach((path, i) => {
-                    const w = watchers[path] || { enabled: true, polling_interval: 30, network: true, fstype: null };
-                    const badge = w.network
-                        ? '<span class="badge bg-warning text-dark" title="' + (w.fstype || 'network') + '">Polling</span>'
-                        : '<span class="badge bg-success" title="' + (w.fstype || 'local') + '">Native</span>';
-                    const intervalGroup = w.network
-                        ? '<div class="input-group input-group-sm" style="width:auto;">' +
-                          '<span class="input-group-text">Poll every</span>' +
-                          '<input type="number" min="1" class="form-control" id="watcherInterval' + i + '" value="' + w.polling_interval + '" style="width:80px;">' +
-                          '<span class="input-group-text">s</span>' +
-                          '</div>'
-                        : '';
+                paths.forEach(path => {
                     $('#pathsTable tbody').append(
-                        '<tr><td>' +
-                        '<button type="button" class="btn btn-sm btn-link p-0 me-2 watcher-caret text-body text-decoration-none" data-bs-toggle="collapse" data-bs-target="#watcherRow' + i + '" aria-expanded="false" aria-label="Toggle watcher settings"><i class="bi bi-chevron-right"></i></button>' +
-                        path +
-                        '</td>' +
+                        '<tr><td>' + path + '</td>' +
                         '<td>' +
                         '<button type="button" class="btn btn-outline-info btn-sm scanBtn" onclick=\'scanLibrary("' + path + '");\' ><i class="bi bi-arrow-clockwise"></i></button> ' +
                         '<button type="button" class="btn btn-outline-danger btn-sm" data-bs-toggle="modal" data-bs-target="#deletePathModal" data-bs-path="' + path + '"\'><i class="bi bi-x-circle"></i></button>' +
                         '</td></tr>');
-                    $('#pathsTable tbody').append(
-                        '<tr><td colspan="2" class="p-0 border-0">' +
-                        '<div id="watcherRow' + i + '" class="collapse">' +
-                        '<div class="d-flex align-items-center gap-3 flex-wrap px-3 py-2">' +
-                        '<small class="text-muted">File watcher:</small>' +
-                        badge +
-                        '<div class="form-check form-switch mb-0">' +
-                        '<input class="form-check-input" type="checkbox" id="watcherEnabled' + i + '"' + (w.enabled ? ' checked' : '') + '>' +
-                        '<label class="form-check-label" for="watcherEnabled' + i + '">Watch this path</label>' +
-                        '</div>' +
-                        intervalGroup +
-                        '<button type="button" class="btn btn-outline-primary btn-sm" onclick=\'saveWatcherSettings("' + path + '", ' + i + ');\'>Save</button>' +
-                        '</div></div>' +
-                        '</td></tr>');
                 })
             }
+            const watcher = result.watcher || { enabled: true, polling_interval: 60 };
+            $('#watcherEnabledCheck').prop('checked', watcher.enabled);
+            $('#watcherIntervalInput').val(watcher.polling_interval);
         });
 
     }
 
-    function saveWatcherSettings(path, i) {
+    function submitWatcherSettings() {
+        $('#submitWatcherSettingsBtn').prop('disabled', true);
         data = {
-            path: path,
-            enabled: $('#watcherEnabled' + i).prop('checked')
-        }
-        const intervalEl = $('#watcherInterval' + i);
-        if (intervalEl.length) {
-            data.polling_interval = parseInt(intervalEl.val(), 10);
+            enabled: getCheckboxStatus("watcherEnabledCheck"),
+            polling_interval: parseInt($('#watcherIntervalInput').val(), 10)
         }
         $.ajax({
             url: "/api/settings/library/watcher",
@@ -546,9 +541,18 @@
             contentType: "application/json",
             success: function (result) {
                 if (!result['success']) {
-                    console.log('Not Success!', result['errors']);
+                    if (result['errors']) {
+                        result['errors'].forEach(error => {
+                            $('#watcherIntervalFeedback').text(error['error']);
+                            $('#watcherIntervalFeedback').addClass('invalid-feedback d-block');
+                            $("#watcherIntervalInput").removeClass('is-valid').addClass('is-invalid');
+                        });
+                    }
+                } else {
+                    $('#watcherIntervalFeedback').text('').removeClass('invalid-feedback d-block');
+                    $("#watcherIntervalInput").removeClass('is-invalid').addClass('is-valid');
                 }
-                fillLibraryTable();
+                $('#submitWatcherSettingsBtn').prop('disabled', false);
             }
         });
     }

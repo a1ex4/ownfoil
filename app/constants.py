@@ -23,12 +23,13 @@ TITLES_DB_FILE = os.path.join(CONFIG_DIR, 'titles.db')
 CUSTOM_TITLES_FILE = os.path.join(CONFIG_DIR, 'custom_titles.json')
 OWNFOIL_DB = 'sqlite:///' + DB_FILE
 
-# Per-library-path file watcher defaults
+# Global file watcher defaults
 DEFAULT_WATCHER = {"enabled": True, "polling_interval": 60}
 
 DEFAULT_SETTINGS = {
     "library": {
-        "paths": [{"path": "/games", "watcher": dict(DEFAULT_WATCHER)}],
+        "paths": ["/games"],
+        "watcher": dict(DEFAULT_WATCHER),
         "management": {
             "compress_files": False,
             "delete_older_updates": False,

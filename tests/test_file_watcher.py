@@ -274,7 +274,7 @@ def test_watcher_routes_by_filesystem(monkeypatch, tmp_path):
     """Local paths go to the shared native observer; network paths get a dedicated poller."""
     _stub_settings(monkeypatch,
                    get_library_paths=lambda: [],
-                   get_watcher_config=lambda p: {"enabled": True, "polling_interval": 5})
+                   get_watcher_config=lambda: {"enabled": True, "polling_interval": 5})
 
     local = tmp_path / "local"
     local.mkdir()
@@ -302,7 +302,7 @@ def test_watcher_skips_disabled_path(monkeypatch, tmp_path):
     """A path whose watcher is disabled is not scheduled on any observer."""
     _stub_settings(monkeypatch,
                    get_library_paths=lambda: [],
-                   get_watcher_config=lambda p: {"enabled": False, "polling_interval": 5})
+                   get_watcher_config=lambda: {"enabled": False, "polling_interval": 5})
     monkeypatch.setattr(file_watcher, "is_network_path", lambda p: False)
 
     lib = tmp_path / "lib"

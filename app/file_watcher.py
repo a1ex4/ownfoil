@@ -24,9 +24,9 @@ class Watcher:
         # each network path gets a dedicated PollingObserver with its own interval.
         self.native = Observer()
         self.scheduler_map = {}  # directory -> (observer, watch)
-        self._lock = threading.RLock()  # guards scheduler_map/directories/_path_config
+        self._lock = threading.RLock()  # guards scheduler_map/directories/_watcher_config
         self._started = False
-        self._path_config = self._snapshot_config()  # last-seen watcher config per configured path
+        self._watcher_config = self._snapshot_config()  # last-seen global watcher config
 
     def run(self):
         self._started = True
@@ -53,7 +53,7 @@ class Watcher:
             if not os.path.exists(directory):
                 logger.warning(f'Directory {directory} does not exist, not added to watchdog.')
                 return False
-            config = get_watcher_config(directory)
+            config = get_watcher_config()
             if not config['enabled']:
                 logger.info(f'File watcher disabled for {directory}, not monitoring.')
                 return False
@@ -96,26 +96,26 @@ class Watcher:
             return True
 
     def _snapshot_config(self):
-        """Current watcher config (enabled/interval) for every configured library path."""
-        from settings import get_library_paths, get_watcher_config
-        return {path: get_watcher_config(path) for path in get_library_paths()}
+        """Current global watcher config (enabled/interval)."""
+        from settings import get_watcher_config
+        return get_watcher_config()
 
     def reconcile(self):
-        """Re-apply watcher config changes (enable/disable, interval) for already-configured paths.
-        Paths added to or removed from the library list are ignored; only config changes are applied.
+        """Re-apply a global watcher config change (enable/disable, interval) to every library path.
+        Path add/remove is handled by the library API, not here.
         Must run off the observer dispatch thread (schedule/unschedule take the observer lock)."""
+        from settings import get_library_paths
         with self._lock:
             current = self._snapshot_config()
-            for path, config in current.items():
-                previous = self._path_config.get(path)
-                if previous is None or config == previous:
-                    continue  # newly added path, or unchanged config: nothing to do
-                logger.info(f'Watcher config changed for {path}, re-applying.')
+            if current == self._watcher_config:
+                return
+            logger.info('Watcher config changed, re-applying to all library paths.')
+            for path in get_library_paths():
                 if path in self.directories:
                     self.remove_directory(path)
-                if config['enabled']:
+                if current['enabled']:
                     self.add_directory(path)
-            self._path_config = current
+            self._watcher_config = current
 
 class _FileCallbackHandler(FileSystemEventHandler):
     def __init__(self, filepath, callback):

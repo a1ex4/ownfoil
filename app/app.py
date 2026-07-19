@@ -336,14 +336,8 @@ def library_paths_api():
             'errors': errors
         }
     elif request.method == 'GET':
-        paths = get_library_paths()
-        watchers = {}
-        for path in paths or []:
-            fstype = get_path_fstype(path)
-            watchers[path] = {**get_watcher_config(path),
-                              'network': fstype is None or fstype in NETWORK_FSTYPES,
-                              'fstype': fstype}
-        resp = {'success': True, 'errors': [], 'paths': paths, 'watchers': watchers}
+        resp = {'success': True, 'errors': [], 'paths': get_library_paths(),
+                'watcher': get_watcher_config()}
     elif request.method == 'DELETE':
         data = request.json
         success, errors = remove_library_complete(app, watcher, data['path'])
@@ -357,16 +351,11 @@ def library_paths_api():
 @access_required('admin')
 def set_library_watcher_settings_api():
     global watcher
-    data = request.json
-    path = data.get('path')
-    if not path or path not in get_library_paths():
-        return jsonify({'success': False, 'errors': [{'path': 'library/watcher', 'error': 'Unknown library path.'}]})
-    success, errors = set_watcher_settings(path, data)
+    success, errors = set_watcher_settings(request.json)
     if not success:
         return jsonify({'success': success, 'errors': errors})
-    # Re-apply the watcher live with the new config (runs in the request thread, not the observer thread)
-    watcher.remove_directory(path)
-    watcher.add_directory(path)
+    # Re-apply the new config live (runs in the request thread, not the observer thread)
+    watcher.reconcile()
     return jsonify({'success': True, 'errors': []})
 
 @app.post('/api/settings/library/management')
