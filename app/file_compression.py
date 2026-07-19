@@ -12,7 +12,7 @@ from multiprocessing import cpu_count
 import nsz
 import enlighten as _enlighten
 from nsz.nut import Keys, Print as _nsz_print
-from nsz.NszDecompressor import VerificationException
+from nsz.Decompressor import VerificationException
 
 from constants import COMPRESS_EXT, DECOMPRESS_EXT
 

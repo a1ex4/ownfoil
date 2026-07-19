@@ -16,7 +16,7 @@ import file_compression as compression
 import tasks
 from db import (db, Files, Libraries, IgnoredEvent, TempFile, Task,
                 add_ignored_event, add_temp_file)
-from nsz.NszDecompressor import VerificationException
+from nsz.Decompressor import VerificationException
 
 from app import create_app
 
