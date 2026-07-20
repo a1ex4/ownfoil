@@ -5,6 +5,7 @@ directory and verifies the result before returning; the caller is responsible
 for atomically moving the verified file into place and updating the database.
 """
 import logging
+import multiprocessing
 import threading
 from pathlib import Path
 from multiprocessing import cpu_count
@@ -25,15 +26,71 @@ POLL_INTERVAL = 1.0
 
 
 class _NoBar:
-    """No-op stand-in for enlighten.Counter: progress is reported via statusReport, not a bar."""
-    def __init__(self, *a, **k): pass
+    """No-op stand-in for an enlighten counter. Besides update/refresh/close, nsz
+    reads and writes bar attributes as display bookkeeping — block compression does
+    `bar.count = bar.total` mid-run. None of it affects the compressed output, so we
+    accept every call and default any unset attribute to 0; raising AttributeError
+    here would abort the block container, and nsz swallows that (deleting the
+    half-written output), surfacing only as a bogus "produced no output"."""
+    def __init__(self, *a, **k): self.manager = _null_manager
     def update(self, *a, **k): pass
     def refresh(self, *a, **k): pass
     def close(self, *a, **k): pass
+    def __getattr__(self, name): return 0
 
 
-_enlighten.Counter = _NoBar          # kills every bar, incl. blockCompress (no statusReport hook)
-_nsz_print.enableInfo = False        # silence nsz's [OPEN]/[ADDING]/[VERIFIED]/... chatter (errors stay)
+class _NoBarManager:
+    """No-op stand-in for enlighten's manager. Newer nsz builds most bars through
+    enlighten.get_manager().counter(...) rather than enlighten.Counter directly; the
+    real manager also probes the terminal (cursor-position queries) and litters the
+    log with control codes. Returning this keeps nsz off the terminal entirely."""
+    def counter(self, *a, **k): return _NoBar()
+    def stop(self, *a, **k): pass
+
+
+_null_manager = _NoBarManager()
+
+_enlighten.Counter = _NoBar                       # bars built via the direct constructor (NSP repack, verify)
+_enlighten.get_manager = lambda *a, **k: _null_manager  # bars built via the manager (solid/block/decompress)
+_nsz_print.enableInfo = False                     # silence nsz's [OPEN]/[ADDING]/[VERIFIED]/... chatter (errors stay)
+_nsz_print.minimalOutput = True                   # take nsz's no-bar path; it then reports progress via Print.progress
+
+# We manage keys ourselves via settings.load_keys(); nsz's block/solid *worker* processes
+# instead run Keys.load_default() on startup and, not finding keys on nsz's default search
+# paths, print a spurious "Failed to load default keys" block (once per worker). The workers
+# never need keys — the parent decrypts before handing blocks off — so no-op the auto-loader.
+# Safe in this (parent) process too: nothing here calls load_default.
+Keys.load_default = lambda *a, **k: None
+
+
+# solidCompress/verify/decompress report progress through a statusReport dict we poll;
+# blockCompress has no such hook and, in minimalOutput mode, reports via Print.progress.
+# Bridge those calls to the active block compression's callback (using read/readSize —
+# decompressed bytes read, which reaches 100%, not the compressed size which tops out at
+# the ratio). When no block compress is running, swallow Print.progress (incl. [DONE]).
+_progress_hook = None   # (fn, base, span, [last_pct]) while a block compress runs, else None
+
+
+def _nsz_progress(job, data=None):
+    hook = _progress_hook
+    if hook is None or not isinstance(data, dict):
+        return
+    fn, base, span, last = hook
+    total, cur = data.get('readSize') or 0, data.get('read') or 0
+    pct = int(base + span) if job == 'Complete' else int(base + span * min(1.0, cur / total)) if total else None
+    if pct is not None and pct > last[0]:  # ignore nsz's per-NCA resets; keep it monotonic
+        last[0] = pct
+        fn(pct)
+
+
+_nsz_print.progress = _nsz_progress
+
+# Block compression fans out one worker process per thread. Under forkserver (the
+# Python 3.14 default) each worker re-imports nsz fresh — the patches above live only
+# in this process. Preload THIS module into the forkserver bootstrap so the workers
+# inherit them (notably the Keys.load_default no-op that drops the key-load noise).
+if multiprocessing.get_start_method(allow_none=True) in (None, 'forkserver'):
+    multiprocessing.set_forkserver_preload([__name__])
 
 
 def _with_progress(run, progress, base, span):
@@ -67,6 +124,25 @@ def _with_progress(run, progress, base, span):
     finally:
         stop.set()
         t.join(timeout=2)
+    progress(int(base + span))
+    return result
+
+
+def _with_block_progress(run, progress, base, span):
+    """Run blockCompress, mapping its Print.progress callbacks to base..base+span.
+
+    Unlike the statusReport phases, blockCompress reports through nsz's global
+    Print.progress; install _progress_hook so _nsz_progress routes those to `progress`
+    while it runs, then force the phase-end percent on success.
+    """
+    if progress is None:
+        return run()
+    global _progress_hook
+    _progress_hook = (progress, base, span, [-1])
+    try:
+        result = run()
+    finally:
+        _progress_hook = None
     progress(int(base + span))
     return result
 
@@ -123,17 +199,19 @@ def compress_to(source, out_dir, opts, progress=None):
     threads = int(opts.get('threads', 0)) or -1
     use_block = _use_block(ext, opts)
 
-    def _compress(sri):
-        if use_block:
-            # blockCompress has no statusReport hook: no live percent, but its bar is suppressed.
-            bs = int(opts.get('block_size_exponent', 20))
-            block_threads = threads if threads > 0 else cpu_count()
-            return nsz.blockCompress(source, level, True, False, long_mode, bs, out_dir, block_threads)
+    def _solid(sri):
         report, key = sri if sri else ({}, 0)
         solid_threads = threads if threads > 0 else 3
         return nsz.solidCompress(source, level, True, False, long_mode, out_dir, solid_threads, report, key, None)
 
-    out = Path(_with_progress(_compress, progress, 0, 50))
+    if use_block:
+        bs = int(opts.get('block_size_exponent', 20))
+        block_threads = threads if threads > 0 else cpu_count()
+        out = Path(_with_block_progress(
+            lambda: nsz.blockCompress(source, level, True, False, long_mode, bs, out_dir, block_threads),
+            progress, 0, 50))
+    else:
+        out = Path(_with_progress(_solid, progress, 0, 50))
     if not out.is_file():
         raise RuntimeError(f'Compression produced no output for {source.name}')
 
