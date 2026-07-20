@@ -588,14 +588,6 @@ def clear_failed_tasks_api():
     return jsonify({'success': True, 'deleted': deleted})
 
 
-@app.post('/api/tasks/compress')
-@access_required('admin')
-def compress_library_api():
-    """Compress every eligible uncompressed file across all libraries."""
-    tasks_mod.enqueue_task('compress_library')
-    return jsonify({'success': True})
-
-
 @app.post('/api/files/<int:file_id>/compress')
 @access_required('admin')
 def compress_file_api(file_id):
