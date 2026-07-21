@@ -25,16 +25,11 @@ from constants import COMPRESS_EXT, DECOMPRESS_EXT
 
 logger = logging.getLogger('main')
 
-POLL_INTERVAL = 1.0   # seconds between statusReport polls
+POLL_INTERVAL = 2.0   # seconds between statusReport polls
 
-# nsz's terminal progress bars write cursor-control escapes that corrupt the app log (worse
-# with parallel workers). minimalOutput takes nsz's own no-bar path in every compress/
-# decompress/verify routine; we read progress from its statusReport dict instead.
-_nsz_print.enableInfo = False                     # silence nsz's [OPEN]/[ADDING]/[VERIFIED]/... chatter (errors stay)
-_nsz_print.minimalOutput = True                   # no-bar path; poll the statusReport dict instead
-
-# In minimalOutput mode nsz still writes spinner/"Done" progress lines to stdout via
-# Print.progress; silence them (progress reaches the task row through the statusReport poll).
+# suppress nsz's logs and progress bars
+_nsz_print.enableInfo = False
+_nsz_print.minimalOutput = True
 _nsz_print.progress = lambda *a, **k: None
 
 
