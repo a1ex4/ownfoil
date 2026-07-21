@@ -5,7 +5,6 @@ directory and verifies the result before returning its path; the caller
 finalizes (updates the database and removes the source).
 """
 import logging
-import multiprocessing
 import threading
 from hashlib import sha256 as _sha256
 from pathlib import Path
@@ -34,24 +33,9 @@ POLL_INTERVAL = 1.0   # seconds between statusReport polls
 _nsz_print.enableInfo = False                     # silence nsz's [OPEN]/[ADDING]/[VERIFIED]/... chatter (errors stay)
 _nsz_print.minimalOutput = True                   # no-bar path; poll the statusReport dict instead
 
-# We manage keys ourselves via settings.load_keys(); nsz's block/solid *worker* processes
-# instead run Keys.load_default() on startup and, not finding keys on nsz's default search
-# paths, print a spurious "Failed to load default keys" block (once per worker). The workers
-# never need keys — the parent decrypts before handing blocks off — so no-op the auto-loader.
-# Safe in this (parent) process too: nothing here calls load_default.
-Keys.load_default = lambda *a, **k: None
-
-
 # In minimalOutput mode nsz still writes spinner/"Done" progress lines to stdout via
 # Print.progress; silence them (progress reaches the task row through the statusReport poll).
 _nsz_print.progress = lambda *a, **k: None
-
-# Block compression fans out one worker process per thread. Under forkserver (the
-# Python 3.14 default) each worker re-imports nsz fresh — the patches above live only
-# in this process. Preload THIS module into the forkserver bootstrap so the workers
-# inherit them (notably the Keys.load_default no-op that drops the key-load noise).
-if multiprocessing.get_start_method(allow_none=True) in (None, 'forkserver'):
-    multiprocessing.set_forkserver_preload([__name__])
 
 
 def _with_progress(run, progress, base, span):
