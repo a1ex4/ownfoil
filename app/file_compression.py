@@ -7,13 +7,21 @@ for atomically moving the verified file into place and updating the database.
 import logging
 import multiprocessing
 import threading
+from hashlib import sha256 as _sha256
 from pathlib import Path
 from multiprocessing import cpu_count
 
 import nsz
 import enlighten as _enlighten
+from nsz import Decompressor as _nsz_decompressor
+from nsz.Fs import Nsp as _Nsp, Xci as _Xci
 from nsz.nut import Keys, Print as _nsz_print
 from nsz.Decompressor import VerificationException
+
+# nsz's in-memory NCZ->NCA reconstruction (returns the reconstructed NCA's sha256).
+# Module-level dunder name, reached by getattr. Reused for verification below; the
+# re-encryption keys live in the NCZSECTN header, so it needs neither disk nor keys.txt.
+_decompress_ncz = getattr(_nsz_decompressor, '__decompressNcz')
 
 from constants import COMPRESS_EXT, DECOMPRESS_EXT
 
@@ -178,15 +186,62 @@ def _use_block(ext, opts):
     return ext == 'xci'
 
 
-def compress_to(source, out_dir, opts, progress=None):
-    """Compress source into out_dir, verify bit-identical against the source, and
-    return the compressed file path.
+def _nca_content_hashes(path, sri=None):
+    """Map each NCA's identity (name minus .nca/.ncz) to the sha256 of its *content*.
 
-    Raises VerificationException (or RuntimeError) on failure, leaving source
-    untouched. Compression uses keep=True so the compressed file is bit-identically
-    restorable; verification then fully reconstructs it and SHA256-compares against
-    the still-present original (nsz's full --verify), catching any divergence from
-    the actual source bytes rather than just re-checking each NCA's own hash header.
+    Compressed .ncz members are decompressed in memory (no temp file, no keys) and
+    the reconstructed NCA is hashed; plain .nca members are hashed as-is. A source and
+    a faithful compression of it yield identical maps — independent of container padding
+    and of whether an NCA matches its own name-hash.
+    """
+    path = Path(path)
+    is_xci = path.suffix.lower() in ('.xci', '.xcz')
+    container = (_Xci.Xci() if is_xci else _Nsp.Nsp())
+    container.open(str(path), 'rb')
+    members = (f for part in container.hfs0 for f in part) if is_xci else iter(container)
+    hashes = {}
+    try:
+        for f in members:
+            if f._path.endswith('.ncz'):
+                _, hexhash = _decompress_ncz(f, None, sri, None)
+            elif f._path.endswith('.nca'):
+                h = _sha256()
+                f.seek(0)
+                while not f.eof():
+                    h.update(f.read(0x100000))
+                hexhash = h.hexdigest()
+            else:
+                continue
+            hashes[f._path[:-4]] = hexhash
+    finally:
+        container.close()
+    return hashes
+
+
+def _verify_roundtrip(source, out, progress):
+    """Confirm compression didn't corrupt content: every NCA must decompress back to
+    the exact bytes of its source counterpart. Raises VerificationException otherwise."""
+    src = _nca_content_hashes(source)
+    got = _with_progress(lambda sri: _nca_content_hashes(out, sri), progress, 50, 50)
+    corrupted = sorted(k for k in src if k in got and got[k] != src[k])
+    missing = sorted(k for k in src if k not in got)
+    unexpected = sorted(k for k in got if k not in src)
+    if corrupted or missing or unexpected:
+        raise VerificationException(
+            f'Round-trip verification failed for {source.name}: '
+            f'{len(corrupted)} corrupted, {len(missing)} missing, {len(unexpected)} unexpected NCA(s)')
+
+
+def compress_to(source, out_dir, opts, progress=None):
+    """Compress source into out_dir, verify it round-trips to the source, and return
+    the compressed file path.
+
+    Raises VerificationException (or RuntimeError) on failure, leaving source untouched.
+    Compression uses keep=True so every NCA is bit-identically restorable; verification
+    then decompresses each NCA and SHA256-compares its content against the matching
+    source NCA (_verify_roundtrip). This proves compression didn't corrupt anything
+    without requiring whole-container byte-identity, which nsz can't reproduce for some
+    valid containers (padding normalisation), nor that source NCAs match their own names.
 
     `progress(pct)` is called with overall percent: compress fills 0-50, verify 50-100.
     """
@@ -215,8 +270,8 @@ def compress_to(source, out_dir, opts, progress=None):
     if not out.is_file():
         raise RuntimeError(f'Compression produced no output for {source.name}')
 
-    logger.info(f'Verifying compressed file (bit-identical): {out.name}')
-    _with_progress(lambda sri: nsz.verify(out, False, True, True, source, sri, None), progress, 50, 50)
+    logger.info(f'Verifying compressed file (NCA round-trip): {out.name}')
+    _verify_roundtrip(source, out, progress)
     return out
 
 

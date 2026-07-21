@@ -9,6 +9,7 @@ import datetime
 import os
 import time
 import types
+from pathlib import Path
 
 import pytest
 
@@ -151,7 +152,7 @@ def test_with_progress_maps_status_report_to_span(monkeypatch):
     assert seen == sorted(seen)                         # monotonic
 
 
-# --- verification contract (#1: keep + full bit-identical verify) ------------------------
+# --- verification contract: keep + NCA round-trip against source -------------------------
 
 @pytest.mark.parametrize("name,fn", [("Game.nsp", "solidCompress"), ("Cart.xci", "blockCompress")])
 def test_compress_to_keeps_and_verifies_against_source(tmp_path, monkeypatch, name, fn):
@@ -167,17 +168,37 @@ def test_compress_to_keeps_and_verifies_against_source(tmp_path, monkeypatch, na
         out.write_bytes(b"C")
         return out
 
-    def fake_verify(out, fixPadding, raiseExc, raisePfs0, originalFilePath, *rest):
-        calls["verify_original"] = str(originalFilePath)
+    def fake_verify(src, out, progress):
+        calls["verify_source"] = str(src)
+        calls["verify_out"] = str(out)
 
     monkeypatch.setattr(compression, "_ensure_keys", lambda: None)
     monkeypatch.setattr(compression.nsz, fn, fake_compress)
-    monkeypatch.setattr(compression.nsz, "verify", fake_verify)
+    monkeypatch.setattr(compression, "_verify_roundtrip", fake_verify)
 
     compression.compress_to(source, out_dir, {"solid": "auto"})
 
-    assert calls["keep"] is True                       # bit-identical restore possible
-    assert calls["verify_original"] == str(source.resolve())  # compared against the source
+    assert calls["keep"] is True                          # bit-identical restore possible
+    assert calls["verify_source"] == str(source.resolve())  # round-trip verified against the source
+
+
+def test_verify_roundtrip_passes_when_every_nca_matches(monkeypatch):
+    monkeypatch.setattr(compression, "_nca_content_hashes",
+                        lambda p, sri=None: {"AAAA": "h1", "BBBB.cnmt": "h2"})
+    compression._verify_roundtrip(Path("/x/Game.nsp"), Path("/x/Game.nsz"), None)  # no raise
+
+
+@pytest.mark.parametrize("got", [
+    {"AAAA": "WRONG", "BBBB.cnmt": "h2"},             # corrupted NCA
+    {"AAAA": "h1"},                                   # missing NCA
+    {"AAAA": "h1", "BBBB.cnmt": "h2", "X": "h3"},     # unexpected extra NCA
+])
+def test_verify_roundtrip_raises_on_any_divergence(monkeypatch, got):
+    src = {"AAAA": "h1", "BBBB.cnmt": "h2"}
+    monkeypatch.setattr(compression, "_nca_content_hashes",
+                        lambda p, sri=None: src if p.suffix in (".nsp", ".xci") else got)
+    with pytest.raises(VerificationException):
+        compression._verify_roundtrip(Path("/x/Game.nsp"), Path("/x/Game.nsz"), None)
 
 
 # --- compress_file -----------------------------------------------------------------------
