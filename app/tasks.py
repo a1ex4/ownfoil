@@ -15,7 +15,7 @@ from db import (
     get_libraries, add_title_id_in_db, get_title_id_db_id, add_file_to_app,
     file_exists_in_db, update_file_path, delete_file_by_filepath,
     delete_files_under_dir, add_ignored_event, pop_ignored_event,
-    add_temp_file, remove_temp_file, get_temp_file_paths, purge_temp_files,
+    add_temp_file, remove_temp_file, claim_temp_file, get_temp_file_paths, purge_temp_files,
     set_library_scan_time, remove_missing_files_from_db,
     remove_file_from_apps, reset_file_identification, create_file,
 )
@@ -735,11 +735,18 @@ def organize_file_task(file_id, **kwargs):
     file_obj = db.session.get(Files, file_id)
     if not file_obj:
         return
+    claimed = file_obj.filepath
+    if not claim_temp_file(claimed):
+        # A conversion is mutating this file; it re-triggers organization when it finishes.
+        return
     library_path = get_library_path(file_obj.library_id)
     organizer_settings = get_settings()['library']['management']['organizer']
-    if organize_file(file_obj, library_path, organizer_settings):
-        file_obj.organized = True
-        db.session.commit()
+    try:
+        if organize_file(file_obj, library_path, organizer_settings):
+            file_obj.organized = True
+            db.session.commit()
+    finally:
+        remove_temp_file(claimed)
     if get_settings()['library']['management']['compress_files'] and not file_obj.compressed:
         enqueue_task('compress_file', {'file_id': file_id})
     enqueue_task('organize_library_done', {'library_path': library_path})
@@ -809,7 +816,11 @@ def _convert_file(file_obj, produce, new_extension, compressed):
     """Run a (de)compression: produce the verified output at its final path while it is
     marked in-progress (scanner/watcher skip it), then finalize. The output is written
     directly in the source's directory; nsz unlinks it on failure, and an interrupted
-    task's leftover is swept by purge_temp_files at startup / the cleanup hook."""
+    task's leftover is swept by purge_temp_files at startup / the cleanup hook.
+
+    Claims the source as in-progress first: the organizer skips a file with a live claim, so
+    it can never move the source out from under nsz. Returns without converting if the claim
+    is already held (the holder re-triggers this conversion when it finishes)."""
     source = file_obj.filepath
     target = _conversion_target(file_obj)
     if Files.query.filter(Files.filepath == target, Files.id != file_obj.id).first() is not None:
@@ -818,6 +829,9 @@ def _convert_file(file_obj, produce, new_extension, compressed):
         logger.warning(f'Skipping conversion of {os.path.basename(source)}: '
                        f'{os.path.basename(target)} is already in the library.')
         return
+    if not claim_temp_file(source):
+        logger.debug(f'Skipping conversion of {os.path.basename(source)}: file is busy.')
+        return
     before = file_obj.size
     add_temp_file(target)
     try:
@@ -825,6 +839,7 @@ def _convert_file(file_obj, produce, new_extension, compressed):
         _finalize_conversion(file_obj, out, new_extension, compressed)
     finally:
         remove_temp_file(target)
+        remove_temp_file(source)
     after = file_obj.size
     ratio = after / before if before else 0
     verb = 'compressing' if compressed else 'decompressing'
@@ -874,6 +889,10 @@ def compress_file_task(file_id, **kwargs):
     _convert_file(file_obj,
                   lambda source, out_dir: compression.compress_to(source, out_dir, opts, progress=progress),
                   COMPRESS_EXT[file_obj.extension], True)
+    # If compression ran ahead of organization (it started before the file was identified),
+    # hand the now-placed file back to the organizer, which deferred while we held the claim.
+    if mgmt['organizer']['enabled'] and file_obj.identified and file_obj.compressed and not file_obj.organized:
+        enqueue_task('organize_file', {'file_id': file_id})
 
 
 @register_task('decompress_file', group='io')
@@ -898,6 +917,7 @@ def _compression_cleanup(file_id, **kwargs):
     file_obj = db.session.get(Files, file_id)
     if not file_obj:
         return
+    remove_temp_file(file_obj.filepath)  # release the source in-progress claim
     target = _conversion_target(file_obj)
     if target:
         remove_temp_file(target)

@@ -224,6 +224,16 @@ def add_temp_file(filepath):
     db.session.commit()
 
 
+def claim_temp_file(filepath):
+    """Atomically mark a path in-progress; return True if this call inserted the mark
+    (False if another task already holds it). Used as a per-file lock so a conversion and
+    the organizer never mutate the same file at once."""
+    stmt = insert(TempFile).values(filepath=filepath).on_conflict_do_nothing()
+    result = db.session.execute(stmt)
+    db.session.commit()
+    return result.rowcount > 0
+
+
 def remove_temp_file(filepath):
     TempFile.query.filter_by(filepath=filepath).delete()
     db.session.commit()

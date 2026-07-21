@@ -182,8 +182,12 @@ def compress_to(source, out_dir, opts, progress=None):
     if not out.is_file():
         raise RuntimeError(f'Compression produced no output for {source.name}')
 
-    logger.info(f'Verifying compressed file (NCA round-trip): {out.name}')
-    _verify_roundtrip(source, out, progress)
+    try:
+        logger.info(f'Verifying compressed file (NCA round-trip): {out.name}')
+        _verify_roundtrip(source, out, progress)
+    except BaseException:
+        out.unlink(missing_ok=True)  # never leave an unverified/partial output behind
+        raise
     return out
 
 
@@ -192,8 +196,12 @@ def decompress_to(source, out_dir, progress=None):
     _ensure_keys()
     source = Path(source).resolve()
     out_dir = Path(out_dir)
-    _with_progress(lambda sri: nsz.decompress(source, out_dir, False, sri), progress, 0, 100)
     out = out_dir / decompressed_path(source).name
+    try:
+        _with_progress(lambda sri: nsz.decompress(source, out_dir, False, sri), progress, 0, 100)
+    except BaseException:
+        out.unlink(missing_ok=True)  # never leave a partial output behind
+        raise
     if not out.is_file():
         raise RuntimeError(f'Decompression produced no output for {source.name}')
     return out

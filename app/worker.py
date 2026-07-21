@@ -107,8 +107,10 @@ class TaskWorker:
             task.error_message = str(e)
             task.exit_code = 1
             task.completed_at = datetime.datetime.utcnow()
-            parent_id = task.parent_id
+            task_name, input_json, parent_id = task.task_name, task.input_json, task.parent_id
             db.session.commit()
+            # Run the task's cleanup hook so a failed task leaves no partial output / stale marks.
+            tasks_mod._run_cleanup_hook(task_name, input_json)
             on_task_completed(task_id, parent_id)
 
     def run(self):

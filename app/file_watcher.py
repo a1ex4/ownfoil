@@ -169,7 +169,12 @@ class Handler(FileSystemEventHandler):
             file_path = event.dest_path
         else:
             file_path = event.src_path
-        current_size = os.path.getsize(file_path)
+        try:
+            current_size = os.path.getsize(file_path)
+        except OSError:
+            # The file vanished between its event and this call (e.g. a conversion's
+            # transient output). Ignore it rather than let the observer thread die.
+            return
         if file_path not in self.tracked_files:
             event.size = current_size
             event.timestamp = time.time()

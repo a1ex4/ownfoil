@@ -259,6 +259,18 @@ def test_growing_file_not_reported_until_stable(observer_env):
     )
 
 
+def test_track_file_ignores_vanished_file(tmp_path):
+    """A file that disappears between its event and the size probe (e.g. a conversion's
+    transient output) is skipped, not allowed to crash the observer dispatch thread."""
+    h = _make_handler(lambda events: None)
+    gone = tmp_path / "poof.xcz"  # never created
+    event = types.SimpleNamespace(type="created", src_path=str(gone), dest_path="")
+
+    h._track_file(event)  # must not raise
+
+    assert str(gone) not in h.tracked_files
+
+
 # --- Observer selection (Watcher routing) ------------------------------------------------
 
 def _stub_settings(monkeypatch, **funcs):

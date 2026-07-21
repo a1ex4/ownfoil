@@ -181,6 +181,32 @@ def test_compress_to_keeps_and_verifies_against_source(tmp_path, monkeypatch, na
     assert calls["verify_source"] == str(source.resolve())  # round-trip verified against the source
 
 
+@pytest.mark.parametrize("name,fn", [("Game.nsp", "solidCompress"), ("Cart.xci", "blockCompress")])
+def test_compress_to_removes_output_when_verification_fails(tmp_path, monkeypatch, name, fn):
+    """A verification failure must leave no compressed output on disk — the produced (but
+    unverified) file is unlinked before the exception propagates."""
+    source = tmp_path / name
+    source.write_bytes(b"RAW")
+    out_dir = tmp_path / "work"
+    out_dir.mkdir()
+    out = out_dir / os.path.basename(str(compression.compressed_path(source)))
+
+    def fake_compress(filePath, level, keep, *rest):
+        out.write_bytes(b"C")
+        return out
+
+    def boom(src, o, progress):
+        raise VerificationException("hash mismatch")
+
+    monkeypatch.setattr(compression, "_ensure_keys", lambda: None)
+    monkeypatch.setattr(compression.nsz, fn, fake_compress)
+    monkeypatch.setattr(compression, "_verify_roundtrip", boom)
+
+    with pytest.raises(VerificationException):
+        compression.compress_to(source, out_dir, {"solid": "auto"})
+    assert not out.exists()   # unverified output removed, not left in the library dir
+
+
 def test_verify_roundtrip_passes_when_every_nca_matches(monkeypatch):
     monkeypatch.setattr(compression, "_nca_content_hashes",
                         lambda p, sri=None: {"AAAA": "h1", "BBBB.cnmt": "h2"})
@@ -322,6 +348,65 @@ def test_compress_file_compresses_organized(env):
     assert f.compressed is True and f.extension == "nsz"
 
 
+# --- organizer/compression collision (per-file lock) -------------------------------------
+
+def test_compress_file_defers_while_source_is_busy(env):
+    """A conversion must not start while another task holds the file (e.g. the organizer
+    mid-move): it returns without invoking nsz and leaves the row untouched."""
+    from db import claim_temp_file
+    env.monkeypatch.setattr(compression, "compress_to", lambda *a, **k: 1 / 0)
+    f = env.seed("Game.nsp")
+    source, fid = f.filepath, f.id
+    assert claim_temp_file(source)   # another task holds the file
+
+    tasks.compress_file_task(file_id=fid)   # returns without invoking nsz
+
+    f = db.session.get(Files, fid)
+    assert f.compressed is False and f.filepath == source and f.extension == "nsp"
+
+
+def test_organize_file_defers_while_source_is_being_converted(env):
+    """The organizer must not move a file a conversion holds: it neither relocates the file
+    nor enqueues anything while the claim is held (the conversion re-triggers it when done)."""
+    from db import claim_temp_file
+    moved, enqueued = [], []
+    env.monkeypatch.setattr(tasks, "organize_file", lambda *a, **k: moved.append(1) or True)
+    env.monkeypatch.setattr(tasks, "enqueue_task", lambda name, data=None, **k: enqueued.append(name))
+    f = env.seed("Game.nsp")
+    fid = f.id
+    assert claim_temp_file(f.filepath)   # a conversion holds the source
+
+    tasks.organize_file_task(file_id=fid)
+
+    assert moved == [] and enqueued == []          # file left in place, nothing scheduled
+    assert db.session.get(Files, fid).organized is False
+
+
+def test_compress_hands_back_to_organizer_after_winning_race(env):
+    """When compression finishes on a file that became identified mid-run (it started before
+    identification landed, so the organizer had nothing to place yet), it re-enqueues
+    organize_file so the placed file still gets organized."""
+    env.monkeypatch.setattr(tasks, "get_settings", lambda: _settings(organizer=True))
+    enqueued = []
+    env.monkeypatch.setattr(tasks, "enqueue_task", lambda name, data=None, **k: enqueued.append(name))
+    f = env.seed("Game.nsp", identified=False)   # guard passes (not identified) -> compression runs
+    fid = f.id
+
+    stub = _stub_produce()
+    def produce_then_identify(source, out_dir, *a, **k):
+        obj = db.session.get(Files, fid)         # a concurrent identify lands while compressing
+        obj.identified = True
+        db.session.commit()
+        return stub(source, out_dir)
+    env.monkeypatch.setattr(compression, "compress_to", produce_then_identify)
+
+    tasks.compress_file_task(file_id=fid)
+
+    f = db.session.get(Files, fid)
+    assert f.compressed is True and f.organized is False
+    assert "organize_file" in enqueued           # handed back to the organizer
+
+
 # --- decompress_file ---------------------------------------------------------------------
 
 def test_decompress_file_success(env):
@@ -402,6 +487,33 @@ def test_reap_worker_task_runs_cleanup(env):
 def test_reap_worker_task_noop_without_running_task(env):
     """No running task for the worker (clean exit / already cancelled): reap does nothing."""
     tasks.reap_worker_task(99)  # must not raise
+
+
+def test_failed_compress_task_leaves_no_incomplete_file(env):
+    """A compress_file that raises inside the worker runs its cleanup hook: the partial output
+    and the in-progress marks are removed, so an ordinary failure leaves no incomplete file."""
+    from worker import TaskWorker
+    f = env.seed("Game.nsp")
+    source, fid = f.filepath, f.id
+    target = source.rsplit(".", 1)[0] + ".nsz"
+
+    def boom(source_, out_dir, *a, **k):
+        open(target, "wb").close()          # a partial output on disk at the moment of failure
+        raise RuntimeError("compression blew up")
+    env.monkeypatch.setattr(compression, "compress_to", boom)
+
+    t = Task(task_name="compress_file", status="running", worker_id=1,
+             input_hash="x", input_json='{"file_id": %d}' % fid)
+    db.session.add(t)
+    db.session.commit()
+    tid = t.id
+
+    TaskWorker(env.app, worker_id=1).execute_task(tid)
+
+    assert db.session.get(Task, tid).status == "failed"
+    assert not os.path.exists(target)       # partial removed by the cleanup hook
+    assert os.path.exists(source)           # source untouched
+    assert TempFile.query.count() == 0      # source claim + target mark cleared
 
 
 def test_compress_decompress_registered_in_io_group():
