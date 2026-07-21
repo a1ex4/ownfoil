@@ -31,11 +31,11 @@ DEFAULT_SETTINGS = {
         "paths": ["/games"],
         "watcher": dict(DEFAULT_WATCHER),
         "management": {
-            "compress_files": False,
             "compression": {
+                "enabled": False,
                 "level": 18,
                 "long_distance": False,
-                "solid": "auto",
+                "mode": "auto",
                 "block_size_exponent": 20,
                 "threads": 0,
             },

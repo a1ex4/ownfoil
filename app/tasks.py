@@ -668,11 +668,11 @@ def identify_file_task(filepath, file_id, **kwargs):
         if mgmt['organizer']['enabled']:
             # Organizer runs first; it enqueues compression after the file is in place.
             enqueue_or_child('organize_file', {'file_id': file_id})
-        elif mgmt['compress_files'] and not file.compressed:
+        elif mgmt['compression']['enabled'] and not file.compressed:
             enqueue_task('compress_file', {'file_id': file_id})
 
         set_waiting_for_children()
-    elif get_settings()['library']['management']['compress_files'] and not file.compressed:
+    elif get_settings()['library']['management']['compression']['enabled'] and not file.compressed:
         # Unidentified files are still compressed (compression needs keys, not identification).
         enqueue_task('compress_file', {'file_id': file_id})
 
@@ -725,7 +725,7 @@ def _organize_library_done(library_path=None, **kwargs):
             delete_empty_folders(path)
     if settings['library']['management']['delete_older_updates']:
         enqueue_task('remove_outdated_updates')
-    if settings['library']['management']['compress_files']:
+    if settings['library']['management']['compression']['enabled']:
         enqueue_task('compress_library')
 
 
@@ -747,7 +747,7 @@ def organize_file_task(file_id, **kwargs):
             db.session.commit()
     finally:
         remove_temp_file(claimed)
-    if get_settings()['library']['management']['compress_files'] and not file_obj.compressed:
+    if get_settings()['library']['management']['compression']['enabled'] and not file_obj.compressed:
         enqueue_task('compress_file', {'file_id': file_id})
     enqueue_task('organize_library_done', {'library_path': library_path})
 
@@ -851,7 +851,7 @@ def _convert_file(file_obj, produce, new_extension, compressed):
 def compress_library_task(**kwargs):
     """Compress every uncompressed game file, one child task per file."""
     mgmt = get_settings()['library']['management']
-    if not mgmt['compress_files']:
+    if not mgmt['compression']['enabled']:
         return
     query = Files.query.filter(
         Files.compressed.is_(False),

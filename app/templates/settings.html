@@ -260,8 +260,8 @@
                                             <div class="form-text">Enables zstandard long-distance matching for a better ratio on large files, at higher memory use.</div>
                                         </div>
                                         <div class="mb-3">
-                                            <label for="compressSolidSelect" class="form-label">Compression mode:</label>
-                                            <select class="form-select" id="compressSolidSelect">
+                                            <label for="compressModeSelect" class="form-label">Compression mode:</label>
+                                            <select class="form-select" id="compressModeSelect">
                                                 <option value="auto">Auto (solid for NSP, block for XCI)</option>
                                                 <option value="solid">Solid (best ratio, not randomly readable)</option>
                                                 <option value="block">Block (random read access, slightly larger)</option>
@@ -1167,11 +1167,11 @@
     function submitLibraryManagementSettings() {
         $('#submitLibraryManagementSettingsBtn').prop('disabled', true);
         data = {
-            compress_files: getCheckboxStatus("compressFilesCheck"),
             compression: {
+                enabled: getCheckboxStatus("compressFilesCheck"),
                 level: parseInt(getInputVal("compressionLevelInput")),
                 long_distance: getCheckboxStatus("compressLongDistanceCheck"),
-                solid: getInputVal("compressSolidSelect"),
+                mode: getInputVal("compressModeSelect"),
                 block_size_exponent: parseInt(getInputVal("compressBlockSizeInput")),
                 threads: parseInt(getInputVal("compressThreadsInput"))
             },
@@ -1331,11 +1331,11 @@
             // Library settings
             librarySettings = result['library'];
             // Populate library management settings
-            $("#compressFilesCheck").prop("checked", librarySettings['management']['compress_files']);
             const compression = librarySettings['management']['compression'];
+            $("#compressFilesCheck").prop("checked", compression['enabled']);
             setInputVal("compressionLevelInput", compression['level']);
             $("#compressLongDistanceCheck").prop("checked", compression['long_distance']);
-            setInputVal("compressSolidSelect", compression['solid']);
+            setInputVal("compressModeSelect", compression['mode']);
             setInputVal("compressBlockSizeInput", compression['block_size_exponent']);
             setInputVal("compressThreadsInput", compression['threads']);
             $("#deleteOlderUpdatesCheck").prop("checked", librarySettings['management']['delete_older_updates']);

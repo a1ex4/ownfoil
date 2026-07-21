@@ -25,15 +25,14 @@ from app import create_app
 # --- Harness -----------------------------------------------------------------------------
 
 DEFAULT_COMPRESSION = {
-    "level": 18, "long_distance": False, "solid": "auto",
+    "enabled": True, "level": 18, "long_distance": False, "mode": "auto",
     "block_size_exponent": 20, "threads": 0,
 }
 
 
 def _settings(compress_files=True, organizer=False, delete_older=False, group_limits=None):
     s = {"library": {"management": {
-        "compress_files": compress_files,
-        "compression": dict(DEFAULT_COMPRESSION),
+        "compression": {**DEFAULT_COMPRESSION, "enabled": compress_files},
         "delete_older_updates": delete_older,
         "organizer": {"enabled": organizer, "remove_empty_folders": False},
     }}}
@@ -175,7 +174,7 @@ def test_compress_to_keeps_and_verifies_against_source(tmp_path, monkeypatch, na
     monkeypatch.setattr(compression.nsz, fn, fake_compress)
     monkeypatch.setattr(compression, "_verify_roundtrip", fake_verify)
 
-    compression.compress_to(source, out_dir, {"solid": "auto"})
+    compression.compress_to(source, out_dir, {"mode": "auto"})
 
     assert calls["keep"] is True                          # bit-identical restore possible
     assert calls["verify_source"] == str(source.resolve())  # round-trip verified against the source
@@ -203,7 +202,7 @@ def test_compress_to_removes_output_when_verification_fails(tmp_path, monkeypatc
     monkeypatch.setattr(compression, "_verify_roundtrip", boom)
 
     with pytest.raises(VerificationException):
-        compression.compress_to(source, out_dir, {"solid": "auto"})
+        compression.compress_to(source, out_dir, {"mode": "auto"})
     assert not out.exists()   # unverified output removed, not left in the library dir
 
 

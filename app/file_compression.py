@@ -91,7 +91,7 @@ def decompressed_path(source):
 
 def _use_block(ext, opts):
     """Solid vs block selection, mirroring nsz's own default (block for XCI)."""
-    mode = opts.get('solid', 'auto')
+    mode = opts.get('mode', 'auto')
     if mode == 'block':
         return True
     if mode == 'solid':
