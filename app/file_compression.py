@@ -26,6 +26,7 @@ from constants import COMPRESS_EXT, DECOMPRESS_EXT
 logger = logging.getLogger('main')
 
 POLL_INTERVAL = 2.0   # seconds between statusReport polls
+COMPRESS_SPAN = 90    # compress fills 0..COMPRESS_SPAN, verify the rest (empirically ~90/10 of wall time)
 
 # suppress nsz's logs and progress bars
 _nsz_print.enableInfo = False
@@ -135,7 +136,7 @@ def _verify_roundtrip(source, out, progress):
     """Confirm compression didn't corrupt content: every NCA must decompress back to
     the exact bytes of its source counterpart. Raises VerificationException otherwise."""
     src = _nca_content_hashes(source)
-    got = _with_progress(lambda sri: _nca_content_hashes(out, sri), progress, 50, 50)
+    got = _with_progress(lambda sri: _nca_content_hashes(out, sri), progress, COMPRESS_SPAN, 100 - COMPRESS_SPAN)
     corrupted = sorted(k for k in src if k in got and got[k] != src[k])
     missing = sorted(k for k in src if k not in got)
     unexpected = sorted(k for k in got if k not in src)
@@ -156,7 +157,7 @@ def compress_to(source, out_dir, opts, progress=None):
     without requiring whole-container byte-identity, which nsz can't reproduce for some
     valid containers (padding normalisation), nor that source NCAs match their own names.
 
-    `progress(pct)` is called with overall percent: compress fills 0-50, verify 50-100.
+    `progress(pct)` is called with overall percent: compress fills 0..COMPRESS_SPAN, verify the rest.
     """
     _ensure_keys()
     source = Path(source).resolve()
@@ -178,7 +179,7 @@ def compress_to(source, out_dir, opts, progress=None):
         block_threads = threads if threads > 0 else cpu_count()
         return nsz.blockCompress(source, level, True, False, long_mode, bs, out_dir, block_threads, report, key)
 
-    out = Path(_with_progress(_block if use_block else _solid, progress, 0, 50))
+    out = Path(_with_progress(_block if use_block else _solid, progress, 0, COMPRESS_SPAN))
     if not out.is_file():
         raise RuntimeError(f'Compression produced no output for {source.name}')
 
