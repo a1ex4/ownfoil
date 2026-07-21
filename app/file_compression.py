@@ -71,27 +71,9 @@ _nsz_print.minimalOutput = True                   # take nsz's no-bar path; it t
 Keys.load_default = lambda *a, **k: None
 
 
-# solidCompress/verify/decompress report progress through a statusReport dict we poll;
-# blockCompress has no such hook and, in minimalOutput mode, reports via Print.progress.
-# Bridge those calls to the active block compression's callback (using read/readSize —
-# decompressed bytes read, which reaches 100%, not the compressed size which tops out at
-# the ratio). When no block compress is running, swallow Print.progress (incl. [DONE]).
-_progress_hook = None   # (fn, base, span, [last_pct]) while a block compress runs, else None
-
-
-def _nsz_progress(job, data=None):
-    hook = _progress_hook
-    if hook is None or not isinstance(data, dict):
-        return
-    fn, base, span, last = hook
-    total, cur = data.get('readSize') or 0, data.get('read') or 0
-    pct = int(base + span) if job == 'Complete' else int(base + span * min(1.0, cur / total)) if total else None
-    if pct is not None and pct > last[0]:  # ignore nsz's per-NCA resets; keep it monotonic
-        last[0] = pct
-        fn(pct)
-
-
-_nsz_print.progress = _nsz_progress
+# In minimalOutput mode nsz still writes spinner/"Done" progress lines to stdout via
+# Print.progress; silence them (progress reaches the task row through the statusReport poll).
+_nsz_print.progress = lambda *a, **k: None
 
 # Block compression fans out one worker process per thread. Under forkserver (the
 # Python 3.14 default) each worker re-imports nsz fresh — the patches above live only
@@ -132,25 +114,6 @@ def _with_progress(run, progress, base, span):
     finally:
         stop.set()
         t.join(timeout=2)
-    progress(int(base + span))
-    return result
-
-
-def _with_block_progress(run, progress, base, span):
-    """Run blockCompress, mapping its Print.progress callbacks to base..base+span.
-
-    Unlike the statusReport phases, blockCompress reports through nsz's global
-    Print.progress; install _progress_hook so _nsz_progress routes those to `progress`
-    while it runs, then force the phase-end percent on success.
-    """
-    if progress is None:
-        return run()
-    global _progress_hook
-    _progress_hook = (progress, base, span, [-1])
-    try:
-        result = run()
-    finally:
-        _progress_hook = None
     progress(int(base + span))
     return result
 
@@ -259,14 +222,13 @@ def compress_to(source, out_dir, opts, progress=None):
         solid_threads = threads if threads > 0 else 3
         return nsz.solidCompress(source, level, True, False, long_mode, out_dir, solid_threads, report, key, None)
 
-    if use_block:
+    def _block(sri):
+        report, key = sri if sri else ({}, 0)
         bs = int(opts.get('block_size_exponent', 20))
         block_threads = threads if threads > 0 else cpu_count()
-        out = Path(_with_block_progress(
-            lambda: nsz.blockCompress(source, level, True, False, long_mode, bs, out_dir, block_threads),
-            progress, 0, 50))
-    else:
-        out = Path(_with_progress(_solid, progress, 0, 50))
+        return nsz.blockCompress(source, level, True, False, long_mode, bs, out_dir, block_threads, report, key)
+
+    out = Path(_with_progress(_block if use_block else _solid, progress, 0, 50))
     if not out.is_file():
         raise RuntimeError(f'Compression produced no output for {source.name}')
 
