@@ -119,10 +119,9 @@ def test_decompressed_path(src, expected):
 # --- progress reporting + bar suppression ------------------------------------------------
 
 def test_progress_bars_and_chatter_suppressed():
-    """nsz's enlighten bar is neutralised and its verbose info printing is off."""
-    import enlighten
+    """nsz's terminal bars are off (minimalOutput no-bar path) and info printing is silenced."""
     from nsz.nut import Print
-    assert enlighten.Counter is compression._NoBar
+    assert Print.minimalOutput is True
     assert Print.enableInfo is False
 
 

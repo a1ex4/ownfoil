@@ -12,7 +12,6 @@ from pathlib import Path
 from multiprocessing import cpu_count
 
 import nsz
-import enlighten as _enlighten
 from nsz import Decompressor as _nsz_decompressor
 from nsz.Fs import Nsp as _Nsp, Xci as _Xci
 from nsz.nut import Keys, Print as _nsz_print
@@ -27,41 +26,13 @@ from constants import COMPRESS_EXT, DECOMPRESS_EXT
 
 logger = logging.getLogger('main')
 
-# nsz surfaces progress two ways: an enlighten terminal bar, or a shared statusReport dict.
-# The bar writes cursor-control escapes that corrupt the app log (worse with parallel workers),
-# so we suppress it and poll the statusReport instead — feeding progress to the task row.
+# nsz surfaces progress two ways: an enlighten terminal bar (cursor-control escapes that
+# corrupt the app log, worse with parallel workers), or a shared statusReport dict we poll.
+# minimalOutput takes nsz's own no-bar path in every compress/decompress/verify routine.
 POLL_INTERVAL = 1.0
 
-
-class _NoBar:
-    """No-op stand-in for an enlighten counter. Besides update/refresh/close, nsz
-    reads and writes bar attributes as display bookkeeping — block compression does
-    `bar.count = bar.total` mid-run. None of it affects the compressed output, so we
-    accept every call and default any unset attribute to 0; raising AttributeError
-    here would abort the block container, and nsz swallows that (deleting the
-    half-written output), surfacing only as a bogus "produced no output"."""
-    def __init__(self, *a, **k): self.manager = _null_manager
-    def update(self, *a, **k): pass
-    def refresh(self, *a, **k): pass
-    def close(self, *a, **k): pass
-    def __getattr__(self, name): return 0
-
-
-class _NoBarManager:
-    """No-op stand-in for enlighten's manager. Newer nsz builds most bars through
-    enlighten.get_manager().counter(...) rather than enlighten.Counter directly; the
-    real manager also probes the terminal (cursor-position queries) and litters the
-    log with control codes. Returning this keeps nsz off the terminal entirely."""
-    def counter(self, *a, **k): return _NoBar()
-    def stop(self, *a, **k): pass
-
-
-_null_manager = _NoBarManager()
-
-_enlighten.Counter = _NoBar                       # bars built via the direct constructor (NSP repack, verify)
-_enlighten.get_manager = lambda *a, **k: _null_manager  # bars built via the manager (solid/block/decompress)
 _nsz_print.enableInfo = False                     # silence nsz's [OPEN]/[ADDING]/[VERIFIED]/... chatter (errors stay)
-_nsz_print.minimalOutput = True                   # take nsz's no-bar path; it then reports progress via Print.progress
+_nsz_print.minimalOutput = True                   # take nsz's no-bar path; poll the statusReport dict instead
 
 # We manage keys ourselves via settings.load_keys(); nsz's block/solid *worker* processes
 # instead run Keys.load_default() on startup and, not finding keys on nsz's default search

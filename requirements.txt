@@ -3,7 +3,7 @@ gunicorn==26.0.0
 Flask-Login==0.6.3
 Flask-Migrate==4.1.0
 flask-sqlalchemy==3.1.1
-git+https://github.com/nicoboss/nsz.git@a20edd19dc60df07fbe42a0de44c5f5c5976ee70
+git+https://github.com/nicoboss/nsz.git@9b14b37af2b08e43a1f6c715a514969f221dac6d
 PyYAML==6.0.3
 requests==2.34.2
 setproctitle==1.3.7
