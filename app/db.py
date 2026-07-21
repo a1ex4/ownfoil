@@ -293,6 +293,7 @@ def create_file(library_id, filepath, file_info):
         extension=file_info["extension"],
         size=file_info["size"],
         mtime=file_info["mtime"],
+        compressed=file_info["compressed"],
     )
     db.session.add(new_file)
     db.session.commit()
