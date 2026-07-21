@@ -1,8 +1,8 @@
 """nsz compression/decompression wrapper.
 
 Owns all nsz interaction. Compression writes into a caller-provided working
-directory and verifies the result before returning; the caller is responsible
-for atomically moving the verified file into place and updating the database.
+directory and verifies the result before returning its path; the caller
+finalizes (updates the database and removes the source).
 """
 import logging
 import multiprocessing
@@ -26,13 +26,13 @@ from constants import COMPRESS_EXT, DECOMPRESS_EXT
 
 logger = logging.getLogger('main')
 
-# nsz surfaces progress two ways: an enlighten terminal bar (cursor-control escapes that
-# corrupt the app log, worse with parallel workers), or a shared statusReport dict we poll.
-# minimalOutput takes nsz's own no-bar path in every compress/decompress/verify routine.
-POLL_INTERVAL = 1.0
+POLL_INTERVAL = 1.0   # seconds between statusReport polls
 
+# nsz's terminal progress bars write cursor-control escapes that corrupt the app log (worse
+# with parallel workers). minimalOutput takes nsz's own no-bar path in every compress/
+# decompress/verify routine; we read progress from its statusReport dict instead.
 _nsz_print.enableInfo = False                     # silence nsz's [OPEN]/[ADDING]/[VERIFIED]/... chatter (errors stay)
-_nsz_print.minimalOutput = True                   # take nsz's no-bar path; poll the statusReport dict instead
+_nsz_print.minimalOutput = True                   # no-bar path; poll the statusReport dict instead
 
 # We manage keys ourselves via settings.load_keys(); nsz's block/solid *worker* processes
 # instead run Keys.load_default() on startup and, not finding keys on nsz's default search
@@ -73,7 +73,7 @@ def _with_progress(run, progress, base, span):
             entry = report.get(key)
             if entry and entry[2]:
                 pct = int(base + span * min(1.0, entry[0] / entry[2]))
-                if pct > last:  # ignore nsz's per-NCA resets; keep the bar monotonic
+                if pct > last:  # ignore nsz's per-NCA resets; keep it monotonic
                     last = pct
                     progress(pct)
             stop.wait(POLL_INTERVAL)
