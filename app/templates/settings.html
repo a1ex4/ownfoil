@@ -217,14 +217,74 @@
                 <h3 class="pt-4 pb-2">Management</h3>
                 <p>Configure automated library management.</p>
                 <div class="mb-3 form-check">
-                    <input type="checkbox" class="form-check-input" id="compressFilesCheck" disabled>
-                    <label class="form-check-label" for="compressFilesCheck">Compress files</label>
-                    <div class="form-text">Compress files to NSZ/XCZ format after adding them to the library (not yet implemented).</div>
-                </div>
-                <div class="mb-3 form-check">
                     <input type="checkbox" class="form-check-input" id="deleteOlderUpdatesCheck">
                     <label class="form-check-label" for="deleteOlderUpdatesCheck">Delete older updates</label>
                     <div class="form-text">Deletes older update files when a newer version is available in the library.</div>
+                </div>
+
+                <h4 class="py-2">File compression</h4>
+                <p>Compress files to save disk space after they are added and organized.</p>
+                <div class="row">
+                    <div class="col-7">
+                        <div class="mb-3 form-check">
+                            <input type="checkbox" class="form-check-input" id="compressFilesCheck">
+                            <label class="form-check-label" for="compressFilesCheck">Compress files</label>
+                            <div class="form-text">Compress files to <code>NSZ</code>/<code>XCZ</code> (<code>NSP</code>→<code>NSZ</code>,
+                                <code>XCI</code>→<code>XCZ</code>) after they are added and organized.
+                                Every compressed file is verified before the original is removed.</div>
+                        </div>
+                        <div class="row g-3 align-items-center mb-3">
+                            <div class="col-auto">
+                                <label class="col-form-label" for="compressionLevelInput">Compression level</label>
+                            </div>
+                            <div class="col-auto">
+                                <input type="number" min="1" max="22" class="form-control" id="compressionLevelInput" style="width:100px;">
+                            </div>
+                            <div class="col-12">
+                                <div class="form-text">zstandard level (<code>1</code>–<code>22</code>). Higher = smaller files but slower. Default: <code>18</code>.</div>
+                            </div>
+                        </div>
+                        <div class="accordion mb-3" id="compressionAdvancedAccordion">
+                            <div class="accordion-item">
+                                <h2 class="accordion-header">
+                                    <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse"
+                                        data-bs-target="#compressionAdvanced" aria-expanded="false" aria-controls="compressionAdvanced">
+                                        Advanced compression options
+                                    </button>
+                                </h2>
+                                <div id="compressionAdvanced" class="accordion-collapse collapse" data-bs-parent="#compressionAdvancedAccordion">
+                                    <div class="accordion-body">
+                                        <div class="mb-3 form-check">
+                                            <input type="checkbox" class="form-check-input" id="compressLongDistanceCheck">
+                                            <label class="form-check-label" for="compressLongDistanceCheck">Long-distance mode</label>
+                                            <div class="form-text">Enables zstandard long-distance matching for a better ratio on large files, at higher memory use.</div>
+                                        </div>
+                                        <div class="mb-3">
+                                            <label for="compressModeSelect" class="form-label">Compression mode:</label>
+                                            <select class="form-select" id="compressModeSelect">
+                                                <option value="auto">Auto (solid for NSP, block for XCI)</option>
+                                                <option value="solid">Solid (best ratio, not randomly readable)</option>
+                                                <option value="block">Block (random read access, slightly larger)</option>
+                                            </select>
+                                            <div class="form-text">Block compression allows streaming/mounting without full decompression.</div>
+                                        </div>
+                                        <div class="mb-3">
+                                            <label for="compressBlockSizeInput" class="form-label">Block size exponent:</label>
+                                            <input type="number" class="form-control" min="14" max="32" id="compressBlockSizeInput">
+                                            <div class="form-text">Block size is <code>2^x</code> (<code>14</code>–<code>32</code>).
+                                                Default: <code>20</code> (<code>1 MB</code>). Only used in block mode.</div>
+                                        </div>
+                                        <div class="mb-3">
+                                            <label for="compressThreadsInput" class="form-label">Threads per file:</label>
+                                            <input type="number" class="form-control" min="0" max="64" id="compressThreadsInput">
+                                            <div class="form-text">Threads each compression task uses (<code>0</code> = automatic). Note: this multiplies with the
+                                                number of workers — high values across many workers can oversubscribe the CPU.</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
 
                 <h4 class="py-2">Organizer</h4>
@@ -430,7 +490,7 @@
                 </div>
 
                 <hr class="hr-settings">
-                <h2 class="pb-2">Worker</h2>
+                <h2 class="pb-2">Workers</h2>
                 <p>Configure the number of task worker processes. More workers allow parallel processing of tasks (e.g., scanning, identifying files).</p>
                 <div class="row mb-3">
                     <div class="col-6">
@@ -438,6 +498,27 @@
                         <input type="number" class="form-control" id="workerCountInput" min="1" step="1">
                         <div id="workerCountFeedback"></div>
                         <div id="workerCountHelp" class="form-text">Number of worker processes.</div>
+                    </div>
+                </div>
+
+                <div class="row mb-3">
+                    <div class="col-6">
+                        <label for="ioLimitInput" class="form-label">Max concurrent I/O tasks:</label>
+                        <input type="number" class="form-control" id="ioLimitInput" min="1" step="1">
+                        <div id="ioLimitFeedback"></div>
+                        <div id="ioLimitHelp" class="form-text">
+                            How many disk-heavy tasks (compression, decompression) run at once, independent of
+                            worker count. Compressing several multi-GB files in parallel from one disk makes the
+                            heads seek back and forth and can collapse throughput, so more is not always faster.
+                            Pick based on where your library lives:
+                            <ul class="mb-0">
+                                <li><strong>Network share or a single hard drive (HDD): 1</strong> — avoids seek
+                                    thrashing; the safe default.</li>
+                                <li><strong>SATA SSD: 2–3</strong> — no seek penalty, so limited by CPU.</li>
+                                <li><strong>NVMe with spare CPU cores: raise toward your core count</strong> — each
+                                    compression uses ~3–4 threads, so the CPU, not the disk, is the ceiling.</li>
+                            </ul>
+                        </div>
                     </div>
                 </div>
 
@@ -1086,7 +1167,14 @@
     function submitLibraryManagementSettings() {
         $('#submitLibraryManagementSettingsBtn').prop('disabled', true);
         data = {
-            compress_files: getCheckboxStatus("compressFilesCheck"),
+            compression: {
+                enabled: getCheckboxStatus("compressFilesCheck"),
+                level: parseInt(getInputVal("compressionLevelInput")),
+                long_distance: getCheckboxStatus("compressLongDistanceCheck"),
+                mode: getInputVal("compressModeSelect"),
+                block_size_exponent: parseInt(getInputVal("compressBlockSizeInput")),
+                threads: parseInt(getInputVal("compressThreadsInput"))
+            },
             delete_older_updates: getCheckboxStatus("deleteOlderUpdatesCheck"),
             organizer: {
                 enabled: getCheckboxStatus("organizerEnabledCheck"),
@@ -1156,7 +1244,8 @@
     function submitWorkerSettings() {
         $('#submitWorkerSettingsBtn').prop('disabled', true);
         data = {
-            count: parseInt($('#workerCountInput').val())
+            count: parseInt($('#workerCountInput').val()),
+            group_limits: { io: parseInt($('#ioLimitInput').val()) }
         }
 
         $.ajax({
@@ -1173,6 +1262,11 @@
                                 $('#workerCountFeedback').addClass('invalid-feedback d-block');
                                 $("#workerCountInput").removeClass('is-valid');
                                 $("#workerCountInput").addClass('is-invalid');
+                            } else if (error['path'] === 'worker/group_limits') {
+                                $('#ioLimitFeedback').text(error['error']);
+                                $('#ioLimitFeedback').addClass('invalid-feedback d-block');
+                                $("#ioLimitInput").removeClass('is-valid');
+                                $("#ioLimitInput").addClass('is-invalid');
                             }
                         });
                     }
@@ -1181,6 +1275,10 @@
                     $('#workerCountFeedback').removeClass('invalid-feedback d-block');
                     $("#workerCountInput").removeClass('is-invalid');
                     $("#workerCountInput").addClass('is-valid');
+                    $('#ioLimitFeedback').text('');
+                    $('#ioLimitFeedback').removeClass('invalid-feedback d-block');
+                    $("#ioLimitInput").removeClass('is-invalid');
+                    $("#ioLimitInput").addClass('is-valid');
                 }
                 $('#submitWorkerSettingsBtn').prop('disabled', false);
             }
@@ -1233,7 +1331,13 @@
             // Library settings
             librarySettings = result['library'];
             // Populate library management settings
-            $("#compressFilesCheck").prop("checked", librarySettings['management']['compress_files']);
+            const compression = librarySettings['management']['compression'];
+            $("#compressFilesCheck").prop("checked", compression['enabled']);
+            setInputVal("compressionLevelInput", compression['level']);
+            $("#compressLongDistanceCheck").prop("checked", compression['long_distance']);
+            setInputVal("compressModeSelect", compression['mode']);
+            setInputVal("compressBlockSizeInput", compression['block_size_exponent']);
+            setInputVal("compressThreadsInput", compression['threads']);
             $("#deleteOlderUpdatesCheck").prop("checked", librarySettings['management']['delete_older_updates']);
             $("#organizerEnabledCheck").prop("checked", librarySettings['management']['organizer']['enabled']);
             $("#removeEmptyFoldersCheck").prop("checked", librarySettings['management']['organizer']['remove_empty_folders']);
@@ -1262,6 +1366,9 @@
             workerSettings = result['worker'];
             if (workerSettings && workerSettings['count'] !== undefined) {
                 $('#workerCountInput').val(workerSettings['count']);
+            }
+            if (workerSettings && workerSettings['group_limits'] && workerSettings['group_limits']['io'] !== undefined) {
+                $('#ioLimitInput').val(workerSettings['group_limits']['io']);
             }
 
             // Shop settings

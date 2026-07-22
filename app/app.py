@@ -91,6 +91,11 @@ def on_library_change(events):
     """Enqueue individual tasks per file event, skipping ignored events."""
     with app.app_context():
         for event in events:
+            # A file currently being produced by a (de)compression task is not yet a
+            # library file; skip every event touching it until the task finalizes it.
+            if is_temp_file(event.src_path) or (
+                    event.dest_path and is_temp_file(event.dest_path)):
+                continue
             if event.type == 'moved':
                 if pop_ignored_event(src_path=event.src_path, dest_path=event.dest_path):
                     continue
@@ -407,6 +412,17 @@ def set_worker_settings_api():
         if count < 1:
             return jsonify({'success': False, 'errors': [{'path': 'worker/count', 'error': 'Must be at least 1'}]})
         data['count'] = count
+    group_limits = data.get('group_limits')
+    if group_limits is not None:
+        try:
+            io = int(group_limits['io'])
+        except (TypeError, ValueError, KeyError):
+            return jsonify({'success': False, 'errors': [{'path': 'worker/group_limits', 'error': 'Must be an integer'}]})
+        if io < 1:
+            return jsonify({'success': False, 'errors': [{'path': 'worker/group_limits', 'error': 'Must be at least 1'}]})
+        # Merge into current limits so any other groups are preserved.
+        current = get_settings().get('worker', {}).get('group_limits', {})
+        data['group_limits'] = {**current, 'io': io}
     set_worker_settings(data)
     return jsonify({'success': True, 'errors': []})
 
@@ -570,6 +586,34 @@ def clear_failed_tasks_api():
     deleted = Task.query.filter_by(status='failed').delete()
     db.session.commit()
     return jsonify({'success': True, 'deleted': deleted})
+
+
+@app.post('/api/files/<int:file_id>/compress')
+@access_required('admin')
+def compress_file_api(file_id):
+    """Compress a single file to NSZ/XCZ."""
+    file = db.session.get(Files, file_id)
+    if not file:
+        return jsonify({'error': 'File not found'}), 404
+    if file.compressed:
+        return jsonify({'error': 'File is already compressed'}), 400
+    if file.extension not in COMPRESS_EXT:
+        return jsonify({'error': 'File type cannot be compressed'}), 400
+    tasks_mod.enqueue_task('compress_file', {'file_id': file_id})
+    return jsonify({'success': True})
+
+
+@app.post('/api/files/<int:file_id>/decompress')
+@access_required('admin')
+def decompress_file_api(file_id):
+    """Decompress a single compressed file back to NSP/XCI."""
+    file = db.session.get(Files, file_id)
+    if not file:
+        return jsonify({'error': 'File not found'}), 404
+    if not file.compressed:
+        return jsonify({'error': 'File is not compressed'}), 400
+    tasks_mod.enqueue_task('decompress_file', {'file_id': file_id})
+    return jsonify({'success': True})
 
 
 @app.get('/api/tasks/<int:task_id>')

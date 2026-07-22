@@ -8,16 +8,19 @@ import os
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 import titles as titles_lib
 import titledb
+import file_compression as compression
+from constants import COMPRESS_EXT, DECOMPRESS_EXT
 from db import (
     db, Task, Files, Apps, Libraries, get_library_id, get_library_path, get_library_file_paths,
     get_libraries, add_title_id_in_db, get_title_id_db_id, add_file_to_app,
     file_exists_in_db, update_file_path, delete_file_by_filepath,
-    delete_files_under_dir,
+    delete_files_under_dir, add_ignored_event, pop_ignored_event,
+    add_temp_file, remove_temp_file, claim_temp_file, get_temp_file_paths, purge_temp_files,
     set_library_scan_time, remove_missing_files_from_db,
     remove_file_from_apps, reset_file_identification, create_file,
 )
 from settings import get_settings
-from utils import interval_string_to_timedelta, delete_empty_folders
+from utils import interval_string_to_timedelta, delete_empty_folders, human_size
 from library import (
     get_files_to_identify, add_missing_apps_for_title, update_title_flags,
     add_missing_apps_to_db, update_titles, organize_file,
@@ -30,14 +33,34 @@ logger = logging.getLogger('main')
 TASK_REGISTRY = {}
 TASK_CONTINUATIONS = {}
 TASK_CLEANUP = {}
+TASK_GROUPS = {}  # task_name -> concurrency-group name
 
 
-def register_task(name):
-    """Decorator to register a callable as a named task."""
+def register_task(name, group=None):
+    """Register a callable as a named task. `group` assigns it to a concurrency group whose
+    parallelism is capped by worker.group_limits (e.g. disk-heavy compress/verify -> 'io')."""
     def decorator(func):
         TASK_REGISTRY[name] = func
+        if group:
+            TASK_GROUPS[name] = group
         return func
     return decorator
+
+
+def blocked_task_names(running_task_names):
+    """Task names that must not be claimed right now because their concurrency group is already
+    at its configured limit, given the task_names currently running. Groups with no configured
+    limit (or no group) are unbounded. Used by the worker's claim to honour group_limits."""
+    limits = get_settings().get('worker', {}).get('group_limits', {})
+    if not limits:
+        return set()
+    running_per_group = {}
+    for name in running_task_names:
+        group = TASK_GROUPS.get(name)
+        if group is not None:
+            running_per_group[group] = running_per_group.get(group, 0) + 1
+    full = {g for g, limit in limits.items() if running_per_group.get(g, 0) >= limit}
+    return {name for name, group in TASK_GROUPS.items() if group in full}
 
 
 def register_continuation(task_name):
@@ -262,28 +285,66 @@ def cancel_task(task_id):
             app_mod.pool.restart_worker(worker_id)
 
     if task_name is not None:
-        cleanup = TASK_CLEANUP.get(task_name)
-        if cleanup:
-            input_data = json.loads(input_json) if input_json else {}
-            try:
-                cleanup(**input_data)
-            except Exception as e:
-                logger.error(f"Cleanup hook for cancelled task '{task_name}' failed: {e}")
+        _run_cleanup_hook(task_name, input_json)
 
     if parent_id:
         _try_complete_parent(parent_id)
     return True
 
 
+def _run_cleanup_hook(task_name, input_json):
+    """Run a task's registered @register_cleanup hook (idempotent) if it has one."""
+    cleanup = TASK_CLEANUP.get(task_name)
+    if not cleanup:
+        return
+    input_data = json.loads(input_json) if input_json else {}
+    try:
+        cleanup(**input_data)
+    except Exception as e:
+        logger.error(f"Cleanup hook for task '{task_name}' failed: {e}")
+
+
+def reap_worker_task(worker_id):
+    """Fail and clean up the task a worker was running when it was stopped mid-task.
+
+    Every worker termination (app shutdown, scale-down, restart) funnels through
+    WorkerPool._stop_worker, which calls this (under an app context) after the process is
+    gone. It runs the task's cleanup hook so temp files / partial output are removed even
+    when the task ends via a worker stop rather than an explicit cancel. Idempotent and a
+    no-op when the worker held no running task (it exited cleanly between tasks, or the
+    task was already removed by cancel_task before its worker was restarted).
+    """
+    task = Task.query.filter_by(status='running', worker_id=worker_id).first()
+    if task is None:
+        return
+    task_name, input_json, parent_id = task.task_name, task.input_json, task.parent_id
+    task.status = 'failed'
+    task.error_message = 'Interrupted by worker stop'
+    task.exit_code = 1
+    task.completed_at = datetime.datetime.utcnow()
+    db.session.commit()
+    logger.info(f"Reaped task {task.id} ({task_name}) from stopped worker {worker_id}")
+    _run_cleanup_hook(task_name, input_json)
+    if parent_id:
+        _try_complete_parent(parent_id)
+
+
 # --- Startup cleanup ---
 
 def cleanup_tasks():
-    """Startup cleanup: remove completed/scheduled tasks and fail stale running tasks."""
+    """Startup cleanup: clear the pending queue and fail interrupted tasks.
+
+    The whole pending queue is regenerable: a restart re-derives the full pipeline via the
+    'startup' task (and init re-enqueues scheduled tasks). Resuming any stale pending task
+    would run ahead of that pipeline (older created_at) and ignore settings changed while
+    stopped — e.g. a queued organize_library re-spawning compression before a region change
+    takes effect. So we drop pending work wholesale rather than resume it.
+    """
     # Remove completed tasks
     Task.query.filter_by(status='completed').delete()
 
-    # Remove pending scheduled tasks — they'll be re-enqueued by init()
-    Task.query.filter(Task.status == 'pending', Task.run_after.isnot(None)).delete()
+    # Clear the entire pending queue — startup + init regenerate everything still needed.
+    Task.query.filter_by(status='pending').delete()
 
     # Mark running/waiting tasks as failed — they can't survive a restart
     stale = Task.query.filter(Task.status.in_(['running', 'waiting_for_children'])).all()
@@ -295,6 +356,9 @@ def cleanup_tasks():
         logger.info(f"Reset stale task {task.id} ({task.task_name})")
 
     db.session.commit()
+
+    # Sweep leftover output from any (de)compression interrupted by the restart.
+    purge_temp_files()
 
 
 # --- Helpers ---
@@ -458,8 +522,8 @@ def scan_library_task(library_path, **kwargs):
 
     logger.info(f'Scanning library path {library_path} ...')
     _, files = titles_lib.getDirsAndFiles(library_path)
-    filepaths_in_db = set(get_library_file_paths(library_id))
-    new_files = [f for f in files if f not in filepaths_in_db]
+    skip = set(get_library_file_paths(library_id)) | get_temp_file_paths()
+    new_files = [f for f in files if f not in skip]
 
     if not new_files:
         logger.info(f'No new files found in {library_path}.')
@@ -600,10 +664,17 @@ def identify_file_task(filepath, file_id, **kwargs):
         for title_id in identified_title_ids:
             enqueue_or_child('add_missing_apps_for_title', {'title_id': title_id})
 
-        if get_settings()['library']['management']['organizer']['enabled']:
+        mgmt = get_settings()['library']['management']
+        if mgmt['organizer']['enabled']:
+            # Organizer runs first; it enqueues compression after the file is in place.
             enqueue_or_child('organize_file', {'file_id': file_id})
+        elif mgmt['compression']['enabled'] and not file.compressed:
+            enqueue_task('compress_file', {'file_id': file_id})
 
         set_waiting_for_children()
+    elif get_settings()['library']['management']['compression']['enabled'] and not file.compressed:
+        # Unidentified files are still compressed (compression needs keys, not identification).
+        enqueue_task('compress_file', {'file_id': file_id})
 
 
 @register_task('add_missing_apps_for_title')
@@ -654,6 +725,8 @@ def _organize_library_done(library_path=None, **kwargs):
             delete_empty_folders(path)
     if settings['library']['management']['delete_older_updates']:
         enqueue_task('remove_outdated_updates')
+    if settings['library']['management']['compression']['enabled']:
+        enqueue_task('compress_library')
 
 
 @register_task('organize_file')
@@ -662,11 +735,20 @@ def organize_file_task(file_id, **kwargs):
     file_obj = db.session.get(Files, file_id)
     if not file_obj:
         return
+    claimed = file_obj.filepath
+    if not claim_temp_file(claimed):
+        # A conversion is mutating this file; it re-triggers organization when it finishes.
+        return
     library_path = get_library_path(file_obj.library_id)
     organizer_settings = get_settings()['library']['management']['organizer']
-    if organize_file(file_obj, library_path, organizer_settings):
-        file_obj.organized = True
-        db.session.commit()
+    try:
+        if organize_file(file_obj, library_path, organizer_settings):
+            file_obj.organized = True
+            db.session.commit()
+    finally:
+        remove_temp_file(claimed)
+    if get_settings()['library']['management']['compression']['enabled'] and not file_obj.compressed:
+        enqueue_task('compress_file', {'file_id': file_id})
     enqueue_task('organize_library_done', {'library_path': library_path})
 
 
@@ -675,6 +757,173 @@ def remove_outdated_updates_task(**kwargs):
     """Remove outdated update files."""
     remove_outdated_update_files()
     enqueue_task('update_titles')
+
+
+# --- Compression pipeline ---
+def _task_progress(task_id):
+    """Return a callback that writes live percent to a task row, or None outside a task.
+
+    Invoked from file_compression's poller thread, so it captures db.engine now (under the
+    task's app context) and drives a raw connection the bare thread can use. Logs at each 5%
+    step so the live-progress path is observable without a UI."""
+    if task_id is None:
+        return None
+    engine = db.engine
+    logged = [-1]
+
+    def report(pct):
+        connection = engine.raw_connection()
+        try:
+            cursor = connection.cursor()
+            cursor.execute("UPDATE tasks SET completion_pct = ? WHERE id = ? AND status = 'running'",
+                           (pct, task_id))
+            connection.commit()
+        finally:
+            connection.close()
+        if pct // 5 != logged[0]:
+            logged[0] = pct // 5
+            logger.debug(f"Task {task_id} progress: {pct}%")
+
+    return report
+
+
+def _conversion_target(file_obj):
+    """The output path a (de)compression of this file would produce, or None."""
+    if not file_obj.compressed and file_obj.extension in COMPRESS_EXT:
+        return str(compression.compressed_path(file_obj.filepath))
+    if file_obj.compressed and file_obj.extension in DECOMPRESS_EXT:
+        return str(compression.decompressed_path(file_obj.filepath))
+    return None
+
+
+def _finalize_conversion(file_obj, target, new_extension, compressed):
+    """Flip the Files row onto the verified output, then drop the now-redundant source.
+    The row is committed pointing at the (already existing, verified) target before the
+    source is removed, so a committed row never references a missing file."""
+    source = file_obj.filepath
+    add_ignored_event(source, '')  # our own deletion of the source
+    file_obj.filepath = target
+    file_obj.extension = new_extension
+    file_obj.size = os.path.getsize(target)
+    file_obj.mtime = os.path.getmtime(target)
+    file_obj.compressed = compressed
+    db.session.commit()
+    if os.path.abspath(source) != os.path.abspath(target):
+        os.remove(source)
+
+
+def _convert_file(file_obj, produce, new_extension, compressed):
+    """Run a (de)compression: produce the verified output at its final path while it is
+    marked in-progress (scanner/watcher skip it), then finalize. The output is written
+    directly in the source's directory; nsz unlinks it on failure, and an interrupted
+    task's leftover is swept by purge_temp_files at startup / the cleanup hook.
+
+    Claims the source as in-progress first: the organizer skips a file with a live claim, so
+    it can never move the source out from under nsz. Returns without converting if the claim
+    is already held (the holder re-triggers this conversion when it finishes)."""
+    source = file_obj.filepath
+    target = _conversion_target(file_obj)
+    if Files.query.filter(Files.filepath == target, Files.id != file_obj.id).first() is not None:
+        # A duplicate (e.g. the source's already-compressed sibling) already occupies the target.
+        # Finalizing would collide on the unique filepath; leave dedup to the organizer.
+        logger.warning(f'Skipping conversion of {os.path.basename(source)}: '
+                       f'{os.path.basename(target)} is already in the library.')
+        return
+    if not claim_temp_file(source):
+        logger.debug(f'Skipping conversion of {os.path.basename(source)}: file is busy.')
+        return
+    before = file_obj.size
+    add_temp_file(target)
+    try:
+        out = str(produce(source, os.path.dirname(source)))
+        _finalize_conversion(file_obj, out, new_extension, compressed)
+    finally:
+        remove_temp_file(target)
+        remove_temp_file(source)
+    after = file_obj.size
+    ratio = after / before if before else 0
+    verb = 'compressing' if compressed else 'decompressing'
+    logger.info(f'Finished {verb} {os.path.basename(target)}: '
+                f'{human_size(before)} -> {human_size(after)} (ratio {ratio:.1%})')
+
+
+@register_task('compress_library')
+def compress_library_task(**kwargs):
+    """Compress every uncompressed game file, one child task per file."""
+    mgmt = get_settings()['library']['management']
+    if not mgmt['compression']['enabled']:
+        return
+    query = Files.query.filter(
+        Files.compressed.is_(False),
+        Files.extension.in_(list(COMPRESS_EXT.keys())),
+    )
+    if mgmt['organizer']['enabled']:
+        # Files still awaiting organization are compressed by organize_file once placed;
+        # don't sweep them here before they've been organized.
+        query = query.filter(~(Files.identified.is_(True) & Files.organized.is_(False)))
+    files = query.all()
+    logger.info(f'Compressing library: {len(files)} file(s) to compress.')
+    enqueued = 0
+    for f in files:
+        enqueue_or_child('compress_file', {'file_id': f.id})
+        enqueued += 1
+    if enqueued:
+        set_waiting_for_children()
+
+
+@register_task('compress_file', group='io')
+def compress_file_task(file_id, **kwargs):
+    """Compress a single file in place: NSP->NSZ / XCI->XCZ, preserving its DB row."""
+    file_obj = db.session.get(Files, file_id)
+    if not file_obj or file_obj.compressed or file_obj.extension not in COMPRESS_EXT:
+        return
+    if not os.path.exists(file_obj.filepath):
+        return
+    mgmt = get_settings()['library']['management']
+    if mgmt['organizer']['enabled'] and file_obj.identified and not file_obj.organized:
+        # Must be organized first; organize_file re-triggers compression once placed.
+        return
+    logger.info(f'Compressing file: {file_obj.filename}')
+    opts = mgmt['compression']
+    progress = _task_progress(_current_task_id)
+    _convert_file(file_obj,
+                  lambda source, out_dir: compression.compress_to(source, out_dir, opts, progress=progress),
+                  COMPRESS_EXT[file_obj.extension], True)
+    # If compression ran ahead of organization (it started before the file was identified),
+    # hand the now-placed file back to the organizer, which deferred while we held the claim.
+    if mgmt['organizer']['enabled'] and file_obj.identified and file_obj.compressed and not file_obj.organized:
+        enqueue_task('organize_file', {'file_id': file_id})
+
+
+@register_task('decompress_file', group='io')
+def decompress_file_task(file_id, **kwargs):
+    """Decompress a single file in place: NSZ->NSP / XCZ->XCI, preserving its DB row."""
+    file_obj = db.session.get(Files, file_id)
+    if not file_obj or not file_obj.compressed or file_obj.extension not in DECOMPRESS_EXT:
+        return
+    if not os.path.exists(file_obj.filepath):
+        return
+    progress = _task_progress(_current_task_id)
+    _convert_file(file_obj,
+                  lambda source, out_dir: compression.decompress_to(source, out_dir, progress=progress),
+                  DECOMPRESS_EXT[file_obj.extension], False)
+
+
+@register_cleanup('compress_file')
+@register_cleanup('decompress_file')
+def _compression_cleanup(file_id, **kwargs):
+    """Idempotent cancel/crash cleanup: clear the in-progress mark, remove the partial
+    output if it isn't a committed file, and pop the source-deletion ignored event."""
+    file_obj = db.session.get(Files, file_id)
+    if not file_obj:
+        return
+    remove_temp_file(file_obj.filepath)  # release the source in-progress claim
+    target = _conversion_target(file_obj)
+    if target:
+        remove_temp_file(target)
+        if Files.query.filter_by(filepath=target).first() is None and os.path.exists(target):
+            os.remove(target)
+    pop_ignored_event(src_path=file_obj.filepath, dest_path='')
 
 # --- Batch maintenance ---
 @register_task('add_missing_apps')

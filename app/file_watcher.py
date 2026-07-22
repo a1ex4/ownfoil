@@ -123,7 +123,12 @@ class _FileCallbackHandler(FileSystemEventHandler):
         self.callback = callback
 
     def on_any_event(self, event):
-        if event.is_directory or os.path.abspath(event.src_path) != self.filepath:
+        if event.is_directory:
+            return
+        # Match src or dest: an atomic save (os.replace of a temp file onto the target)
+        # arrives as a moved event whose dest_path — not src_path — is the watched file.
+        paths = [event.src_path, getattr(event, 'dest_path', '')]
+        if self.filepath not in [os.path.abspath(p) for p in paths if p]:
             return
         try:
             self.callback()
@@ -164,7 +169,12 @@ class Handler(FileSystemEventHandler):
             file_path = event.dest_path
         else:
             file_path = event.src_path
-        current_size = os.path.getsize(file_path)
+        try:
+            current_size = os.path.getsize(file_path)
+        except OSError:
+            # The file vanished between its event and this call (e.g. a conversion's
+            # transient output). Ignore it rather than let the observer thread die.
+            return
         if file_path not in self.tracked_files:
             event.size = current_size
             event.timestamp = time.time()

@@ -39,7 +39,8 @@ class OwnfoilServer(BaseApplication):
 class WorkerPool:
     """Manages a dynamic pool of task worker subprocesses."""
 
-    def __init__(self, initial_count=1):
+    def __init__(self, app, initial_count=1):
+        self.app = app  # for app-context when reaping a stopped worker's running task
         self.workers = {}  # worker_id -> (Process, MPEvent)
         self._lock = threading.Lock()
         self._next_id = 1
@@ -74,7 +75,14 @@ class WorkerPool:
             proc.join(timeout=10)
             if proc.is_alive():
                 proc.terminate()
+                proc.join(timeout=5)
         logger.info(f'Worker-{worker_id} stopped.')
+        # Process is gone: reap any task it was running mid-execution so its cleanup hook
+        # runs (temp files / partial output removed). No-op if it held no running task, or
+        # if cancel_task already removed the task before restarting the worker.
+        from tasks import reap_worker_task
+        with self.app.app_context():
+            reap_worker_task(worker_id)
 
     def restart_worker(self, worker_id):
         """Forcefully stop a worker mid-task and start a replacement reusing the same id."""
@@ -144,7 +152,7 @@ def main():
         init()
         # Start worker pool and expose it to app module so on_settings_change can scale it
         initial_count = max(1, get_settings().get('worker', {}).get('count', 1))
-        app_mod.pool = WorkerPool(initial_count=initial_count)
+        app_mod.pool = WorkerPool(app, initial_count=initial_count)
 
     def worker_exit(server, worker):
         """Stop watcher and worker pool when Gunicorn worker exits."""
