@@ -38,7 +38,7 @@ TASK_GROUPS = {}  # task_name -> concurrency-group name
 
 def register_task(name, group=None):
     """Register a callable as a named task. `group` assigns it to a concurrency group whose
-    parallelism is capped by worker.group_limits (e.g. disk-heavy compress/verify -> 'io')."""
+    parallelism is capped by worker.group_limits."""
     def decorator(func):
         TASK_REGISTRY[name] = func
         if group:
@@ -49,8 +49,7 @@ def register_task(name, group=None):
 
 def blocked_task_names(running_task_names):
     """Task names that must not be claimed right now because their concurrency group is already
-    at its configured limit, given the task_names currently running. Groups with no configured
-    limit (or no group) are unbounded. Used by the worker's claim to honour group_limits."""
+    at its configured limit, given the task_names currently running."""
     limits = get_settings().get('worker', {}).get('group_limits', {})
     if not limits:
         return set()
@@ -90,6 +89,29 @@ def get_registered_task(name):
 
 # --- Progress ---
 _current_task_id = None
+
+
+def _task_progress(task_id):
+    """Return a callback that writes live percent to a task row, or None outside a task."""
+    if task_id is None:
+        return None
+    engine = db.engine
+    logged = [-1]
+
+    def report(pct):
+        connection = engine.raw_connection()
+        try:
+            cursor = connection.cursor()
+            cursor.execute("UPDATE tasks SET completion_pct = ? WHERE id = ? AND status = 'running'",
+                           (pct, task_id))
+            connection.commit()
+        finally:
+            connection.close()
+        if pct // 5 != logged[0]:
+            logged[0] = pct // 5
+            logger.debug(f"Task {task_id} progress: {pct}%")
+
+    return report
 
 # --- Child task helpers ---
 def create_child_task(parent_id, task_name, input_data=None):
@@ -217,10 +239,6 @@ def _cancel_atomic(task_id):
     """Delete the task and any pending descendants under one transaction.
     Running descendants are orphaned (parent_id=NULL) so they finish naturally
     and self-delete on completion. Waiting descendants are recursed into.
-
-    Returns (found, parent_id, running_worker_id, task_name, input_json).
-    running_worker_id and task_name/input_json are only set when the cancelled
-    task itself was running (so the caller can restart its worker and run cleanup).
     """
     connection = db.engine.raw_connection()
     try:
@@ -305,15 +323,7 @@ def _run_cleanup_hook(task_name, input_json):
 
 
 def reap_worker_task(worker_id):
-    """Fail and clean up the task a worker was running when it was stopped mid-task.
-
-    Every worker termination (app shutdown, scale-down, restart) funnels through
-    WorkerPool._stop_worker, which calls this (under an app context) after the process is
-    gone. It runs the task's cleanup hook so temp files / partial output are removed even
-    when the task ends via a worker stop rather than an explicit cancel. Idempotent and a
-    no-op when the worker held no running task (it exited cleanly between tasks, or the
-    task was already removed by cancel_task before its worker was restarted).
-    """
+    """Fail and clean up the task a worker was running when it was stopped mid-task."""
     task = Task.query.filter_by(status='running', worker_id=worker_id).first()
     if task is None:
         return
@@ -332,18 +342,11 @@ def reap_worker_task(worker_id):
 # --- Startup cleanup ---
 
 def cleanup_tasks():
-    """Startup cleanup: clear the pending queue and fail interrupted tasks.
-
-    The whole pending queue is regenerable: a restart re-derives the full pipeline via the
-    'startup' task (and init re-enqueues scheduled tasks). Resuming any stale pending task
-    would run ahead of that pipeline (older created_at) and ignore settings changed while
-    stopped — e.g. a queued organize_library re-spawning compression before a region change
-    takes effect. So we drop pending work wholesale rather than resume it.
-    """
+    """Startup cleanup: clear the pending queue and fail interrupted tasks."""
     # Remove completed tasks
     Task.query.filter_by(status='completed').delete()
 
-    # Clear the entire pending queue — startup + init regenerate everything still needed.
+    # Clear the entire pending queue
     Task.query.filter_by(status='pending').delete()
 
     # Mark running/waiting tasks as failed — they can't survive a restart
@@ -673,7 +676,7 @@ def identify_file_task(filepath, file_id, **kwargs):
 
         set_waiting_for_children()
     elif get_settings()['library']['management']['compression']['enabled'] and not file.compressed:
-        # Unidentified files are still compressed (compression needs keys, not identification).
+        # Unidentified files are still compressed.
         enqueue_task('compress_file', {'file_id': file_id})
 
 
@@ -737,7 +740,6 @@ def organize_file_task(file_id, **kwargs):
         return
     claimed = file_obj.filepath
     if not claim_temp_file(claimed):
-        # A conversion is mutating this file; it re-triggers organization when it finishes.
         return
     library_path = get_library_path(file_obj.library_id)
     organizer_settings = get_settings()['library']['management']['organizer']
@@ -760,46 +762,8 @@ def remove_outdated_updates_task(**kwargs):
 
 
 # --- Compression pipeline ---
-def _task_progress(task_id):
-    """Return a callback that writes live percent to a task row, or None outside a task.
-
-    Invoked from file_compression's poller thread, so it captures db.engine now (under the
-    task's app context) and drives a raw connection the bare thread can use. Logs at each 5%
-    step so the live-progress path is observable without a UI."""
-    if task_id is None:
-        return None
-    engine = db.engine
-    logged = [-1]
-
-    def report(pct):
-        connection = engine.raw_connection()
-        try:
-            cursor = connection.cursor()
-            cursor.execute("UPDATE tasks SET completion_pct = ? WHERE id = ? AND status = 'running'",
-                           (pct, task_id))
-            connection.commit()
-        finally:
-            connection.close()
-        if pct // 5 != logged[0]:
-            logged[0] = pct // 5
-            logger.debug(f"Task {task_id} progress: {pct}%")
-
-    return report
-
-
-def _conversion_target(file_obj):
-    """The output path a (de)compression of this file would produce, or None."""
-    if not file_obj.compressed and file_obj.extension in COMPRESS_EXT:
-        return str(compression.compressed_path(file_obj.filepath))
-    if file_obj.compressed and file_obj.extension in DECOMPRESS_EXT:
-        return str(compression.decompressed_path(file_obj.filepath))
-    return None
-
-
 def _finalize_conversion(file_obj, target, new_extension, compressed):
-    """Flip the Files row onto the verified output, then drop the now-redundant source.
-    The row is committed pointing at the (already existing, verified) target before the
-    source is removed, so a committed row never references a missing file."""
+    """Flip the Files row onto the verified output, then drop the now-redundant source."""
     source = file_obj.filepath
     add_ignored_event(source, '')  # our own deletion of the source
     file_obj.filepath = target
@@ -813,19 +777,10 @@ def _finalize_conversion(file_obj, target, new_extension, compressed):
 
 
 def _convert_file(file_obj, produce, new_extension, compressed):
-    """Run a (de)compression: produce the verified output at its final path while it is
-    marked in-progress (scanner/watcher skip it), then finalize. The output is written
-    directly in the source's directory; nsz unlinks it on failure, and an interrupted
-    task's leftover is swept by purge_temp_files at startup / the cleanup hook.
-
-    Claims the source as in-progress first: the organizer skips a file with a live claim, so
-    it can never move the source out from under nsz. Returns without converting if the claim
-    is already held (the holder re-triggers this conversion when it finishes)."""
+    """Run a (de)compression: produce the verified output at its final path, then finalize."""
     source = file_obj.filepath
-    target = _conversion_target(file_obj)
+    target = compression.conversion_target(file_obj)
     if Files.query.filter(Files.filepath == target, Files.id != file_obj.id).first() is not None:
-        # A duplicate (e.g. the source's already-compressed sibling) already occupies the target.
-        # Finalizing would collide on the unique filepath; leave dedup to the organizer.
         logger.warning(f'Skipping conversion of {os.path.basename(source)}: '
                        f'{os.path.basename(target)} is already in the library.')
         return
@@ -918,7 +873,7 @@ def _compression_cleanup(file_id, **kwargs):
     if not file_obj:
         return
     remove_temp_file(file_obj.filepath)  # release the source in-progress claim
-    target = _conversion_target(file_obj)
+    target = compression.conversion_target(file_obj)
     if target:
         remove_temp_file(target)
         if Files.query.filter_by(filepath=target).first() is None and os.path.exists(target):

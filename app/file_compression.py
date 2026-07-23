@@ -17,8 +17,6 @@ from nsz.nut import Keys, Print as _nsz_print
 from nsz.Decompressor import VerificationException
 
 # nsz's in-memory NCZ->NCA reconstruction (returns the reconstructed NCA's sha256).
-# Module-level dunder name, reached by getattr. Reused for verification below; the
-# re-encryption keys live in the NCZSECTN header, so it needs neither disk nor keys.txt.
 _decompress_ncz = getattr(_nsz_decompressor, '__decompressNcz')
 
 from constants import COMPRESS_EXT, DECOMPRESS_EXT
@@ -35,13 +33,7 @@ _nsz_print.progress = lambda *a, **k: None
 
 
 def _with_progress(run, progress, base, span):
-    """Run one nsz phase, mapping its statusReport to base..base+span percent via a poller thread.
-
-    `run` takes a statusReportInfo (report_dict, key) tuple (or None) and calls the nsz function
-    with it. While it blocks, a daemon thread reads report[key] = [current, _, total, phase] and
-    reports monotonically increasing integer percent through `progress`. No thread when progress
-    is None. The phase-end percent is forced on success so the row always reaches base+span.
-    """
+    """Run one nsz phase, mapping its statusReport to base..base+span percent via a poller thread."""
     if progress is None:
         return run(None)
     report, key = {}, 0
@@ -70,8 +62,7 @@ def _with_progress(run, progress, base, span):
 
 
 def _ensure_keys():
-    """nsz reads decryption keys from the module-global Keys state; reuse the
-    app's own loader instead of nsz's ~/.switch default search."""
+    """nsz reads decryption keys from the module-global Keys state."""
     if not Keys.keys_loaded:
         from settings import load_keys
         load_keys()
@@ -90,6 +81,15 @@ def decompressed_path(source):
     return source.with_suffix('.' + DECOMPRESS_EXT[source.suffix.lstrip('.').lower()])
 
 
+def conversion_target(file_obj):
+    """The output path a (de)compression of this file would produce, or None."""
+    if not file_obj.compressed and file_obj.extension in COMPRESS_EXT:
+        return str(compressed_path(file_obj.filepath))
+    if file_obj.compressed and file_obj.extension in DECOMPRESS_EXT:
+        return str(decompressed_path(file_obj.filepath))
+    return None
+
+
 def _use_block(ext, opts):
     """Solid vs block selection, mirroring nsz's own default (block for XCI)."""
     mode = opts.get('mode', 'auto')
@@ -101,13 +101,7 @@ def _use_block(ext, opts):
 
 
 def _nca_content_hashes(path, sri=None):
-    """Map each NCA's identity (name minus .nca/.ncz) to the sha256 of its *content*.
-
-    Compressed .ncz members are decompressed in memory (no temp file, no keys) and
-    the reconstructed NCA is hashed; plain .nca members are hashed as-is. A source and
-    a faithful compression of it yield identical maps — independent of container padding
-    and of whether an NCA matches its own name-hash.
-    """
+    """Map each NCA's identity (name minus .nca/.ncz) to the sha256 of its content."""
     path = Path(path)
     is_xci = path.suffix.lower() in ('.xci', '.xcz')
     container = (_Xci.Xci() if is_xci else _Nsp.Nsp())
@@ -134,7 +128,7 @@ def _nca_content_hashes(path, sri=None):
 
 def _verify_roundtrip(source, out, progress):
     """Confirm compression didn't corrupt content: every NCA must decompress back to
-    the exact bytes of its source counterpart. Raises VerificationException otherwise."""
+    the same hash of its source counterpart. Raises VerificationException otherwise."""
     src = _nca_content_hashes(source)
     got = _with_progress(lambda sri: _nca_content_hashes(out, sri), progress, COMPRESS_SPAN, 100 - COMPRESS_SPAN)
     corrupted = sorted(k for k in src if k in got and got[k] != src[k])
@@ -147,18 +141,7 @@ def _verify_roundtrip(source, out, progress):
 
 
 def compress_to(source, out_dir, opts, progress=None):
-    """Compress source into out_dir, verify it round-trips to the source, and return
-    the compressed file path.
-
-    Raises VerificationException (or RuntimeError) on failure, leaving source untouched.
-    Compression uses keep=True so every NCA is bit-identically restorable; verification
-    then decompresses each NCA and SHA256-compares its content against the matching
-    source NCA (_verify_roundtrip). This proves compression didn't corrupt anything
-    without requiring whole-container byte-identity, which nsz can't reproduce for some
-    valid containers (padding normalisation), nor that source NCAs match their own names.
-
-    `progress(pct)` is called with overall percent: compress fills 0..COMPRESS_SPAN, verify the rest.
-    """
+    """Compress source into out_dir, verify it, and return the compressed file path."""
     _ensure_keys()
     source = Path(source).resolve()
     out_dir = Path(out_dir)

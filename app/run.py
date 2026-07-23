@@ -77,9 +77,7 @@ class WorkerPool:
                 proc.terminate()
                 proc.join(timeout=5)
         logger.info(f'Worker-{worker_id} stopped.')
-        # Process is gone: reap any task it was running mid-execution so its cleanup hook
-        # runs (temp files / partial output removed). No-op if it held no running task, or
-        # if cancel_task already removed the task before restarting the worker.
+        # Process is gone: reap any task it was running so its cleanup hook runs).
         from tasks import reap_worker_task
         with self.app.app_context():
             reap_worker_task(worker_id)

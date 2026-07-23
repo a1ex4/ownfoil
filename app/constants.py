@@ -81,9 +81,6 @@ DEFAULT_SETTINGS = {
     },
     "worker": {
         "count": 2,
-        # Per-concurrency-group cap: at most N tasks of a group run at once, regardless of
-        # worker count. 'io' holds the disk-heavy (de)compression/verify tasks — default 1 to
-        # avoid seek-thrash from parallel multi-GB reads on a single disk.
         "group_limits": {
             "io": 1,
         },
@@ -97,6 +94,8 @@ ALLOWED_EXTENSIONS = [
     'xci',
     'xcz',
 ]
+COMPRESS_EXT = {'nsp': 'nsz', 'xci': 'xcz'}
+DECOMPRESS_EXT = {v: k for k, v in COMPRESS_EXT.items()}
 
 # Filesystems that native OS watchers cannot reliably observe (server-side changes
 # emit no inotify/FSEvents), so paths on these must be polled.
@@ -109,10 +108,6 @@ NETWORK_FSTYPES = {
 APP_TYPE_BASE = 'BASE'
 APP_TYPE_UPD = 'UPDATE'
 APP_TYPE_DLC = 'DLC'
-
-# File compression (nsz): uncompressed -> compressed extension mapping and back.
-COMPRESS_EXT = {'nsp': 'nsz', 'xci': 'xcz'}
-DECOMPRESS_EXT = {v: k for k, v in COMPRESS_EXT.items()}
 APP_TYPE_MAP = {
     128: APP_TYPE_BASE,
     129: APP_TYPE_UPD,

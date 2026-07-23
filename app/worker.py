@@ -28,8 +28,7 @@ class TaskWorker:
             cursor = connection.cursor()
             cursor.execute("BEGIN IMMEDIATE")
 
-            # Exclude task types whose concurrency group is already at its limit (BEGIN IMMEDIATE
-            # serializes writers, so the running counts seen here are consistent across workers).
+            # Exclude task types whose concurrency group is already at its limit.
             cursor.execute("SELECT task_name FROM tasks WHERE status = 'running'")
             blocked = tasks_mod.blocked_task_names([r[0] for r in cursor.fetchall()])
 
@@ -109,7 +108,6 @@ class TaskWorker:
             task.completed_at = datetime.datetime.utcnow()
             task_name, input_json, parent_id = task.task_name, task.input_json, task.parent_id
             db.session.commit()
-            # Run the task's cleanup hook so a failed task leaves no partial output / stale marks.
             tasks_mod._run_cleanup_hook(task_name, input_json)
             on_task_completed(task_id, parent_id)
 

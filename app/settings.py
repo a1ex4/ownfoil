@@ -16,9 +16,7 @@ keys_lock = threading.Lock()
 
 
 def _dump_settings(settings):
-    """Persist settings atomically so a concurrent reader never sees a truncated file.
-    Writing directly with open(...,'w') truncates in place; another process reading in
-    that window gets an empty file (yaml.safe_load -> None) and crashes."""
+    """Persist settings atomically so a concurrent reader never sees a truncated file."""
     with settings_lock:
         fd, tmp = tempfile.mkstemp(dir=os.path.dirname(CONFIG_FILE), prefix='.settings-', suffix='.tmp')
         try:
@@ -37,9 +35,7 @@ def _dump_settings(settings):
 
 @contextmanager
 def settings_transaction():
-    """Hold settings_lock across a read-modify-write so two concurrent saves can't clobber
-    each other. Yields the current settings; the caller mutates them in place and they are
-    persisted atomically on exit. (settings_lock is an RLock, so the nested load/dump are fine.)"""
+    """Hold settings_lock across a read-modify-write so two concurrent saves don't collide."""
     with settings_lock:
         settings = load_settings()
         yield settings
@@ -184,7 +180,7 @@ def load_settings():
             logger.debug('Reading configuration file.')
             with open(CONFIG_FILE, 'r') as yaml_file:
                 settings = yaml.safe_load(yaml_file)
-            if settings is None:  # empty file: rebuild from defaults
+            if settings is None:
                 settings = {}
                 settings_updated = True
 
