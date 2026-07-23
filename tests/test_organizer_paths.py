@@ -12,7 +12,7 @@ from constants import (
     TEMPLATE_NAME_KEYS,
     TRUNCATION_MARKER,
 )
-from library import fit_template_names
+from library import prepare_template_names
 from utils import sanitize_filename, sanitized_path_parts, truncate_path_parts
 
 SANITIZE_CASES = [
@@ -32,6 +32,8 @@ SANITIZE_CASES = [
     ('con', False, 'con'),
     ('bell\x07', True, 'bell␇'),
     ('nul\x00', False, 'nul␀'),
+    ('void* tRrLM2(); //Void Terrarium 2', True, 'void＊ tRrLM2(); ／／Void Terrarium 2'),
+    ('void* tRrLM2(); //Void Terrarium 2', False, 'void* tRrLM2(); ／／Void Terrarium 2'),
 ]
 
 
@@ -96,7 +98,7 @@ FIT_CASES = [
 
 
 def _organized_parts(template, data, prefix_len):
-    parts = sanitized_path_parts(template.format(**fit_template_names(data)), True)
+    parts = sanitized_path_parts(template.format(**prepare_template_names(data, True)), True)
     return truncate_path_parts(parts, prefix_len)
 
 
@@ -105,7 +107,7 @@ def _organized_parts(template, data, prefix_len):
 def test_fit_template_names(case_id, template, prefix_len, title_name, app_name):
     data = {'titleName': title_name, 'appName': app_name, 'appId': '0100E7500BF84000',
             'appVersion': '65536', 'extension': 'nsp'}
-    fitted = fit_template_names(dict(data))
+    fitted = prepare_template_names(dict(data), True)
     parts = _organized_parts(template, dict(data), prefix_len)
 
     assert _full_len(parts, prefix_len) + COLLISION_SUFFIX_RESERVE <= MAX_PATH_WINDOWS
@@ -128,6 +130,32 @@ def test_title_directory_is_independent_of_the_file(prefix_len):
         for app_name in ('Extra Costumes', MON_YU, MON_YU + ' - SEASON PASS BUNDLE', 'A' * 300)
     }
     assert len(dirs) == 1
+
+
+SEPARATOR_CASES = [
+    # title_name, app_name, expected title directory
+    ('void* tRrLM2(); //Void Terrarium 2', 'DLC/Extra', 'void＊ tRrLM2(); ／／Void Terrarium 2'),
+    ('Fate/EXTELLA LINK', 'Fate/EXTELLA Costume', 'Fate／EXTELLA LINK'),
+]
+
+
+@pytest.mark.parametrize('windows', [True, False])
+@pytest.mark.parametrize('title_name, app_name, windows_dir', SEPARATOR_CASES)
+def test_names_cannot_introduce_path_separators(windows, title_name, app_name, windows_dir):
+    """A name containing a slash must stay one path part, not create directories."""
+    data = {'titleName': title_name, 'appName': app_name,
+            'appId': '0100', 'appVersion': '0', 'extension': 'nsp'}
+    prepared = prepare_template_names(dict(data), windows)
+    parts = sanitized_path_parts(DLC_TEMPLATE.format(**prepared), windows)
+
+    assert len(parts) == 2
+    assert parts[0] == prepared['titleName']
+    assert parts[-1] == f'{prepared["appName"]} [0100][v0].nsp'
+    # The slashes are replaced, on every platform
+    assert not any('/' in p for p in parts)
+    assert all(p.count('／') == old.count('/') for p, old in zip(parts, (title_name, app_name)))
+    if windows:
+        assert parts[0] == windows_dir
 
 
 def test_fit_template_names_is_independent_of_the_library_path():

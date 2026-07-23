@@ -13,9 +13,13 @@ from pathlib import Path
 from utils import *
 from db import update_file_path
 
-def fit_template_names(format_data):
-    """Cap the names used in a template to a fixed length, leaving the rest of the template intact."""
-    return {k: trim_name(v, MAX_NAME_WINDOWS) if k in TEMPLATE_NAME_KEYS else v for k, v in format_data.items()}
+def prepare_template_names(format_data, windows_compatible):
+    """Sanitize the names before formatting, so they cannot introduce path separators, and cap their length."""
+    names = {k: sanitize_filename(v, windows_compatible) for k, v in format_data.items() if k in TEMPLATE_NAME_KEYS}
+    if sys.platform == 'win32' or windows_compatible:
+        names = {k: trim_name(v, MAX_NAME_WINDOWS) for k, v in names.items()}
+
+    return {**format_data, **names}
 
 def organize_file(file_obj, library_path, organizer_settings):
     try:
@@ -52,10 +56,9 @@ def organize_file(file_obj, library_path, organizer_settings):
             else:
                 format_data["appName"] = title_info['name']
         
-        # Format the new relative path, shortening the names first if they cannot fit
+        # Format the new relative path, sanitizing and shortening the names first
         windows_compatible = organizer_settings.get('windows_compatible', False)
-        if sys.platform == 'win32' or windows_compatible:
-            format_data = fit_template_names(format_data)
+        format_data = prepare_template_names(format_data, windows_compatible)
         safe_parts = sanitized_path_parts(template.format(**format_data), windows_compatible)
         if sys.platform == 'win32' or windows_compatible:
             safe_parts = truncate_path_parts(safe_parts, len(library_path))
