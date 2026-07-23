@@ -13,21 +13,9 @@ from pathlib import Path
 from utils import *
 from db import update_file_path
 
-def sanitize_filename(name, windows_compatible=False):
-    """Replace restricted characters with their full-width equivalents."""
-    windows = sys.platform == 'win32' or windows_compatible
-    restricted_chars = RESTRICTED_CHARS_WINDOWS if windows else RESTRICTED_CHARS_UNIX
-    sanitized = ''.join(replace_char(c, restricted_chars, windows) for c in name).strip()
-
-    if windows:
-        # A Windows name cannot end with a period
-        if sanitized.endswith('.'):
-            sanitized = sanitized[:-1] + TRAILING_DOT_WINDOWS
-        # Handle Windows reserved names
-        if sanitized.lower() in RESERVED_NAMES_WINDOWS:
-            sanitized = '_' + sanitized # Prepend an underscore to avoid conflict
-
-    return sanitized
+def fit_template_names(format_data):
+    """Cap the names used in a template to a fixed length, leaving the rest of the template intact."""
+    return {k: trim_name(v, MAX_NAME_WINDOWS) if k in TEMPLATE_NAME_KEYS else v for k, v in format_data.items()}
 
 def organize_file(file_obj, library_path, organizer_settings):
     try:
@@ -64,10 +52,13 @@ def organize_file(file_obj, library_path, organizer_settings):
             else:
                 format_data["appName"] = title_info['name']
         
-        # Format the new relative path and remove leading slash if present
-        raw_path = template.format(**format_data).lstrip('/')
+        # Format the new relative path, shortening the names first if they cannot fit
         windows_compatible = organizer_settings.get('windows_compatible', False)
-        safe_parts = [sanitize_filename(part, windows_compatible) for part in Path(raw_path).parts]
+        if sys.platform == 'win32' or windows_compatible:
+            format_data = fit_template_names(format_data)
+        safe_parts = sanitized_path_parts(template.format(**format_data), windows_compatible)
+        if sys.platform == 'win32' or windows_compatible:
+            safe_parts = truncate_path_parts(safe_parts, len(library_path))
         new_relative_path = os.path.join(*safe_parts)
         
         # Construct the full new path

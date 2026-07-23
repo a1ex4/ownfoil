@@ -1,13 +1,16 @@
 import logging
 import re
+import sys
 import threading
 import time
 from datetime import timedelta
 from functools import wraps
+from pathlib import Path
 from typing import Optional, Tuple
 import json
 import os
 import tempfile
+from constants import *
 
 # Global lock for all JSON writes in this process
 _json_write_lock = threading.Lock()
@@ -279,6 +282,65 @@ def replace_char(c, restricted_chars, control_chars):
     if ord(c) < 0x20 and (control_chars or c == '\0'):
         return chr(0x2400 + ord(c))
     return c
+
+
+def sanitize_filename(name, windows_compatible=False):
+    """Replace restricted characters with their full-width equivalents."""
+    windows = sys.platform == 'win32' or windows_compatible
+    restricted_chars = RESTRICTED_CHARS_WINDOWS if windows else RESTRICTED_CHARS_UNIX
+    sanitized = ''.join(replace_char(c, restricted_chars, windows) for c in name).strip()
+
+    if windows:
+        # A Windows name cannot end with a period
+        if sanitized.endswith('.'):
+            sanitized = sanitized[:-1] + TRAILING_DOT_WINDOWS
+        # Handle Windows reserved names
+        if sanitized.lower() in RESERVED_NAMES_WINDOWS:
+            sanitized = '_' + sanitized # Prepend an underscore to avoid conflict
+
+    return sanitized
+
+
+def sanitized_path_parts(raw_path, windows_compatible):
+    """Split a formatted path into filesystem-safe path parts."""
+    return [sanitize_filename(part, windows_compatible) for part in Path(raw_path.lstrip('/')).parts]
+
+
+def trim_name(name, length):
+    """Cut a name to length, marking the truncation with an ellipsis."""
+    length = max(length, 1)
+    if len(name) <= length:
+        return name
+    return name[:length - 1].rstrip('. ') + TRUNCATION_MARKER
+
+
+def truncate_path_parts(parts, prefix_len):
+    """Shorten path parts, directories first, so that prefix + path fits within MAX_PATH."""
+    *dirs, filename = parts
+    dirs = [trim_name(d, MAX_PART_WINDOWS) for d in dirs]
+    stem, _, ext = filename.rpartition('.')
+    if not stem:
+        stem, ext = filename, ''
+    ext_len = len(ext) + 1 if ext else 0
+    # Length taken by the directories, each preceded by a separator
+    dirs_len = lambda: sum(len(d) + 1 for d in dirs)
+    # Budget left for the stem, keeping room for its extension and a collision suffix
+    stem_room = lambda: min(MAX_PART_WINDOWS - ext_len,
+                            MAX_PATH_WINDOWS - prefix_len - dirs_len() - 1 - ext_len - COLLISION_SUFFIX_RESERVE)
+
+    # Shrink the longest directory until the filename has room and mkdir's own limit is met
+    while dirs and max(len(d) for d in dirs) > MIN_PART_WINDOWS:
+        if prefix_len + dirs_len() <= MAX_DIR_PATH_WINDOWS and stem_room() >= MIN_PART_WINDOWS:
+            break
+        longest = max(range(len(dirs)), key=lambda i: len(dirs[i]))
+        dirs[longest] = trim_name(dirs[longest], len(dirs[longest]) - 1)
+
+    stem = trim_name(stem, stem_room())
+    filename = f'{stem}.{ext}' if ext else stem
+    if prefix_len + dirs_len() + 1 + len(filename) > MAX_PATH_WINDOWS:
+        logging.getLogger('main').warning(f"Path too long for Windows even after truncation: {os.path.join(*dirs, filename)}")
+
+    return dirs + [filename]
 
 
 def human_size(n):

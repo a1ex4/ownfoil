@@ -130,6 +130,18 @@ RESTRICTED_CHARS_UNIX = {'/': '／'}
 # A Windows name cannot end with a period, only replaced as the last character
 TRAILING_DOT_WINDOWS = '．'
 
+# Windows path length limits, one char shorter than the documented values
+# to account for the terminating NUL
+MAX_PATH_WINDOWS = 259
+MAX_DIR_PATH_WINDOWS = 247 # Directories need room for a 8.3 filename
+MAX_PART_WINDOWS = 255
+MIN_PART_WINDOWS = 8 # Never truncate a name below this
+TRUNCATION_MARKER = '…' # Marks a name that had to be shortened
+TEMPLATE_NAME_KEYS = ('titleName', 'appName') # Organizer template values shortened to fit a path
+# Leaves room for a library path of ~60 characters and shortens only 0.4% of known titles.
+MAX_NAME_WINDOWS = 80
+COLLISION_SUFFIX_RESERVE = 4 # Room for the "(n)" suffix added on filename collisions
+
 # Reserved names on Windows
 RESERVED_NAMES_WINDOWS = {
     'con', 'prn', 'aux', 'nul', 'com1', 'com2', 'com3', 'com4', 'com5', 'com6', 'com7', 'com8', 'com9',
