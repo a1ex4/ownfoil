@@ -13,24 +13,13 @@ from pathlib import Path
 from utils import *
 from db import update_file_path
 
-def sanitize_filename(name, windows_compatible=False):
+def prepare_template_names(format_data, windows_compatible):
+    """Sanitize the names before formatting, so they cannot introduce path separators, and cap their length."""
+    names = {k: sanitize_filename(v, windows_compatible) for k, v in format_data.items() if k in TEMPLATE_NAME_KEYS}
     if sys.platform == 'win32' or windows_compatible:
-        forbidden_chars = FORBIDDEN_CHARS_WINDOWS
-        # Replace forbidden characters with underscore
-        sanitized = ''.join('' if c in forbidden_chars else c for c in name)
-        # Remove trailing periods and spaces specific to Windows
-        sanitized = sanitized.strip().rstrip('. ')
-        # Handle Windows reserved names
-        if sanitized.lower() in RESERVED_NAMES_WINDOWS:
-            sanitized = '_' + sanitized # Prepend an underscore to avoid conflict
-    else:
-        forbidden_chars = FORBIDDEN_CHARS_UNIX
-        # Replace forbidden characters with underscore
-        sanitized = ''.join('_' if c in forbidden_chars else c for c in name)
-        # Remove leading/trailing spaces (general good practice)
-        sanitized = sanitized.strip()
+        names = {k: trim_name(v, MAX_NAME_WINDOWS) for k, v in names.items()}
 
-    return sanitized
+    return {**format_data, **names}
 
 def organize_file(file_obj, library_path, organizer_settings):
     try:
@@ -67,10 +56,12 @@ def organize_file(file_obj, library_path, organizer_settings):
             else:
                 format_data["appName"] = title_info['name']
         
-        # Format the new relative path and remove leading slash if present
-        raw_path = template.format(**format_data).lstrip('/')
+        # Format the new relative path, sanitizing and shortening the names first
         windows_compatible = organizer_settings.get('windows_compatible', False)
-        safe_parts = [sanitize_filename(part, windows_compatible) for part in Path(raw_path).parts]
+        format_data = prepare_template_names(format_data, windows_compatible)
+        safe_parts = sanitized_path_parts(template.format(**format_data), windows_compatible)
+        if sys.platform == 'win32' or windows_compatible:
+            safe_parts = truncate_path_parts(safe_parts, len(library_path))
         new_relative_path = os.path.join(*safe_parts)
         
         # Construct the full new path
