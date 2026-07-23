@@ -121,9 +121,14 @@ APP_TYPE_FILTERS = {
     'multi': 'MULTI'
 }
 
-# Define OS-specific forbidden characters for Organizer
-FORBIDDEN_CHARS_WINDOWS = set('<>:"/\\|?*')
-FORBIDDEN_CHARS_UNIX = set('/') # Only / is truly forbidden on Unix-like systems
+# OS-specific restricted characters, mapped to their full-width equivalents
+RESTRICTED_CHARS_WINDOWS = {
+    '/': '／', '\\': '＼', ':': '：', '*': '＊', '?': '？',
+    '"': '＂', '<': '＜', '>': '＞', '|': '｜'
+}
+RESTRICTED_CHARS_UNIX = {'/': '／'}
+# A Windows name cannot end with a period, only replaced as the last character
+TRAILING_DOT_WINDOWS = '．'
 
 # Reserved names on Windows
 RESERVED_NAMES_WINDOWS = {

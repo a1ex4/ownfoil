@@ -271,6 +271,16 @@ def delete_empty_folders(path):
             break # No more empty directories found in this pass, so we are done
 
 
+def replace_char(c, restricted_chars, control_chars):
+    """Map a character to its filesystem-safe replacement, if any."""
+    if c in restricted_chars:
+        return restricted_chars[c]
+    # Control characters map to their Unicode "control pictures" equivalent
+    if ord(c) < 0x20 and (control_chars or c == '\0'):
+        return chr(0x2400 + ord(c))
+    return c
+
+
 def human_size(n):
     """Format a byte count as a human-readable size (e.g. '2.7 GB')."""
     size = float(n)

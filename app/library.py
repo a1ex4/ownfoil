@@ -14,21 +14,18 @@ from utils import *
 from db import update_file_path
 
 def sanitize_filename(name, windows_compatible=False):
-    if sys.platform == 'win32' or windows_compatible:
-        forbidden_chars = FORBIDDEN_CHARS_WINDOWS
-        # Replace forbidden characters with underscore
-        sanitized = ''.join('' if c in forbidden_chars else c for c in name)
-        # Remove trailing periods and spaces specific to Windows
-        sanitized = sanitized.strip().rstrip('. ')
+    """Replace restricted characters with their full-width equivalents."""
+    windows = sys.platform == 'win32' or windows_compatible
+    restricted_chars = RESTRICTED_CHARS_WINDOWS if windows else RESTRICTED_CHARS_UNIX
+    sanitized = ''.join(replace_char(c, restricted_chars, windows) for c in name).strip()
+
+    if windows:
+        # A Windows name cannot end with a period
+        if sanitized.endswith('.'):
+            sanitized = sanitized[:-1] + TRAILING_DOT_WINDOWS
         # Handle Windows reserved names
         if sanitized.lower() in RESERVED_NAMES_WINDOWS:
             sanitized = '_' + sanitized # Prepend an underscore to avoid conflict
-    else:
-        forbidden_chars = FORBIDDEN_CHARS_UNIX
-        # Replace forbidden characters with underscore
-        sanitized = ''.join('_' if c in forbidden_chars else c for c in name)
-        # Remove leading/trailing spaces (general good practice)
-        sanitized = sanitized.strip()
 
     return sanitized
 
