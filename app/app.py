@@ -146,9 +146,24 @@ def create_app(db_uri=None):
 # Create app
 app = create_app()
 
+# Add proper Seek support to Range requests 
+from werkzeug.wsgi import FileWrapper as WerkzeugFileWrapper
+
+@app.before_request
+def use_seekable_file_wrapper_for_range_requests():
+    """
+    Gunicorn's WSGI FileWrapper does not expose seekable(), seek()
+    and tell(). Werkzeug therefore handles Range requests by reading
+    and discarding the file from the beginning.
+
+    Use Werkzeug's seekable wrapper for Range requests.
+    """
+    if request.headers.get("Range"):
+        request.environ["wsgi.file_wrapper"] = WerkzeugFileWrapper
+
+
 # List of supported client classes
 SUPPORTED_CLIENTS = [CyberFoilClient, TinfoilClient, SphairaClient]
-
 
 def get_client_for_request(request):
     """Identify and return the appropriate client for the request, or None if no client matches."""
