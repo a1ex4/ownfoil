@@ -1,0 +1,30 @@
+{
+    "name": "Ownfoil",
+    "image": "mcr.microsoft.com/devcontainers/base:bookworm",
+
+    // Install uv, Python and the virtualenv once, when the container is created.
+    "postCreateCommand": "bash .devcontainer/post-create.sh",
+
+    // Make the virtualenv the default interpreter for every process in the container.
+    "remoteEnv": {
+        "PATH": "${containerWorkspaceFolder}/.venv/bin:${containerEnv:PATH}"
+    },
+
+    // Ownfoil web UI
+    "forwardPorts": [8465],
+    "portsAttributes": {
+        "8465": {
+            "label": "Ownfoil",
+            "onAutoForward": "notify"
+        }
+    },
+
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "eamodio.gitlens",
+                "anthropic.claude-code"
+            ]
+        }
+    }
+}
