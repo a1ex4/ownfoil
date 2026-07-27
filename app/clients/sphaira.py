@@ -7,6 +7,10 @@ from .client import BaseClient
 from db import Files, Libraries, increment_download_count_throttled
 from constants import APP_TYPE_FILTERS, ALLOWED_EXTENSIONS
 
+# Dedicated endpoint used to explicitly identify a Sphaira client, needed when
+# the request goes through a reverse proxy that alters the original headers.
+SPHAIRA_ENDPOINT = '/sphaira'
+
 SPHAIRA_DEFAULT_HEADERS = [
     'Host',
     'Accept',
@@ -37,7 +41,14 @@ class SphairaClient(BaseClient):
 
     @classmethod
     def identify_client(cls, request: Request) -> bool:
-        """Identify Sphaira client by validating required and allowed headers."""
+        """
+        Identify Sphaira client, either from the dedicated endpoint or by validating
+        required and allowed headers.
+        """
+        # Explicit identification through the dedicated endpoint
+        if cls._is_sphaira_endpoint(request):
+            return True
+
         headers = set(request.headers.keys())
 
         default_headers = set(SPHAIRA_DEFAULT_HEADERS)
@@ -57,6 +68,20 @@ class SphairaClient(BaseClient):
 
         return True
 
+    @classmethod
+    def _is_sphaira_endpoint(cls, request: Request) -> bool:
+        """Check if the request targets the dedicated Sphaira endpoint."""
+        path = '/' + request.path.strip('/')
+        return path == SPHAIRA_ENDPOINT or path.startswith(SPHAIRA_ENDPOINT + '/')
+
+    @classmethod
+    def _client_path(cls, request: Request) -> str:
+        """Return the request path, without the dedicated endpoint prefix."""
+        path = request.path.strip('/')
+        if cls._is_sphaira_endpoint(request):
+            path = path[len(SPHAIRA_ENDPOINT.strip('/')):]
+        return path.strip('/')
+
     def error_response(self, error_message: str) -> Response:
         """Generate error response in dir list format."""
         content = [f"{i:02d} - {s}" for i, s in enumerate(['ERROR'] + error_message.split('\n'))]
@@ -71,7 +96,7 @@ class SphairaClient(BaseClient):
     @BaseClient.verify_shop_access
     def _handle_get(self, request: Request) -> Response:
         """Handle GET requests for directory listing or file downloads."""
-        subpath = request.path.strip('/')
+        subpath = self._client_path(request)
         paths = subpath.split('/')
         # Check if requesting a specific file
         if paths and any([paths[-1].endswith(ext) for ext in ALLOWED_EXTENSIONS]):
@@ -89,7 +114,7 @@ class SphairaClient(BaseClient):
         Handle HEAD requests for file lookups.
         Sphaira sends HEAD requests to filenames to get file headers before downloading.
         """
-        filename = request.path.split('/')[-1] if request.path else ''
+        filename = self._client_path(request).split('/')[-1]
         if filename and any([filename.endswith(ext) for ext in ALLOWED_EXTENSIONS]):
             return self._serve_file(filename)
         return self.error_response("File not found")
