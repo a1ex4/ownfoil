@@ -28,7 +28,7 @@ def _write_windows_launcher(base_dir):
         return
     with open(bat_path, 'w', newline='\r\n') as f:
         f.write('@echo off\n')
-        f.write('uv tool run ownfoil "%~dp0."\n')
+        f.write('uv tool run --from git+https://github.com/a1ex4/ownfoil ownfoil "%~dp0."\n')
         f.write('pause\n')
 
 
