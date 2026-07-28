@@ -23,6 +23,7 @@ Ownfoil is a Nintendo Switch library manager, that will also turn your library i
 
 - [Using Docker](#using-docker)
 - [Using Python](#using-python)
+- [Using uv (Windows users do this)](#using-uv)
 - [Using Unraid](https://preview.ca.unraid.net/apps?q=ownfoil&app=v2fayr)
 - [Using Helm chart](./chart)
 
@@ -104,6 +105,31 @@ Download the repository as a zip archive, extract it, install the dependencies a
 $ pip install -r requirements.txt
 $ python app/app.py
 ```
+</details>
+
+## Using uv
+Ownfoil can also be run with [uv](https://docs.astral.sh/uv/getting-started/installation/) directly from this repository, without cloning it or managing a Python environment yourself.
+<details>
+
+After installing `uv`, open a  terminal (Press `Win + R`, type `wt`, and press `Enter`), then either:
+* Run it once, without installing anything permanently:
+```
+uvx --from git+https://github.com/a1ex4/ownfoil ownfoil
+```
+* Install it as a persistent uv tool, so the `ownfoil` command stays available:
+```
+uv tool install git+https://github.com/a1ex4/ownfoil
+ownfoil
+```
+By default, `config/` and `data/` are created in the current directory. Pass a directory to use instead (works the same way with `uvx`, just append it after `ownfoil`):
+```
+ownfoil /path/to/persist
+uvx --from git+https://github.com/a1ex4/ownfoil ownfoil /path/to/persist
+```
+> [!TIP]
+> On Windows, the first run also creates an `ownfoil.bat` next to `config/` and `data/`, so you can start Ownfoil again by double-clicking it instead of reopening a terminal.
+
+On Windows, Gunicorn cannot run, so it's best suited for local/personal use there rather than a production deployment.
 </details>
 
 # Usage

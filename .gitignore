@@ -15,5 +15,10 @@ data
 # pyenv
 .python-version
 
+# uv build/tool artifacts
+/dist
+ownfoil.bat
+uv.lock
+
 .claude
 CLAUDE.local.md
