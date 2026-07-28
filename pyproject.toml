@@ -1,14 +1,14 @@
 [project]
 name = "ownfoil"
 version = "2.4.0.dev0"
-description = "Self-hosted Nintendo Switch shop, compatible with Tinfoil, Cyberfoil and Sphaira."
+description = "Self-hosted Nintendo Switch library manager, with automated management tasks, multi user authentication, serving your library to multiple supported clients on your Switch."
 readme = "README.md"
 requires-python = ">=3.11"
 license = "AGPL-3.0-or-later"
 authors = [
     { name = "a1ex4", email = "12754559+a1ex4@users.noreply.github.com" },
 ]
-keywords = ["nintendo-switch", "switch", "homebrew", "tinfoil", "self-hosted", "atmosphere"]
+keywords = ["atmosphere", "homebrew", "nintendo-switch", "self-hosted", "switch", "tinfoil"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Environment :: Web Environment",
