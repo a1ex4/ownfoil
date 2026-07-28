@@ -38,3 +38,12 @@ for rc in "${HOME}/.bashrc" "${HOME}/.zshrc"; do
 done
 
 echo "Environment ready: $(${VENV_DIR}/bin/python --version)"
+
+# 6. Install the Claude Code CLI (native binary, no Node.js required).
+# Auth is handled via the CLAUDE_CODE_OAUTH_TOKEN env var (a Codespaces/repo secret)
+# - no separate login step needed.
+if ! command -v claude >/dev/null 2>&1; then
+    echo "Installing Claude Code CLI..."
+    curl -fsSL https://claude.ai/install.sh | bash
+fi
+claude --version
