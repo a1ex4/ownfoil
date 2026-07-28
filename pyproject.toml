@@ -4,6 +4,19 @@ version = "2.4.0.dev0"
 description = "Self-hosted Nintendo Switch shop, compatible with Tinfoil, Cyberfoil and Sphaira."
 readme = "README.md"
 requires-python = ">=3.11"
+license = "AGPL-3.0-or-later"
+authors = [
+    { name = "a1ex4", email = "12754559+a1ex4@users.noreply.github.com" },
+]
+keywords = ["nintendo-switch", "switch", "homebrew", "tinfoil", "self-hosted", "atmosphere"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Web Environment",
+    "License :: OSI Approved :: GNU Affero General Public License v3 or later (AGPLv3+)",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Topic :: Games/Entertainment",
+]
 dependencies = [
     "flask==3.1.3",
     "flask-login==0.6.3",
@@ -20,11 +33,13 @@ dependencies = [
     "zstandard==0.25.0",
 ]
 
+[project.urls]
+Homepage = "https://github.com/a1ex4/ownfoil"
+Repository = "https://github.com/a1ex4/ownfoil"
+Issues = "https://github.com/a1ex4/ownfoil/issues"
+
 [project.scripts]
 ownfoil = "ownfoil.cli:main"
-
-[tool.hatch.metadata]
-allow-direct-references = true
 
 [build-system]
 requires = ["hatchling"]
