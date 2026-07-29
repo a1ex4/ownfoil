@@ -104,7 +104,8 @@ def _ignored(src, dest=None):
     ("/a/b/Game [v1].nsp", "/a/b/Game [v1].nsz"),
 ])
 def test_compressed_path(src, expected):
-    assert str(compression.compressed_path(src)) == expected
+    # Compared as Paths, not strings: the result carries the host's separator.
+    assert compression.compressed_path(src) == Path(expected)
 
 
 @pytest.mark.parametrize("src,expected", [
@@ -112,7 +113,7 @@ def test_compressed_path(src, expected):
     ("/games/Foo.xcz", "/games/Foo.xci"),
 ])
 def test_decompressed_path(src, expected):
-    assert str(compression.decompressed_path(src)) == expected
+    assert compression.decompressed_path(src) == Path(expected)
 
 
 # --- progress reporting + bar suppression ------------------------------------------------

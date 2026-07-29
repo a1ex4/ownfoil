@@ -1,6 +1,6 @@
 from constants import *
 from utils import *
-import time, os, threading
+import time, os, sys, threading
 from watchdog.observers import Observer
 from watchdog.observers.polling import PollingObserver
 from watchdog.events import FileSystemEventHandler
@@ -278,7 +278,22 @@ class Handler(FileSystemEventHandler):
         if source_event.event_type not in ('created', 'modified', 'moved', 'deleted'):
             return
 
-        if not any(source_event.src_path.endswith(ext) or source_event.dest_path.endswith(ext) for ext in ALLOWED_EXTENSIONS):
+        is_media = any(source_event.src_path.endswith(ext) or source_event.dest_path.endswith(ext)
+                       for ext in ALLOWED_EXTENSIONS)
+
+        # ReadDirectoryChangesW reports a removed entry as FILE_ACTION_REMOVED with no type, and
+        # watchdog turns that into a FileDeletedEvent even for a folder (the entry is gone, so
+        # nothing can stat it). Treat a delete of a non-media entry as a possible folder removal
+        # so a deleted game folder still prunes its files; on a plain file the prefix matches
+        # nothing downstream. Other platforms deliver a real DirDeletedEvent above.
+        if sys.platform == 'win32' and source_event.event_type == 'deleted' and not is_media:
+            with self.dir_walk_lock:
+                self.new_dirs.pop(source_event.src_path, None)
+            self._raw_callback([SimpleNamespace(type='dir_deleted', directory=directory,
+                                                src_path=source_event.src_path, dest_path='')])
+            return
+
+        if not is_media:
             return
 
         library_event = SimpleNamespace(

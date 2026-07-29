@@ -503,9 +503,11 @@ def remove_titles_without_owned_apps():
     return titles_removed
 
 def _dir_prefix_like(dirpath):
-    """LIKE pattern matching files directly or recursively under dirpath, escaping wildcards."""
-    escaped = dirpath.rstrip('/').replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
-    return escaped + '/%'
+    """LIKE pattern matching files directly or recursively under dirpath, escaping wildcards.
+    Uses the host separator: stored filepaths come from the filesystem, so they are
+    backslash-separated on Windows and a '/' pattern would match nothing there."""
+    escaped = dirpath.rstrip('/' + os.sep).replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
+    return escaped + os.sep.replace('\\', '\\\\') + '%'
 
 def delete_files_under_dir(dirpath):
     """Delete all library files under a directory (folder moved out/removed). Returns count."""

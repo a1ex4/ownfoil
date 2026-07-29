@@ -330,6 +330,38 @@ def test_trailing_separator_still_matches(tmp_path):
     assert [e.type for e in seen] == ["created"], f"got {seen}"
 
 
+def test_windows_reports_a_removed_folder_as_a_file_delete(tmp_path, monkeypatch):
+    """watchdog's Windows emitter turns every FILE_ACTION_REMOVED into a FileDeletedEvent, even
+    for a folder, so a delete of a non-media entry has to be read as a possible folder removal —
+    otherwise a deleted game folder leaves its files in the library forever."""
+    lib = tmp_path / "library"
+    lib.mkdir()
+
+    seen = []
+    h = _make_handler(lambda evs: seen.extend(evs))
+    h.add_directory(str(lib))
+
+    monkeypatch.setattr(file_watcher.sys, "platform", "win32")
+    _feed(h, str(lib / "Zelda"), event_type="deleted")
+
+    assert [(e.type, os.path.basename(e.src_path)) for e in seen] == [("dir_deleted", "Zelda")]
+
+
+def test_non_media_delete_is_ignored_off_windows(tmp_path, monkeypatch):
+    """Elsewhere a real DirDeletedEvent arrives, so a plain file delete must stay ignored."""
+    lib = tmp_path / "library"
+    lib.mkdir()
+
+    seen = []
+    h = _make_handler(lambda evs: seen.extend(evs))
+    h.add_directory(str(lib))
+
+    monkeypatch.setattr(file_watcher.sys, "platform", "linux")
+    _feed(h, str(lib / "notes.txt"), event_type="deleted")
+
+    assert seen == []
+
+
 def test_track_file_ignores_vanished_file(tmp_path):
     """A file that disappears between its event and the size probe (e.g. a conversion's
     transient output) is skipped, not allowed to crash the observer dispatch thread."""

@@ -12,6 +12,7 @@ from constants import (
     TEMPLATE_NAME_KEYS,
     TRUNCATION_MARKER,
 )
+import utils
 from library import prepare_template_names
 from utils import sanitize_filename, sanitized_path_parts, truncate_path_parts
 
@@ -38,8 +39,19 @@ SANITIZE_CASES = [
 
 
 @pytest.mark.parametrize('name, windows, expected', SANITIZE_CASES)
-def test_sanitize_filename(name, windows, expected):
+def test_sanitize_filename(name, windows, expected, monkeypatch):
+    # sanitize_filename ORs the flag with `sys.platform == 'win32'`, so the host would decide
+    # the outcome of the windows_compatible=False rows. Pin it to isolate the flag itself.
+    monkeypatch.setattr(utils.sys, 'platform', 'linux')
     assert sanitize_filename(name, windows_compatible=windows) == expected
+
+
+def test_windows_host_sanitizes_without_the_flag(monkeypatch):
+    """Running on Windows applies the Windows ruleset even when the flag is off, since the
+    filenames are headed for a Windows filesystem either way."""
+    monkeypatch.setattr(utils.sys, 'platform', 'win32')
+    assert sanitize_filename("Pokémon: Let's Go", windows_compatible=False) == "Pokémon： Let's Go"
+    assert sanitize_filename('CON', windows_compatible=False) == '_CON'
 
 
 def _full_len(parts, prefix_len):
