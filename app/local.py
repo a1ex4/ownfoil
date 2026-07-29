@@ -7,11 +7,11 @@ so the same command works cross-platform for local/dev use.
 import logging
 import webbrowser
 
-from werkzeug.serving import make_server
-
 logger = logging.getLogger('main')
 
-LOCAL_URL = 'http://127.0.0.1:8465'
+HOST = '0.0.0.0'
+PORT = 8465
+LOCAL_URL = f'http://127.0.0.1:{PORT}'
 
 
 def _open_ui(url):
@@ -44,16 +44,12 @@ def main(open_browser=False):
     initial_count = max(1, get_settings().get('worker', {}).get('count', 1))
     app_mod.pool = WorkerPool(app, initial_count=initial_count)
 
-    # make_server returns once the socket is listening, so a browser opened right after it
-    # can never race the bind - anything early just waits in the accept backlog.
-    server = make_server('0.0.0.0', 8465, app, threaded=True)
     try:
-        logger.info('Initialization done, starting local server on http://0.0.0.0:8465 ...')
+        logger.info(f'Initialization done, starting local server on http://{HOST}:{PORT} ...')
         if open_browser:
             _open_ui(LOCAL_URL)
-        server.serve_forever()
+        app.run(host=HOST, port=PORT, threaded=True, use_reloader=False)
     finally:
-        server.server_close()
         app_mod.pool.shutdown()
         if app_mod.watcher is not None:
             app_mod.watcher.stop()
