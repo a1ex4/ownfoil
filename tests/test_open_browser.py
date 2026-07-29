@@ -5,6 +5,7 @@ import inspect
 import pytest
 
 import local
+import utils
 from ownfoil.cli import _should_open_browser
 
 
@@ -35,14 +36,25 @@ def test_main_does_not_open_a_browser_unless_asked():
     assert inspect.signature(local.main).parameters['open_browser'].default is False
 
 
-def test_open_ui_uses_the_loopback_address(monkeypatch):
-    """localhost can resolve to ::1 first on Windows, but the server binds IPv4 only."""
+def test_url_prefers_the_lan_ip(monkeypatch):
+    """Windows can leave loopback unreachable while the LAN address serves fine."""
+    monkeypatch.setattr(utils, 'get_lan_ip', lambda: '192.168.1.155')
+    assert local._ui_url() == 'http://192.168.1.155:8465'
+
+
+def test_url_falls_back_to_loopback(monkeypatch):
+    """An offline machine has no LAN address, but the server still answers locally."""
+    monkeypatch.setattr(utils, 'get_lan_ip', lambda: None)
+    assert local._ui_url() == 'http://127.0.0.1:8465'
+
+
+def test_open_ui_hands_the_url_to_the_browser(monkeypatch):
     opened = []
     monkeypatch.setattr(local.webbrowser, 'open', lambda url: opened.append(url) or True)
 
-    local._open_ui(local.LOCAL_URL)
+    local._open_ui('http://192.168.1.155:8465')
 
-    assert opened == ['http://127.0.0.1:8465']
+    assert opened == ['http://192.168.1.155:8465']
 
 
 def test_open_ui_survives_a_raising_browser(monkeypatch, caplog):
