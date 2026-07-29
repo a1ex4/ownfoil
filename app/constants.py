@@ -105,6 +105,16 @@ NETWORK_FSTYPES = {
     'glusterfs', 'lustre', 'beegfs',
 }
 
+# GetDriveTypeW return codes that mean a locally attached volume, which
+# ReadDirectoryChangesW can watch natively. Anything else (DRIVE_UNKNOWN,
+# DRIVE_NO_ROOT_DIR, DRIVE_REMOTE) is polled instead.
+WINDOWS_LOCAL_DRIVE_TYPES = {
+    2,  # DRIVE_REMOVABLE
+    3,  # DRIVE_FIXED
+    5,  # DRIVE_CDROM
+    6,  # DRIVE_RAMDISK
+}
+
 APP_TYPE_BASE = 'BASE'
 APP_TYPE_UPD = 'UPDATE'
 APP_TYPE_DLC = 'DLC'

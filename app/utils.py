@@ -168,10 +168,36 @@ def get_path_fstype(path):
             best_mount, best_fstype = mountpoint, fstype
     return best_fstype
 
+def get_windows_drive_type(drive):
+    """Return the GetDriveTypeW code for a drive root (e.g. 'C:\\'), or None if unavailable."""
+    import ctypes
+    try:
+        return ctypes.windll.kernel32.GetDriveTypeW(ctypes.c_wchar_p(drive))
+    except (AttributeError, OSError):
+        return None
+
+def is_windows_network_path(path):
+    """True if path is a UNC share or lives on a mapped network drive.
+    Undeterminable drives are treated as network so they are polled."""
+    from constants import WINDOWS_LOCAL_DRIVE_TYPES
+    import ntpath
+    drive = ntpath.splitdrive(ntpath.abspath(path))[0]
+    if not drive:
+        return True
+    if drive.startswith('\\\\') or drive.startswith('//'):
+        return True  # UNC share, always remote
+    drive_type = get_windows_drive_type(drive + '\\')
+    if drive_type is None:
+        return True
+    return drive_type not in WINDOWS_LOCAL_DRIVE_TYPES
+
 def is_network_path(path):
     """True if path is on a network filesystem that native watchers can't observe.
-    Undeterminable filesystems (e.g. non-Linux) are treated as network so they are polled."""
+    Windows resolves the drive type; elsewhere the mount table decides. Undeterminable
+    filesystems (e.g. macOS, which has no /proc/mounts) are treated as network so they are polled."""
     from constants import NETWORK_FSTYPES
+    if sys.platform == 'win32':
+        return is_windows_network_path(path)
     fstype = get_path_fstype(path)
     if fstype is None:
         return True
