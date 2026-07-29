@@ -1,0 +1,35 @@
+name: Tests
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: Tests on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v9
+        with:
+          python-version: '3.14'
+          enable-cache: true
+          cache-dependency-glob: requirements.txt
+
+      - name: Create virtualenv
+        run: uv venv
+
+      - name: Install dependencies
+        run: uv pip install --requirement requirements.txt pytest
+
+      - name: Run tests
+        run: uv run pytest tests -v
+        timeout-minutes: 20
