@@ -129,6 +129,11 @@ uvx --from git+https://github.com/a1ex4/ownfoil ownfoil /path/to/persist
 > [!TIP]
 > On Windows, the first run also creates an `ownfoil.bat` next to `config/` and `data/`, so you can start Ownfoil again by double-clicking it instead of reopening a terminal.
 
+On Windows, the Web UI opens in your default browser once the server is ready. Pass `--no-browser` (or set `OWNFOIL_NO_BROWSER=1`) to disable it:
+```
+ownfoil --no-browser
+```
+
 On Windows, Gunicorn cannot run, so it's best suited for local/personal use there rather than a production deployment.
 </details>
 

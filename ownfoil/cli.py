@@ -32,6 +32,13 @@ def _write_windows_launcher(base_dir):
         f.write('pause\n')
 
 
+def _should_open_browser(no_browser_flag, environ):
+    """Whether to open the Web UI on startup, given the CLI flag and the environment."""
+    if no_browser_flag:
+        return False
+    return environ.get('OWNFOIL_NO_BROWSER', '').strip().lower() not in ('1', 'true', 'yes')
+
+
 def main():
     parser = argparse.ArgumentParser(
         prog='ownfoil',
@@ -42,6 +49,11 @@ def main():
         nargs='?',
         default='.',
         help='Directory in which the config/ and data/ folders are created (default: current directory).',
+    )
+    parser.add_argument(
+        '--no-browser',
+        action='store_true',
+        help='Do not open the Web UI in your browser on startup (Windows only).',
     )
     args = parser.parse_args()
 
@@ -55,9 +67,10 @@ def main():
     sys.path.insert(0, _app_dir())
     if os.name == 'nt':
         from local import main as run_app
+        run_app(open_browser=_should_open_browser(args.no_browser, os.environ))
     else:
         from run import main as run_app
-    run_app()
+        run_app()
 
 
 if __name__ == '__main__':
