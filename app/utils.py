@@ -1,5 +1,7 @@
+import ipaddress
 import logging
 import re
+import socket
 import sys
 import threading
 import time
@@ -207,6 +209,25 @@ def is_network_path(path):
     if fstype is None:
         return True
     return fstype in NETWORK_FSTYPES
+
+def get_lan_ip(family=socket.AF_INET):
+    """Return the IP of the interface that reaches the LAN, or None if undeterminable."""
+    # Werkzeug's trick to show a usable URL when bound to 0.0.0.0: ask the kernel which
+    # local address it routes an arbitrary private address through. Nothing is ever sent.
+    target = 'fd31:f903:5ab5:1::1' if family == socket.AF_INET6 else '10.253.155.219'
+    try:
+        with socket.socket(family, socket.SOCK_DGRAM) as s:
+            s.connect((target, 58162))
+            ip = s.getsockname()[0]
+    except OSError:
+        return None
+    try:
+        address = ipaddress.ip_address(ip.split('%')[0])
+    except ValueError:
+        return None
+    if address.is_loopback or address.is_unspecified:
+        return None
+    return ip
 
 def allowed_file(filename):
     return '.' in filename and \
