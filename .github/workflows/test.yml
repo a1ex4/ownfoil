@@ -2,11 +2,13 @@ name: Tests
 
 on:
   push:
+  pull_request:
   workflow_dispatch:
 
 jobs:
   test:
     name: Tests on ${{ matrix.os }}
+    if: ${{ !startsWith(github.event.head_commit.message, 'ci') && !startsWith(github.event.head_commit.message, 'doc') }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
