@@ -1,8 +1,8 @@
 import os
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
-DATA_DIR = os.path.join(APP_DIR, 'data')
-CONFIG_DIR = os.path.join(APP_DIR, 'config')
+DATA_DIR = os.environ.get('OWNFOIL_DATA_DIR') or os.path.join(APP_DIR, 'data')
+CONFIG_DIR = os.environ.get('OWNFOIL_CONFIG_DIR') or os.path.join(APP_DIR, 'config')
 DB_FILE = os.path.join(CONFIG_DIR, 'ownfoil.db')
 CONFIG_FILE = os.path.join(CONFIG_DIR, 'settings.yaml')
 KEYS_FILE = os.path.join(CONFIG_DIR, 'keys.txt')
