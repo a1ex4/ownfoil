@@ -152,6 +152,11 @@ def throttle(wait, key_func=None):
         return throttled
     return decorator
 
+def path_is_within(path, directory):
+    """True if path is directory itself or lives under it, compared by path component."""
+    root = directory.rstrip('/' + os.sep)
+    return path == root or any(path.startswith(root + sep) for sep in {'/', os.sep})
+
 def get_path_fstype(path):
     """Return the filesystem type backing path via /proc/mounts, or None if undeterminable."""
     try:

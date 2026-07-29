@@ -259,6 +259,77 @@ def test_growing_file_not_reported_until_stable(observer_env):
     )
 
 
+def _feed(handler, src_path, event_type="created", is_directory=False, dest_path=""):
+    """Dispatch a raw watchdog-shaped event straight into the Handler."""
+    handler.on_any_event(types.SimpleNamespace(
+        event_type=event_type, is_directory=is_directory,
+        src_path=src_path, dest_path=dest_path))
+
+
+def _wait_for(seen, timeout=5.0):
+    """Wait for the stability debounce to flush at least one library event."""
+    deadline = time.time() + timeout
+    while time.time() < deadline and not seen:
+        time.sleep(0.05)
+    return seen
+
+
+def test_sibling_directory_is_not_matched_by_prefix(tmp_path):
+    """A watched /mnt/games must not swallow events from the sibling /mnt/games-old: the
+    emitted `directory` becomes library_path downstream, where it is looked up by exact match."""
+    games = tmp_path / "games"
+    games.mkdir()
+    sibling = tmp_path / "games-old"
+    sibling.mkdir()
+    stray = sibling / "zelda.nsp"
+    stray.write_text("data")
+
+    seen = []
+    h = _make_handler(lambda evs: seen.extend(evs))
+    h.add_directory(str(games))
+
+    _feed(h, str(stray))
+    time.sleep(STABILITY + 0.5)
+
+    assert seen == [], f"event from an unwatched sibling was attributed to {str(games)}: {seen}"
+
+
+def test_nested_watched_paths_attribute_to_deepest(tmp_path):
+    """With both a library and a sub-library configured, the deepest one owns the file."""
+    outer = tmp_path / "library"
+    inner = outer / "switch"
+    inner.mkdir(parents=True)
+    game = inner / "zelda.nsp"
+    game.write_text("data")
+
+    seen = []
+    h = _make_handler(lambda evs: seen.extend(evs))
+    h.add_directory(str(outer))
+    h.add_directory(str(inner))
+
+    _feed(h, str(game))
+    _wait_for(seen)
+    assert any(e.directory == str(inner) for e in seen), (
+        f"expected attribution to {str(inner)}, got {[(e.type, e.directory) for e in seen]}"
+    )
+
+
+def test_trailing_separator_still_matches(tmp_path):
+    """A library path configured with a trailing slash still matches its own files."""
+    lib = tmp_path / "library"
+    lib.mkdir()
+    game = lib / "zelda.nsp"
+    game.write_text("data")
+
+    seen = []
+    h = _make_handler(lambda evs: seen.extend(evs))
+    h.add_directory(str(lib) + os.sep)
+
+    _feed(h, str(game))
+    _wait_for(seen)
+    assert [e.type for e in seen] == ["created"], f"got {seen}"
+
+
 def test_track_file_ignores_vanished_file(tmp_path):
     """A file that disappears between its event and the size probe (e.g. a conversion's
     transient output) is skipped, not allowed to crash the observer dispatch thread."""

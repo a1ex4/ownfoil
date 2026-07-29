@@ -302,7 +302,7 @@ class Handler(FileSystemEventHandler):
         self._check_file_stability()
 
     def on_any_event(self, event):
-        for directory in self.directories:
-            if event.src_path.startswith(directory):
-                self.collect_event(event, directory)
-                break
+        match = max((d for d in self.directories if path_is_within(event.src_path, d)),
+                    key=len, default=None)
+        if match is not None:
+            self.collect_event(event, match)
