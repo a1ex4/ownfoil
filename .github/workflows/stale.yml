@@ -9,7 +9,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Close stale issues
-        uses: actions/stale@v10
+        uses: actions/stale@v11
         with:
           days-before-stale: 30
           days-before-close: 7
