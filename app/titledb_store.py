@@ -195,7 +195,8 @@ def _replace_titles_db(new_path):
     """Move the freshly built DB into place, atomically for readers.
 
     Windows refuses to replace a file that other open handles still hold, and every pooled
-    main connection keeps titles.db ATTACHed, so drop those handles and retry there.
+    main connection keeps titles.db ATTACHed, so drop those handles and retry there. That
+    retry needs a Flask app context, which callers have via the worker's task loop.
     """
     for attempt in range(3):
         try:

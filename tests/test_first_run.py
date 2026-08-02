@@ -11,6 +11,7 @@ made available, and the queries mirror those the frontend issues on load.
 """
 
 import json
+import os
 import types
 
 import pytest
@@ -100,7 +101,38 @@ def test_first_import_supersedes_the_empty_db(first_run):
     _query(first_run.client, QUERIES["owned"])
 
     _titledb_json(first_run.titledb_dir, "Some Game")
-    titledb_store.import_from_json({"titles": {"region": "US", "language": "en"}})
+    # In an app context, as the worker runs it: on Windows the replace has to dispose
+    # the pool holding the ATTACH, which needs one.
+    with first_run.app.app_context():
+        titledb_store.import_from_json({"titles": {"region": "US", "language": "en"}})
 
+    data = _query(first_run.client, QUERIES["owned"])
+    assert data["titles"]["items"][0]["name"] == "Some Game"
+
+
+def test_import_retries_the_replace_when_the_old_db_is_still_held(first_run, monkeypatch):
+    """Windows refuses to replace a file open elsewhere, and the ATTACH keeps it open.
+
+    Simulated, so the dispose-and-retry path is covered off Windows too — everywhere else
+    os.replace just succeeds and the branch never runs.
+    """
+    _query(first_run.client, QUERIES["owned"])
+    _titledb_json(first_run.titledb_dir, "Some Game")
+
+    real_replace, attempts = os.replace, []
+
+    def flaky_replace(src, dst, *args, **kwargs):
+        if str(dst) == titledb_store.TITLES_DB_FILE:
+            attempts.append(dst)
+            if len(attempts) == 1:
+                raise PermissionError(32, "The process cannot access the file")
+        return real_replace(src, dst, *args, **kwargs)
+
+    monkeypatch.setattr(os, "replace", flaky_replace)
+
+    with first_run.app.app_context():
+        titledb_store.import_from_json({"titles": {"region": "US", "language": "en"}})
+
+    assert len(attempts) == 2  # failed once, retried after disposing the pool
     data = _query(first_run.client, QUERIES["owned"])
     assert data["titles"]["items"][0]["name"] == "Some Game"
