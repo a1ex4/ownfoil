@@ -39,8 +39,6 @@ def _titledb_signature():
 def _set_sqlite_pragmas(dbapi_connection, connection_record):
     cursor = dbapi_connection.cursor()
     cursor.execute("PRAGMA foreign_keys=ON")
-    cursor.execute("PRAGMA journal_mode=WAL")
-    cursor.execute("PRAGMA synchronous=NORMAL")
     cursor.execute("PRAGMA busy_timeout=30000")
 
     rows = cursor.execute("PRAGMA database_list").fetchall()
@@ -48,6 +46,12 @@ def _set_sqlite_pragmas(dbapi_connection, connection_record):
     is_main = bool(
         main_path and os.path.realpath(main_path) == os.path.realpath(DB_FILE)
     )
+    if is_main:
+        # Main-db only: titles.db is os.replace'd and read back through `mode=ro` connections,
+        # and SQLite cannot open a WAL database read-only without an existing -shm. Keep the
+        # schema qualifier too - unqualified, the pragma applies to attached databases as well.
+        cursor.execute("PRAGMA main.journal_mode=WAL")
+        cursor.execute("PRAGMA synchronous=NORMAL")
     connection_record.info['is_main_db'] = is_main
     connection_record.info['titledb_signature'] = None
     cursor.close()
@@ -83,10 +87,15 @@ def get_alembic_cfg():
 
 def get_current_db_version():
     engine = create_engine(OWNFOIL_DB)
-    with engine.connect() as connection:
-        context = MigrationContext.configure(connection)
-        current_rev = context.get_current_revision()
-        return current_rev or '0'
+    try:
+        with engine.connect() as connection:
+            context = MigrationContext.configure(connection)
+            current_rev = context.get_current_revision()
+            return current_rev or '0'
+    finally:
+        # Undisposed, this pool keeps a connection with titles.db ATTACHed for the whole
+        # process, which can defeat the replace at the end of a titledb import on Windows.
+        engine.dispose()
     
 def create_db_backup():
     current_revision = get_current_db_version()
@@ -301,7 +310,9 @@ def purge_temp_files():
 
 
 def init_db(app):
-    titledb_store.ensure_db()
+    # Before the ownfoil.db block: every main connection ATTACHes titles.db, and migrating it
+    # while a connection holds it open is exactly what a batch ALTER cannot survive.
+    titledb_store.init_titledb()
     with app.app_context():
         # create or migrate database
         if "db" not in sys.argv:

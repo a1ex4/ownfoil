@@ -13,119 +13,93 @@ import os
 import sqlite3
 import time
 
-from constants import TITLEDB_DIR, TITLES_DB_FILE, CUSTOM_TITLES_FILE
+from alembic import command
+from alembic.config import Config
+from alembic.runtime.migration import MigrationContext
+from alembic.script import ScriptDirectory
+from sqlalchemy import create_engine
+from sqlalchemy.engine import URL
+from sqlalchemy.pool import NullPool
+
+from constants import (TITLEDB_DIR, TITLES_DB_FILE, CUSTOM_TITLES_FILE,
+                       TITLEDB_ALEMBIC_DIR, TITLEDB_ALEMBIC_CONF)
 import titledb
+import titledb_schema
 
 logger = logging.getLogger('main')
 
 SOURCE_UPSTREAM = 'upstream'
 SOURCE_CUSTOM = 'custom'
 
-# Columns for the titles table. (json_key, column_name, json_type)
-#   json_type: 's'=scalar (stored as-is), 'j'=list/object (json-encoded)
-_TITLES_COLUMNS = [
-    ('id',                'id',                's'),
-    ('name',              'name',              's'),
-    ('bannerUrl',         'banner_url',        's'),
-    ('iconUrl',           'icon_url',          's'),
-    ('frontBoxArt',       'front_box_art',     's'),
-    ('description',       'description',       's'),
-    ('intro',             'intro',             's'),
-    ('developer',         'developer',         's'),
-    ('publisher',         'publisher',         's'),
-    ('releaseDate',       'release_date',      's'),
-    ('category',          'category',          'j'),
-    ('isDemo',            'is_demo',           's'),
-    ('nsuId',             'nsu_id',            's'),
-    ('numberOfPlayers',   'number_of_players', 's'),
-    ('parentId',          'parent_id',         's'),
-    ('rank',              'rank',              's'),
-    ('rating',            'rating',            's'),
-    ('ratingContent',     'rating_content',    'j'),
-    ('region',            'region',            's'),
-    ('regions',           'regions',           'j'),
-    ('languages',         'languages',         'j'),
-    ('language',          'language',          's'),
-    ('rightsId',          'rights_id',         's'),
-    ('screenshots',       'screenshots',       'j'),
-    ('size',              'size',              's'),
-    ('version',           'version',           's'),
-    ('key',               'nca_key',           's'),
-    ('ids',               'ids',               'j'),
-]
-
-_CNMTS_COLUMNS = [
-    # (json_key, column_name, json_type)
-    ('titleId',                    'title_id',                     's'),
-    ('titleType',                  'title_type',                   's'),
-    ('version',                    'version',                      's'),
-    ('otherApplicationId',         'other_application_id',         's'),
-    ('requiredApplicationVersion', 'required_application_version', 's'),
-    ('requiredSystemVersion',      'required_system_version',      's'),
-    ('contentEntries',             'content_entries',              'j'),
-    ('metaEntries',                'meta_entries',                 'j'),
-]
+# (json_key, column_name, json_type), json_type: 's'=scalar, 'j'=list/object (json-encoded)
+_TITLES_COLUMNS = titledb_schema.column_map(titledb_schema.titles)
+_CNMTS_COLUMNS = titledb_schema.column_map(titledb_schema.cnmts)
 
 
-def _titles_schema():
-    cols = ',\n    '.join(f'"{c}"' for _, c, _ in _TITLES_COLUMNS if c != 'id')
-    # is_overridden: set on upstream rows that have a 'custom' counterpart for
-    # the same id. Lets the GraphQL dedup filter become a column predicate
-    # (`source = 'custom' OR is_overridden = 0`) instead of a NOT EXISTS scan.
-    return f'''
-    CREATE TABLE titles (
-        "id" TEXT NOT NULL,
-        source TEXT NOT NULL,
-        is_overridden INTEGER NOT NULL DEFAULT 0,
-        {cols},
-        PRIMARY KEY ("id", source)
-    );
-    CREATE INDEX idx_titles_id ON titles("id");
-    '''
+# ---------------------------------------------------------------------------
+# Lifecycle
+# ---------------------------------------------------------------------------
+
+def _engine(path):
+    """Engine for a titles.db file. NullPool: nothing may keep the file open afterwards,
+    _replace_titles_db can only dispose the main pool."""
+    return create_engine(URL.create('sqlite', database=path), poolclass=NullPool)
 
 
-def _cnmts_schema():
-    cols = ',\n    '.join(f'"{c}"' for _, c, _ in _CNMTS_COLUMNS)
-    return f'''
-    CREATE TABLE cnmts (
-        app_id TEXT NOT NULL,
-        cnmt_version TEXT NOT NULL,
-        {cols},
-        PRIMARY KEY (app_id, cnmt_version)
-    );
-    CREATE INDEX idx_cnmts_app_id     ON cnmts(app_id);
-    CREATE INDEX idx_cnmts_dlc_lookup ON cnmts(other_application_id, title_type);
-    '''
+def _alembic_cfg(connection):
+    cfg = Config(TITLEDB_ALEMBIC_CONF)
+    cfg.set_main_option('script_location', TITLEDB_ALEMBIC_DIR)
+    cfg.attributes['connection'] = connection
+    return cfg
 
 
-_SCHEMA = _titles_schema() + _cnmts_schema() + '''
-CREATE TABLE versions (
-    title_id     TEXT NOT NULL,
-    version      INTEGER NOT NULL,
-    release_date TEXT,
-    PRIMARY KEY (title_id, version)
-);
-
-CREATE TABLE meta (
-    key   TEXT PRIMARY KEY,
-    value TEXT
-);
-'''
+def create_titledb(path):
+    """Create a titles.db at the latest revision: schema from the metadata, stamped to head."""
+    engine = _engine(path)
+    try:
+        with engine.begin() as connection:
+            titledb_schema.metadata.create_all(connection)
+            command.stamp(_alembic_cfg(connection), 'head')
+    finally:
+        engine.dispose()
 
 
-def ensure_db():
-    """Create an empty titles.db when missing, before anything can query it.
+def init_titledb():
+    """Create, stamp and migrate titles.db, the lifecycle ownfoil.db gets in init_db.
 
     titles.db is ATTACHed as `titledb` on every main connection and joined by the GraphQL
     resolvers from the first page load, which happens well before the initial import task
     has built it. Without the file the schema is simply absent and those queries fail.
     """
-    if os.path.isfile(TITLES_DB_FILE):
+    try:
+        _init_titledb()
+    except Exception as e:
+        # Unknown revision, half-written file, failed migration: titles.db is fully derivable,
+        # so start over rather than fail startup. The next update_titledb re-imports it.
+        logger.error(f'titles.db is unusable ({e}), recreating it empty.')
+        os.remove(TITLES_DB_FILE)
+        create_titledb(TITLES_DB_FILE)
+
+
+def _init_titledb():
+    if not os.path.isfile(TITLES_DB_FILE):
+        create_titledb(TITLES_DB_FILE)
+        logger.info('Created empty titles.db, pending the first titledb import.')
         return
-    with contextlib.closing(sqlite3.connect(TITLES_DB_FILE)) as conn:
-        conn.executescript(_SCHEMA)
-        conn.commit()
-    logger.info('Created empty titles.db, pending the first titledb import.')
+    engine = _engine(TITLES_DB_FILE)
+    try:
+        with engine.begin() as connection:
+            cfg = _alembic_cfg(connection)
+            current = MigrationContext.configure(connection).get_current_revision()
+            head = ScriptDirectory.from_config(cfg).get_current_head()
+            if current == head:
+                logger.info(f'titles.db version is up to date ({current})')
+                return
+            logger.info(f'titles.db migration needed, from {current} to {head}')
+            command.upgrade(cfg, 'head')
+            logger.info('titles.db migration applied successfully.')
+    finally:
+        engine.dispose()
 
 
 def _encode_row(record, columns):
@@ -163,11 +137,11 @@ def import_from_json(app_settings):
         os.remove(new_path)
 
     logger.info('Building titles.db from titledb JSON files ...')
+    create_titledb(new_path)
     conn = sqlite3.connect(new_path)
     try:
         conn.execute('PRAGMA journal_mode=OFF')
         conn.execute('PRAGMA synchronous=OFF')
-        conn.executescript(_SCHEMA)
 
         _import_titles(conn, region_file)
         _import_cnmts(conn, cnmts_file)
