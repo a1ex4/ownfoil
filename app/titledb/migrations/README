@@ -1,12 +1,12 @@
 Alembic migrations for config/titles.db.
 
-The schema is defined in app/titledb_schema.py; titles.db is created, stamped and upgraded by
-titledb_store.init_titledb(), called from db.init_db() exactly like ownfoil.db.
+The schema is defined in app/titledb/schema.py; titles.db is created, stamped and upgraded by
+titledb.store.init_titledb(), called from db.init_db() exactly like ownfoil.db.
 
 Create a revision (from anywhere, against a titles.db already at head — autogenerate diffs the
 metadata against whatever your local file contains):
 
-    alembic -c app/titledb_migrations/alembic.ini revision --autogenerate -m "..."
+    alembic -c app/titledb/migrations/alembic.ini revision --autogenerate -m "..."
 
 titles.db is rebuilt from the titledb JSON only when the download changed or the locale did, so
 a migration that adds a column needing JSON data must force a rebuild:

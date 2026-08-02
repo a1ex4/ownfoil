@@ -79,22 +79,3 @@ def update_titledb_files(app_settings):
     if len(files_to_update):
         download_titledb_files(rzf, files_to_update)
     return files_to_update
-
-
-def update_titledb(app_settings):
-    """Download titledb JSON updates and (re)build titles.db if anything changed."""
-    import titledb_store  # local import to avoid circular import
-    logger.info('Updating titledb...')
-    if not os.path.isdir(TITLEDB_DIR):
-        os.makedirs(TITLEDB_DIR, exist_ok=True)
-
-    downloaded = update_titledb_files(app_settings)
-    current_locale = f"{app_settings['titles']['region']}.{app_settings['titles']['language']}"
-    imported_locale = titledb_store.get_imported_locale()
-    if downloaded or imported_locale != current_locale:
-        locale_changed = imported_locale != current_locale
-        titledb_store.import_from_json(app_settings)
-        if locale_changed:
-            from db import reset_files_organized
-            reset_files_organized()
-    logger.info('titledb update done.')

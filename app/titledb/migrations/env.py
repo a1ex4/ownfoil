@@ -1,7 +1,7 @@
 """Alembic environment for config/titles.db.
 
 Standalone on purpose: unlike migrations/env.py this one never touches Flask, so it can run
-both from the CLI and from titledb_store, which passes a live connection through
+both from the CLI and from titledb.store, which passes a live connection through
 config.attributes rather than a URL (a '%' in OWNFOIL_CONFIG_DIR would break interpolation).
 """
 import logging
@@ -11,12 +11,12 @@ import sys
 from alembic import context
 from sqlalchemy import engine_from_config, pool
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-import titledb_schema
+from titledb import schema
 
 config = context.config
-target_metadata = titledb_schema.metadata
+target_metadata = schema.metadata
 
 # Retrieve main logger. fileConfig() is deliberately not called: it would disable it.
 logger = logging.getLogger('main')

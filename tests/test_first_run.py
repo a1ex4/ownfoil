@@ -17,7 +17,7 @@ import types
 import pytest
 
 import db as db_mod
-import titledb_store
+import titledb
 from app import create_app
 from db import db, init_db, Titles
 from gql import graphql_dispatch
@@ -53,9 +53,9 @@ def first_run(tmp_path, monkeypatch):
     titledb_dir.mkdir()
     monkeypatch.setattr(db_mod, "DB_FILE", str(config / "ownfoil.db"))
     monkeypatch.setattr(db_mod, "TITLES_DB_FILE", str(config / "titles.db"))
-    monkeypatch.setattr(titledb_store, "TITLES_DB_FILE", str(config / "titles.db"))
-    monkeypatch.setattr(titledb_store, "TITLEDB_DIR", str(titledb_dir))
-    monkeypatch.setattr(titledb_store, "CUSTOM_TITLES_FILE", str(config / "custom_titles.json"))
+    monkeypatch.setattr(titledb.store, "TITLES_DB_FILE", str(config / "titles.db"))
+    monkeypatch.setattr(titledb.store, "TITLEDB_DIR", str(titledb_dir))
+    monkeypatch.setattr(titledb.store, "CUSTOM_TITLES_FILE", str(config / "custom_titles.json"))
 
     app = create_app(f"sqlite:///{config / 'ownfoil.db'}")
     app.add_url_rule("/api/graphql", view_func=graphql_dispatch, methods=["GET", "POST"])
@@ -104,7 +104,7 @@ def test_first_import_supersedes_the_empty_db(first_run):
     # In an app context, as the worker runs it: on Windows the replace has to dispose
     # the pool holding the ATTACH, which needs one.
     with first_run.app.app_context():
-        titledb_store.import_from_json({"titles": {"region": "US", "language": "en"}})
+        titledb.store.import_from_json({"titles": {"region": "US", "language": "en"}})
 
     data = _query(first_run.client, QUERIES["owned"])
     assert data["titles"]["items"][0]["name"] == "Some Game"
@@ -122,7 +122,7 @@ def test_import_retries_the_replace_when_the_old_db_is_still_held(first_run, mon
     real_replace, attempts = os.replace, []
 
     def flaky_replace(src, dst, *args, **kwargs):
-        if str(dst) == titledb_store.TITLES_DB_FILE:
+        if str(dst) == titledb.store.TITLES_DB_FILE:
             attempts.append(dst)
             if len(attempts) == 1:
                 raise PermissionError(32, "The process cannot access the file")
@@ -131,7 +131,7 @@ def test_import_retries_the_replace_when_the_old_db_is_still_held(first_run, mon
     monkeypatch.setattr(os, "replace", flaky_replace)
 
     with first_run.app.app_context():
-        titledb_store.import_from_json({"titles": {"region": "US", "language": "en"}})
+        titledb.store.import_from_json({"titles": {"region": "US", "language": "en"}})
 
     assert len(attempts) == 2  # failed once, retried after disposing the pool
     data = _query(first_run.client, QUERIES["owned"])

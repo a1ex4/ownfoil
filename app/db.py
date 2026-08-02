@@ -18,7 +18,7 @@ import logging
 import datetime
 from constants import *
 from utils import throttle
-import titledb_store
+import titledb
 
 # Retrieve main logger
 logger = logging.getLogger('main')
@@ -312,7 +312,7 @@ def purge_temp_files():
 def init_db(app):
     # Before the ownfoil.db block: every main connection ATTACHes titles.db, and migrating it
     # while a connection holds it open is exactly what a batch ALTER cannot survive.
-    titledb_store.init_titledb()
+    titledb.store.init_titledb()
     with app.app_context():
         # create or migrate database
         if "db" not in sys.argv:

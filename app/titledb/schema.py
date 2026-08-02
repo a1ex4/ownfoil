@@ -1,7 +1,7 @@
 """SQLAlchemy schema for ``config/titles.db``.
 
 Single source of truth for both creation (``metadata.create_all``) and the Alembic
-environment in ``titledb_migrations/``. Imports nothing but sqlalchemy so the Alembic
+environment in ``migrations/``. Imports nothing but sqlalchemy so the Alembic
 env can pull it in without the Flask app.
 """
 import sqlalchemy as sa

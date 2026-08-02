@@ -3,7 +3,6 @@ import sys
 import re
 
 import titledb
-import titledb_store
 from constants import *
 from utils import *
 from settings import *
@@ -22,13 +21,13 @@ Pfs0.Print.silent = True
 app_id_regex = r"\[([0-9A-Fa-f]{16})\]"
 version_regex = r"\[v(\d+)\]"
 
-# Re-export titledb_store query functions so existing callers
+# Re-export titledb.store query functions so existing callers
 # (titles_lib.get_game_info, titles_lib.get_all_existing_versions, ...) keep working.
-get_game_info = titledb_store.get_game_info
-get_all_existing_versions = titledb_store.get_all_existing_versions
-get_all_app_existing_versions = titledb_store.get_all_app_existing_versions
-get_all_existing_dlc = titledb_store.get_all_existing_dlc
-get_all_dlc_versions = titledb_store.get_all_dlc_versions
+get_game_info = titledb.store.get_game_info
+get_all_existing_versions = titledb.store.get_all_existing_versions
+get_all_app_existing_versions = titledb.store.get_all_app_existing_versions
+get_all_existing_dlc = titledb.store.get_all_existing_dlc
+get_all_dlc_versions = titledb.store.get_all_dlc_versions
 
 def getDirsAndFiles(path):
     entries = os.listdir(path)
@@ -86,7 +85,7 @@ def get_file_info(filepath):
 def identify_appId(app_id):
     app_id = app_id.lower()
 
-    cnmt = titledb_store.get_cnmt_latest(app_id)
+    cnmt = titledb.store.get_cnmt_latest(app_id)
     if cnmt is None:
         logger.warning(f'{app_id} not in cnmts, fallback to default identification.')
         if app_id.endswith('000'):

@@ -3,7 +3,7 @@
 The world hash captures everything that should bust a browser cache:
   - apps row count, owned count, max id (covers schema-relevant Apps mutations)
   - files row count and max id
-  - titledb imported_at (set by titledb_store on every rebuild)
+  - titledb imported_at (set by titledb.store on every rebuild)
 
 Combined with the query text, variables, and role, this yields a stable ETag
 that lets clients short-circuit unchanged refetches via If-None-Match.

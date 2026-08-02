@@ -23,8 +23,7 @@ from sqlalchemy.pool import NullPool
 
 from constants import (TITLEDB_DIR, TITLES_DB_FILE, CUSTOM_TITLES_FILE,
                        TITLEDB_ALEMBIC_DIR, TITLEDB_ALEMBIC_CONF)
-import titledb
-import titledb_schema
+from titledb import schema, source
 
 logger = logging.getLogger('main')
 
@@ -32,8 +31,8 @@ SOURCE_UPSTREAM = 'upstream'
 SOURCE_CUSTOM = 'custom'
 
 # (json_key, column_name, json_type), json_type: 's'=scalar, 'j'=list/object (json-encoded)
-_TITLES_COLUMNS = titledb_schema.column_map(titledb_schema.titles)
-_CNMTS_COLUMNS = titledb_schema.column_map(titledb_schema.cnmts)
+_TITLES_COLUMNS = schema.column_map(schema.titles)
+_CNMTS_COLUMNS = schema.column_map(schema.cnmts)
 
 
 # ---------------------------------------------------------------------------
@@ -58,7 +57,7 @@ def create_titledb(path):
     engine = _engine(path)
     try:
         with engine.begin() as connection:
-            titledb_schema.metadata.create_all(connection)
+            schema.metadata.create_all(connection)
             command.stamp(_alembic_cfg(connection), 'head')
     finally:
         engine.dispose()
@@ -123,7 +122,7 @@ def import_from_json(app_settings):
     in-flight reader connections keep seeing the old DB until they close.
     Custom entries are re-imported from ``custom_titles.json`` at the end.
     """
-    region_file = os.path.join(TITLEDB_DIR, titledb.get_region_titles_file(app_settings))
+    region_file = os.path.join(TITLEDB_DIR, source.get_region_titles_file(app_settings))
     cnmts_file = os.path.join(TITLEDB_DIR, 'cnmts.json')
     versions_file = os.path.join(TITLEDB_DIR, 'versions.json')
 

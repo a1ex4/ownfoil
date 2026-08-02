@@ -19,7 +19,7 @@ from alembic import command as alembic_command
 from alembic.script import ScriptDirectory
 
 import db as db_mod
-import titledb_store
+import titledb
 from app import create_app
 from db import init_db
 
@@ -36,9 +36,9 @@ def install(tmp_path, monkeypatch):
     titledb_dir.mkdir()
     monkeypatch.setattr(db_mod, "DB_FILE", str(config / "ownfoil.db"))
     monkeypatch.setattr(db_mod, "TITLES_DB_FILE", str(config / "titles.db"))
-    monkeypatch.setattr(titledb_store, "TITLES_DB_FILE", str(config / "titles.db"))
-    monkeypatch.setattr(titledb_store, "TITLEDB_DIR", str(titledb_dir))
-    monkeypatch.setattr(titledb_store, "CUSTOM_TITLES_FILE", str(config / "custom_titles.json"))
+    monkeypatch.setattr(titledb.store, "TITLES_DB_FILE", str(config / "titles.db"))
+    monkeypatch.setattr(titledb.store, "TITLEDB_DIR", str(titledb_dir))
+    monkeypatch.setattr(titledb.store, "CUSTOM_TITLES_FILE", str(config / "custom_titles.json"))
     return types.SimpleNamespace(
         app=create_app(f"sqlite:///{config / 'ownfoil.db'}"),
         titledb_dir=titledb_dir,
@@ -47,7 +47,7 @@ def install(tmp_path, monkeypatch):
 
 
 def _head():
-    cfg = titledb_store._alembic_cfg(None)
+    cfg = titledb.store._alembic_cfg(None)
     return ScriptDirectory.from_config(cfg).get_current_head()
 
 
@@ -82,12 +82,12 @@ def test_migration_chain_matches_the_metadata(install, tmp_path):
     notice a schema change that never got a migration.
     """
     migrated = str(tmp_path / "migrated.db")
-    engine = titledb_store._engine(migrated)
+    engine = titledb.store._engine(migrated)
     with engine.begin() as connection:
-        alembic_command.upgrade(titledb_store._alembic_cfg(connection), 'head')
+        alembic_command.upgrade(titledb.store._alembic_cfg(connection), 'head')
     engine.dispose()
 
-    titledb_store.create_titledb(install.titles_db)
+    titledb.store.create_titledb(install.titles_db)
 
     assert _schema_of(install.titles_db) == _schema_of(migrated)
 
@@ -101,7 +101,7 @@ def test_created_at_init_and_stamped(install):
 
 def test_unknown_revision_recreates_the_db(install):
     """A revision alembic can't resolve must not take the whole app down with it."""
-    titledb_store.create_titledb(install.titles_db)
+    titledb.store.create_titledb(install.titles_db)
     with contextlib.closing(sqlite3.connect(install.titles_db)) as conn:
         conn.execute('INSERT INTO titles ("id", source) VALUES (?, ?)', ('0100', 'upstream'))
         conn.execute("UPDATE alembic_version SET version_num = 'deadbeef'")
@@ -124,7 +124,7 @@ def test_titles_db_is_never_left_in_wal_mode(install):
         assert conn.execute('PRAGMA journal_mode').fetchone()[0] != 'wal'
     assert not os.path.exists(install.titles_db + '-wal')
     assert not os.path.exists(install.titles_db + '-shm')
-    assert titledb_store._connect_ro() is not None
+    assert titledb.store._connect_ro() is not None
 
 
 def test_main_db_keeps_wal(install):
@@ -146,7 +146,7 @@ def test_rebuilt_db_stays_stamped(install):
     (install.titledb_dir / "versions.json").write_text("{}")
 
     with install.app.app_context():
-        titledb_store.import_from_json({"titles": {"region": "US", "language": "en"}})
+        titledb.store.import_from_json({"titles": {"region": "US", "language": "en"}})
 
     assert _revision(install.titles_db) == _head()
     assert not os.path.exists(install.titles_db + '-wal')
