@@ -23,7 +23,7 @@ dependencies = [
     "flask-migrate==4.1.0",
     "flask-sqlalchemy==3.1.1",
     "gunicorn==26.0.0 ; sys_platform != 'win32'",
-    "nsz @ git+https://github.com/nicoboss/nsz.git@3c4500647cb12fad09728965ed2612b25637b626",
+    "nsz==5.0.0",
     "pyyaml==6.0.3",
     "requests==2.34.2",
     "setproctitle==1.3.7",
