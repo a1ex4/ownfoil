@@ -89,7 +89,8 @@ class App:
     def titledb(self) -> Optional["Title"]:
         """Titledb entry keyed by this app's app_id (the DLC's own metadata for
         DLC apps, the parent title's metadata for BASE apps, often null for
-        UPDATE apps not present in titledb)."""
+        UPDATE apps not present in titledb). Not hydrated for apps reached as a
+        file's back-link under `apps { files { apps } }`."""
         return self.titledb_loaded
 
 

@@ -181,9 +181,7 @@ def _load_apps_for_titles(
     with_files: bool,
     with_titledb: bool,
     with_files_apps: bool = False,
-    with_files_apps_titledb: bool = False,
     titledb_sel: "Selection",
-    files_apps_titledb_sel: "Selection",
 ) -> Dict[str, List[App]]:
     """Return apps keyed by uppercase title_id."""
     if not title_ids_uc:
@@ -223,21 +221,14 @@ def _load_apps_for_titles(
             app_pks.append(int(r.id))
 
     if with_files and app_pks:
-        _hydrate_app_files(
-            app_pks, apps_by_pk,
-            with_apps=with_files_apps,
-            with_apps_titledb=with_files_apps_titledb,
-            back_titledb_sel=files_apps_titledb_sel,
-        )
+        _hydrate_app_files(app_pks, apps_by_pk, with_apps=with_files_apps)
     if with_titledb and all_apps:
         _hydrate_apps_titledb(all_apps, titledb_sel)
     return out
 
 
 def _hydrate_app_files(
-    app_pks: List[int], apps_by_pk: Dict[int, App], *,
-    with_apps: bool, with_apps_titledb: bool,
-    back_titledb_sel: "Selection",
+    app_pks: List[int], apps_by_pk: Dict[int, App], *, with_apps: bool,
 ) -> None:
     """Populate .files_loaded on each app in apps_by_pk, including back-link apps."""
     placeholders = ",".join(f":a_{i}" for i in range(len(app_pks)))
@@ -258,19 +249,18 @@ def _hydrate_app_files(
         app.files_loaded.append(f)
         files_by_pk[int(r.id)] = f
     if with_apps and files_by_pk:
-        _hydrate_file_apps(
-            list(files_by_pk.keys()), files_by_pk,
-            with_titledb=with_apps_titledb,
-            titledb_sel=back_titledb_sel,
-        )
+        _hydrate_file_apps(list(files_by_pk.keys()), files_by_pk)
 
 
 def _hydrate_file_apps(
     file_pks: List[int], files_by_pk: Dict[int, "File"], *,
-    with_titledb: bool,
-    titledb_sel: "Selection",
+    with_titledb: bool = False,
+    titledb_sel: Optional["Selection"] = None,
 ) -> None:
-    """Populate .apps_loaded on each file (m2m back-direction across app_files)."""
+    """Populate .apps_loaded on each file (m2m back-direction across app_files).
+
+    titledb is only hydrated for the top-level `files` query; apps reached as the
+    back-link of an app's own files never carry it."""
     placeholders = ",".join(f":f_{i}" for i in range(len(file_pks)))
     params = {f"f_{i}": pk for i, pk in enumerate(file_pks)}
     sql = f"""
@@ -340,14 +330,11 @@ def resolve_title(title_id: str, ctx: GraphQLContext, info) -> Optional[Title]:
     sel = Selection.from_info(info)
     apps_sel = sel.child("apps")
     files_sel = apps_sel.child("files")
-    files_apps_sel = files_sel.child("apps")
     apps_titledb_sel = apps_sel.child("titledb")
-    files_apps_titledb_sel = files_apps_sel.child("titledb")
     want_apps = ctx.can_shop and sel.has("apps")
     want_apps_files = ctx.can_admin and want_apps and apps_sel.has("files")
     want_apps_titledb = want_apps and apps_sel.has("titledb")
     want_apps_files_apps = want_apps_files and files_sel.has("apps")
-    want_apps_files_apps_titledb = want_apps_files_apps and files_apps_sel.has("titledb")
 
     # Drive from main.titles when this title is owned (so unrecognized titles surface),
     # otherwise drive from titledb. Both stores keep title_id in uppercase.
@@ -373,9 +360,7 @@ def resolve_title(title_id: str, ctx: GraphQLContext, info) -> Optional[Title]:
             with_files=want_apps_files,
             with_titledb=want_apps_titledb,
             with_files_apps=want_apps_files_apps,
-            with_files_apps_titledb=want_apps_files_apps_titledb,
             titledb_sel=apps_titledb_sel,
-            files_apps_titledb_sel=files_apps_titledb_sel,
         )
         title.apps_loaded = apps_map.get(tid, [])
     return title
@@ -392,15 +377,12 @@ def resolve_titles(*, owned: Optional[bool], filter: Optional[TitleFilter],
     items_sel = sel.child("items")
     apps_sel = items_sel.child("apps")
     files_sel = apps_sel.child("files")
-    files_apps_sel = files_sel.child("apps")
     apps_titledb_sel = apps_sel.child("titledb")
-    files_apps_titledb_sel = files_apps_sel.child("titledb")
     want_items = sel.has("items")
     want_apps = want_items and items_sel.has("apps")
     want_apps_files = ctx.can_admin and want_apps and apps_sel.has("files")
     want_apps_titledb = want_apps and apps_sel.has("titledb")
     want_apps_files_apps = want_apps_files and files_sel.has("apps")
-    want_apps_files_apps_titledb = want_apps_files_apps and files_apps_sel.has("titledb")
     want_total = sel.has("total")
 
     params: dict = {}
@@ -461,9 +443,7 @@ def resolve_titles(*, owned: Optional[bool], filter: Optional[TitleFilter],
             with_files=want_apps_files,
             with_titledb=want_apps_titledb,
             with_files_apps=want_apps_files_apps,
-            with_files_apps_titledb=want_apps_files_apps_titledb,
             titledb_sel=apps_titledb_sel,
-            files_apps_titledb_sel=files_apps_titledb_sel,
         )
         for t, tid in zip(titles, title_ids_uc):
             t.apps_loaded = apps_map.get(tid, [])
@@ -481,14 +461,11 @@ def resolve_apps(*, owned: Optional[bool], filter: Optional[AppFilter],
     sel = Selection.from_info(info)
     items_sel = sel.child("items")
     files_sel = items_sel.child("files")
-    files_apps_sel = files_sel.child("apps")
     titledb_sel = items_sel.child("titledb")
-    files_apps_titledb_sel = files_apps_sel.child("titledb")
     want_items = sel.has("items")
     want_files = ctx.can_admin and want_items and items_sel.has("files")
     want_titledb = want_items and items_sel.has("titledb")
     want_files_apps = want_files and files_sel.has("apps")
-    want_files_apps_titledb = want_files_apps and files_apps_sel.has("titledb")
     want_total = sel.has("total")
 
     params: dict = {}
@@ -537,12 +514,7 @@ def resolve_apps(*, owned: Optional[bool], filter: Optional[AppFilter],
             apps_by_pk[int(r.id)] = a
 
     if want_files and apps_by_pk:
-        _hydrate_app_files(
-            list(apps_by_pk.keys()), apps_by_pk,
-            with_apps=want_files_apps,
-            with_apps_titledb=want_files_apps_titledb,
-            back_titledb_sel=files_apps_titledb_sel,
-        )
+        _hydrate_app_files(list(apps_by_pk.keys()), apps_by_pk, with_apps=want_files_apps)
     if want_titledb and items:
         _hydrate_apps_titledb(items, titledb_sel)
 

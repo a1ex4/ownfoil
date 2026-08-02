@@ -162,17 +162,25 @@ Every nested batch-loaded field follows the same two-piece pattern:
   is `None`. `None` means "not loaded" (admin-gated or selection-skipped); `[]`
   means "loaded, empty".
 
-The deepest path the chain handles (Title → apps → files → back-link apps →
-titledb metadata):
+The deepest path the chain handles (Title → apps → files → back-link apps):
 
 ```
 resolve_titles
  └─ _load_apps_for_titles            (one batched SELECT for apps in this page)
       ├─ _hydrate_app_files          (one batched SELECT joining app_files → files)
       │    └─ _hydrate_file_apps     (one batched SELECT for back-link apps)
-      │         └─ _hydrate_apps_titledb  (one batched SELECT for titledb metadata)
       └─ _hydrate_apps_titledb       (titledb metadata for the top-level apps)
+
+resolve_files
+ └─ _hydrate_file_apps               (apps owning each file in this page)
+      └─ _hydrate_apps_titledb       (titledb metadata for those apps)
 ```
+
+`App.titledb` is hydrated only one hop below a top-level resolver — for
+`Title.apps` / `apps` items, and for `File.apps` under the `files` query. Apps
+reached as the back-link of an app's own files (`apps { files { apps } }`) do
+not carry it, so `_hydrate_file_apps` takes its titledb arguments only from
+`resolve_files`.
 
 Each helper takes:
 
@@ -279,8 +287,9 @@ For a brand-new nested batch-loaded field:
    helper that runs ONE batched SELECT and attaches results.
 3. In the parent resolver, derive `want_xxx = ctx.<gate> and parent_sel.has("xxxName")`
    and `xxx_sel = parent_sel.child("xxxName")`, then call the hydrator.
-4. If your new field needs sub-selection projection on titledb data, thread a
-   `*_titledb_sel` Selection through to `_hydrate_apps_titledb`.
+4. If your new field needs sub-selection projection on titledb data, pass a
+   `titledb_sel` Selection to `_hydrate_apps_titledb` from the top-level
+   resolver — don't thread it down through the nested hydrators.
 
 ## Adding a new top-level query
 
