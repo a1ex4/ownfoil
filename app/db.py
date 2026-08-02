@@ -18,6 +18,7 @@ import logging
 import datetime
 from constants import *
 from utils import throttle
+import titledb_store
 
 # Retrieve main logger
 logger = logging.getLogger('main')
@@ -300,6 +301,7 @@ def purge_temp_files():
 
 
 def init_db(app):
+    titledb_store.ensure_db()
     with app.app_context():
         # create or migrate database
         if "db" not in sys.argv:

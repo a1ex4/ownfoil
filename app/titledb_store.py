@@ -11,6 +11,7 @@ import json
 import logging
 import os
 import sqlite3
+import time
 
 from constants import TITLEDB_DIR, TITLES_DB_FILE, CUSTOM_TITLES_FILE
 import titledb
@@ -112,6 +113,21 @@ CREATE TABLE meta (
 '''
 
 
+def ensure_db():
+    """Create an empty titles.db when missing, before anything can query it.
+
+    titles.db is ATTACHed as `titledb` on every main connection and joined by the GraphQL
+    resolvers from the first page load, which happens well before the initial import task
+    has built it. Without the file the schema is simply absent and those queries fail.
+    """
+    if os.path.isfile(TITLES_DB_FILE):
+        return
+    with contextlib.closing(sqlite3.connect(TITLES_DB_FILE)) as conn:
+        conn.executescript(_SCHEMA)
+        conn.commit()
+    logger.info('Created empty titles.db, pending the first titledb import.')
+
+
 def _encode_row(record, columns):
     out = []
     for json_key, _col, kind in columns:
@@ -171,8 +187,26 @@ def import_from_json(app_settings):
     finally:
         conn.close()
 
-    os.replace(new_path, TITLES_DB_FILE)
+    _replace_titles_db(new_path)
     logger.info('titles.db build complete.')
+
+
+def _replace_titles_db(new_path):
+    """Move the freshly built DB into place, atomically for readers.
+
+    Windows refuses to replace a file that other open handles still hold, and every pooled
+    main connection keeps titles.db ATTACHed, so drop those handles and retry there.
+    """
+    for attempt in range(3):
+        try:
+            os.replace(new_path, TITLES_DB_FILE)
+            return
+        except PermissionError:
+            if attempt == 2:
+                raise
+            from db import db
+            db.engine.dispose()  # closes idle pooled connections; in-flight ones on return
+            time.sleep(1)
 
 
 def _import_titles(conn, path):
