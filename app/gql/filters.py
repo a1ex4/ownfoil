@@ -235,8 +235,11 @@ def match_int(value, f) -> bool:
     return True
 
 
-def match_app(app, owned: Optional[bool], f: Optional[AppFilter]) -> bool:
+def match_app(app, owned: Optional[bool], f: Optional[AppFilter],
+              app_type: Optional[List[str]] = None) -> bool:
     if owned is not None and bool(app.owned) != owned:
+        return False
+    if app_type and app.app_type not in app_type:
         return False
     if f is None:
         return True

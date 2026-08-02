@@ -451,7 +451,8 @@ def resolve_titles(*, owned: Optional[bool], filter: Optional[TitleFilter],
     return TitleConnection(total=int(total), items=titles)
 
 
-def resolve_apps(*, owned: Optional[bool], filter: Optional[AppFilter],
+def resolve_apps(*, owned: Optional[bool], app_type: Optional[List[str]],
+                  filter: Optional[AppFilter],
                   page: int, page_size: int, ctx: GraphQLContext, info) -> AppConnection:
     if not ctx.can_shop:
         return AppConnection(total=0, items=[])
@@ -473,6 +474,9 @@ def resolve_apps(*, owned: Optional[bool], filter: Optional[AppFilter],
     if owned is not None:
         params["owned_arg"] = 1 if owned else 0
         where.append("a.owned = :owned_arg")
+    if app_type:
+        params.update({f"at_{i}": v for i, v in enumerate(app_type)})
+        where.append(f"a.app_type IN ({','.join(f':at_{i}' for i in range(len(app_type)))})")
     where_sql = (" WHERE " + " AND ".join(where)) if where else ""
 
     total = 0

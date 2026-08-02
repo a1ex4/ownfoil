@@ -57,11 +57,12 @@ class File:
     def apps(
         self,
         owned: Optional[bool] = None,
+        app_type: Optional[List[str]] = None,
         filter: Optional[AppFilter] = None,
     ) -> Optional[List["App"]]:
         if self.apps_loaded is None:
             return None
-        return [a for a in self.apps_loaded if match_app(a, owned, filter)]
+        return [a for a in self.apps_loaded if match_app(a, owned, filter, app_type)]
 
 
 @strawberry.type
@@ -136,11 +137,12 @@ class Title:
     def apps(
         self,
         owned: Optional[bool] = None,
+        app_type: Optional[List[str]] = None,
         filter: Optional[AppFilter] = None,
     ) -> Optional[List[App]]:
         if self.apps_loaded is None:
             return None
-        return [a for a in self.apps_loaded if match_app(a, owned, filter)]
+        return [a for a in self.apps_loaded if match_app(a, owned, filter, app_type)]
 
 
 @strawberry.type

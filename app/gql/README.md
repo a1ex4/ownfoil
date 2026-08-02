@@ -223,6 +223,11 @@ Implicit AND across populated fields. v1 has no OR / NOT combinators.
 - **Nested**: filters on `Title.apps(filter: ...)` etc. are applied in-memory
   against the already-hydrated list using `match_app` / `match_file`. Same
   semantics as the SQL clauses.
+- **Shorthand args**: `owned` and `appType` are first-class arguments on the
+  `apps` query and on the `Title.apps` / `File.apps` fields, AND-ed with any
+  `filter` covering the same column. `appType` is a list, so GraphQL coerces
+  both `appType: "DLC"` and `appType: ["DLC", "UPDATE"]`; an empty list is no
+  constraint, matching `StringFilter.in`.
 
 JSON-list columns on `Title` (`category`, `regions`, `languages`,
 `screenshots`, `ratingContent`, `ids`) are stored as JSON-encoded strings in

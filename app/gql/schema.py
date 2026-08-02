@@ -1,5 +1,5 @@
 """GraphQL schema assembly."""
-from typing import Optional
+from typing import List, Optional
 
 import strawberry
 from strawberry.types import Info
@@ -35,12 +35,13 @@ class Query:
     def apps(
         self, info: Info,
         owned: Optional[bool] = None,
+        app_type: Optional[List[str]] = None,
         filter: Optional[AppFilter] = None,
         page: int = 1,
         page_size: int = 100,
     ) -> AppConnection:
         return resolve_apps(
-            owned=owned, filter=filter,
+            owned=owned, app_type=app_type, filter=filter,
             page=page, page_size=page_size, ctx=info.context, info=info,
         )
 
