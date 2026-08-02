@@ -20,11 +20,14 @@ from alembic.script import ScriptDirectory
 
 import db as db_mod
 import titledb
+import titles as titles_lib
 from app import create_app
+from constants import APP_TYPE_BASE, APP_TYPE_DLC, APP_TYPE_UPD
 from db import init_db
 
 
 TABLES = ['titles', 'cnmts', 'versions', 'meta']
+TITLE_ID = "0100000000010000"
 
 
 @pytest.fixture
@@ -136,17 +139,46 @@ def test_main_db_keeps_wal(install):
     assert mode == 'wal'
 
 
-def test_rebuilt_db_stays_stamped(install):
-    """import_from_json replaces the file wholesale; the replacement must be versioned."""
-    init_db(install.app)
+def _import(install, cnmts=None):
+    """Run a real import of minimal titledb JSON, as the update_titledb task would."""
     (install.titledb_dir / "titles.US.en.json").write_text(json.dumps({
-        "0100000000010000": {"id": "0100000000010000", "name": "Some Game"},
+        TITLE_ID: {"id": TITLE_ID, "name": "Some Game"},
     }))
-    (install.titledb_dir / "cnmts.json").write_text("{}")
+    (install.titledb_dir / "cnmts.json").write_text(json.dumps(cnmts or {}))
     (install.titledb_dir / "versions.json").write_text("{}")
-
     with install.app.app_context():
         titledb.store.import_from_json({"titles": {"region": "US", "language": "en"}})
 
+
+def test_rebuilt_db_stays_stamped(install):
+    """import_from_json replaces the file wholesale; the replacement must be versioned."""
+    init_db(install.app)
+
+    _import(install)
+
     assert _revision(install.titles_db) == _head()
     assert not os.path.exists(install.titles_db + '-wal')
+
+
+# (titleType, the app id carrying it, what identify_appId must return for it)
+CNMT_CASES = [
+    (128, TITLE_ID,             (TITLE_ID, APP_TYPE_BASE)),
+    (129, "0100000000010800",   (TITLE_ID, APP_TYPE_UPD)),
+    (130, "0100000000011001",   (TITLE_ID, APP_TYPE_DLC)),
+]
+
+
+@pytest.mark.parametrize("title_type,app_id,expected", CNMT_CASES)
+def test_numeric_json_fields_survive_the_round_trip(install, title_type, app_id, expected):
+    """titleType has to come back as the number identify_appId compares against.
+
+    A column typed TEXT stores the JSON's 129 as '129', which equals none of the
+    APP_TYPE constants, and every app silently falls back to filename identification.
+    """
+    init_db(install.app)
+    _import(install, cnmts={app_id.lower(): {"0": {
+        "titleId": TITLE_ID, "titleType": title_type, "otherApplicationId": TITLE_ID,
+    }}})
+
+    assert titledb.store.get_cnmt_latest(app_id)["titleType"] == title_type
+    assert titles_lib.identify_appId(app_id) == expected

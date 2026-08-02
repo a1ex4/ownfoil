@@ -64,11 +64,15 @@ cnmts = sa.Table(
     sa.Column('app_id', sa.Text, primary_key=True),
     sa.Column('cnmt_version', sa.Text, primary_key=True),
     _col('title_id', 'titleId'),
-    _col('title_type', 'titleType'),
-    _col('version', 'version'),
+    # Integer, not Text: these are numbers in the JSON and are read back as numbers -
+    # identify_appId compares titleType against 128/129/130, and TEXT affinity would
+    # store '129', which matches nothing. cnmt_version stays Text: it is the JSON key,
+    # and get_cnmt_latest orders it with CAST(... AS INTEGER).
+    _col('title_type', 'titleType', sa.Integer),
+    _col('version', 'version', sa.Integer),
     _col('other_application_id', 'otherApplicationId'),
-    _col('required_application_version', 'requiredApplicationVersion'),
-    _col('required_system_version', 'requiredSystemVersion'),
+    _col('required_application_version', 'requiredApplicationVersion', sa.Integer),
+    _col('required_system_version', 'requiredSystemVersion', sa.Integer),
     _col('content_entries', 'contentEntries', json=True),
     _col('meta_entries', 'metaEntries', json=True),
     sa.Index('idx_cnmts_app_id', 'app_id'),

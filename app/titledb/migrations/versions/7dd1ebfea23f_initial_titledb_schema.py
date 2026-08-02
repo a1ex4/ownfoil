@@ -1,13 +1,13 @@
 """Initial titledb schema
 
-Revision ID: 7e6ab2966c29
+Revision ID: 7dd1ebfea23f
 Revises:
 
 """
 from alembic import op
 import sqlalchemy as sa
 
-revision = '7e6ab2966c29'
+revision = '7dd1ebfea23f'
 down_revision = None
 branch_labels = None
 depends_on = None
@@ -55,11 +55,11 @@ def upgrade():
         sa.Column('app_id', sa.Text(), nullable=False),
         sa.Column('cnmt_version', sa.Text(), nullable=False),
         sa.Column('title_id', sa.Text(), nullable=True),
-        sa.Column('title_type', sa.Text(), nullable=True),
-        sa.Column('version', sa.Text(), nullable=True),
+        sa.Column('title_type', sa.Integer(), nullable=True),
+        sa.Column('version', sa.Integer(), nullable=True),
         sa.Column('other_application_id', sa.Text(), nullable=True),
-        sa.Column('required_application_version', sa.Text(), nullable=True),
-        sa.Column('required_system_version', sa.Text(), nullable=True),
+        sa.Column('required_application_version', sa.Integer(), nullable=True),
+        sa.Column('required_system_version', sa.Integer(), nullable=True),
         sa.Column('content_entries', sa.Text(), nullable=True),
         sa.Column('meta_entries', sa.Text(), nullable=True),
         sa.PrimaryKeyConstraint('app_id', 'cnmt_version'),
