@@ -140,13 +140,24 @@
 </div>
 
 <script>
-    let games;
-    let filteredGames;
+    // The grid is served page by page: every render is one GraphQL call for exactly the
+    // items on screen. Filters, search and ordering are query arguments, so a page of
+    // N is always N items, whatever the filters.
     let itemsPerPage = 12;
     let currentPage = 1;
-    let totalGames = 0;
+    let totalItems = 0;
     let cardSize = 3; // Default card size
     let currentView = 'card'; // Default view is 'card'
+    let fetchSeq = 0;    // guards against an older request answering after a newer one
+    let searchDebounce;
+
+    // Active filters
+    let activeTypeFilter = "";
+    let activeOwnershipFilter = "";
+    let activeUpdateFilter = "";
+    let activeCompletionFilter = "";
+
+    const PLACEHOLDER_BANNER = '//placehold.it/400x200';
 
     async function gqlFetch(query, variables) {
         // GET (not POST) so the browser's HTTP cache automatically revalidates
@@ -168,127 +179,84 @@
         return body.data;
     }
 
-    const OWNED_TITLES_QUERY = `
-        query OwnedTitles($page: Int!, $pageSize: Int!) {
-            titles(owned: true, page: $page, pageSize: $pageSize) {
+    // groupByAppId: one item per app id rather than per (app id, version), so a card
+    // is an item and `pageSize` really is the number of cards on the page.
+    const CARDS_QUERY = `
+        query Cards($page: Int!, $pageSize: Int!, $appType: [String!], $search: String,
+                    $owned: Boolean, $upToDate: Boolean, $complete: Boolean) {
+            apps(groupByAppId: true, orderBy: NAME, page: $page, pageSize: $pageSize,
+                 appType: $appType, search: $search, owned: $owned,
+                 upToDate: $upToDate, complete: $complete) {
                 total
                 items {
-                    titleId
-                    name
-                    bannerUrl
-                    iconUrl
-                    ownership { haveBase upToDate complete }
-                    apps {
-                        appId appVersion appType owned releaseDate
-                        titledb { titleId name bannerUrl iconUrl }
-                    }
+                    appId
+                    appType
+                    owned
+                    titledb { name bannerUrl iconUrl }
+                    title { titleId name ownership { haveBase upToDate complete } }
+                    versions { version owned releaseDate }
                 }
             }
         }`;
 
-    async function fetchAllOwnedTitles() {
-        const pageSize = 200;
-        let page = 1;
-        const items = [];
-        while (true) {
-            const d = await gqlFetch(OWNED_TITLES_QUERY, {page, pageSize});
-            items.push(...d.titles.items);
-            if (items.length >= d.titles.total) break;
-            page += 1;
-        }
-        return items;
-    }
-
-    const PLACEHOLDER_BANNER = '//placehold.it/400x200';
-
-    function flattenForUI(titles) {
-        const rows = [];
-        const seenDlcAppIds = new Set();
-        for (const t of titles) {
-            const ownership = t.ownership || {haveBase: false, upToDate: false, complete: false};
-            const updateApps = (t.apps || []).filter(a => a.appType === 'UPDATE');
-            const versionList = updateApps.map(a => ({
-                version: parseInt(a.appVersion, 10),
-                owned: a.owned,
-                release_date: a.releaseDate || 'Unknown',
-            })).sort((a, b) => a.version - b.version);
-            const recognized = !!t.name;
-            const baseName = t.name || 'Unrecognized';
-
-            // BASE row
-            rows.push({
-                id: recognized ? t.titleId : t.titleId + ' not found in titledb',
-                title_id: t.titleId,
-                title_id_name: baseName,
-                name: baseName,
-                bannerUrl: t.bannerUrl || PLACEHOLDER_BANNER,
-                iconUrl: t.iconUrl || '',
-                app_id: t.titleId,
-                app_type: 'BASE',
-                owned: ownership.haveBase,
-                has_base: ownership.haveBase,
-                has_latest_version: ownership.haveBase && ownership.upToDate,
-                has_all_dlcs: ownership.complete,
-                version: versionList,
-            });
-
-            // DLC rows: one per unique DLC app_id, metadata from App.titledb (same query)
-            const dlcApps = (t.apps || []).filter(a => a.appType === 'DLC');
-            const grouped = new Map();
-            for (const a of dlcApps) {
-                if (!grouped.has(a.appId)) grouped.set(a.appId, []);
-                grouped.get(a.appId).push(a);
+    const ICONS_QUERY = `
+        query Icons($page: Int!, $pageSize: Int!, $appType: [String!], $search: String,
+                    $owned: Boolean, $upToDate: Boolean, $complete: Boolean) {
+            apps(groupByAppId: true, orderBy: NAME, page: $page, pageSize: $pageSize,
+                 appType: $appType, search: $search, owned: $owned,
+                 upToDate: $upToDate, complete: $complete) {
+                total
+                items { appId titledb { iconUrl } }
             }
-            for (const [appId, group] of grouped.entries()) {
-                if (seenDlcAppIds.has(appId)) continue;
-                seenDlcAppIds.add(appId);
-                const meta = group[0].titledb || {};
-                const dlcVersionList = group.map(a => ({
-                    version: parseInt(a.appVersion, 10),
-                    owned: a.owned,
-                    release_date: 'Unknown',
-                })).sort((a, b) => a.version - b.version);
-                const ownedVersions = dlcVersionList.filter(v => v.owned).map(v => v.version);
-                const highest = dlcVersionList.length
-                    ? Math.max(...dlcVersionList.map(v => v.version)) : 0;
-                rows.push({
-                    id: meta.name ? appId : appId + ' not found in titledb',
-                    title_id: t.titleId,
-                    title_id_name: baseName,
-                    name: meta.name || 'Unrecognized',
-                    bannerUrl: meta.bannerUrl || PLACEHOLDER_BANNER,
-                    iconUrl: meta.iconUrl || '',
-                    app_id: appId,
-                    app_type: 'DLC',
-                    owned: group.some(a => a.owned),
-                    has_latest_version: ownedVersions.length > 0 && Math.max(...ownedVersions) >= highest,
-                    version: dlcVersionList,
-                });
-            }
-        }
-        return rows.sort((a, b) =>
-            (a.title_id_name || '').localeCompare(b.title_id_name || '')
-            || (a.app_id || '').localeCompare(b.app_id || ''));
-    }
+        }`;
 
-    async function fetchGames() {
-        const titles = await fetchAllOwnedTitles();
-        games = flattenForUI(titles);
-        totalGames = games.length;
-        filteredGames = games;
-    }
-
-    function renderGames() {
-        // Set slider to show `cardsize` columns by default
-        $('#cardSizeRange').val(cardSize);
-
-        if (currentView === 'card') {
-            renderCardView();
-            adjustCardSizes();
+    function queryVariables() {
+        let appType = null;
+        if (activeTypeFilter) {
+            appType = [activeTypeFilter];
         } else if (currentView === 'icon') {
-            renderIconView();
-            adjustIconSizes();
+            appType = ['BASE'];  // the icon wall is one icon per game, as it has always been
+        } else {
+            appType = ['BASE', 'DLC'];
         }
+        const search = ($('#textFilter').val() || '').trim();
+        return {
+            page: currentPage,
+            pageSize: itemsPerPage,
+            appType: appType,
+            search: search || null,
+            owned: activeOwnershipFilter ? activeOwnershipFilter === 'Owned' : null,
+            upToDate: activeUpdateFilter ? activeUpdateFilter === 'Up to date' : null,
+            complete: activeCompletionFilter ? activeCompletionFilter === 'Complete' : null,
+        };
+    }
+
+    async function loadPage() {
+        const seq = ++fetchSeq;
+        const isIcon = currentView === 'icon';
+        let data;
+        try {
+            data = await gqlFetch(isIcon ? ICONS_QUERY : CARDS_QUERY, queryVariables());
+        } catch (e) {
+            console.error(e);
+            return;
+        }
+        if (seq !== fetchSeq) return; // a newer request is already on its way back
+
+        totalItems = data.apps.total;
+        const totalPages = Math.max(1, Math.ceil(totalItems / itemsPerPage));
+        if (currentPage > totalPages) { // filters shrank the result under our feet
+            currentPage = totalPages;
+            return loadPage();
+        }
+
+        $('#cardSizeRange').val(cardSize);
+        if (isIcon) {
+            renderIconView(data.apps.items);
+        } else {
+            renderCardView(data.apps.items.map(cardModel));
+        }
+        updatePaginationControls(totalPages);
 
         // init version tooltips
         const tooltipTriggerList = document.querySelectorAll('[data-bs-toggle="tooltip"]')
@@ -299,17 +267,69 @@
         const popoverList = [...popoverTriggerList].map(popoverTriggerEl => new bootstrap.Popover(popoverTriggerEl))
     }
 
-    function renderCardView() {
-        // Render card view logic...
+    function goToPage(page) {
+        currentPage = page;
+        loadPage();
+    }
+
+    function resetToFirstPage() {
+        currentPage = 1;
+        loadPage();
+    }
+
+    /**
+     * One card from one app. A BASE app speaks for its title: ownership and the update
+     * history come from the title, since a Switch update ships under its own app id.
+     * A DLC app speaks for itself, and is up to date when its highest known version is
+     * the one owned.
+     */
+    function cardModel(app) {
+        const meta = app.titledb || {};
+        const title = app.title || {};
+        const ownership = title.ownership || {haveBase: false, upToDate: false, complete: false};
+        const versions = (app.versions || []).map(v => ({
+            version: v.version,
+            owned: v.owned,
+            release_date: v.releaseDate || 'Unknown',
+        }));
+        const isBase = app.appType === 'BASE';
+        const recognized = isBase ? !!title.name : !!meta.name;
+
+        if (isBase) {
+            return {
+                id: recognized ? title.titleId : title.titleId + ' not found in titledb',
+                title_id_name: title.name || 'Unrecognized',
+                name: title.name || 'Unrecognized',
+                bannerUrl: meta.bannerUrl || PLACEHOLDER_BANNER,
+                iconUrl: meta.iconUrl || '',
+                app_type: 'BASE',
+                owned: ownership.haveBase,
+                has_latest_version: ownership.haveBase && ownership.upToDate,
+                has_all_dlcs: ownership.complete,
+                version: versions,
+            };
+        }
+
+        const ownedVersions = versions.filter(v => v.owned).map(v => v.version);
+        const highest = versions.length ? Math.max(...versions.map(v => v.version)) : 0;
+        return {
+            id: recognized ? app.appId : app.appId + ' not found in titledb',
+            title_id_name: title.name || 'Unrecognized',
+            name: meta.name || 'Unrecognized',
+            bannerUrl: meta.bannerUrl || PLACEHOLDER_BANNER,
+            iconUrl: meta.iconUrl || '',
+            app_type: app.appType,
+            owned: app.owned,
+            has_latest_version: ownedVersions.length > 0 && Math.max(...ownedVersions) >= highest,
+            version: versions,
+        };
+    }
+
+    function renderCardView(games) {
         const gameGrid = $('#gameGrid');
         gameGrid.empty(); // Clear existing games
 
-        // Get games for the current page
-        start = (currentPage - 1) * itemsPerPage
-        end = start + itemsPerPage
-        paginatedGames = filteredGames.slice(start, end);
-
-        paginatedGames.forEach(function (game) {
+        games.forEach(function (game) {
             const gameCol = $('<div class="col game-col"></div>').addClass(`col-${12 / getColumnsForCardSize(cardSize)}`);
 
             const card = $('<div class="card text-bg-dark game-card"></div>');
@@ -338,11 +358,11 @@
             tagsContainer.append(typeBadge);
 
             if (game.has_latest_version !== undefined) {
-                const versionBadge = $(`<span class="badge rounded-pill game-tag version-tag" title="${game.name} [${game.title_id}] Updates"></span>`)
+                const versionBadge = $(`<span class="badge rounded-pill game-tag version-tag" title="${game.name} Updates"></span>`)
                     .addClass(`text-bg-${game.has_latest_version ? 'success' : 'warning'}`)
                     .html(`<i class="bi ${game.has_latest_version ? 'bi-check-circle-fill' : 'bi-arrow-down-circle'}"></i>`);
                 if (game.version !== undefined && game.version.length && Array.isArray(game.version)) {
-                    const popoverContent = game.version.map(version => 
+                    const popoverContent = game.version.map(version =>
                         `${version.release_date}: v${version.version} ${version.owned ? 'Owned' : 'Missing'}`
                     ).join('\n');
                     versionBadge.popover({
@@ -355,12 +375,7 @@
                     // version tooltip on hover
                     versionBadge.attr("data-bs-toggle", "tooltip")
                     versionBadge.attr("data-bs-placement", "top")
-
-                    if (game.version !== undefined && !game.version.length && Array.isArray(game.version)){
-                        versionBadge.attr("data-bs-title", "Version v0")
-                    } else if (game.version !== undefined && game.version.length) {
-                        versionBadge.attr("data-bs-title", "Version v" + game.version)
-                    }
+                    versionBadge.attr("data-bs-title", "Version v0")
                 }
                 tagsContainer.append(versionBadge);
             }
@@ -375,30 +390,19 @@
             gameCol.append(card);
             gameGrid.append(gameCol);
         });
-        // Update pagination
-        updatePaginationControls(filteredGames.length)
-
     }
 
-    function renderIconView() {
-        // Render icon view logic...
+    function renderIconView(apps) {
         const gameGrid = $('#gameGrid');
         gameGrid.empty(); // Clear existing games
-        // Get games for the current page
-        start = (currentPage - 1) * itemsPerPage
-        end = start + itemsPerPage
-        baseGames = filteredGames.filter(game => game.app_type === 'BASE');
-        paginatedGames = baseGames.slice(start, end);
 
-        paginatedGames.forEach(game => {
-            const icon = $('<img class="game-icon">').attr('src', game.iconUrl);
+        apps.forEach(app => {
+            const icon = $('<img class="game-icon">').attr('src', (app.titledb || {}).iconUrl || '');
             gameGrid.append(icon);
         });
 
         // Adjust icon sizes based on the slider value
         adjustIconSizes(cardSize);
-        // Update pagination
-        updatePaginationControls(baseGames.length)
     }
 
     function getColumnsForCardSize(size) {
@@ -412,11 +416,27 @@
         }
     }
 
-    function updatePaginationControls(nbDisplayedGames) {
+    /** Page numbers around the current one: the totals are server-side now, and a
+     *  library of a few thousand apps would otherwise render a few hundred buttons. */
+    function pageWindow(totalPages) {
+        const pages = new Set([1, totalPages]);
+        for (let i = currentPage - 2; i <= currentPage + 2; i++) {
+            if (i >= 1 && i <= totalPages) pages.add(i);
+        }
+        const sorted = [...pages].sort((a, b) => a - b);
+        const out = [];
+        let previous = 0;
+        for (const p of sorted) {
+            if (previous && p - previous > 1) out.push('...');
+            out.push(p);
+            previous = p;
+        }
+        return out;
+    }
+
+    function updatePaginationControls(totalPages) {
         const paginationControls = $('#paginationControls');
         paginationControls.empty(); // Clear existing pagination
-
-        const totalPages = Math.ceil(nbDisplayedGames / itemsPerPage);
 
         // Previous button
         const prevButton = $('<li class="page-item"></li>').addClass(`page-item ${currentPage === 1 ? 'disabled' : ''}`).html(`
@@ -426,19 +446,21 @@
         prevButton.click(function (e) {
             e.preventDefault();
             if (currentPage > 1) {
-                currentPage--;
-                renderGames();
+                goToPage(currentPage - 1);
             }
         });
         paginationControls.append(prevButton);
 
         // Page numbers
-        for (let i = 1; i <= totalPages; i++) {
-            const pageButton = $('<li class="page-item"></li>').addClass(`page-item ${i === currentPage ? 'active' : ''}`).html(`<a class="page-link" href="#">${i}</a>`);
+        for (const entry of pageWindow(totalPages)) {
+            if (entry === '...') {
+                paginationControls.append($('<li class="page-item disabled"></li>').html('<span class="page-link">&hellip;</span>'));
+                continue;
+            }
+            const pageButton = $('<li class="page-item"></li>').addClass(`page-item ${entry === currentPage ? 'active' : ''}`).html(`<a class="page-link" href="#">${entry}</a>`);
             pageButton.click(function (e) {
                 e.preventDefault();
-                currentPage = i;
-                renderGames();
+                goToPage(entry);
             });
             paginationControls.append(pageButton);
         }
@@ -451,8 +473,7 @@
         nextButton.click(function (e) {
             e.preventDefault();
             if (currentPage < totalPages) {
-                currentPage++;
-                renderGames();
+                goToPage(currentPage + 1);
             }
         });
         paginationControls.append(nextButton);
@@ -475,38 +496,12 @@
     }
 
     function saveFiltersToStorage() {
-        const filters = {
-            type: "",
-            ownership: "",
-            update: "",
-            completion: ""
-        };
-
-        if ($('#typeBase').is(':checked')) {
-            filters.type = 'BASE';
-        } else if ($('#typeDlc').is(':checked')) {
-            filters.type = 'DLC';
-        }
-
-        if ($('#ownershipOwned').is(':checked')) {
-            filters.ownership = 'Owned';
-        } else if ($('#ownershipMissing').is(':checked')) {
-            filters.ownership = 'Missing';
-        }
-
-        if ($('#updateUpToDate').is(':checked')) {
-            filters.update = 'Up to date';
-        } else if ($('#updateMissingUpdate').is(':checked')) {
-            filters.update = 'Outdated';
-        }
-
-        if ($('#completionComplete').is(':checked')) {
-            filters.completion = 'Complete';
-        } else if ($('#completionMissingDlc').is(':checked')) {
-            filters.completion = 'Missing DLC';
-        }
-
-        localStorage.setItem('activeFilters', JSON.stringify(filters));
+        localStorage.setItem('activeFilters', JSON.stringify({
+            type: activeTypeFilter,
+            ownership: activeOwnershipFilter,
+            update: activeUpdateFilter,
+            completion: activeCompletionFilter,
+        }));
     }
 
     function loadFiltersFromStorage() {
@@ -533,154 +528,10 @@
         if (savedSearch) {
             $('#textFilter').val(savedSearch);
         }
-
-        applyFilters()
     }
 
-    $(document).ready(function () {
-        const savedItemsPerPage = localStorage.getItem('itemsPerPage');
-        if (savedItemsPerPage) {
-            itemsPerPage = parseInt(savedItemsPerPage);
-        }
-
-        const savedCurrentView = localStorage.getItem('currentView');
-        if (savedCurrentView) {
-            currentView = savedCurrentView;
-        }
-
-        const savedCardSize = localStorage.getItem('cardSize');
-        if (savedCardSize){
-            cardSize = parseInt(savedCardSize);
-        }
-
-        // Fetch initial set of games and render
-        fetchGames().then(() => {
-            loadFiltersFromStorage();
-        });
-
-        // Event listeners for items per page dropdown
-        $('.items-per-page').click(function () {
-            itemsPerPage = $(this).data('value');
-            localStorage.setItem('itemsPerPage', itemsPerPage);
-            currentPage = 1; // Reset to first page
-            renderGames();
-        });
-
-        $('#applyCustomItemsPerPage').click(function () {
-            const customValue = $('#customItemsPerPage').val();
-            if (customValue && customValue > 0) {
-                itemsPerPage = parseInt(customValue);
-                localStorage.setItem('itemsPerPage', itemsPerPage);
-                currentPage = 1; // Reset to first page
-                renderGames();
-            }
-        });
-
-        // Event listener for card size slider
-        $('#cardSizeRange').on('input', function () {
-            cardSize = parseInt($(this).val());
-            localStorage.setItem('cardSize', cardSize);
-            if (currentView === 'icon') {
-                adjustIconSizes(cardSize);
-            } else {
-                adjustCardSizes(cardSize);
-            }
-        });
-
-        // Event listener for view buttons
-        $('.view-toggle-btn').click(function () {
-            $('.view-toggle-btn').removeClass("active"); 
-            $(this).addClass("active");
-            const view = $(this).data('view');
-            localStorage.setItem('currentView', view)
-            if (view === 'card') {
-                currentView = 'card';
-            } else if (view === 'icon') {
-                currentView = 'icon';
-            }
-            renderGames(games);
-        });
-
-        // Handle type filter toggle buttons
-        $('.type-toggle').change(function () {
-            if ($('#typeBase').is(':checked')) {
-                activeTypeFilter = 'BASE';
-            } else if ($('#typeDlc').is(':checked')) {
-                activeTypeFilter = 'DLC';
-            } else {
-                activeTypeFilter = '';
-            }
-            applyFilters();
-            saveFiltersToStorage();
-        });
-
-        // Handle ownership filter toggle buttons
-        $('.ownership-toggle').change(function () {
-            if ($('#ownershipOwned').is(':checked')) {
-                activeOwnershipFilter = 'Owned';
-            } else if ($('#ownershipMissing').is(':checked')) {
-                activeOwnershipFilter = 'Missing';
-            } else {
-                activeOwnershipFilter = '';
-            }
-            applyFilters();
-            saveFiltersToStorage();
-        });
-
-        // Handle update filter toggle buttons
-        $('.update-toggle').change(function () {
-            if ($('#updateUpToDate').is(':checked')) {
-                activeUpdateFilter = 'Up to date';
-            } else if ($('#updateMissingUpdate').is(':checked')) {
-                activeUpdateFilter = 'Outdated';
-            } else {
-                activeUpdateFilter = '';
-            }
-            applyFilters();
-            saveFiltersToStorage();
-        });
-
-        // Handle completion filter toggle buttons
-        $('.completion-toggle').change(function () {
-            if ($('#completionComplete').is(':checked')) {
-                activeCompletionFilter = 'Complete';
-            } else if ($('#completionMissingDlc').is(':checked')) {
-                activeCompletionFilter = 'Missing DLC';
-            } else {
-                activeCompletionFilter = '';
-            }
-            applyFilters();
-            saveFiltersToStorage();
-        });
-
-        // Listen to input changes in the text filter input
-        $("#textFilter").on("input", function () {
-            const attributeText = $(this).val();
-            localStorage.setItem('searchTerm', attributeText);
-            applyFilters();
-        });
-
-        // Close popovers
-        $(document).on('click', function (e) {
-            $('.popover').removeClass('show');
-            $('.popover').remove();
-        });
-
-        // Add click event on the popover to stop propagation
-        $(document).on('click', '.popover', function (e) {
-            e.stopPropagation(); // Prevent the click event from bubbling up
-        });
-    
-    });
-
-    // Store active filters
-    let activeTypeFilter = "";
-    let activeOwnershipFilter = "";
-    let activeUpdateFilter = "";
-    let activeCompletionFilter = "";
-
+    /** Read the filter controls into the active* variables the query is built from. */
     function updateFilter() {
-        // $('#filterDropdownBtn').toggle();
         if ($('#typeBase').is(":checked")) {
             activeTypeFilter = 'BASE';
         } else if ($('#typeDlc').is(":checked")) {
@@ -711,63 +562,93 @@
         }
     }
 
-    function findCommonElements(...arrays) {
-        // Filter out empty arrays
-        const nonEmptyArrays = arrays.filter(array => array.length > 0);
-
-        // If there are no non-empty arrays, return an empty array
-        if (nonEmptyArrays.length === 0) {
-            return [];
-        }
-
-        // Find common elements
-        return nonEmptyArrays.reduce((common, currentArray) => 
-            common.filter(item => currentArray.includes(item))
-        );
+    function onFilterChange() {
+        updateFilter();
+        saveFiltersToStorage();
+        resetToFirstPage();
     }
 
-    // Function to apply filters and show/hide game cards with animation
-    function applyFilters() {
-        // Get current search term
-        const searchTerm = $('#textFilter').val();
-        let filtered = filterGamesBySearchTerm(games, searchTerm);
-
-        if (activeTypeFilter) {
-            filtered = filtered.filter(game => game.app_type === activeTypeFilter);
-        }
-        if (activeOwnershipFilter) {
-            filtered = filtered.filter(game => activeOwnershipFilter === 'Owned' ? game.owned === true : game.owned === false);
-        }
-        if (activeUpdateFilter) {
-            filtered = filtered.filter(game => activeUpdateFilter === 'Up to date' ? game.has_latest_version === true : game.has_latest_version === false);
-        }
-        if (activeCompletionFilter) {
-            filtered = filtered.filter(game => activeCompletionFilter === 'Complete' ? game.has_all_dlcs === true : game.has_all_dlcs === false);
+    $(document).ready(function () {
+        const savedItemsPerPage = localStorage.getItem('itemsPerPage');
+        if (savedItemsPerPage) {
+            itemsPerPage = parseInt(savedItemsPerPage);
         }
 
-        filteredGames = filtered;
-        currentPage = 1;
-        renderGames();
-    }
-
-    function filterGamesBySearchTerm(gameList, searchTerm) {
-        if (!searchTerm || searchTerm.trim() === "") {
-            return gameList;
+        const savedCurrentView = localStorage.getItem('currentView');
+        if (savedCurrentView) {
+            currentView = savedCurrentView;
+            $('.view-toggle-btn').removeClass("active");
+            $(`.view-toggle-btn[data-view="${currentView}"]`).addClass("active");
         }
-        const searchText = searchTerm.toLowerCase();
-        return gameList.filter(game =>
-            game.app_id?.toLowerCase().includes(searchText) ||
-            game.title_id?.toLowerCase().includes(searchText) ||
-            game.name?.toLowerCase().includes(searchText) ||
-            game.title_id_name?.toLowerCase().includes(searchText)
-        );
-    }
 
-    // $('#btnApplyFilters').on('click', function () {
-    //     updateFilter();
-    //     applyFilters();
-    // });
+        const savedCardSize = localStorage.getItem('cardSize');
+        if (savedCardSize){
+            cardSize = parseInt(savedCardSize);
+        }
 
-    
+        loadFiltersFromStorage();
+        loadPage();
+
+        // Event listeners for items per page dropdown
+        $('.items-per-page').click(function () {
+            itemsPerPage = $(this).data('value');
+            localStorage.setItem('itemsPerPage', itemsPerPage);
+            resetToFirstPage();
+        });
+
+        $('#applyCustomItemsPerPage').click(function () {
+            const customValue = $('#customItemsPerPage').val();
+            if (customValue && customValue > 0) {
+                itemsPerPage = parseInt(customValue);
+                localStorage.setItem('itemsPerPage', itemsPerPage);
+                resetToFirstPage();
+            }
+        });
+
+        // Event listener for card size slider
+        $('#cardSizeRange').on('input', function () {
+            cardSize = parseInt($(this).val());
+            localStorage.setItem('cardSize', cardSize);
+            if (currentView === 'icon') {
+                adjustIconSizes(cardSize);
+            } else {
+                adjustCardSizes(cardSize);
+            }
+        });
+
+        // Event listener for view buttons
+        $('.view-toggle-btn').click(function () {
+            $('.view-toggle-btn').removeClass("active");
+            $(this).addClass("active");
+            currentView = $(this).data('view');
+            localStorage.setItem('currentView', currentView);
+            // The views page different things (every card vs one icon per game), so the
+            // page number from the previous view means nothing here.
+            resetToFirstPage();
+        });
+
+        $('.type-toggle, .ownership-toggle, .update-toggle, .completion-toggle').change(onFilterChange);
+
+        // Listen to input changes in the text filter input
+        $("#textFilter").on("input", function () {
+            const attributeText = $(this).val();
+            localStorage.setItem('searchTerm', attributeText);
+            // Debounced: every keystroke would otherwise be its own query.
+            clearTimeout(searchDebounce);
+            searchDebounce = setTimeout(resetToFirstPage, 250);
+        });
+
+        // Close popovers
+        $(document).on('click', function (e) {
+            $('.popover').removeClass('show');
+            $('.popover').remove();
+        });
+
+        // Add click event on the popover to stop propagation
+        $(document).on('click', '.popover', function (e) {
+            e.stopPropagation(); // Prevent the click event from bubbling up
+        });
+
+    });
 </script>
 {% endblock %}
