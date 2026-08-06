@@ -367,6 +367,87 @@ def test_a_files_apps_are_all_owned(library):
     assert all(a["owned"] for a in apps)
 
 
+# The fixture's only library title is ALPHA (haveBase, complete, not upToDate);
+# ALPHA_DLC exists in titledb alone. An ownership filter has to answer for both, so
+# `false` must reach the catalogue title rather than dropping it for having no
+# ownership row at all.
+# (filter, expected total over the whole catalogue)
+CATALOGUE_OWNERSHIP_CASES = [
+    ("{complete: true}", 1),
+    ("{complete: false}", 1),
+    ("{haveBase: true}", 1),
+    ("{haveBase: false}", 1),
+    ("{upToDate: false}", 2),
+    ("{upToDate: true}", 0),
+]
+
+
+@pytest.mark.parametrize("filter_literal,expected", CATALOGUE_OWNERSHIP_CASES)
+def test_ownership_filters_reach_catalogue_titles(library, filter_literal, expected):
+    """A title with no library row has no ownership row either. Compared bare, its
+    NULL matched neither `true` nor `false`, so catalogue titles silently vanished
+    from any ownership-filtered query."""
+    total = query(library, """
+        query { titles(filter: %s, page: 1, pageSize: 50) { total } }
+        """ % filter_literal)["titles"]["total"]
+
+    assert total == expected
+
+
+# (filter, expected total among titles that are not in the library at all)
+UNOWNED_OWNERSHIP_CASES = [
+    ("{haveBase: false}", 1), ("{haveBase: true}", 0),
+    ("{complete: false}", 1), ("{complete: true}", 0),
+]
+
+
+@pytest.mark.parametrize("filter_literal,expected", UNOWNED_OWNERSHIP_CASES)
+def test_ownership_filters_discriminate_under_owned_false(library, filter_literal, expected):
+    """`owned: false` adds `ot.id IS NULL`, which used to make every ownership filter
+    match nothing in both polarities - an empty page that looked like an answer."""
+    total = query(library, """
+        query { titles(owned: false, filter: %s, page: 1, pageSize: 50) { total } }
+        """ % filter_literal)["titles"]["total"]
+
+    assert total == expected
+
+
+# (grouped?, owned value) - the shorthand argument and the filter field have to give
+# the same answer. Grouped they did not: the shorthand asked MAX(owned) of the group
+# while the filter asked the row, so `false` returned 0 one way and 2 the other.
+@pytest.mark.parametrize("grouped", [True, False])
+@pytest.mark.parametrize("value", ["true", "false"])
+def test_owned_shorthand_and_filter_agree(library, grouped, value):
+    def total(arg):
+        return query(library, """
+            query { apps(groupByAppId: %s, %s, page: 1, pageSize: 50) { total } }
+            """ % ("true" if grouped else "false", arg))["apps"]["total"]
+
+    assert total("owned: %s" % value) == total("filter: {owned: %s}" % value)
+
+
+def test_grouped_owned_means_any_version_owned(library):
+    """The fixture has an app id with one owned and one unowned version. Grouped, it
+    is owned - and so must not also appear under `owned: false`."""
+    def app_ids(arg):
+        return sorted(i["appId"] for i in query(library, """
+            query { apps(groupByAppId: true, %s, page: 1, pageSize: 50) { items { appId } } }
+            """ % arg)["apps"]["items"])
+
+    assert app_ids("owned: true") == app_ids("filter: {owned: true}")
+    assert app_ids("owned: false") == app_ids("filter: {owned: false}") == []
+
+
+def test_contradictory_owned_spellings_match_nothing(library):
+    """Given both, they AND - asking for owned and unowned at once is not a conflict
+    to resolve, it is a query with no answer."""
+    total = query(library, """
+        query { apps(owned: true, filter: {owned: false}, page: 1, pageSize: 50) {
+            total } }""")["apps"]["total"]
+
+    assert total == 0
+
+
 def test_file_apps_rejects_the_owned_argument(library):
     """Removed from the schema, not merely ignored - a client that still sends it
     should hear about it rather than silently get an unfiltered list."""

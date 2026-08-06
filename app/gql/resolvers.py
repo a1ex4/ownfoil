@@ -10,7 +10,8 @@ from db import db
 from .context import GraphQLContext
 from .filters import (
     AppFilter, FileFilter, OrderBy, TitleFilter,
-    APP_FIELDS, APP_ORDER, FILE_FIELDS, FILE_ORDER, TITLE_FIELDS, TITLE_ORDER,
+    APP_FIELDS, APP_FIELDS_EXCEPT_OWNED, APP_ORDER, FILE_FIELDS, FILE_ORDER,
+    TITLE_FIELDS, TITLE_ORDER,
     build_clauses, order_sql,
 )
 from .selection import Selection
@@ -695,16 +696,21 @@ def resolve_apps(*, owned: Optional[bool], app_type: Optional[List[str]],
     want_files_apps = want_files and files_sel.has("apps")
 
     params: dict = {}
-    where = build_clauses(filter, APP_FIELDS, params)
+    where = build_clauses(filter, APP_FIELDS_EXCEPT_OWNED, params)
     if only_pk is not None:
         params["only_pk"] = only_pk
         where.append("a.id = :only_pk")
     having: List[str] = []
-    if owned is not None:
-        params["owned_arg"] = 1 if owned else 0
-        # Grouped, "owned" is a property of the app id as a whole: any version of it.
-        (having if group_by_app_id else where).append(
-            f"{'MAX(a.owned)' if group_by_app_id else 'a.owned'} = :owned_arg")
+    # Both spellings of ownership land here - the `owned:` shorthand and
+    # `filter: {owned:}` - so they cannot disagree. Grouped, owned is a property of the
+    # app id as a whole (any version of it), which is a HAVING on the group rather than
+    # a WHERE on one row; ungrouped the two are the same clause anyway. Given both, they
+    # AND, so asking for owned and unowned at once correctly matches nothing.
+    owned_col = "MAX(a.owned)" if group_by_app_id else "a.owned"
+    owned_args = [v for v in (owned, filter.owned if filter else None) if v is not None]
+    for i, value in enumerate(owned_args):
+        params[f"owned_{i}"] = 1 if value else 0
+        (having if group_by_app_id else where).append(f"{owned_col} = :owned_{i}")
     if app_type:
         params.update({f"at_{i}": v for i, v in enumerate(app_type)})
         where.append(f"a.app_type IN ({','.join(f':at_{i}' for i in range(len(app_type)))})")

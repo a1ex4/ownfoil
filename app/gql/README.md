@@ -275,6 +275,20 @@ Implicit AND across populated fields. v1 has no OR / NOT combinators.
   `StringFilter.in`. `File.apps` takes `appType` but **not** `owned`: an app is
   owned exactly when it has files, so a file's apps are all owned and the
   argument could only ever return everything or nothing.
+- **One meaning per predicate**: `owned:` and `filter: {owned:}` are the same
+  clause, emitted once in `resolve_apps` rather than by two code paths. Under
+  `groupByAppId: true` that clause is `HAVING MAX(a.owned)` — owned is a
+  property of the app id as a whole, "any version of it" — for both spellings;
+  ungrouped it is the row's own column. `APP_FIELDS_EXCEPT_OWNED` is what keeps
+  `build_clauses` from also emitting the row-level form and splitting the two
+  spellings apart again.
+- **Ownership is false, not unknown, for a title the library has never seen**.
+  `haveBase` / `upToDate` / `complete` live on `main.titles`, which is LEFT
+  JOINed, so a catalogue-only title has no row there. The `TITLE_FIELDS`
+  expressions `COALESCE` the NULL to 0: without it `NULL = 0` is NULL and both
+  polarities matched nothing, which silently dropped every catalogue title from
+  an ownership-filtered query. Note this is deliberately *not* what
+  `Title.ownership` does — that stays null, meaning "no library row".
 
 JSON-list columns on `Title` (`category`, `regions`, `languages`,
 `screenshots`, `ratingContent`, `ids`) are stored as JSON-encoded strings in

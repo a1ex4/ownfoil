@@ -146,9 +146,14 @@ TITLE_FIELDS = [
     ("parent_id",    "td.parent_id",     "string"),
     ("nsu_id",       "td.nsu_id",        "string"),
     ("source",       "td.source",        "string"),
-    ("have_base",    "ot.have_base",     "bool"),
-    ("up_to_date",   "ot.up_to_date",    "bool"),
-    ("complete",     "ot.complete",      "bool"),
+    # main.titles is LEFT JOINed, so a catalogue-only title has no ownership row at
+    # all. Compared bare, `NULL = 0` is NULL rather than true, so both polarities
+    # matched nothing and the filter could not discriminate. A title the library has
+    # never seen definitively has no base, is not up to date and is not complete, so
+    # the absent row reads as false.
+    ("have_base",    "COALESCE(ot.have_base, 0)",  "bool"),
+    ("up_to_date",   "COALESCE(ot.up_to_date, 0)", "bool"),
+    ("complete",     "COALESCE(ot.complete, 0)",   "bool"),
 ]
 
 APP_FIELDS = [
@@ -158,6 +163,13 @@ APP_FIELDS = [
     ("app_type",    "a.app_type",    "string"),
     ("owned",       "a.owned",       "bool"),
 ]
+
+# `resolve_apps` filters `owned` itself: grouped by app id it means "any version of
+# this app is owned", which is a HAVING on MAX(a.owned) rather than a WHERE on one
+# row. Leaving it here too let `filter: {owned:}` and the `owned:` shorthand answer
+# the same question differently. Every other caller filters ungrouped rows, where the
+# row-level column in APP_FIELDS is the right one.
+APP_FIELDS_EXCEPT_OWNED = [f for f in APP_FIELDS if f[0] != "owned"]
 
 FILE_FIELDS = [
     ("filepath",            "f.filepath",            "string"),
