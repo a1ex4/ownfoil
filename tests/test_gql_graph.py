@@ -306,6 +306,77 @@ def test_a_single_file_hydrates_like_the_list(library):
     assert len(data["file"]["apps"]) == 1
 
 
+# ---- boolean filters ----
+#
+# Booleans take a bare `Boolean`, not an operator object. `false` is the case worth
+# holding onto: read with truthiness rather than `is None`, a false predicate is
+# silently dropped and the query answers as if it had never been asked.
+
+# (filter argument, expected app count) - the fixture has 3 owned apps and 2 unowned.
+OWNED_CASES = [("", 5), ("filter: {owned: true}, ", 3), ("filter: {owned: false}, ", 2)]
+
+# (filter argument, expected file count) - all 3 fixture files are identified and none
+# are compressed, so `compressed: false` is the one that must not degrade to unfiltered.
+FILE_BOOL_CASES = [
+    ("", 3),
+    ("filter: {identified: true}, ", 3),
+    ("filter: {identified: false}, ", 0),
+    ("filter: {compressed: false}, ", 3),
+    ("filter: {compressed: true}, ", 0),
+]
+
+
+@pytest.mark.parametrize("arg,expected", OWNED_CASES)
+def test_apps_filter_on_a_bare_boolean(library, arg, expected):
+    data = query(library, """
+        query { apps(%spage: 1, pageSize: 10) { total items { owned } } }""" % arg)
+
+    assert data["apps"]["total"] == expected
+    assert len(data["apps"]["items"]) == expected
+
+
+@pytest.mark.parametrize("arg,expected", OWNED_CASES)
+def test_a_titles_apps_filter_on_the_same_boolean(library, arg, expected):
+    """The nested path filters an already-hydrated list in memory; it has to agree
+    with the SQL the top-level query runs."""
+    field = "apps(%s)" % arg.rstrip(", ") if arg else "apps"
+    apps = query(library, """
+        query { title(titleId: "%s") { %s { owned } } }
+        """ % (ALPHA, field))["title"]["apps"]
+
+    assert len(apps) == expected
+
+
+@pytest.mark.parametrize("arg,expected", FILE_BOOL_CASES)
+def test_files_filter_on_a_bare_boolean(library, arg, expected):
+    data = query(library, """
+        query { files(%spage: 1, pageSize: 10) { total items { filename } } }""" % arg)
+
+    assert data["files"]["total"] == expected
+
+
+def test_a_files_apps_are_all_owned(library):
+    """`File.apps` has no `owned` argument because it could not discriminate: an app
+    is owned exactly when it has files. If a write path ever links a file without
+    flipping `owned`, this is what says so."""
+    data = query(library, """
+        query { files(page: 1, pageSize: 10) { items { apps { appId owned } } } }""")
+
+    apps = [a for f in data["files"]["items"] for a in f["apps"]]
+    assert len(apps) == 3
+    assert all(a["owned"] for a in apps)
+
+
+def test_file_apps_rejects_the_owned_argument(library):
+    """Removed from the schema, not merely ignored - a client that still sends it
+    should hear about it rather than silently get an unfiltered list."""
+    resp = library.client.get("/api/graphql", query_string={
+        "query": "query { files(page: 1, pageSize: 10) { items { apps(owned: false) { appId } } } }"})
+    body = resp.get_json()
+
+    assert body.get("errors"), body
+
+
 # ---- ordering ----
 
 def test_files_sort_by_size_in_both_directions(library):

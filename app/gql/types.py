@@ -138,15 +138,20 @@ class File:
     @strawberry.field
     def apps(
         self,
-        owned: Optional[bool] = None,
         app_type: Optional[List[str]] = None,
         filter: Optional[AppFilter] = None,
     ) -> Optional[List["App"]]:
         """The apps this file carries, across the app_files m2m. Admin only, and only
-        hydrated under the top-level `files` query."""
+        hydrated under the top-level `files` query.
+
+        Unlike `Title.apps` this takes no `owned` argument: an app is owned exactly
+        when it has files, so everything reachable from a file is owned by
+        construction and the filter could only ever return all of them or none.
+        `filter: {owned: ...}` is still accepted here - the input type is shared with
+        `Title.apps` - and is subject to the same tautology."""
         if self.apps_loaded is None:
             return None
-        return [a for a in self.apps_loaded if match_app(a, owned, filter, app_type)]
+        return [a for a in self.apps_loaded if match_app(a, None, filter, app_type)]
 
 
 @strawberry.type

@@ -1,6 +1,9 @@
 """Filter input types and SQL clause builders.
 
 Implicit AND across all populated fields. v1 omits OR/NOT combinators.
+
+Booleans are bare `Boolean`, not operator objects: equality is the only predicate a
+bool has, so a wrapper would only ever spell `{eq: ...}`. Strings and ints keep theirs.
 """
 from enum import Enum
 
@@ -15,11 +18,6 @@ class StringFilter:
     eq: Optional[str] = None
     contains: Optional[str] = None  # case-insensitive substring
     in_: Optional[List[str]] = strawberry.field(name="in", default=None)
-
-
-@strawberry.input
-class BoolFilter:
-    eq: Optional[bool] = None
 
 
 @strawberry.input
@@ -52,9 +50,9 @@ class TitleFilter:
     parent_id: Optional[StringFilter] = None
     nsu_id: Optional[StringFilter] = None
     source: Optional[StringFilter] = None
-    have_base: Optional[BoolFilter] = None
-    up_to_date: Optional[BoolFilter] = None
-    complete: Optional[BoolFilter] = None
+    have_base: Optional[bool] = None
+    up_to_date: Optional[bool] = None
+    complete: Optional[bool] = None
 
 
 @strawberry.input
@@ -63,7 +61,7 @@ class AppFilter:
     app_id: Optional[StringFilter] = None
     app_version: Optional[StringFilter] = None
     app_type: Optional[StringFilter] = None
-    owned: Optional[BoolFilter] = None
+    owned: Optional[bool] = None
 
 
 @strawberry.input
@@ -73,10 +71,10 @@ class FileFilter:
     folder: Optional[StringFilter] = None
     extension: Optional[StringFilter] = None
     identification_type: Optional[StringFilter] = None
-    identified: Optional[BoolFilter] = None
-    organized: Optional[BoolFilter] = None
-    multicontent: Optional[BoolFilter] = None
-    compressed: Optional[BoolFilter] = None
+    identified: Optional[bool] = None
+    organized: Optional[bool] = None
+    multicontent: Optional[bool] = None
+    compressed: Optional[bool] = None
     library_id: Optional[IntFilter] = None
     size: Optional[BigIntFilter] = None
     download_count: Optional[IntFilter] = None
@@ -104,10 +102,11 @@ def string_clauses(column_sql: str, f: Optional[StringFilter], params: dict, key
     return out
 
 
-def bool_clauses(column_sql: str, f: Optional[BoolFilter], params: dict, key: str) -> List[str]:
-    if f is None or f.eq is None:
+def bool_clauses(column_sql: str, value: Optional[bool], params: dict, key: str) -> List[str]:
+    # `is None`, never truthiness: False is a predicate, not an absent filter.
+    if value is None:
         return []
-    params[f"{key}_eq"] = 1 if f.eq else 0
+    params[f"{key}_eq"] = 1 if value else 0
     return [f"{column_sql} = :{key}_eq"]
 
 
@@ -282,12 +281,8 @@ def match_string(value, f: Optional[StringFilter]) -> bool:
     return True
 
 
-def match_bool(value, f: Optional[BoolFilter]) -> bool:
-    if f is None:
-        return True
-    if f.eq is not None and bool(value) != f.eq:
-        return False
-    return True
+def match_bool(value, expected: Optional[bool]) -> bool:
+    return expected is None or bool(value) == expected
 
 
 def match_int(value, f) -> bool:

@@ -264,11 +264,17 @@ Implicit AND across populated fields. v1 has no OR / NOT combinators.
 - **Nested**: filters on `Title.apps(filter: ...)` etc. are applied in-memory
   against the already-hydrated list using `match_app` / `match_file`. Same
   semantics as the SQL clauses.
+- **Booleans are bare**: `filter: {multicontent: true}`, not `{multicontent:
+  {eq: true}}`. Equality is the only predicate a bool has, so an operator object
+  would carry no information. Strings and ints keep theirs, which makes a filter
+  input deliberately mixed-shape.
 - **Shorthand args**: `owned` and `appType` are first-class arguments on the
-  `apps` query and on the `Title.apps` / `File.apps` fields, AND-ed with any
-  `filter` covering the same column. `appType` is a list, so GraphQL coerces
-  both `appType: "DLC"` and `appType: ["DLC", "UPDATE"]`; an empty list is no
-  constraint, matching `StringFilter.in`.
+  `apps` query and on the `Title.apps` field, AND-ed with any `filter` covering
+  the same column. `appType` is a list, so GraphQL coerces both `appType: "DLC"`
+  and `appType: ["DLC", "UPDATE"]`; an empty list is no constraint, matching
+  `StringFilter.in`. `File.apps` takes `appType` but **not** `owned`: an app is
+  owned exactly when it has files, so a file's apps are all owned and the
+  argument could only ever return everything or nothing.
 
 JSON-list columns on `Title` (`category`, `regions`, `languages`,
 `screenshots`, `ratingContent`, `ids`) are stored as JSON-encoded strings in
