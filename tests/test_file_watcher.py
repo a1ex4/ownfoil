@@ -234,19 +234,27 @@ def test_growing_file_not_reported_until_stable(observer_env):
     c = observer_env
     target = c.watched / "big.nsp"
     stop = threading.Event()
+    gaps = []  # intervals between size changes: the premise the assertion below rests on
 
     def grow():
+        last = time.time()
         with open(target, "wb") as fh:
             while not stop.is_set():
                 fh.write(b"x" * 100_000)
-                fh.flush()
-                os.fsync(fh.fileno())
-                time.sleep(0.2)  # < STABILITY, so it never looks "stable" while growing
+                fh.flush()  # enough for stat to see the growth; fsync only adds a stall
+                now = time.time()
+                gaps.append(now - last)
+                last = now
+                time.sleep(0.1)  # << STABILITY, so it never looks "stable" while growing
 
     writer = threading.Thread(target=grow)
     writer.start()
     try:
         time.sleep(STABILITY * 4)  # actively growing for well over one stability window
+        stalled = max(list(gaps), default=0)
+        if stalled >= STABILITY:
+            pytest.skip(f"the writer stalled for {stalled:.2f}s, longer than the {STABILITY}s "
+                        "window, so the file really did settle and there is nothing to assert")
         assert not c.matches("created", "big.nsp"), (
             f"a still-growing file was reported as stable: {c.snapshot()}"
         )
