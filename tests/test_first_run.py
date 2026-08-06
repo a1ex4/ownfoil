@@ -54,7 +54,6 @@ def first_run(tmp_path, monkeypatch):
     monkeypatch.setattr(db_mod, "DB_FILE", str(config / "ownfoil.db"))
     monkeypatch.setattr(db_mod, "TITLES_DB_FILE", str(config / "titles.db"))
     monkeypatch.setattr(titledb.store, "TITLES_DB_FILE", str(config / "titles.db"))
-    monkeypatch.setattr(titledb.store, "TITLEDB_DIR", str(titledb_dir))
     monkeypatch.setattr(titledb.store, "CUSTOM_TITLES_FILE", str(config / "custom_titles.json"))
 
     app = create_app(f"sqlite:///{config / 'ownfoil.db'}")
@@ -104,7 +103,7 @@ def test_first_import_supersedes_the_empty_db(first_run):
     # In an app context, as the worker runs it: on Windows the replace has to dispose
     # the pool holding the ATTACH, which needs one.
     with first_run.app.app_context():
-        titledb.store.import_from_json({"titles": {"region": "US", "language": "en"}})
+        titledb.store.import_from_json(str(first_run.titledb_dir / "titles.US.en.json"), "US.en")
 
     data = _query(first_run.client, QUERIES["owned"])
     assert data["titles"]["items"][0]["name"] == "Some Game"
@@ -131,7 +130,7 @@ def test_import_retries_the_replace_when_the_old_db_is_still_held(first_run, mon
     monkeypatch.setattr(os, "replace", flaky_replace)
 
     with first_run.app.app_context():
-        titledb.store.import_from_json({"titles": {"region": "US", "language": "en"}})
+        titledb.store.import_from_json(str(first_run.titledb_dir / "titles.US.en.json"), "US.en")
 
     assert len(attempts) == 2  # failed once, retried after disposing the pool
     data = _query(first_run.client, QUERIES["owned"])

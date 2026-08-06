@@ -40,7 +40,6 @@ def install(tmp_path, monkeypatch):
     monkeypatch.setattr(db_mod, "DB_FILE", str(config / "ownfoil.db"))
     monkeypatch.setattr(db_mod, "TITLES_DB_FILE", str(config / "titles.db"))
     monkeypatch.setattr(titledb.store, "TITLES_DB_FILE", str(config / "titles.db"))
-    monkeypatch.setattr(titledb.store, "TITLEDB_DIR", str(titledb_dir))
     monkeypatch.setattr(titledb.store, "CUSTOM_TITLES_FILE", str(config / "custom_titles.json"))
     return types.SimpleNamespace(
         app=create_app(f"sqlite:///{config / 'ownfoil.db'}"),
@@ -147,7 +146,7 @@ def _import(install, cnmts=None):
     (install.titledb_dir / "cnmts.json").write_text(json.dumps(cnmts or {}))
     (install.titledb_dir / "versions.json").write_text("{}")
     with install.app.app_context():
-        titledb.store.import_from_json({"titles": {"region": "US", "language": "en"}})
+        titledb.store.import_from_json(str(install.titledb_dir / "titles.US.en.json"), "US.en")
 
 
 def test_rebuilt_db_stays_stamped(install):

@@ -21,9 +21,9 @@ from sqlalchemy import create_engine
 from sqlalchemy.engine import URL
 from sqlalchemy.pool import NullPool
 
-from constants import (TITLEDB_DIR, TITLES_DB_FILE, CUSTOM_TITLES_FILE,
+from constants import (TITLES_DB_FILE, CUSTOM_TITLES_FILE,
                        TITLEDB_ALEMBIC_DIR, TITLEDB_ALEMBIC_CONF)
-from titledb import schema, source
+from titledb import schema
 
 logger = logging.getLogger('main')
 
@@ -115,16 +115,16 @@ def _encode_row(record, columns):
 # Import
 # ---------------------------------------------------------------------------
 
-def import_from_json(app_settings):
-    """(Re)build ``titles.db`` from the downloaded JSON files in TITLEDB_DIR.
+def import_from_json(region_file, locale):
+    """(Re)build ``titles.db`` from the downloaded JSON files.
 
     Builds into a ``titles.db.new`` file and atomically renames it, so any
     in-flight reader connections keep seeing the old DB until they close.
     Custom entries are re-imported from ``custom_titles.json`` at the end.
     """
-    region_file = os.path.join(TITLEDB_DIR, source.get_region_titles_file(app_settings))
-    cnmts_file = os.path.join(TITLEDB_DIR, 'cnmts.json')
-    versions_file = os.path.join(TITLEDB_DIR, 'versions.json')
+    titledb_dir = os.path.dirname(region_file)
+    cnmts_file = os.path.join(titledb_dir, 'cnmts.json')
+    versions_file = os.path.join(titledb_dir, 'versions.json')
 
     for path in (region_file, cnmts_file, versions_file):
         if not os.path.isfile(path):
@@ -150,7 +150,7 @@ def import_from_json(app_settings):
 
         conn.execute(
             'INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)',
-            ('imported_locale', f"{app_settings['titles']['region']}.{app_settings['titles']['language']}"),
+            ('imported_locale', locale),
         )
         conn.execute(
             'INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)',
