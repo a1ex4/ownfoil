@@ -1,9 +1,10 @@
 """SQLAlchemy schema for ``config/titles.db``.
 
-Single source of truth for both creation (``metadata.create_all``) and the Alembic
-environment in ``migrations/``. Imports nothing but sqlalchemy so the Alembic
-env can pull it in without the Flask app.
+Single source of truth for creating the database and for the fingerprint that decides
+whether an existing one still matches. Imports nothing but sqlalchemy and the stdlib.
 """
+import hashlib
+
 import sqlalchemy as sa
 
 metadata = sa.MetaData()
@@ -91,3 +92,18 @@ meta = sa.Table(
     sa.Column('key', sa.Text, primary_key=True),
     sa.Column('value', sa.Text),
 )
+
+
+def fingerprint():
+    """Hash of the schema DDL, stored in meta so a changed schema forces a rebuild.
+
+    titles.db is fully derivable, so it is versioned by what it should look like rather
+    than by a migration chain: no match, recreate it and let the next update re-import.
+    """
+    from sqlalchemy.dialects import sqlite
+    from sqlalchemy.schema import CreateIndex, CreateTable
+    dialect = sqlite.dialect()
+    ddl = [str(CreateTable(t).compile(dialect=dialect)) for t in metadata.tables.values()]
+    ddl += [str(CreateIndex(i).compile(dialect=dialect))
+            for t in metadata.tables.values() for i in t.indexes]
+    return hashlib.sha256('\n'.join(sorted(ddl)).encode()).hexdigest()[:16]

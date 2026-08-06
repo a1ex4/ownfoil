@@ -13,16 +13,11 @@ import os
 import sqlite3
 import time
 
-from alembic import command
-from alembic.config import Config
-from alembic.runtime.migration import MigrationContext
-from alembic.script import ScriptDirectory
 from sqlalchemy import create_engine
 from sqlalchemy.engine import URL
 from sqlalchemy.pool import NullPool
 
-from constants import (TITLES_DB_FILE, CUSTOM_TITLES_FILE,
-                       TITLEDB_ALEMBIC_DIR, TITLEDB_ALEMBIC_CONF)
+from constants import TITLES_DB_FILE, CUSTOM_TITLES_FILE
 from titledb import schema
 
 logger = logging.getLogger('main')
@@ -45,60 +40,53 @@ def _engine(path):
     return create_engine(URL.create('sqlite', database=path), poolclass=NullPool)
 
 
-def _alembic_cfg(connection):
-    cfg = Config(TITLEDB_ALEMBIC_CONF)
-    cfg.set_main_option('script_location', TITLEDB_ALEMBIC_DIR)
-    cfg.attributes['connection'] = connection
-    return cfg
-
-
 def create_titledb(path):
-    """Create a titles.db at the latest revision: schema from the metadata, stamped to head."""
+    """Create an empty titles.db from the schema metadata, fingerprinted."""
     engine = _engine(path)
     try:
         with engine.begin() as connection:
             schema.metadata.create_all(connection)
-            command.stamp(_alembic_cfg(connection), 'head')
     finally:
         engine.dispose()
+    with contextlib.closing(sqlite3.connect(path)) as conn:
+        _set_meta(conn, 'schema_version', schema.fingerprint())
+        conn.commit()
 
 
 def init_titledb():
-    """Create, stamp and migrate titles.db, the lifecycle ownfoil.db gets in init_db.
+    """Create or recreate titles.db, the lifecycle ownfoil.db gets in init_db.
 
     titles.db is ATTACHed as `titledb` on every main connection and joined by the GraphQL
     resolvers from the first page load, which happens well before the initial import task
     has built it. Without the file the schema is simply absent and those queries fail.
     """
     try:
-        _init_titledb()
+        if os.path.isfile(TITLES_DB_FILE):
+            with contextlib.closing(sqlite3.connect(TITLES_DB_FILE)) as conn:
+                version = _get_meta(conn, 'schema_version')
+            if version == schema.fingerprint():
+                logger.info(f'titles.db schema is up to date ({version})')
+                return
+            logger.info(f'titles.db schema changed ({version} -> {schema.fingerprint()}), rebuilding it.')
+            os.remove(TITLES_DB_FILE)
+        create_titledb(TITLES_DB_FILE)
+        logger.info('Created empty titles.db, pending the next titledb import.')
     except Exception as e:
-        # Unknown revision, half-written file, failed migration: titles.db is fully derivable,
+        # Half-written file, unreadable schema, failed create: titles.db is fully derivable,
         # so start over rather than fail startup. The next update_titledb re-imports it.
         logger.error(f'titles.db is unusable ({e}), recreating it empty.')
-        os.remove(TITLES_DB_FILE)
+        with contextlib.suppress(OSError):
+            os.remove(TITLES_DB_FILE)
         create_titledb(TITLES_DB_FILE)
 
 
-def _init_titledb():
-    if not os.path.isfile(TITLES_DB_FILE):
-        create_titledb(TITLES_DB_FILE)
-        logger.info('Created empty titles.db, pending the first titledb import.')
-        return
-    engine = _engine(TITLES_DB_FILE)
-    try:
-        with engine.begin() as connection:
-            cfg = _alembic_cfg(connection)
-            current = MigrationContext.configure(connection).get_current_revision()
-            head = ScriptDirectory.from_config(cfg).get_current_head()
-            if current == head:
-                logger.info(f'titles.db version is up to date ({current})')
-                return
-            logger.info(f'titles.db migration needed, from {current} to {head}')
-            command.upgrade(cfg, 'head')
-            logger.info('titles.db migration applied successfully.')
-    finally:
-        engine.dispose()
+def _get_meta(conn, key):
+    row = conn.execute('SELECT value FROM meta WHERE key = ?', (key,)).fetchone()
+    return row[0] if row else None
+
+
+def _set_meta(conn, key, value):
+    conn.execute('INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)', (key, value))
 
 
 def _encode_row(record, columns):
@@ -148,14 +136,8 @@ def import_from_json(region_file, locale):
         _import_customs(conn)
         _recompute_overridden(conn)
 
-        conn.execute(
-            'INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)',
-            ('imported_locale', locale),
-        )
-        conn.execute(
-            'INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)',
-            ('imported_at', datetime.datetime.utcnow().isoformat(timespec='seconds') + 'Z'),
-        )
+        _set_meta(conn, 'imported_locale', locale)
+        _set_meta(conn, 'imported_at', _now())
         conn.commit()
     finally:
         conn.close()
@@ -369,10 +351,11 @@ def delete_custom_title(title_id):
 
 def _bump_imported_at(conn):
     """Mark titles.db as changed so cached GraphQL responses get invalidated."""
-    conn.execute(
-        'INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)',
-        ('imported_at', datetime.datetime.utcnow().isoformat(timespec='seconds') + 'Z'),
-    )
+    _set_meta(conn, 'imported_at', _now())
+
+
+def _now():
+    return datetime.datetime.utcnow().isoformat(timespec='seconds') + 'Z'
 
 
 # ---------------------------------------------------------------------------
@@ -381,14 +364,15 @@ def _bump_imported_at(conn):
 
 def get_imported_locale():
     """Return the locale string (e.g. 'US.en') stored in titles.db, or None."""
-    if not os.path.isfile(TITLES_DB_FILE):
+    conn = _connect_ro()
+    if conn is None:
         return None
     try:
-        with contextlib.closing(sqlite3.connect(f'file:{TITLES_DB_FILE}?mode=ro', uri=True)) as conn:
-            row = conn.execute("SELECT value FROM meta WHERE key = 'imported_locale'").fetchone()
-            return row[0] if row else None
+        return _get_meta(conn, 'imported_locale')
     except sqlite3.Error:
         return None
+    finally:
+        conn.close()
 
 
 def _connect_ro():
