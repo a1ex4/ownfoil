@@ -67,6 +67,26 @@ The rest of this document leans on the following terms.
 | `context.py` | Per-request `GraphQLContext` (user, `can_admin`, `can_shop`). |
 | `cache.py` | World hash + ETag computation. |
 
+## Top-level queries
+
+| Query | Returns | Role |
+|---|---|---|
+| `title(titleId:)` | one `Title`, owned or catalogue-only | shop |
+| `titles(owned:, filter:, search:, orderBy:, page:)` | `TitleConnection` | shop |
+| `apps(owned:, appType:, upToDate:, complete:, groupByAppId:, …)` | `AppConnection` | shop |
+| `app(id:)` | one `App` by primary key | shop |
+| `files(filter:, page:)` | `FileConnection` | admin |
+| `file(id:)` | one `File` by primary key | admin |
+| `libraries` | the configured library roots | admin |
+| `tasks(status:, taskName:, includeChildren:, limit:)` | background jobs, newest first | admin |
+| `task(id:)` | one `Task` with its children | admin |
+| `stats` | library-wide aggregates for dashboards | shop (file figures admin) |
+
+`app(id:)` and `file(id:)` delegate to the list resolvers with a primary-key
+filter, so every nested field hydrates exactly as it does under `apps` / `files`.
+They pass `only_pk`, which also tells the resolver its selection set is the
+item's own fields rather than a connection's `{total, items}`.
+
 ## Data sources
 
 The endpoint reads two SQLite databases. Both are exposed on the same SQLAlchemy

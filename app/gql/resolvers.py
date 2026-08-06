@@ -14,8 +14,8 @@ from .filters import (
 )
 from .selection import Selection
 from .types import (
-    App, AppConnection, AppVersion, File, FileConnection, Ownership,
-    Title, TitleConnection, decode_json_list,
+    App, AppConnection, AppVersion, CountByKey, File, FileConnection, Library,
+    LibraryStats, Ownership, Task, Title, TitleConnection, decode_json_list,
 )
 
 
@@ -575,27 +575,34 @@ def resolve_apps(*, owned: Optional[bool], app_type: Optional[List[str]],
                   up_to_date: Optional[bool] = None, complete: Optional[bool] = None,
                   search: Optional[str] = None, order_by: str = "id",
                   group_by_app_id: bool = False,
-                  page: int, page_size: int, ctx: GraphQLContext, info) -> AppConnection:
+                  page: int, page_size: int, ctx: GraphQLContext, info,
+                  only_pk: Optional[str] = None) -> AppConnection:
     if not ctx.can_shop:
         return AppConnection(total=0, items=[])
     page = max(1, page)
     page_size = max(1, min(page_size, 1000))
 
+    # Reached as `app(id:)` the selection set is the item's own fields, not a
+    # connection's `{total, items}`, so the nested gates hang off it directly.
     sel = Selection.from_info(info)
-    items_sel = sel.child("items")
+    items_sel = sel if only_pk is not None else sel.child("items")
+    want_items = True if only_pk is not None else sel.has("items")
+    want_total = False if only_pk is not None else sel.has("total")
+
     files_sel = items_sel.child("files")
     titledb_sel = items_sel.child("titledb")
     title_sel = items_sel.child("title")
-    want_items = sel.has("items")
     want_files = ctx.can_admin and want_items and items_sel.has("files")
     want_titledb = want_items and items_sel.has("titledb")
     want_title = want_items and items_sel.has("title")
     want_versions = want_items and items_sel.has("versions")
     want_files_apps = want_files and files_sel.has("apps")
-    want_total = sel.has("total")
 
     params: dict = {}
     where = build_clauses(filter, APP_FIELDS, params)
+    if only_pk is not None:
+        params["only_pk"] = only_pk
+        where.append("a.id = :only_pk")
     having: List[str] = []
     if owned is not None:
         params["owned_arg"] = 1 if owned else 0
@@ -698,26 +705,33 @@ def resolve_apps(*, owned: Optional[bool], app_type: Optional[List[str]],
 
 
 def resolve_files(*, filter: Optional[FileFilter], page: int, page_size: int,
-                   ctx: GraphQLContext, info) -> FileConnection:
+                   ctx: GraphQLContext, info,
+                   only_pk: Optional[str] = None) -> FileConnection:
     if not ctx.can_admin:
         return FileConnection(total=0, items=[])
     page = max(1, page)
     page_size = max(1, min(page_size, 1000))
 
+    # As in resolve_apps: `file(id:)` selects the item's fields directly.
     sel = Selection.from_info(info)
-    items_sel = sel.child("items")
+    items_sel = sel if only_pk is not None else sel.child("items")
+    want_items = True if only_pk is not None else sel.has("items")
+    want_total = False if only_pk is not None else sel.has("total")
+
     apps_sel = items_sel.child("apps")
     apps_titledb_sel = apps_sel.child("titledb")
     apps_title_sel = apps_sel.child("title")
-    want_items = sel.has("items")
     want_apps = want_items and items_sel.has("apps")
     want_apps_titledb = want_apps and apps_sel.has("titledb")
     want_apps_title = want_apps and apps_sel.has("title")
     want_apps_versions = want_apps and apps_sel.has("versions")
-    want_total = sel.has("total")
+    want_library = want_items and items_sel.has("library")
 
     params: dict = {}
     where = build_clauses(filter, FILE_FIELDS, params)
+    if only_pk is not None:
+        params["only_pk"] = only_pk
+        where.append("f.id = :only_pk")
     where_sql = (" WHERE " + " AND ".join(where)) if where else ""
 
     total = 0
@@ -755,4 +769,198 @@ def resolve_files(*, filter: Optional[FileFilter], page: int, page_size: int,
             title_sel=apps_title_sel,
             with_versions=want_apps_versions,
         )
+    if want_library and items:
+        _hydrate_file_libraries(items)
     return FileConnection(total=int(total), items=items)
+
+
+# ------------- libraries, tasks, stats -------------
+
+def _hydrate_file_libraries(files: List[File]) -> None:
+    """Attach each file's library root. The table holds a handful of rows, so read it
+    whole rather than building an IN list."""
+    by_id = {int(r.id): Library(id=strawberry.ID(str(r.id)), path=r.path,
+                                last_scan=r.last_scan.isoformat() if r.last_scan else None)
+             for r in db.session.execute(text(
+                 "SELECT id, path, last_scan FROM libraries")).all()}
+    for f in files:
+        f.library_loaded = by_id.get(f.library_id)
+
+
+def resolve_libraries(*, ctx: GraphQLContext, info) -> List[Library]:
+    if not ctx.can_admin:
+        return []
+    rows = db.session.execute(text(
+        "SELECT id, path, last_scan FROM libraries ORDER BY id")).all()
+    return [Library(id=strawberry.ID(str(r.id)), path=r.path,
+                    last_scan=r.last_scan.isoformat() if r.last_scan else None)
+            for r in rows]
+
+
+_TASK_COLS = """
+t.id AS id, t.parent_id AS parent_id, t.task_name AS task_name, t.status AS status,
+t.completion_pct AS completion_pct, t.exit_code AS exit_code,
+t.error_message AS error_message, t.created_at AS created_at,
+t.started_at AS started_at, t.completed_at AS completed_at, t.run_after AS run_after,
+t.input_json AS input_json, t.output_json AS output_json
+"""
+
+
+def _build_task(row, *, with_children: bool) -> Task:
+    m = row._mapping
+    return Task(
+        id=strawberry.ID(str(m['id'])),
+        parent_id=strawberry.ID(str(m['parent_id'])) if m['parent_id'] is not None else None,
+        task_name=m['task_name'],
+        status=m['status'],
+        completion_pct=m['completion_pct'] or 0,
+        exit_code=m['exit_code'],
+        error_message=m['error_message'],
+        created_at=m['created_at'],
+        started_at=m['started_at'],
+        completed_at=m['completed_at'],
+        run_after=m['run_after'],
+        input=m['input_json'],
+        output=m['output_json'],
+        children_loaded=[] if with_children else None,
+    )
+
+
+def _hydrate_task_children(tasks: List[Task]) -> None:
+    """One batched SELECT for the sub-tasks of every task on the page."""
+    parent_pks = [int(t.id) for t in tasks]
+    params = {f"p_{i}": pk for i, pk in enumerate(parent_pks)}
+    placeholders = ",".join(f":p_{i}" for i in range(len(parent_pks)))
+    rows = db.session.execute(text(f"""
+    SELECT {_TASK_COLS} FROM tasks t
+    WHERE t.parent_id IN ({placeholders})
+    ORDER BY t.id
+    """), params).all()
+    by_parent: Dict[int, List[Task]] = {}
+    for r in rows:
+        by_parent.setdefault(int(r.parent_id), []).append(
+            _build_task(r, with_children=False))
+    for t in tasks:
+        t.children_loaded = by_parent.get(int(t.id), [])
+
+
+def resolve_tasks(*, status: Optional[str], task_name: Optional[str],
+                   include_children: bool, limit: int,
+                   ctx: GraphQLContext, info) -> List[Task]:
+    """Top-level tasks newest first, mirroring what /api/tasks lists."""
+    if not ctx.can_admin:
+        return []
+    limit = max(1, min(limit, 500))
+    sel = Selection.from_info(info)
+
+    params: dict = {"limit": limit}
+    where = [] if include_children else ["t.parent_id IS NULL"]
+    if status:
+        params["status"] = status
+        where.append("t.status = :status")
+    if task_name:
+        params["task_name"] = task_name
+        where.append("t.task_name = :task_name")
+    where_sql = (" WHERE " + " AND ".join(where)) if where else ""
+
+    rows = db.session.execute(text(f"""
+    SELECT {_TASK_COLS} FROM tasks t{where_sql}
+    ORDER BY t.created_at DESC, t.id DESC
+    LIMIT :limit
+    """), params).all()
+
+    want_children = sel.has("children")
+    tasks = [_build_task(r, with_children=want_children) for r in rows]
+    if want_children and tasks:
+        _hydrate_task_children(tasks)
+    return tasks
+
+
+def resolve_task(task_id: str, ctx: GraphQLContext, info) -> Optional[Task]:
+    if not ctx.can_admin:
+        return None
+    sel = Selection.from_info(info)
+    row = db.session.execute(text(f"SELECT {_TASK_COLS} FROM tasks t WHERE t.id = :id"),
+                             {"id": task_id}).first()
+    if not row:
+        return None
+    want_children = sel.has("children")
+    task = _build_task(row, with_children=want_children)
+    if want_children:
+        _hydrate_task_children([task])
+    return task
+
+
+def resolve_stats(*, ctx: GraphQLContext, info) -> LibraryStats:
+    """Library-wide aggregates. Every branch is selection-gated, so a dashboard tile
+    asking for one number runs one aggregate rather than all of them."""
+    if not ctx.can_shop:
+        return LibraryStats()
+    sel = Selection.from_info(info)
+    stats = LibraryStats()
+
+    # Files: one scan covers every scalar file aggregate.
+    if any(sel.has(f) for f in
+           ("totalFiles", "totalSize", "identifiedFiles", "unidentifiedFiles")):
+        if ctx.can_admin:
+            r = db.session.execute(text("""
+            SELECT COUNT(*), COALESCE(SUM(size), 0), COALESCE(SUM(identified), 0)
+            FROM files""")).first()
+            stats.total_files, stats.total_size, stats.identified_files = (
+                int(r[0]), int(r[1]), int(r[2]))
+            stats.unidentified_files = stats.total_files - stats.identified_files
+
+    if any(sel.has(f) for f in ("totalTitles", "ownedTitles")):
+        stats.total_titles = int(db.session.execute(text(
+            "SELECT COUNT(*) FROM titledb.titles")).scalar() or 0)
+        stats.owned_titles = int(db.session.execute(text(
+            "SELECT COUNT(*) FROM main.titles WHERE have_base = 1")).scalar() or 0)
+
+    if any(sel.has(f) for f in ("totalApps", "ownedApps")):
+        r = db.session.execute(text(
+            "SELECT COUNT(*), COALESCE(SUM(owned), 0) FROM apps")).first()
+        stats.total_apps, stats.owned_apps = int(r[0]), int(r[1])
+
+    if ctx.can_admin and sel.has("filesByExtension"):
+        stats.files_by_extension = _count_by(
+            "SELECT COALESCE(extension, ''), COUNT(*), COALESCE(SUM(size), 0) "
+            "FROM files GROUP BY extension ORDER BY COUNT(*) DESC")
+
+    if sel.has("appsByType"):
+        stats.apps_by_type = _count_by(
+            "SELECT app_type, COUNT(*), 0 FROM apps GROUP BY app_type ORDER BY app_type")
+
+    if ctx.can_admin and sel.has("filesByLibrary"):
+        stats.files_by_library = _count_by("""
+        SELECT l.path, COUNT(f.id), COALESCE(SUM(f.size), 0)
+        FROM libraries l LEFT JOIN files f ON f.library_id = l.id
+        GROUP BY l.id, l.path ORDER BY l.id""")
+
+    return stats
+
+
+def _count_by(sql: str) -> List[CountByKey]:
+    return [CountByKey(key=str(r[0]), count=int(r[1]), size=int(r[2]))
+            for r in db.session.execute(text(sql)).all()]
+
+
+def resolve_app(app_pk: str, ctx: GraphQLContext, info) -> Optional[App]:
+    """Single app by primary key. Delegates to the list resolver so every nested field
+    hydrates exactly as it does under `apps`."""
+    if not ctx.can_shop:
+        return None
+    conn = resolve_apps(
+        owned=None, app_type=None, filter=None, up_to_date=None, complete=None,
+        search=None, order_by="id", group_by_app_id=False,
+        page=1, page_size=1, ctx=ctx, info=info, only_pk=app_pk,
+    )
+    return conn.items[0] if conn.items else None
+
+
+def resolve_file(file_pk: str, ctx: GraphQLContext, info) -> Optional[File]:
+    """Single file by primary key, hydrated as under `files`."""
+    if not ctx.can_admin:
+        return None
+    conn = resolve_files(filter=None, page=1, page_size=1, ctx=ctx, info=info,
+                         only_pk=file_pk)
+    return conn.items[0] if conn.items else None

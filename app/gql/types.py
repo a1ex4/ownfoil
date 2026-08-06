@@ -36,6 +36,66 @@ class Ownership:
 
 
 @strawberry.type
+class Library:
+    """A configured library root. Admin only - the path is filesystem layout."""
+    id: strawberry.ID
+    path: str
+    last_scan: Optional[str] = None
+
+
+@strawberry.type
+class Task:
+    """A queued, running or finished background job."""
+    id: strawberry.ID
+    task_name: str
+    status: str
+    completion_pct: int = 0
+    exit_code: Optional[int] = None
+    error_message: Optional[str] = None
+    created_at: Optional[str] = None
+    started_at: Optional[str] = None
+    completed_at: Optional[str] = None
+    run_after: Optional[str] = None
+    parent_id: Optional[strawberry.ID] = None
+    # JSON-encoded, because the payload shape differs per task name and the schema
+    # cannot describe a union of every registered task's input.
+    input: Optional[str] = None
+    output: Optional[str] = None
+
+    children_loaded: Private[Optional[List["Task"]]] = None
+
+    @strawberry.field
+    def children(self) -> Optional[List["Task"]]:
+        """Sub-tasks spawned by this one. Only hydrated when selected."""
+        return self.children_loaded
+
+
+@strawberry.type
+class CountByKey:
+    """One bucket of a grouped count, with the bytes those rows account for."""
+    key: str
+    count: int
+    size: BigInt = 0
+
+
+@strawberry.type
+class LibraryStats:
+    """Library-wide aggregates, for dashboards. Each field is computed only when
+    selected, so asking for one count does not pay for the others."""
+    total_files: int = 0
+    total_size: BigInt = 0
+    identified_files: int = 0
+    unidentified_files: int = 0
+    total_titles: int = 0
+    owned_titles: int = 0
+    total_apps: int = 0
+    owned_apps: int = 0
+    files_by_extension: Optional[List[CountByKey]] = None
+    apps_by_type: Optional[List[CountByKey]] = None
+    files_by_library: Optional[List[CountByKey]] = None
+
+
+@strawberry.type
 class File:
     id: strawberry.ID
     library_id: int
@@ -58,6 +118,12 @@ class File:
     # Apps linked to this file via the app_files m2m table. Eagerly batch-loaded
     # by resolvers; None means "not exposed for this path/role".
     apps_loaded: Private[Optional[List["App"]]] = None
+    library_loaded: Private[Optional[Library]] = None
+
+    @strawberry.field
+    def library(self) -> Optional[Library]:
+        """The library root this file was found under. Admin only."""
+        return self.library_loaded
 
     @strawberry.field
     def apps(

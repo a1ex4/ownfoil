@@ -7,9 +7,13 @@ from strawberry.types import Info
 
 from .filters import AppFilter, FileFilter, TitleFilter
 from .resolvers import (
-    resolve_apps, resolve_files, resolve_title, resolve_titles,
+    resolve_app, resolve_apps, resolve_file, resolve_files, resolve_libraries,
+    resolve_stats, resolve_task, resolve_tasks, resolve_title, resolve_titles,
 )
-from .types import AppConnection, FileConnection, Title, TitleConnection
+from .types import (
+    App, AppConnection, File, FileConnection, Library, LibraryStats, Task, Title,
+    TitleConnection,
+)
 
 
 @strawberry.enum
@@ -78,6 +82,45 @@ class Query:
         return resolve_files(
             filter=filter, page=page, page_size=page_size, ctx=info.context, info=info,
         )
+
+    @strawberry.field
+    def app(self, info: Info, id: strawberry.ID) -> Optional[App]:
+        """One app by primary key. Note that under `apps(groupByAppId: true)` an item's
+        `id` is the lowest id of the group, not a stable identity - key on `appId`."""
+        return resolve_app(str(id), info.context, info)
+
+    @strawberry.field
+    def file(self, info: Info, id: strawberry.ID) -> Optional[File]:
+        return resolve_file(str(id), info.context, info)
+
+    @strawberry.field
+    def libraries(self, info: Info) -> List[Library]:
+        """The configured library roots. Admin only; empty for any other role."""
+        return resolve_libraries(ctx=info.context, info=info)
+
+    @strawberry.field
+    def tasks(
+        self, info: Info,
+        status: Optional[str] = None,
+        task_name: Optional[str] = None,
+        include_children: bool = False,
+        limit: int = 50,
+    ) -> List[Task]:
+        """Background jobs, newest first. Top-level only unless `includeChildren`."""
+        return resolve_tasks(
+            status=status, task_name=task_name, include_children=include_children,
+            limit=limit, ctx=info.context, info=info,
+        )
+
+    @strawberry.field
+    def task(self, info: Info, id: strawberry.ID) -> Optional[Task]:
+        return resolve_task(str(id), info.context, info)
+
+    @strawberry.field
+    def stats(self, info: Info) -> LibraryStats:
+        """Library-wide aggregates for dashboards. File-level figures are admin only
+        and read zero for other roles."""
+        return resolve_stats(ctx=info.context, info=info)
 
 
 schema = strawberry.Schema(query=Query)
