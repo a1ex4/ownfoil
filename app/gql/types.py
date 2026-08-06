@@ -72,7 +72,14 @@ class Task:
 
 @strawberry.type
 class CountByKey:
-    """One bucket of a grouped count, with the bytes those rows account for."""
+    """One bucket of a grouped count."""
+    key: str
+    count: int
+
+
+@strawberry.type
+class SizedCountByKey:
+    """A bucket whose rows are files, so the bytes they account for are meaningful."""
     key: str
     count: int
     size: BigInt = 0
@@ -90,9 +97,9 @@ class LibraryStats:
     owned_titles: int = 0
     total_apps: int = 0
     owned_apps: int = 0
-    files_by_extension: Optional[List[CountByKey]] = None
+    files_by_extension: Optional[List[SizedCountByKey]] = None
     apps_by_type: Optional[List[CountByKey]] = None
-    files_by_library: Optional[List[CountByKey]] = None
+    files_by_library: Optional[List[SizedCountByKey]] = None
 
 
 @strawberry.type

@@ -16,8 +16,8 @@ from .filters import (
 from .selection import Selection
 from .types import (
     App, AppConnection, AppVersion, CountByKey, File, FileConnection, Library,
-    LibraryStats, Ownership, Task, Title, TitleConnection, TitledbDlc,
-    TitledbVersion, decode_json_list,
+    LibraryStats, Ownership, SizedCountByKey, Task, Title, TitleConnection,
+    TitledbDlc, TitledbVersion, decode_json_list,
 )
 
 
@@ -1019,16 +1019,18 @@ def resolve_stats(*, ctx: GraphQLContext, info) -> LibraryStats:
         stats.total_apps, stats.owned_apps = int(r[0]), int(r[1])
 
     if ctx.can_admin and sel.has("filesByExtension"):
-        stats.files_by_extension = _count_by(
+        stats.files_by_extension = _sized_count_by(
             "SELECT COALESCE(extension, ''), COUNT(*), COALESCE(SUM(size), 0) "
             "FROM files GROUP BY extension ORDER BY COUNT(*) DESC")
 
     if sel.has("appsByType"):
-        stats.apps_by_type = _count_by(
-            "SELECT app_type, COUNT(*), 0 FROM apps GROUP BY app_type ORDER BY app_type")
+        # Apps are metadata rows, so there are no bytes to report: plain CountByKey.
+        stats.apps_by_type = [CountByKey(key=str(r[0]), count=int(r[1])) for r in
+                              db.session.execute(text("SELECT app_type, COUNT(*) FROM apps "
+                                                      "GROUP BY app_type ORDER BY app_type")).all()]
 
     if ctx.can_admin and sel.has("filesByLibrary"):
-        stats.files_by_library = _count_by("""
+        stats.files_by_library = _sized_count_by("""
         SELECT l.path, COUNT(f.id), COALESCE(SUM(f.size), 0)
         FROM libraries l LEFT JOIN files f ON f.library_id = l.id
         GROUP BY l.id, l.path ORDER BY l.id""")
@@ -1036,8 +1038,8 @@ def resolve_stats(*, ctx: GraphQLContext, info) -> LibraryStats:
     return stats
 
 
-def _count_by(sql: str) -> List[CountByKey]:
-    return [CountByKey(key=str(r[0]), count=int(r[1]), size=int(r[2]))
+def _sized_count_by(sql: str) -> List[SizedCountByKey]:
+    return [SizedCountByKey(key=str(r[0]), count=int(r[1]), size=int(r[2]))
             for r in db.session.execute(text(sql)).all()]
 
 
