@@ -1,4 +1,5 @@
 """GraphQL schema assembly."""
+from enum import Enum
 from typing import List, Optional
 
 import strawberry
@@ -9,6 +10,14 @@ from .resolvers import (
     resolve_apps, resolve_files, resolve_title, resolve_titles,
 )
 from .types import AppConnection, FileConnection, Title, TitleConnection
+
+
+@strawberry.enum
+class OrderBy(Enum):
+    """Sort order for the paginated queries. ID is the id order rows come back in
+    naturally; NAME sorts by title name, unrecognized titles last."""
+    ID = "id"
+    NAME = "name"
 
 
 @strawberry.type
@@ -23,11 +32,13 @@ class Query:
         self, info: Info,
         owned: Optional[bool] = None,
         filter: Optional[TitleFilter] = None,
+        search: Optional[str] = None,
+        order_by: OrderBy = OrderBy.ID,
         page: int = 1,
         page_size: int = 50,
     ) -> TitleConnection:
         return resolve_titles(
-            owned=owned, filter=filter,
+            owned=owned, filter=filter, search=search, order_by=order_by.value,
             page=page, page_size=page_size, ctx=info.context, info=info,
         )
 
@@ -37,11 +48,23 @@ class Query:
         owned: Optional[bool] = None,
         app_type: Optional[List[str]] = None,
         filter: Optional[AppFilter] = None,
+        up_to_date: Optional[bool] = None,
+        complete: Optional[bool] = None,
+        search: Optional[str] = None,
+        order_by: OrderBy = OrderBy.ID,
+        group_by_app_id: bool = False,
         page: int = 1,
         page_size: int = 100,
     ) -> AppConnection:
+        """`groupByAppId` collapses an app id's versions into one item, so a page is
+        a page of distinct apps rather than of (app id, version) rows. `upToDate` and
+        `complete` are title-level notions: `upToDate` asks the title's flag for BASE
+        apps and "is the highest known version owned" for the others, while `complete`
+        only ever matches BASE apps."""
         return resolve_apps(
             owned=owned, app_type=app_type, filter=filter,
+            up_to_date=up_to_date, complete=complete,
+            search=search, order_by=order_by.value, group_by_app_id=group_by_app_id,
             page=page, page_size=page_size, ctx=info.context, info=info,
         )
 

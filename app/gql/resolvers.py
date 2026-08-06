@@ -4,6 +4,7 @@ from typing import Dict, List, Optional
 import strawberry
 from sqlalchemy import text
 
+from constants import APP_TYPE_BASE, APP_TYPE_UPD
 from db import db
 
 from .context import GraphQLContext
@@ -13,7 +14,7 @@ from .filters import (
 )
 from .selection import Selection
 from .types import (
-    App, AppConnection, File, FileConnection, Ownership,
+    App, AppConnection, AppVersion, File, FileConnection, Ownership,
     Title, TitleConnection, decode_json_list,
 )
 
@@ -92,6 +93,29 @@ f.organized AS organized, f.mtime AS mtime
 # titledb.store, so this join needs no dedup predicate. `td.source` is the
 # highest-priority source that contributed a field.
 _TITLEDB = "titledb.titles"
+
+# Is the highest known version of this app id owned? Correlated so it reads the same
+# whether or not the outer query groups, and NULL-safe: an app with nothing owned is
+# behind, not unknown.
+_LATEST_VERSION_OWNED = """(
+    SELECT IFNULL(MAX(CASE WHEN a2.owned THEN CAST(a2.app_version AS INTEGER) END), -1)
+           >= MAX(CAST(a2.app_version AS INTEGER))
+    FROM apps a2 WHERE a2.app_id = a.app_id
+)"""
+
+# One text box, several ids and names: the app's own metadata (a DLC's name), its
+# parent title's name, and either id. TitleFilter/AppFilter AND their fields, so an
+# OR across columns has to be its own argument.
+_APP_SEARCH = """(
+    tda.name LIKE :search COLLATE NOCASE
+    OR td.name LIKE :search COLLATE NOCASE
+    OR a.app_id LIKE :search COLLATE NOCASE
+    OR ot.title_id LIKE :search COLLATE NOCASE
+)"""
+
+_TITLE_SEARCH = """(
+    td.name LIKE :search COLLATE NOCASE OR td.id LIKE :search COLLATE NOCASE
+)"""
 
 
 # ------------- builders -------------
@@ -316,6 +340,80 @@ def _hydrate_apps_titledb(apps: List[App], sel: "Selection") -> None:
         a.titledb_loaded = by_id.get(a.app_id)
 
 
+def _hydrate_apps_title(apps: List[App], sel: "Selection") -> None:
+    """Attach each app's parent title, so a card can show the title's name and
+    ownership without a second round trip. Driven from main.titles, so a title with
+    no titledb match still comes back (with null metadata)."""
+    distinct_ids = list({a.title_id for a in apps if a.title_id})
+    if not distinct_ids:
+        return
+    params = {f"p_{i}": x for i, x in enumerate(distinct_ids)}
+    placeholders = ",".join(f":p_{i}" for i in range(len(distinct_ids)))
+    sql = f"""
+    SELECT {_title_cols('owned', sel)}
+    FROM main.titles ot
+    LEFT JOIN {_TITLEDB} td ON td.id = ot.title_id
+    WHERE ot.title_id IN ({placeholders})
+    """
+    rows = db.session.execute(text(sql), params).all()
+    by_id = {(r.title_id or "").upper(): _build_title(r, with_apps=False, with_files=False)
+             for r in rows}
+    for a in apps:
+        a.title = by_id.get((a.title_id or "").upper())
+
+
+def _hydrate_app_versions(apps: List[App]) -> None:
+    """Attach the version history behind each app.
+
+    A Switch update ships as its own app id, so the versions of a BASE app are its
+    title's UPDATE apps; for every other app they are the rows sharing its app id.
+    Two batched queries, one per keying."""
+    base_apps = [a for a in apps if a.app_type == APP_TYPE_BASE]
+    other_apps = [a for a in apps if a.app_type != APP_TYPE_BASE]
+
+    if base_apps:
+        title_ids = list({a.title_id for a in base_apps if a.title_id})
+        params = {f"v_{i}": x for i, x in enumerate(title_ids)}
+        placeholders = ",".join(f":v_{i}" for i in range(len(title_ids)))
+        sql = f"""
+        SELECT ot.title_id AS key, a.app_version AS app_version,
+               a.owned AS owned, a.release_date AS release_date
+        FROM apps a JOIN main.titles ot ON ot.id = a.title_id
+        WHERE ot.title_id IN ({placeholders}) AND a.app_type = :upd
+        ORDER BY CAST(a.app_version AS INTEGER)
+        """
+        by_title = _group_versions(sql, dict(params, upd=APP_TYPE_UPD))
+        for a in base_apps:
+            a.versions = by_title.get(a.title_id, [])
+
+    if other_apps:
+        app_ids = list({a.app_id for a in other_apps if a.app_id})
+        params = {f"v_{i}": x for i, x in enumerate(app_ids)}
+        placeholders = ",".join(f":v_{i}" for i in range(len(app_ids)))
+        sql = f"""
+        SELECT a.app_id AS key, a.app_version AS app_version,
+               a.owned AS owned, a.release_date AS release_date
+        FROM apps a
+        WHERE a.app_id IN ({placeholders})
+        ORDER BY CAST(a.app_version AS INTEGER)
+        """
+        by_app = _group_versions(sql, params)
+        for a in other_apps:
+            a.versions = by_app.get(a.app_id, [])
+
+
+def _group_versions(sql: str, params: dict) -> Dict[str, List[AppVersion]]:
+    out: Dict[str, List[AppVersion]] = {}
+    for r in db.session.execute(text(sql), params).all():
+        try:
+            version = int(r.app_version)
+        except (TypeError, ValueError):
+            continue
+        out.setdefault(r.key, []).append(
+            AppVersion(version=version, owned=bool(r.owned), release_date=r.release_date))
+    return out
+
+
 # ------------- top-level resolvers -------------
 
 def resolve_title(title_id: str, ctx: GraphQLContext, info) -> Optional[Title]:
@@ -363,6 +461,7 @@ def resolve_title(title_id: str, ctx: GraphQLContext, info) -> Optional[Title]:
 
 
 def resolve_titles(*, owned: Optional[bool], filter: Optional[TitleFilter],
+                    search: Optional[str] = None, order_by: str = "id",
                     page: int, page_size: int, ctx: GraphQLContext, info) -> TitleConnection:
     if not ctx.can_shop:
         return TitleConnection(total=0, items=[])
@@ -391,7 +490,7 @@ def resolve_titles(*, owned: Optional[bool], filter: Optional[TitleFilter],
             f"FROM main.titles ot "
             f"LEFT JOIN {_TITLEDB} td ON td.id = ot.title_id"
         )
-        order_by = "ot.title_id"
+        order_by_sql = "ot.title_id"
         cols = _title_cols("owned", items_sel)
     elif owned is False:
         from_sql = (
@@ -399,15 +498,21 @@ def resolve_titles(*, owned: Optional[bool], filter: Optional[TitleFilter],
             f"LEFT JOIN main.titles ot ON ot.title_id = td.id"
         )
         where.append("ot.id IS NULL")
-        order_by = "td.id"
+        order_by_sql = "td.id"
         cols = _title_cols("titledb", items_sel)
     else:
         from_sql = (
             f"FROM {_TITLEDB} td "
             f"LEFT JOIN main.titles ot ON ot.title_id = td.id"
         )
-        order_by = "td.id"
+        order_by_sql = "td.id"
         cols = _title_cols("titledb", items_sel)
+
+    if search:
+        params["search"] = f"%{search}%"
+        where.append(_TITLE_SEARCH)
+    if order_by == "name":
+        order_by_sql = f"td.name IS NULL, td.name COLLATE NOCASE, {order_by_sql}"
 
     where_sql = (" WHERE " + " AND ".join(where)) if where else ""
 
@@ -423,7 +528,7 @@ def resolve_titles(*, owned: Optional[bool], filter: Optional[TitleFilter],
     SELECT {cols}
     {from_sql}
     {where_sql}
-    ORDER BY {order_by}
+    ORDER BY {order_by_sql}
     LIMIT :limit OFFSET :offset
     """
     page_params = dict(params, limit=page_size, offset=(page - 1) * page_size)
@@ -449,6 +554,9 @@ def resolve_titles(*, owned: Optional[bool], filter: Optional[TitleFilter],
 
 def resolve_apps(*, owned: Optional[bool], app_type: Optional[List[str]],
                   filter: Optional[AppFilter],
+                  up_to_date: Optional[bool] = None, complete: Optional[bool] = None,
+                  search: Optional[str] = None, order_by: str = "id",
+                  group_by_app_id: bool = False,
                   page: int, page_size: int, ctx: GraphQLContext, info) -> AppConnection:
     if not ctx.can_shop:
         return AppConnection(total=0, items=[])
@@ -459,38 +567,84 @@ def resolve_apps(*, owned: Optional[bool], app_type: Optional[List[str]],
     items_sel = sel.child("items")
     files_sel = items_sel.child("files")
     titledb_sel = items_sel.child("titledb")
+    title_sel = items_sel.child("title")
     want_items = sel.has("items")
     want_files = ctx.can_admin and want_items and items_sel.has("files")
     want_titledb = want_items and items_sel.has("titledb")
+    want_title = want_items and items_sel.has("title")
+    want_versions = want_items and items_sel.has("versions")
     want_files_apps = want_files and files_sel.has("apps")
     want_total = sel.has("total")
 
     params: dict = {}
     where = build_clauses(filter, APP_FIELDS, params)
+    having: List[str] = []
     if owned is not None:
         params["owned_arg"] = 1 if owned else 0
-        where.append("a.owned = :owned_arg")
+        # Grouped, "owned" is a property of the app id as a whole: any version of it.
+        (having if group_by_app_id else where).append(
+            f"{'MAX(a.owned)' if group_by_app_id else 'a.owned'} = :owned_arg")
     if app_type:
         params.update({f"at_{i}": v for i, v in enumerate(app_type)})
         where.append(f"a.app_type IN ({','.join(f':at_{i}' for i in range(len(app_type)))})")
+    if up_to_date is not None:
+        params["utd_arg"] = 1 if up_to_date else 0
+        where.append(f"""(CASE WHEN a.app_type = '{APP_TYPE_BASE}' THEN ot.up_to_date
+                          ELSE {_LATEST_VERSION_OWNED} END) = :utd_arg""")
+    if complete is not None:
+        # Only a title knows whether its DLC set is complete, so this never matches a
+        # DLC or UPDATE app - the same rows the UI's completion filter drops today.
+        params["cpl_arg"] = 1 if complete else 0
+        where.append(f"a.app_type = '{APP_TYPE_BASE}' AND ot.complete = :cpl_arg")
+    if search:
+        params["search"] = f"%{search}%"
+        where.append(_APP_SEARCH)
+
     where_sql = (" WHERE " + " AND ".join(where)) if where else ""
+    group_sql = " GROUP BY a.app_id" if group_by_app_id else ""
+    having_sql = (" HAVING " + " AND ".join(having)) if having else ""
+    from_sql = f"""
+    FROM apps a
+    JOIN main.titles ot ON ot.id = a.title_id
+    LEFT JOIN {_TITLEDB} td ON td.id = ot.title_id
+    LEFT JOIN {_TITLEDB} tda ON tda.id = a.app_id
+    """
 
     total = 0
     if want_total:
-        count_sql = f"""
-        SELECT COUNT(*) FROM apps a JOIN main.titles ot ON ot.id = a.title_id{where_sql}
-        """
+        counted = "COUNT(*)" if not group_by_app_id else "COUNT(DISTINCT a.app_id)"
+        if having:
+            # A HAVING on the group can only be counted by counting the groups back.
+            count_sql = (f"SELECT COUNT(*) FROM (SELECT a.app_id {from_sql}"
+                         f"{where_sql}{group_sql}{having_sql})")
+        else:
+            count_sql = f"SELECT {counted} {from_sql}{where_sql}"
         total = db.session.execute(text(count_sql), params).scalar() or 0
 
     if not want_items:
         return AppConnection(total=int(total), items=[])
 
+    # Grouped, the row stands for every version of the app id: its highest version,
+    # owned if any version is. The bare columns are constant within an app id.
+    version_col = ("MAX(CAST(a.app_version AS INTEGER))" if group_by_app_id else "a.app_version")
+    owned_col = "MAX(a.owned)" if group_by_app_id else "a.owned"
+    order_sql = ("td.name IS NULL, td.name COLLATE NOCASE, a.app_id"
+                 if order_by == "name" else "a.id")
     page_sql = f"""
+    SELECT MIN(a.id) AS id, a.app_id AS app_id, {version_col} AS app_version,
+           a.app_type AS app_type, {owned_col} AS owned,
+           MAX(a.release_date) AS release_date, ot.title_id AS title_id
+    {from_sql}
+    {where_sql}{group_sql}{having_sql}
+    ORDER BY {order_sql}
+    LIMIT :limit OFFSET :offset
+    """ if group_by_app_id else f"""
     SELECT a.id AS id, a.app_id AS app_id, a.app_version AS app_version,
            a.app_type AS app_type, a.owned AS owned,
            a.release_date AS release_date, ot.title_id AS title_id
-    FROM apps a JOIN main.titles ot ON ot.id = a.title_id{where_sql}
-    ORDER BY a.id
+    {from_sql}
+    {where_sql}
+    ORDER BY {order_sql}
     LIMIT :limit OFFSET :offset
     """
     page_params = dict(params, limit=page_size, offset=(page - 1) * page_size)
@@ -503,7 +657,7 @@ def resolve_apps(*, owned: Optional[bool], app_type: Optional[List[str]],
             id=strawberry.ID(str(r.id)),
             title_id=r.title_id,
             app_id=r.app_id,
-            app_version=r.app_version,
+            app_version=str(r.app_version),
             app_type=r.app_type,
             owned=bool(r.owned),
             release_date=r.release_date,
@@ -517,6 +671,10 @@ def resolve_apps(*, owned: Optional[bool], app_type: Optional[List[str]],
         _hydrate_app_files(list(apps_by_pk.keys()), apps_by_pk, with_apps=want_files_apps)
     if want_titledb and items:
         _hydrate_apps_titledb(items, titledb_sel)
+    if want_title and items:
+        _hydrate_apps_title(items, title_sel)
+    if want_versions and items:
+        _hydrate_app_versions(items)
 
     return AppConnection(total=int(total), items=items)
 

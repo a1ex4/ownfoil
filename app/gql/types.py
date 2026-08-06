@@ -66,6 +66,14 @@ class File:
 
 
 @strawberry.type
+class AppVersion:
+    """One known version of the content an app represents."""
+    version: int
+    owned: bool
+    release_date: Optional[str] = None
+
+
+@strawberry.type
 class App:
     id: strawberry.ID
     title_id: str
@@ -74,6 +82,15 @@ class App:
     app_type: str
     owned: bool
     release_date: Optional[str] = None
+
+    # The parent title, so a card built from an app can show the title's name and
+    # ownership without a second round trip. Batch-loaded by the apps resolver.
+    title: Optional["Title"] = None
+
+    # Every version known for the content this app represents: for BASE apps that
+    # means the title's UPDATE apps (a Switch update ships under its own app id),
+    # for anything else the versions of this same app id. Ascending.
+    versions: Optional[List[AppVersion]] = None
 
     # Eagerly batch-loaded by the apps/titles resolvers (admin only). None means
     # "not exposed for this role"; an empty list means "exposed but no files".
