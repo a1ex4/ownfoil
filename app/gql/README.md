@@ -76,9 +76,13 @@ session via SQLite `ATTACH`, managed by engine listeners in `app/db.py`:
   schema. Owns `titles`, `apps`, `files`, `app_files`, plus auth and tasks.
   Everything actually in the user's library lives here.
 - **`config/titles.db`** — the titledb metadata catalog (Nintendo Switch titles,
-  versions, cnmts, custom-added entries). Rebuilt periodically by
-  `update_titledb` from upstream JSON files in `app/titledb_store.py`. Read-only
-  from the GraphQL path's perspective. Exposed as the `titledb` schema.
+  versions, cnmts). Rebuilt periodically by `update_titledb` from the downloaded
+  JSON files, in `app/titledb/`. Read-only from the GraphQL path's perspective.
+  Exposed as the `titledb` schema. `titledb.titles` holds one row per title id,
+  already merged across the metadata sources (`custom` > `extract` > `titledb`,
+  field by field) by `app/titledb/store.py`, so resolvers join it plainly;
+  `td.source` names the highest-priority source that contributed a field and
+  `td.sources` lists every source that did.
 
 The ATTACH is automatic, so resolvers just write `JOIN titledb.titles td ON ...`
 or `FROM main.titles ot ...` and SQLAlchemy/SQLite handle the rest. The attach
@@ -194,12 +198,12 @@ the first pass — there's no infinite loop.
 
 ## Schema features that affect performance
 
-- **`is_overridden` on `titledb.titles`** (set at import time on every upstream
-  row whose id has a custom counterpart). Replaces the previous correlated
-  `WHERE NOT EXISTS` in `_TITLEDB_DEDUPED` with an indexable column predicate
-  (`source = 'custom' OR is_overridden = 0`). Maintained by
-  `titledb_store.add_custom_title` / `delete_custom_title` so it stays in sync
-  without a full rebuild.
+- **`titledb.titles` is pre-merged** — one row per title id, with the metadata
+  sources already resolved field by field at import time (and per-id on every
+  override write, in `titledb.store.set_override` / `delete_override`). The
+  resolvers' titledb join therefore carries no dedup predicate at all: no
+  correlated `NOT EXISTS`, no `source`/`is_overridden` filter, no duplicate ids
+  to collapse in a paged query.
 - **`apps.release_date`**. UPDATE rows carry their titledb release date
   directly; BASE/DLC rows leave it `NULL`. Populated by
   `add_missing_apps_for_title` with `on_conflict_do_update` set_=release_date

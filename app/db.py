@@ -147,6 +147,40 @@ class Files(db.Model):
 
     library = db.relationship('Libraries', backref=db.backref('files', lazy=True, cascade="all, delete-orphan"))
 
+# Durable home of the title metadata that isn't downloaded: user-authored ('custom') and,
+# later, extracted from the files themselves ('extract'). Sparse - a row only sets the
+# fields that source knows about. titles.db is disposable and gets these projected into it
+# on every rebuild, which is why they live here instead. Core table, not a model: it has
+# no ORM relationships and its columns come from the titledb schema.
+title_overrides = db.Table(
+    'title_overrides', db.metadata,
+    db.Column('id', db.String, primary_key=True),
+    db.Column('source', db.String, primary_key=True),
+    *titledb.schema.metadata_columns(),
+)
+
+
+def list_title_overrides(source):
+    rows = db.session.execute(
+        title_overrides.select().where(title_overrides.c.source == source)).all()
+    return [dict(row._mapping) for row in rows]
+
+
+def upsert_title_override(title_id, source, values):
+    stmt = insert(title_overrides).values(id=title_id, source=source, **values)
+    db.session.execute(stmt.on_conflict_do_update(
+        index_elements=['id', 'source'], set_=values))
+    db.session.commit()
+
+
+def delete_title_override(title_id, source):
+    """Delete an override row. Returns False when there was nothing to delete."""
+    result = db.session.execute(title_overrides.delete().where(
+        (title_overrides.c.id == title_id) & (title_overrides.c.source == source)))
+    db.session.commit()
+    return bool(result.rowcount)
+
+
 class Titles(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     title_id = db.Column(db.String, unique=True)
@@ -310,8 +344,8 @@ def purge_temp_files():
 
 
 def init_db(app):
-    # Before the ownfoil.db block: every main connection ATTACHes titles.db, and migrating it
-    # while a connection holds it open is exactly what a batch ALTER cannot survive.
+    # Before the ownfoil.db block: every main connection ATTACHes titles.db, and recreating it
+    # while a connection holds it open is exactly what the file swap cannot survive.
     titledb.store.init_titledb()
     with app.app_context():
         # create or migrate database

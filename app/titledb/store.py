@@ -1,9 +1,10 @@
-"""SQLite-backed store for titledb JSON data.
+"""SQLite-backed store for titledb metadata.
 
-Replaces the in-memory TitleDB loaded from JSON files with a disposable
-SQLite database (``config/titles.db``) built from the downloaded JSON files.
-Custom admin-added entries are persisted separately in
-``config/custom_titles.json`` and merged into the DB on every rebuild.
+Builds and queries ``config/titles.db`` from the downloaded JSON files. The file is fully
+derivable and disposable: it is versioned by a schema fingerprint rather than migrations,
+and recreated from scratch whenever that fingerprint no longer matches. Metadata coming
+from anywhere else (user-authored, extracted from the files) lives durably in ownfoil.db
+and is projected in here, merged field by field following schema.SOURCE_PRIORITY.
 """
 import contextlib
 import datetime
@@ -17,17 +18,19 @@ from sqlalchemy import create_engine
 from sqlalchemy.engine import URL
 from sqlalchemy.pool import NullPool
 
-from constants import TITLES_DB_FILE, CUSTOM_TITLES_FILE
+from constants import DB_FILE, TITLES_DB_FILE
 from titledb import schema
+from titledb.schema import (OVERRIDE_SOURCES, SOURCE_CUSTOM, SOURCE_PRIORITY,
+                            SOURCE_TITLEDB)
 
 logger = logging.getLogger('main')
-
-SOURCE_UPSTREAM = 'upstream'
-SOURCE_CUSTOM = 'custom'
 
 # (json_key, column_name, json_type), json_type: 's'=scalar, 'j'=list/object (json-encoded)
 _TITLES_COLUMNS = schema.column_map(schema.titles)
 _CNMTS_COLUMNS = schema.column_map(schema.cnmts)
+# The metadata columns, without the id: what an override row and the merge deal in.
+_META_COLUMNS = [c.name for c in schema.title_overrides.c if c.name not in ('id', 'source')]
+_OVERRIDE_COLUMNS = [c for c in _TITLES_COLUMNS if c[1] != 'id']
 
 
 # ---------------------------------------------------------------------------
@@ -100,15 +103,92 @@ def _encode_row(record, columns):
 
 
 # ---------------------------------------------------------------------------
+# Merge: resolve the sources against each other, field by field
+# ---------------------------------------------------------------------------
+
+def _alias(source):
+    return f'o_{source}'
+
+
+def _merge_sql(single_id):
+    """Rebuild the merged `titles` rows from `title_overrides`, by source priority.
+
+    One LEFT JOIN per source and a COALESCE per column, both generated from
+    SOURCE_PRIORITY: a field falls through to the next source when the higher-priority
+    one has nothing for it, which is the whole point - an `extract` row carrying only a
+    name must not blank out the artwork only titledb has.
+    """
+    aliases = [_alias(s) for s in SOURCE_PRIORITY]
+    cols = ', '.join(f'COALESCE({", ".join(f"{a}.{c}" for a in aliases)}) AS {c}'
+                     for c in _META_COLUMNS)
+    # Highest-priority source that has a row, and the full list, both in priority order.
+    source = 'COALESCE(' + ', '.join(
+        f"CASE WHEN {_alias(s)}.id IS NOT NULL THEN '{s}' END" for s in SOURCE_PRIORITY) + ')'
+    # Each present source contributes ',<source>'; substr drops the leading separator.
+    sources = 'substr(' + ' || '.join(
+        f"CASE WHEN {_alias(s)}.id IS NOT NULL THEN ',{s}' ELSE '' END"
+        for s in SOURCE_PRIORITY) + ', 2)'
+    joins = '\n'.join(
+        f"LEFT JOIN title_overrides {_alias(s)} ON {_alias(s)}.id = ids.id "
+        f"AND {_alias(s)}.source = '{s}'" for s in SOURCE_PRIORITY)
+    return f'''
+        INSERT OR REPLACE INTO titles (id, source, sources, {", ".join(_META_COLUMNS)})
+        SELECT ids.id, {source} AS source, {sources} AS sources, {cols}
+        FROM (SELECT DISTINCT id FROM title_overrides{" WHERE id = :id" if single_id else ""}) ids
+        {joins}
+    '''
+
+
+def _snapshot_sql(single_id):
+    """Copy the pristine titledb row of every overridden id into title_overrides.
+
+    Taken before the overrides are merged in, so the merge always has the untouched
+    titledb values to fall back on - and so dropping an override restores them.
+    """
+    cols = ', '.join(_META_COLUMNS)
+    where = 'WHERE t.id = :id' if single_id else 'WHERE t.id IN (SELECT id FROM title_overrides)'
+    # OR IGNORE, never REPLACE: once an id is overridden its `titles` row holds merged
+    # values, and re-snapshotting those would enshrine them as the titledb baseline.
+    return f'''
+        INSERT OR IGNORE INTO title_overrides (id, source, {cols})
+        SELECT t.id, '{SOURCE_TITLEDB}', {cols} FROM titles t {where}
+    '''
+
+
+def _apply_overrides(conn):
+    """Snapshot the titledb rows of overridden ids, then merge every source into titles."""
+    conn.execute(_snapshot_sql(single_id=False))
+    conn.execute(_merge_sql(single_id=False))
+
+
+def _recompute_title(conn, title_id):
+    """Re-merge a single id after its override rows changed."""
+    has_override = conn.execute(
+        'SELECT 1 FROM title_overrides WHERE id = ? AND source != ? LIMIT 1',
+        (title_id, SOURCE_TITLEDB),
+    ).fetchone()
+    if not has_override:
+        # Last override gone: restore the titledb snapshot, or drop the row entirely when
+        # the id only ever existed because of the override.
+        conn.execute(_merge_sql(single_id=True), {'id': title_id})
+        conn.execute('DELETE FROM title_overrides WHERE id = ?', (title_id,))
+        conn.execute(
+            "DELETE FROM titles WHERE id = ? AND source != ?", (title_id, SOURCE_TITLEDB))
+        return
+    conn.execute(_snapshot_sql(single_id=True), {'id': title_id})
+    conn.execute(_merge_sql(single_id=True), {'id': title_id})
+
+
+# ---------------------------------------------------------------------------
 # Import
 # ---------------------------------------------------------------------------
 
 def import_from_json(region_file, locale):
     """(Re)build ``titles.db`` from the downloaded JSON files.
 
-    Builds into a ``titles.db.new`` file and atomically renames it, so any
-    in-flight reader connections keep seeing the old DB until they close.
-    Custom entries are re-imported from ``custom_titles.json`` at the end.
+    Builds into a ``titles.db.new`` file and atomically renames it, so any in-flight
+    reader connections keep seeing the old DB until they close. The durable overrides in
+    ownfoil.db are projected in and merged before the swap.
     """
     titledb_dir = os.path.dirname(region_file)
     cnmts_file = os.path.join(titledb_dir, 'cnmts.json')
@@ -133,8 +213,8 @@ def import_from_json(region_file, locale):
         _import_titles(conn, region_file)
         _import_cnmts(conn, cnmts_file)
         _import_versions(conn, versions_file)
-        _import_customs(conn)
-        _recompute_overridden(conn)
+        _import_overrides(conn)
+        _apply_overrides(conn)
 
         _set_meta(conn, 'imported_locale', locale)
         _set_meta(conn, 'imported_at', _now())
@@ -166,7 +246,7 @@ def _replace_titles_db(new_path):
 
 
 def _import_titles(conn, path):
-    cols = ['"id"', 'source'] + [f'"{c}"' for _, c, _ in _TITLES_COLUMNS if c != 'id']
+    cols = ['"id"', 'source', 'sources'] + [f'"{c}"' for _, c, _ in _TITLES_COLUMNS if c != 'id']
     placeholders = ','.join('?' * len(cols))
     sql = f'INSERT OR IGNORE INTO titles ({",".join(cols)}) VALUES ({placeholders})'
 
@@ -182,9 +262,10 @@ def _import_titles(conn, path):
         row = _encode_row(record, _TITLES_COLUMNS)
         if row[id_col_index] is None:
             continue
-        # Column order: id, source, then remaining titles columns (in _TITLES_COLUMNS order minus id)
+        # Column order: id, source, sources, then the remaining titles columns
+        # (in _TITLES_COLUMNS order minus id)
         rest = [v for i, v in enumerate(row) if i != id_col_index]
-        batch.append([row[id_col_index], SOURCE_UPSTREAM] + rest)
+        batch.append([row[id_col_index], SOURCE_TITLEDB, SOURCE_TITLEDB] + rest)
         if len(batch) >= 5000:
             conn.executemany(sql, batch)
             count += len(batch)
@@ -227,7 +308,6 @@ def _import_versions(conn, path):
     with open(path, 'r', encoding='utf-8') as f:
         data = json.load(f)
     batch = []
-    count = 0
     for title_id, versions in data.items():
         if not isinstance(versions, dict):
             continue
@@ -241,117 +321,95 @@ def _import_versions(conn, path):
         'INSERT OR IGNORE INTO versions(title_id, version, release_date) VALUES (?, ?, ?)',
         batch,
     )
-    count = len(batch)
-    logger.info(f'  versions: {count} rows')
+    logger.info(f'  versions: {len(batch)} rows')
 
 
-def _import_customs(conn):
-    records = _load_custom_titles()
-    if not records:
+def _import_overrides(conn):
+    """Copy the durable overrides out of ownfoil.db into the DB being built."""
+    if not os.path.isfile(DB_FILE):
         return
-    for record in records.values():
-        _upsert_custom_title(conn, record)
-    logger.info(f'  custom titles: {len(records)} rows')
-
-
-def _recompute_overridden(conn):
-    """Set is_overridden=1 on every non-custom row whose id has a custom counterpart."""
-    conn.execute('UPDATE titles SET is_overridden = 0 WHERE is_overridden != 0')
-    conn.execute('''
-        UPDATE titles
-        SET is_overridden = 1
-        WHERE source != 'custom'
-          AND "id" IN (SELECT "id" FROM titles WHERE source = 'custom')
-    ''')
-
-
-def _set_overridden_for_id(conn, title_id, value):
-    conn.execute(
-        'UPDATE titles SET is_overridden = ? WHERE source != ? AND "id" = ?',
-        (1 if value else 0, SOURCE_CUSTOM, title_id),
-    )
-
-
-# ---------------------------------------------------------------------------
-# Custom entries
-# ---------------------------------------------------------------------------
-
-def _load_custom_titles():
-    if not os.path.isfile(CUSTOM_TITLES_FILE):
-        return {}
+    cols = ', '.join(['id', 'source'] + _META_COLUMNS)
+    conn.execute('ATTACH ? AS ownfoil', (DB_FILE,))
     try:
-        with open(CUSTOM_TITLES_FILE, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-        if not isinstance(data, dict):
-            return {}
-        return data
-    except Exception as e:
-        logger.error(f'Failed to load {CUSTOM_TITLES_FILE}: {e}')
-        return {}
+        count = conn.execute(
+            f'INSERT OR REPLACE INTO title_overrides ({cols}) '
+            f'SELECT {cols} FROM ownfoil.title_overrides'
+        ).rowcount
+    finally:
+        conn.commit()  # DETACH is refused while the INSERT's transaction is still open
+        conn.execute('DETACH ownfoil')
+    if count:
+        logger.info(f'  overrides: {count} rows')
 
 
-def _save_custom_titles(records):
-    tmp = CUSTOM_TITLES_FILE + '.tmp'
-    with open(tmp, 'w', encoding='utf-8') as f:
-        json.dump(records, f, indent=2, ensure_ascii=False)
-    os.replace(tmp, CUSTOM_TITLES_FILE)
+# ---------------------------------------------------------------------------
+# Overrides: durable in ownfoil.db, projected here
+# ---------------------------------------------------------------------------
+
+def _project_override(title_id, source, record):
+    """Mirror one override row into titles.db and re-merge that title."""
+    if not os.path.isfile(TITLES_DB_FILE):
+        return
+    with contextlib.closing(sqlite3.connect(TITLES_DB_FILE)) as conn:
+        if record is None:
+            conn.execute('DELETE FROM title_overrides WHERE id = ? AND source = ?',
+                         (title_id, source))
+        else:
+            cols = ['id', 'source'] + _META_COLUMNS
+            placeholders = ','.join('?' * len(cols))
+            values = [title_id, source] + _encode_row(record, _OVERRIDE_COLUMNS)
+            conn.execute(
+                f'INSERT OR REPLACE INTO title_overrides ({",".join(cols)}) '
+                f'VALUES ({placeholders})', values)
+        _recompute_title(conn, title_id)
+        _set_meta(conn, 'imported_at', _now())  # invalidates the cached GraphQL responses
+        conn.commit()
 
 
-def _upsert_custom_title(conn, record):
-    rec = dict(record)
-    rec.setdefault('id', record.get('id'))
-    cols = ['"id"', 'source'] + [f'"{c}"' for _, c, _ in _TITLES_COLUMNS if c != 'id']
-    placeholders = ','.join('?' * len(cols))
-    sql = f'INSERT OR REPLACE INTO titles ({",".join(cols)}) VALUES ({placeholders})'
-    row = _encode_row(rec, _TITLES_COLUMNS)
-    id_col_index = next(i for i, (_, c, _) in enumerate(_TITLES_COLUMNS) if c == 'id')
-    rest = [v for i, v in enumerate(row) if i != id_col_index]
-    conn.execute(sql, [row[id_col_index], SOURCE_CUSTOM] + rest)
-
-
-def list_custom_titles():
-    return _load_custom_titles()
-
-
-def add_custom_title(record):
-    """Persist a new custom title and upsert it into titles.db. Returns (ok, error)."""
-    title_id = record.get('id')
+def set_override(title_id, record, source=SOURCE_CUSTOM):
+    """Persist a metadata override and apply it to titles.db. Returns (ok, error)."""
     if not title_id:
         return False, 'id is required'
-    records = _load_custom_titles()
-    if title_id in records:
-        return False, f'Custom entry already exists for {title_id}'
-    records[title_id] = record
-    _save_custom_titles(records)
-
-    if os.path.isfile(TITLES_DB_FILE):
-        with contextlib.closing(sqlite3.connect(TITLES_DB_FILE)) as conn:
-            _upsert_custom_title(conn, record)
-            _set_overridden_for_id(conn, title_id, True)
-            _bump_imported_at(conn)
-            conn.commit()
+    if source not in OVERRIDE_SOURCES:
+        return False, f'Unknown metadata source: {source}'
+    from db import upsert_title_override
+    upsert_title_override(title_id, source, _override_values(record))
+    _project_override(title_id, source, record)
     return True, None
 
 
-def delete_custom_title(title_id):
-    records = _load_custom_titles()
-    if title_id not in records:
-        return False, f'No custom entry for {title_id}'
-    del records[title_id]
-    _save_custom_titles(records)
-
-    if os.path.isfile(TITLES_DB_FILE):
-        with contextlib.closing(sqlite3.connect(TITLES_DB_FILE)) as conn:
-            conn.execute('DELETE FROM titles WHERE "id" = ? AND source = ?', (title_id, SOURCE_CUSTOM))
-            _set_overridden_for_id(conn, title_id, False)
-            _bump_imported_at(conn)
-            conn.commit()
+def delete_override(title_id, source=SOURCE_CUSTOM):
+    """Drop an override, restoring the values of the next source down. Returns (ok, error)."""
+    from db import delete_title_override
+    if not delete_title_override(title_id, source):
+        return False, f'No {source} entry for {title_id}'
+    _project_override(title_id, source, None)
     return True, None
 
 
-def _bump_imported_at(conn):
-    """Mark titles.db as changed so cached GraphQL responses get invalidated."""
-    _set_meta(conn, 'imported_at', _now())
+def list_overrides(source=SOURCE_CUSTOM):
+    """{title_id: record} of the durable overrides for a source."""
+    from db import list_title_overrides
+    return {row['id']: _decode_record(row) for row in list_title_overrides(source)}
+
+
+def _override_values(record):
+    """The record as override columns, JSON-encoding the list/object fields."""
+    return dict(zip(_META_COLUMNS, _encode_row(record, _OVERRIDE_COLUMNS)))
+
+
+def _decode_record(row):
+    """An override row back to its JSON shape, id included, dropping unset fields."""
+    out = {'id': row['id']}
+    for json_key, col, kind in _TITLES_COLUMNS:
+        if col == 'id' or row[col] is None:
+            continue
+        v = row[col]
+        if kind == 'j':
+            with contextlib.suppress(Exception):
+                v = json.loads(v)
+        out[json_key] = v
+    return out
 
 
 def _now():
@@ -402,16 +460,12 @@ def _decode_row(row, columns):
 
 
 def get_title_record(title_id):
-    """Full title record (custom preferred over upstream). Returns None if missing."""
+    """Full merged title record. Returns None if missing."""
     conn = _connect_ro()
     if conn is None:
         return None
     try:
-        row = conn.execute(
-            'SELECT * FROM titles WHERE "id" = ? '
-            "ORDER BY CASE source WHEN 'custom' THEN 0 ELSE 1 END LIMIT 1",
-            (title_id,),
-        ).fetchone()
+        row = conn.execute('SELECT * FROM titles WHERE "id" = ?', (title_id,)).fetchone()
         return _decode_row(row, _TITLES_COLUMNS)
     finally:
         conn.close()

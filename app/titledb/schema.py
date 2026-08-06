@@ -1,7 +1,8 @@
 """SQLAlchemy schema for ``config/titles.db``.
 
-Single source of truth for creating the database and for the fingerprint that decides
-whether an existing one still matches. Imports nothing but sqlalchemy and the stdlib.
+Single source of truth for creation (``metadata.create_all``), for the merge SQL that
+resolves the metadata sources against each other, and for the ``title_overrides`` table
+ownfoil.db keeps the durable copy in. Imports nothing but sqlalchemy and the stdlib.
 """
 import hashlib
 
@@ -9,10 +10,60 @@ import sqlalchemy as sa
 
 metadata = sa.MetaData()
 
+# Metadata sources, highest priority first: a field is taken from the first source that
+# has a value for it. 'titledb' is the downloaded eShop dump, 'custom' is user-authored,
+# 'extract' is read out of the files themselves. Everything that merges sources is
+# generated from this tuple, so a new source is an entry here plus a producer.
+SOURCE_PRIORITY = ('custom', 'extract', 'titledb')
+SOURCE_TITLEDB = 'titledb'
+SOURCE_CUSTOM = 'custom'
+SOURCE_EXTRACT = 'extract'
+
+# Sources whose rows are user/library data rather than a copy of the download. These live
+# durably in ownfoil.db and are projected into titles.db on every rebuild.
+OVERRIDE_SOURCES = tuple(s for s in SOURCE_PRIORITY if s != SOURCE_TITLEDB)
+
 
 def _col(name, json_key, type_=sa.Text, json=False, **kw):
     """A column whose value comes from the titledb JSON, tagged with its source key."""
     return sa.Column(name, type_, info={'json_key': json_key, 'json': json}, **kw)
+
+
+def metadata_columns():
+    """Fresh Column objects for the title metadata fields.
+
+    A factory, not a list: Columns cannot be shared between tables, and these same fields
+    make up ``titles``, ``title_overrides`` and the ownfoil.db override table.
+    """
+    return [
+        _col('name', 'name'),
+        _col('banner_url', 'bannerUrl'),
+        _col('icon_url', 'iconUrl'),
+        _col('front_box_art', 'frontBoxArt'),
+        _col('description', 'description'),
+        _col('intro', 'intro'),
+        _col('developer', 'developer'),
+        _col('publisher', 'publisher'),
+        _col('release_date', 'releaseDate'),
+        _col('category', 'category', json=True),
+        _col('is_demo', 'isDemo'),
+        _col('nsu_id', 'nsuId'),
+        _col('number_of_players', 'numberOfPlayers'),
+        _col('parent_id', 'parentId'),
+        _col('rank', 'rank'),
+        _col('rating', 'rating'),
+        _col('rating_content', 'ratingContent', json=True),
+        _col('region', 'region'),
+        _col('regions', 'regions', json=True),
+        _col('languages', 'languages', json=True),
+        _col('language', 'language'),
+        _col('rights_id', 'rightsId'),
+        _col('screenshots', 'screenshots', json=True),
+        _col('size', 'size'),
+        _col('version', 'version'),
+        _col('nca_key', 'key'),
+        _col('ids', 'ids', json=True),
+    ]
 
 
 def column_map(table):
@@ -21,43 +72,25 @@ def column_map(table):
             for c in table.c if 'json_key' in c.info]
 
 
-# is_overridden: set on upstream rows that have a 'custom' counterpart for the same id.
-# Lets the GraphQL dedup filter become a column predicate (`source = 'custom' OR
-# is_overridden = 0`) instead of a NOT EXISTS scan. The DDL default is load-bearing:
-# the bulk import never lists the column in its INSERT.
+# One row per title id, holding the values already merged across the sources: the read path
+# joins this directly, with no dedup predicate. `source` is the highest-priority source that
+# contributed a field (what the GraphQL Title.source exposes), `sources` lists them all.
 titles = sa.Table(
     'titles', metadata,
     _col('id', 'id', primary_key=True),
+    sa.Column('source', sa.Text, nullable=False, server_default=sa.text(f"'{SOURCE_TITLEDB}'")),
+    sa.Column('sources', sa.Text),
+    *metadata_columns(),
+)
+
+# The raw per-source rows, kept only for ids that actually have an override, plus a
+# 'titledb' snapshot of the pristine row for those same ids - that snapshot is what lets
+# removing an override restore the original values without re-importing the JSON.
+title_overrides = sa.Table(
+    'title_overrides', metadata,
+    sa.Column('id', sa.Text, primary_key=True),
     sa.Column('source', sa.Text, primary_key=True),
-    sa.Column('is_overridden', sa.Integer, nullable=False, server_default=sa.text('0')),
-    _col('name', 'name'),
-    _col('banner_url', 'bannerUrl'),
-    _col('icon_url', 'iconUrl'),
-    _col('front_box_art', 'frontBoxArt'),
-    _col('description', 'description'),
-    _col('intro', 'intro'),
-    _col('developer', 'developer'),
-    _col('publisher', 'publisher'),
-    _col('release_date', 'releaseDate'),
-    _col('category', 'category', json=True),
-    _col('is_demo', 'isDemo'),
-    _col('nsu_id', 'nsuId'),
-    _col('number_of_players', 'numberOfPlayers'),
-    _col('parent_id', 'parentId'),
-    _col('rank', 'rank'),
-    _col('rating', 'rating'),
-    _col('rating_content', 'ratingContent', json=True),
-    _col('region', 'region'),
-    _col('regions', 'regions', json=True),
-    _col('languages', 'languages', json=True),
-    _col('language', 'language'),
-    _col('rights_id', 'rightsId'),
-    _col('screenshots', 'screenshots', json=True),
-    _col('size', 'size'),
-    _col('version', 'version'),
-    _col('nca_key', 'key'),
-    _col('ids', 'ids', json=True),
-    sa.Index('idx_titles_id', 'id'),
+    *metadata_columns(),
 )
 
 cnmts = sa.Table(

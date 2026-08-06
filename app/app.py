@@ -487,7 +487,7 @@ def upload_file():
 @app.get('/api/titledb/custom')
 @access_required('admin')
 def list_custom_titles_api():
-    return jsonify({'success': True, 'entries': titledb.store.list_custom_titles()})
+    return jsonify({'success': True, 'entries': titledb.store.list_overrides()})
 
 
 @app.post('/api/titledb/custom')
@@ -497,7 +497,7 @@ def add_custom_title_api():
     title_id = data.get('id')
     if not title_id:
         return jsonify({'success': False, 'errors': [{'path': 'id', 'error': 'id is required'}]}), 400
-    ok, err = titledb.store.add_custom_title(data)
+    ok, err = titledb.store.set_override(title_id, data)
     if not ok:
         return jsonify({'success': False, 'errors': [{'path': 'id', 'error': err}]}), 400
     tasks_mod.enqueue_task('identify_library')
@@ -507,7 +507,7 @@ def add_custom_title_api():
 @app.delete('/api/titledb/custom/<title_id>')
 @access_required('admin')
 def delete_custom_title_api(title_id):
-    ok, err = titledb.store.delete_custom_title(title_id)
+    ok, err = titledb.store.delete_override(title_id)
     if not ok:
         return jsonify({'success': False, 'errors': [{'path': 'id', 'error': err}]}), 404
     return jsonify({'success': True, 'errors': []})

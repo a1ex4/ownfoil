@@ -54,7 +54,7 @@ def first_run(tmp_path, monkeypatch):
     monkeypatch.setattr(db_mod, "DB_FILE", str(config / "ownfoil.db"))
     monkeypatch.setattr(db_mod, "TITLES_DB_FILE", str(config / "titles.db"))
     monkeypatch.setattr(titledb.store, "TITLES_DB_FILE", str(config / "titles.db"))
-    monkeypatch.setattr(titledb.store, "CUSTOM_TITLES_FILE", str(config / "custom_titles.json"))
+    monkeypatch.setattr(titledb.store, "DB_FILE", str(config / "ownfoil.db"))
 
     app = create_app(f"sqlite:///{config / 'ownfoil.db'}")
     app.add_url_rule("/api/graphql", view_func=graphql_dispatch, methods=["GET", "POST"])

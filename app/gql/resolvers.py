@@ -88,14 +88,10 @@ f.identification_attempts AS identification_attempts,
 f.organized AS organized, f.mtime AS mtime
 """
 
-# Subquery returning a single row per titledb id, custom-source preferred.
-# `is_overridden` is set at import time on every upstream row whose id has a
-# custom counterpart, so the dedup predicate is a column check rather than a
-# correlated NOT EXISTS scan.
-_TITLEDB_DEDUPED = """(
-    SELECT t.* FROM titledb.titles t
-    WHERE t.source = 'custom' OR t.is_overridden = 0
-)"""
+# `titledb.titles` already holds one row per id, merged across the metadata sources by
+# titledb.store, so this join needs no dedup predicate. `td.source` is the
+# highest-priority source that contributed a field.
+_TITLEDB = "titledb.titles"
 
 
 # ------------- builders -------------
@@ -114,7 +110,7 @@ def _build_title(row, *, with_apps: bool, with_files: bool) -> Title:
         )
     return Title(
         title_id=strawberry.ID((m.get('title_id') or "").upper()),
-        source=m.get('source') or "upstream",
+        source=m.get('source') or "titledb",
         name=m.get('name'),
         banner_url=m.get('banner_url'),
         icon_url=m.get('icon_url'),
@@ -306,7 +302,7 @@ def _hydrate_apps_titledb(apps: List[App], sel: "Selection") -> None:
     placeholders = ",".join(f":i_{i}" for i in range(len(distinct_ids)))
     sql = f"""
     SELECT {_title_cols('titledb', sel)}
-    FROM {_TITLEDB_DEDUPED} td
+    FROM {_TITLEDB} td
     LEFT JOIN main.titles ot ON ot.title_id = td.id
     WHERE td.id IN ({placeholders})
     """
@@ -341,11 +337,11 @@ def resolve_title(title_id: str, ctx: GraphQLContext, info) -> Optional[Title]:
     sql = f"""
     SELECT {_title_cols('owned', sel)}
     FROM main.titles ot
-    LEFT JOIN {_TITLEDB_DEDUPED} td ON td.id = ot.title_id
+    LEFT JOIN {_TITLEDB} td ON td.id = ot.title_id
     WHERE ot.title_id = :tid
     UNION ALL
     SELECT {_title_cols('titledb', sel)}
-    FROM {_TITLEDB_DEDUPED} td
+    FROM {_TITLEDB} td
     LEFT JOIN main.titles ot ON ot.title_id = td.id
     WHERE td.id = :tid AND ot.id IS NULL
     LIMIT 1
@@ -393,13 +389,13 @@ def resolve_titles(*, owned: Optional[bool], filter: Optional[TitleFilter],
         # with null titledb fields rather than being dropped.
         from_sql = (
             f"FROM main.titles ot "
-            f"LEFT JOIN {_TITLEDB_DEDUPED} td ON td.id = ot.title_id"
+            f"LEFT JOIN {_TITLEDB} td ON td.id = ot.title_id"
         )
         order_by = "ot.title_id"
         cols = _title_cols("owned", items_sel)
     elif owned is False:
         from_sql = (
-            f"FROM {_TITLEDB_DEDUPED} td "
+            f"FROM {_TITLEDB} td "
             f"LEFT JOIN main.titles ot ON ot.title_id = td.id"
         )
         where.append("ot.id IS NULL")
@@ -407,7 +403,7 @@ def resolve_titles(*, owned: Optional[bool], filter: Optional[TitleFilter],
         cols = _title_cols("titledb", items_sel)
     else:
         from_sql = (
-            f"FROM {_TITLEDB_DEDUPED} td "
+            f"FROM {_TITLEDB} td "
             f"LEFT JOIN main.titles ot ON ot.title_id = td.id"
         )
         order_by = "td.id"
