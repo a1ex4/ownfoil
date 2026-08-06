@@ -2,9 +2,11 @@
 from typing import List, Optional
 
 import strawberry
+from strawberry.extensions import QueryDepthLimiter
 from strawberry.types import Info
 
 from .filters import AppFilter, FileFilter, OrderBy, TitleFilter
+from .mutations import Mutation
 from .resolvers import (
     resolve_app, resolve_apps, resolve_file, resolve_files, resolve_libraries,
     resolve_stats, resolve_task, resolve_tasks, resolve_title, resolve_titles,
@@ -119,4 +121,14 @@ class Query:
         return resolve_stats(ctx=info.context, info=info)
 
 
-schema = strawberry.Schema(query=Query)
+# The deepest legitimate query the UI issues is roughly
+# files { items { apps { title { ownership { ... } } } } } - about 7 levels. 15 leaves
+# generous headroom while still refusing the pathological nestings the hydration chain
+# would otherwise happily expand, on an endpoint any shop-access user can reach.
+MAX_QUERY_DEPTH = 15
+
+schema = strawberry.Schema(
+    query=Query,
+    mutation=Mutation,
+    extensions=[QueryDepthLimiter(max_depth=MAX_QUERY_DEPTH)],
+)

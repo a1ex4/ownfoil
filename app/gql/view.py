@@ -2,6 +2,7 @@
 import json
 
 from flask import Response, jsonify, make_response, request
+from graphql import GraphQLError, OperationDefinitionNode, OperationType, parse
 from strawberry.flask.views import GraphQLView
 
 from .cache import etag_for, world_hash
@@ -47,6 +48,28 @@ def _safe_load(raw):
         return None
 
 
+def is_mutation(query: str, operation_name=None) -> bool:
+    """Does this document's selected operation write?
+
+    Parsed rather than string-matched: a query named `mutationStatus` or one selecting
+    a field called `mutation` must not be mistaken for one. On a parse error we say
+    "yes" - the safe direction, since it only costs a cache entry, whereas guessing
+    "no" would hand a writer the 304 fast path.
+    """
+    if not query:
+        return False
+    try:
+        document = parse(query)
+    except GraphQLError:
+        return True
+    operations = [d for d in document.definitions
+                  if isinstance(d, OperationDefinitionNode)]
+    if operation_name:
+        operations = [o for o in operations
+                      if o.name and o.name.value == operation_name]
+    return any(o.operation is OperationType.MUTATION for o in operations)
+
+
 def graphql_dispatch():
     """Dispatch /api/graphql with auth gating, ETag handling, and a 304 fast path."""
     from auth import admin_account_created
@@ -60,6 +83,17 @@ def graphql_dispatch():
 
     ctx = build_context()
     query, variables, operation_name = _parse_request()
+
+    # Writes are never cached and never served from a GET: a cacheable, prefetchable,
+    # link-followable URL must not have side effects.
+    if is_mutation(query, operation_name):
+        if request.method == "GET":
+            return Response("Mutations must be sent by POST", status=405)
+        resp = make_response(_view())
+        resp.headers["Cache-Control"] = "no-store"
+        resp.headers["Vary"] = "Authorization, Cookie"
+        return resp
+
     etag = etag_for(query, variables, operation_name, role_key(ctx), world_hash())
     etag_unquoted = etag.strip('"')
 

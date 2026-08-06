@@ -335,6 +335,53 @@ need nothing.
 invalidates the cache on every progress write. That is the intended trade: while
 a scan runs the library really is changing, and the `files` count is moving too.
 
+## Mutations
+
+`mutations.py` holds the write root. Scope is library-domain only — settings, users
+and the keys upload stay on REST, being form-and-file shaped rather than graph
+shaped. Every resolver delegates to existing code; no business logic lives there.
+
+| Mutation | Delegates to |
+|---|---|
+| `enqueueTask(name, input)` | `tasks.enqueue_task` |
+| `cancelTask(id)` | `tasks.cancel_task` |
+| `scanLibrary(path)` | `enqueue_task('scan_library')`, all libraries when `path` is omitted |
+| `compressFile(fileId)` / `decompressFile(fileId)` | `enqueue_task`, same guards as the REST endpoints |
+| `setTitleOverride(titleId, record)` | `titledb.store.set_override` + `identify_library` |
+| `deleteTitleOverride(titleId)` | `titledb.store.delete_override` |
+
+Three conventions differ from the query side, deliberately:
+
+- **Denial raises.** Queries return `None` for a field a role cannot read, which is
+  the right shape for a partial result. A write that is silently ignored is not a
+  partial result, so `NotAuthorized` / `MutationFailed` surface as GraphQL errors.
+- **Nothing is cached.** `view.is_mutation` parses the document — it does not match
+  on the string, so a query named `mutationStatus` is not caught — and mutations skip
+  both the `If-None-Match` short-circuit and the `ETag` header, answering `no-store`.
+- **GET is refused with 405.** A GET URL is cacheable, prefetchable and
+  link-followable; it must not have side effects.
+
+Mutations that change counts or flags are picked up by the world hash automatically
+(see the ETag section), so a write invalidates the read side with no extra wiring.
+`setTitleOverride` / `deleteTitleOverride` are covered a different way: `_project_override`
+bumps `titledb.meta.imported_at`, which the world hash reads.
+
+**Known edge.** `imported_at` has one-second resolution, so two metadata edits landing
+within the same second produce the same world hash and the second can be served a stale
+`304`. Only reachable by a client writing overrides faster than a human form can — a UI
+that saves a metadata form field by field would want to be aware of it.
+
+`JSON` payloads (`enqueueTask.input`, `setTitleOverride.record`) are passed as
+strings: their shape differs per task name / per metadata source, and the schema
+cannot describe a union of every registered task's input.
+
+## Query depth
+
+`QueryDepthLimiter(max_depth=MAX_QUERY_DEPTH)` — 15. The deepest query the UI issues
+is about 7 levels, so this leaves headroom while refusing the pathological nestings
+the hydration chain would otherwise expand, on an endpoint any shop-access user can
+reach.
+
 ## Auth
 
 Two-tier:
