@@ -553,28 +553,32 @@
         return $('#' + checkboxId).is(":checked")
     }
 
-    function scanLibrary(path = null) {
-        $('.scanBtn').prop('disabled', true);
-        data = {
-            path: path
-        }
-        $.ajax({
-            url: '/api/library/scan',
-            type: 'POST',
-            data: JSON.stringify(data),
-            contentType: "application/json",
-            success: function (result) {
-                if (result['success']) {
-                    if (result['status_code'] == '302') {
-                        window.location.href = result['location']
-                        return
-                    }
-                    console.log('Scan Success!');
-                }
-                $('.scanBtn').prop('disabled', false);
-            }
-        });
+    // Scans one library, or every configured one when path is null.
+    const SCAN_MUTATION = `
+        mutation Scan($path: String) {
+            scanLibrary(path: $path) { id status }
+        }`;
 
+    async function scanLibrary(path = null) {
+        $('.scanBtn').prop('disabled', true);
+        try {
+            const r = await fetch('/api/graphql', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json', 'Accept': 'application/json'},
+                credentials: 'same-origin',
+                body: JSON.stringify({query: SCAN_MUTATION, variables: {path: path}}),
+            });
+            if (!r.ok) throw new Error(`GraphQL HTTP ${r.status}`);
+            const body = await r.json();
+            if (body.errors && body.errors.length) {
+                throw new Error('GraphQL errors: ' + JSON.stringify(body.errors));
+            }
+            console.log('Scan enqueued:', body.data.scanLibrary);
+        } catch (e) {
+            console.error(e);
+        } finally {
+            $('.scanBtn').prop('disabled', false);
+        }
     }
 
     function fillLibraryTable() {

@@ -346,7 +346,7 @@ shaped. Every resolver delegates to existing code; no business logic lives there
 | `enqueueTask(name, input)` | `tasks.enqueue_task` |
 | `cancelTask(id)` | `tasks.cancel_task` |
 | `scanLibrary(path)` | `enqueue_task('scan_library')`, all libraries when `path` is omitted |
-| `compressFile(fileId)` / `decompressFile(fileId)` | `enqueue_task`, same guards as the REST endpoints |
+| `compressFile(fileId)` / `decompressFile(fileId)` | `enqueue_task`, guarded on file exists / not already in that state / extension in `COMPRESS_EXT` |
 | `setTitleOverride(titleId, record)` | `titledb.store.set_override` + `identify_library` |
 | `deleteTitleOverride(titleId)` | `titledb.store.delete_override` |
 
@@ -374,6 +374,31 @@ that saves a metadata form field by field would want to be aware of it.
 `JSON` payloads (`enqueueTask.input`, `setTitleOverride.record`) are passed as
 strings: their shape differs per task name / per metadata source, and the schema
 cannot describe a union of every registered task's input.
+
+## Replaced REST routes
+
+These lived in `app/app.py` and were removed once the mutation root landed. Listed so
+that a search for the old path finds where the capability went:
+
+| Removed route | Now |
+|---|---|
+| `POST /api/library/scan` | `scanLibrary` |
+| `POST /api/tasks` | `enqueueTask` |
+| `GET /api/tasks` | `tasks` query |
+| `GET /api/tasks/<id>` | `task` query |
+| `DELETE /api/tasks/<id>` | `cancelTask` |
+| `POST /api/files/<id>/compress` \| `/decompress` | `compressFile` / `decompressFile` |
+| `POST /api/titledb/custom` | `setTitleOverride` |
+| `DELETE /api/titledb/custom/<id>` | `deleteTitleOverride` |
+| `GET /api/titledb/custom` | **nothing** — listing overrides has no GraphQL equivalent |
+| `DELETE /api/tasks/failed` | **nothing** — purging failed tasks has no GraphQL equivalent |
+
+The last two were dropped rather than ported: neither had a caller. Recoverable from
+git if a use turns up.
+
+`GET /api/get_game/<id>` stays REST — it streams a file to shop clients
+(`shop.py`, `clients/tinfoil.py`, `clients/cyberfoil.py`), and `File.url` is deferred
+with the console-client work.
 
 ## Query depth
 
