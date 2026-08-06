@@ -111,13 +111,18 @@ also re-fires when titles.db is replaced atomically by another process — see t
 
 ### titledb id case asymmetry
 
-A trap worth flagging once: `titledb.titles.id` is uppercase, but
-`titledb.versions.title_id` and `titledb.cnmts.app_id` /
-`other_application_id` are lowercase. Joining `main.titles` (uppercase) to
-`titledb.titles` is direct (`ot.title_id = td.id`); joining to versions or
-cnmts requires `LOWER(...)` on the ownfoil side. Most of the version-related
-resolver code was removed (see "Apps carry version metadata" below); the only
-titledb table currently touched from resolvers is `titledb.titles`.
+A trap worth flagging once, and it is not uniform across the tables:
+
+| Table / column | Case | Why |
+|---|---|---|
+| `titledb.titles.id` | UPPER | normalised on import |
+| `titledb.versions.title_id` | UPPER | normalised on import (`store._import_versions`) |
+| `titledb.cnmts.app_id`, `.other_application_id` | as the JSON had them (lower) | inserted verbatim |
+
+So joining `main.titles` (uppercase) to `titledb.titles` or `titledb.versions` is
+direct; only `cnmts` needs normalising, on both sides — see
+`_hydrate_titledb_dlc`. Getting this wrong returns an empty list rather than an
+error, which is why `tests/test_gql_catalogue.py` pins it.
 
 ## Request flow
 

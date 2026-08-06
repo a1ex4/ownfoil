@@ -15,7 +15,8 @@ from .filters import (
 from .selection import Selection
 from .types import (
     App, AppConnection, AppVersion, CountByKey, File, FileConnection, Library,
-    LibraryStats, Ownership, Task, Title, TitleConnection, decode_json_list,
+    LibraryStats, Ownership, Task, Title, TitleConnection, TitledbDlc,
+    TitledbVersion, decode_json_list,
 )
 
 
@@ -354,6 +355,80 @@ def _hydrate_apps_titledb(apps: List[App], sel: "Selection") -> None:
         a.titledb_loaded = by_id.get(a.app_id)
 
 
+# titledb stores a title's release date as YYYYMMDD; the versions table already holds
+# ISO strings, so the implicit v0 row has to be reshaped to match.
+_ISO_RELEASE_DATE = """
+CASE WHEN td.release_date IS NOT NULL AND td.release_date != ''
+     THEN substr(td.release_date, 1, 4) || '-' || substr(td.release_date, 5, 2)
+          || '-' || substr(td.release_date, 7, 2) END
+"""
+
+
+def _hydrate_titledb_versions(titles: List[Title]) -> None:
+    """Attach every version titledb knows for each title, catalogue-wide.
+
+    Mirrors `titledb.store.get_all_existing_versions`: the launch build is implicit in
+    the title's own release date rather than being a row in `versions`, so it is
+    unioned in. `versions.title_id` is normalised to uppercase at import, so this joins
+    directly - unlike `cnmts`, which keeps the JSON's lowercase."""
+    ids = [t.title_id for t in titles if t.title_id]
+    if not ids:
+        return
+    params = {f"v_{i}": x for i, x in enumerate(ids)}
+    placeholders = ",".join(f":v_{i}" for i in range(len(ids)))
+    rows = db.session.execute(text(f"""
+    SELECT td.id AS key, 0 AS version, {_ISO_RELEASE_DATE} AS release_date
+    FROM {_TITLEDB} td
+    WHERE td.id IN ({placeholders}) AND td.release_date IS NOT NULL
+    UNION ALL
+    SELECT v.title_id AS key, v.version AS version, v.release_date AS release_date
+    FROM titledb.versions v
+    WHERE v.title_id IN ({placeholders})
+    ORDER BY key, version
+    """), params).all()
+    by_id: Dict[str, List[TitledbVersion]] = {}
+    for r in rows:
+        by_id.setdefault((r.key or "").upper(), []).append(
+            TitledbVersion(version=int(r.version), release_date=r.release_date))
+    for t in titles:
+        t.available_versions_loaded = by_id.get(t.title_id, [])
+
+
+def _hydrate_titledb_dlc(titles: List[Title], sel: "Selection") -> None:
+    """Attach every DLC titledb attributes to each title.
+
+    `cnmts.app_id` and `other_application_id` are stored as the JSON had them -
+    lowercase - while `titledb.titles.id` is uppercase, so both sides need normalising
+    here. title_type 130 is the DLC marker."""
+    ids = [t.title_id for t in titles if t.title_id]
+    if not ids:
+        return
+    params = {f"d_{i}": x.lower() for i, x in enumerate(ids)}
+    placeholders = ",".join(f":d_{i}" for i in range(len(ids)))
+    titledb_sel = sel.child("titledb")
+    rows = db.session.execute(text(f"""
+    SELECT UPPER(c.other_application_id) AS key, UPPER(c.app_id) AS dlc_app_id,
+           MAX(c.version) AS version, {_title_cols('titledb', titledb_sel)}
+    FROM titledb.cnmts c
+    LEFT JOIN {_TITLEDB} td ON td.id = UPPER(c.app_id)
+    LEFT JOIN main.titles ot ON ot.title_id = UPPER(c.app_id)
+    WHERE LOWER(c.other_application_id) IN ({placeholders}) AND c.title_type = 130
+    GROUP BY c.app_id
+    ORDER BY key, dlc_app_id
+    """), params).all()
+    want_titledb = sel.has("titledb")
+    by_id: Dict[str, List[TitledbDlc]] = {}
+    for r in rows:
+        by_id.setdefault((r.key or "").upper(), []).append(TitledbDlc(
+            app_id=r.dlc_app_id,
+            version=int(r.version) if r.version is not None else None,
+            titledb=_build_title(r, with_apps=False, with_files=False)
+                    if want_titledb and r._mapping.get('title_id') else None,
+        ))
+    for t in titles:
+        t.available_dlc_loaded = by_id.get(t.title_id, [])
+
+
 def _hydrate_apps_title(apps: List[App], sel: "Selection") -> None:
     """Attach each app's parent title, so a card can show the title's name and
     ownership without a second round trip. Driven from main.titles, so a title with
@@ -444,6 +519,8 @@ def resolve_title(title_id: str, ctx: GraphQLContext, info) -> Optional[Title]:
     want_apps_titledb = want_apps and apps_sel.has("titledb")
     want_apps_versions = want_apps and apps_sel.has("versions")
     want_apps_files_apps = want_apps_files and files_sel.has("apps")
+    want_available_versions = sel.has("availableVersions")
+    want_available_dlc = sel.has("availableDlc")
 
     # Drive from main.titles when this title is owned (so unrecognized titles surface),
     # otherwise drive from titledb. Both stores keep title_id in uppercase.
@@ -473,6 +550,10 @@ def resolve_title(title_id: str, ctx: GraphQLContext, info) -> Optional[Title]:
             titledb_sel=apps_titledb_sel,
         )
         title.apps_loaded = apps_map.get(tid, [])
+    if want_available_versions:
+        _hydrate_titledb_versions([title])
+    if want_available_dlc:
+        _hydrate_titledb_dlc([title], sel.child("availableDlc"))
     return title
 
 
@@ -495,6 +576,8 @@ def resolve_titles(*, owned: Optional[bool], filter: Optional[TitleFilter],
     want_apps_titledb = want_apps and apps_sel.has("titledb")
     want_apps_versions = want_apps and apps_sel.has("versions")
     want_apps_files_apps = want_apps_files and files_sel.has("apps")
+    want_available_versions = want_items and items_sel.has("availableVersions")
+    want_available_dlc = want_items and items_sel.has("availableDlc")
     want_total = sel.has("total")
 
     params: dict = {}
@@ -566,6 +649,11 @@ def resolve_titles(*, owned: Optional[bool], filter: Optional[TitleFilter],
         )
         for t, tid in zip(titles, title_ids_uc):
             t.apps_loaded = apps_map.get(tid, [])
+
+    if want_available_versions and titles:
+        _hydrate_titledb_versions(titles)
+    if want_available_dlc and titles:
+        _hydrate_titledb_dlc(titles, items_sel.child("availableDlc"))
 
     return TitleConnection(total=int(total), items=titles)
 

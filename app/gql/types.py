@@ -148,6 +148,22 @@ class AppVersion:
 
 
 @strawberry.type
+class TitledbVersion:
+    """A version titledb knows about, with no ownership attached - this is catalogue
+    data, and it exists for titles the library has never seen."""
+    version: int
+    release_date: Optional[str] = None
+
+
+@strawberry.type
+class TitledbDlc:
+    """A DLC titledb attributes to a title, again independent of ownership."""
+    app_id: str
+    version: Optional[int] = None
+    titledb: Optional["Title"] = None
+
+
+@strawberry.type
 class App:
     id: strawberry.ID
     title_id: str
@@ -231,6 +247,21 @@ class Title:
     # this role"; an empty list means "exposed but no apps". Hidden from the
     # schema via Private; clients access it through the apps() resolver below.
     apps_loaded: Private[Optional[List[App]]] = None
+    available_versions_loaded: Private[Optional[List[TitledbVersion]]] = None
+    available_dlc_loaded: Private[Optional[List[TitledbDlc]]] = None
+
+    @strawberry.field
+    def available_versions(self) -> Optional[List[TitledbVersion]]:
+        """Every version titledb knows for this title, ascending. Unlike
+        `apps { versions }` this does not need the title to be in the library, so a
+        catalogue or wishlist view can show what a title would involve owning."""
+        return self.available_versions_loaded
+
+    @strawberry.field
+    def available_dlc(self) -> Optional[List[TitledbDlc]]:
+        """Every DLC titledb attributes to this title, whether or not it is owned -
+        the answer to "what am I missing" for a title the library has never seen."""
+        return self.available_dlc_loaded
 
     @strawberry.field
     def apps(
