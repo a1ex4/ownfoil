@@ -89,7 +89,7 @@ def test_a_write_enqueues_real_work(library):
         mutation { scanLibrary { id taskName status } }""")
 
     assert data["scanLibrary"]["taskName"] == "scan_library"
-    assert data["scanLibrary"]["status"] == "pending"
+    assert data["scanLibrary"]["status"] == "PENDING"
 
 
 def test_the_enqueued_task_is_readable_through_the_query_side(library):

@@ -78,7 +78,7 @@ The rest of this document leans on the following terms.
 | `files(filter:, page:)` | `FileConnection` | admin |
 | `file(id:)` | one `File` by primary key | admin |
 | `libraries` | the configured library roots | admin |
-| `tasks(status:, taskName:, includeChildren:, limit:)` | background jobs, newest first | admin |
+| `tasks(status: TaskStatus, taskName:, includeChildren:, limit:)` | background jobs, newest first | admin |
 | `task(id:)` | one `Task` with its children | admin |
 | `stats` | library-wide aggregates for dashboards | shop (file figures admin) |
 
@@ -255,6 +255,36 @@ the first pass — there's no infinite loop.
   Critical for `_hydrate_file_apps`, called by both `resolve_files` and any
   `Title.apps.files.apps` selection.
 
+## Grouping by app id
+
+`apps(groupByAppId: true)` returns one item per app id — the UI's card list.
+The item is **the group's highest-version row, not a blend of aggregates**: it
+is a real app, so its `id` resolves back to itself through `app(id:)`.
+
+That rests on a SQLite rule: when a query contains *exactly one* `min()` or
+`max()` aggregate, every bare column in the result takes its value from the row
+that produced that extreme. `MAX(CAST(a.app_version AS INTEGER))` is that one
+aggregate, so `a.id`, `a.app_type` and `a.release_date` all come from the
+highest-version row for free.
+
+The constraint this places on the code is easy to trip over: **ownership must
+not be a `MAX`**. It is the one deliberately group-level field (owned when any
+version is owned), and expressing it as `MAX(a.owned)` would put two min/max
+aggregates in the query, at which point SQLite's choice of row for the bare
+columns is arbitrary and the item silently goes back to being a composite —
+`id` from one version, `appVersion` from another. `(SUM(a.owned) > 0)` says the
+same thing without being an extreme, in both the `SELECT` and the `HAVING`.
+
+## Task status
+
+`Task.status` and `tasks(status:)` are a `TaskStatus` enum, not free text — a
+mistyped status used to be indistinguishable from "no tasks match". The five
+members are the complete set the task machinery writes; cancelling **deletes**
+the row rather than adding a terminal state, which is why there is no
+`CANCELLED`. `taskName` stays a `String` (the registry is open-ended and adding
+a task should not change the published schema) but is checked against
+`TASK_REGISTRY`, so an unregistered name raises instead of returning `[]`.
+
 ## Filtering
 
 Implicit AND across populated fields. v1 has no OR / NOT combinators.
@@ -277,7 +307,7 @@ Implicit AND across populated fields. v1 has no OR / NOT combinators.
   argument could only ever return everything or nothing.
 - **One meaning per predicate**: `owned:` and `filter: {owned:}` are the same
   clause, emitted once in `resolve_apps` rather than by two code paths. Under
-  `groupByAppId: true` that clause is `HAVING MAX(a.owned)` — owned is a
+  `groupByAppId: true` that clause is `HAVING (SUM(a.owned) > 0)` — owned is a
   property of the app id as a whole, "any version of it" — for both spellings;
   ungrouped it is the row's own column. `APP_FIELDS_EXCEPT_OWNED` is what keeps
   `build_clauses` from also emitting the row-level form and splitting the two
@@ -292,9 +322,24 @@ Implicit AND across populated fields. v1 has no OR / NOT combinators.
 
 JSON-list columns on `Title` (`category`, `regions`, `languages`,
 `screenshots`, `ratingContent`, `ids`) are stored as JSON-encoded strings in
-titledb. The current `StringFilter.contains` matches the JSON encoding;
-`StringFilter.eq` is unusable on these. Don't filter them unless that's
-understood.
+titledb while the fields they back are decoded `[String!]`. The one of them
+that is filterable, `category`, therefore takes a **`StringListFilter`**
+(`has` / `hasAny` / `hasAll`) rather than a `StringFilter`: the operators name
+elements, which is what the field shows. `string_list_clauses` compiles them to
+`EXISTS (SELECT 1 FROM json_each(...))`. These columns default to an empty
+string rather than `[]`, and `json_each` *raises* on malformed JSON instead of
+yielding nothing — so the column is wrapped in
+`CASE WHEN json_valid(...) THEN ... ELSE '[]' END`. An `AND json_valid(...)`
+guard would not do: SQLite is free to evaluate the table-valued function first.
+The remaining list columns stay unfilterable.
+
+**Versions are integers.** `apps.app_version` is a text column holding an
+integer, so `AppFilter.appVersion` is an `IntFilter` over
+`CAST(a.app_version AS INTEGER)` and `App.appVersion` is an `Int!` — the same
+type `AppVersion.version` already used for the same quantity. Compared as text
+`"9"` sorts above `"65536"`, which is never what a caller means. `_version_int`
+mirrors SQLite's cast on the Python side (unparseable → 0) so the value a
+client reads and the value the SQL filters cannot disagree.
 
 ## Ordering
 
@@ -307,6 +352,10 @@ understood.
 - **A field a query has no column for degrades to that query's default order**
   rather than erroring — `DOWNLOAD_COUNT` on `titles` is meaningless, not
   invalid.
+- **`VERSION` sorts numerically**, and `apps` uses a second map for it:
+  `APP_ORDER_GROUPED` swaps the expression for `MAX(CAST(...))` under
+  `groupByAppId: true`, because there the item is the group's highest version
+  and that is what the caller means to sort by.
 - **Every ordering appends the query's default as a tie-break.** Sorting on a
   non-unique column without one lets equal rows swap between pages, so a client
   paging through sees one row twice and another never.

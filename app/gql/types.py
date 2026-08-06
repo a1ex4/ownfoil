@@ -6,6 +6,8 @@ thing, and no client can tell them apart from the value alone - so every such fi
 says in its description which paths hydrate it.
 """
 import json
+from enum import Enum
+
 import strawberry
 from strawberry import Private
 from typing import List, Optional
@@ -43,12 +45,23 @@ class Library:
     last_scan: Optional[str] = None
 
 
+@strawberry.enum
+class TaskStatus(Enum):
+    """Every state a task row can be in. Cancelling deletes the row rather than
+    adding a terminal state, so there is no CANCELLED member."""
+    PENDING = "pending"
+    RUNNING = "running"
+    WAITING_FOR_CHILDREN = "waiting_for_children"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
 @strawberry.type
 class Task:
     """A queued, running or finished background job."""
     id: strawberry.ID
     task_name: str
-    status: str
+    status: TaskStatus
     completion_pct: int = 0
     exit_code: Optional[int] = None
     error_message: Optional[str] = None
@@ -183,7 +196,10 @@ class App:
     id: strawberry.ID
     title_id: str
     app_id: str
-    app_version: str
+    app_version: int = strawberry.field(description=(
+        "The content version, as an integer - the same quantity `AppVersion.version` "
+        "reports. Stored as text in the database, so it is cast on the way out; a "
+        "non-numeric value reads as 0, matching what SQL comparisons on it do."))
     app_type: str
     owned: bool
     release_date: Optional[str] = None

@@ -21,6 +21,19 @@ class StringFilter:
 
 
 @strawberry.input
+class StringListFilter:
+    """Membership in a JSON-encoded list column (`Title.category` and friends).
+
+    The column holds `["Adventure","Puzzle"]`, while the field it backs is a decoded
+    `[String!]`. A StringFilter would filter the encoding rather than the elements -
+    `eq: "Adventure"` could never match - so list columns get their own operators.
+    """
+    has: Optional[str] = None
+    has_any: Optional[List[str]] = None
+    has_all: Optional[List[str]] = None
+
+
+@strawberry.input
 class IntFilter:
     eq: Optional[int] = None
     gte: Optional[int] = None
@@ -43,7 +56,7 @@ class TitleFilter:
     name: Optional[StringFilter] = None
     publisher: Optional[StringFilter] = None
     developer: Optional[StringFilter] = None
-    category: Optional[StringFilter] = None
+    category: Optional[StringListFilter] = None
     region: Optional[StringFilter] = None
     language: Optional[StringFilter] = None
     release_date: Optional[StringFilter] = None
@@ -59,7 +72,7 @@ class TitleFilter:
 class AppFilter:
     title_id: Optional[StringFilter] = None
     app_id: Optional[StringFilter] = None
-    app_version: Optional[StringFilter] = None
+    app_version: Optional[IntFilter] = None
     app_type: Optional[StringFilter] = None
     owned: Optional[bool] = None
 
@@ -110,6 +123,44 @@ def bool_clauses(column_sql: str, value: Optional[bool], params: dict, key: str)
     return [f"{column_sql} = :{key}_eq"]
 
 
+def _json_array(column_sql: str) -> str:
+    """A guaranteed-parseable JSON array expression for `json_each`.
+
+    These columns default to an empty string rather than `[]`, and `json_each` raises
+    on malformed JSON instead of yielding nothing - an AND with `json_valid` would not
+    save us, since SQLite is free to evaluate the table-valued function first.
+    """
+    return f"CASE WHEN json_valid({column_sql}) THEN {column_sql} ELSE '[]' END"
+
+
+def _has_element(column_sql: str, param: str) -> str:
+    return (f"EXISTS (SELECT 1 FROM json_each({_json_array(column_sql)}) "
+            f"WHERE json_each.value = :{param})")
+
+
+def string_list_clauses(column_sql: str, f: Optional[StringListFilter],
+                        params: dict, key: str) -> List[str]:
+    """Translate a StringListFilter into element-membership SQL over a JSON array."""
+    if f is None:
+        return []
+    out: List[str] = []
+    if f.has is not None:
+        params[f"{key}_has"] = f.has
+        out.append(_has_element(column_sql, f"{key}_has"))
+    if f.has_any:
+        keys = []
+        for i, v in enumerate(f.has_any):
+            params[f"{key}_any_{i}"] = v
+            keys.append(f":{key}_any_{i}")
+        out.append(f"EXISTS (SELECT 1 FROM json_each({_json_array(column_sql)}) "
+                   f"WHERE json_each.value IN ({','.join(keys)}))")
+    if f.has_all:
+        for i, v in enumerate(f.has_all):
+            params[f"{key}_all_{i}"] = v
+            out.append(_has_element(column_sql, f"{key}_all_{i}"))
+    return out
+
+
 def int_clauses(column_sql: str, f: Optional[IntFilter], params: dict, key: str) -> List[str]:
     if f is None:
         return []
@@ -139,7 +190,7 @@ TITLE_FIELDS = [
     ("name",         "td.name",          "string"),
     ("publisher",    "td.publisher",     "string"),
     ("developer",    "td.developer",     "string"),
-    ("category",     "td.category",      "string"),
+    ("category",     "td.category",      "strlist"),
     ("region",       "td.region",        "string"),
     ("language",     "td.language",      "string"),
     ("release_date", "td.release_date",  "string"),
@@ -159,7 +210,9 @@ TITLE_FIELDS = [
 APP_FIELDS = [
     ("title_id",    "ot.title_id",   "string"),
     ("app_id",      "a.app_id",      "string"),
-    ("app_version", "a.app_version", "string"),
+    # Stored as text but semantically an integer, so it is filtered and sorted as one:
+    # lexicographically "9" sorts above "65536", which is never what a caller means.
+    ("app_version", "CAST(a.app_version AS INTEGER)", "int"),
     ("app_type",    "a.app_type",    "string"),
     ("owned",       "a.owned",       "bool"),
 ]
@@ -203,6 +256,7 @@ class OrderField(Enum):
     RELEASE_DATE = "release_date"
     DOWNLOAD_COUNT = "download_count"
     ADDED_AT = "added_at"
+    VERSION = "version"
 
 
 @strawberry.enum
@@ -229,7 +283,13 @@ TITLE_ORDER = {
 APP_ORDER = {
     "name": "td.name IS NULL, td.name COLLATE NOCASE",
     "release_date": "a.release_date IS NULL, a.release_date",
+    "version": "CAST(a.app_version AS INTEGER)",
 }
+
+# Grouped by app id, the item is the group's highest version, so that is what sorting
+# by VERSION has to compare - a bare column would be the aggregate's row by accident
+# rather than by intent.
+APP_ORDER_GROUPED = {**APP_ORDER, "version": "MAX(CAST(a.app_version AS INTEGER))"}
 
 FILE_ORDER = {
     "name": "f.filename COLLATE NOCASE",
@@ -273,6 +333,8 @@ def build_clauses(filter_obj, fields, params: dict) -> List[str]:
             clauses += bool_clauses(col, f, params, attr)
         elif kind == "int":
             clauses += int_clauses(col, f, params, attr)
+        elif kind == "strlist":
+            clauses += string_list_clauses(col, f, params, attr)
     return clauses
 
 
@@ -325,7 +387,7 @@ def match_app(app, owned: Optional[bool], f: Optional[AppFilter],
     return (
         match_string(app.title_id,    f.title_id)
         and match_string(app.app_id,      f.app_id)
-        and match_string(app.app_version, f.app_version)
+        and match_int(app.app_version,    f.app_version)
         and match_string(app.app_type,    f.app_type)
         and match_bool(app.owned,         f.owned)
     )

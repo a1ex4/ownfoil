@@ -10,16 +10,21 @@ from db import db
 from .context import GraphQLContext
 from .filters import (
     AppFilter, FileFilter, OrderBy, TitleFilter,
-    APP_FIELDS, APP_FIELDS_EXCEPT_OWNED, APP_ORDER, FILE_FIELDS, FILE_ORDER,
-    TITLE_FIELDS, TITLE_ORDER,
+    APP_FIELDS, APP_FIELDS_EXCEPT_OWNED, APP_ORDER, APP_ORDER_GROUPED,
+    FILE_FIELDS, FILE_ORDER, TITLE_FIELDS, TITLE_ORDER,
     build_clauses, order_sql,
 )
 from .selection import Selection
 from .types import (
     App, AppConnection, AppVersion, CountByKey, File, FileConnection, Library,
-    LibraryStats, Ownership, SizedCountByKey, Task, Title, TitleConnection,
+    LibraryStats, Ownership, SizedCountByKey, Task, TaskStatus, Title, TitleConnection,
     TitledbDlc, TitledbVersion, decode_json_list,
 )
+
+
+class UnknownTaskName(Exception):
+    """Raised for a `taskName` no task registers. Surfaces as a GraphQL error, the
+    same way the mutation root reports a write it refused."""
 
 
 # ------------- column lists -------------
@@ -122,6 +127,20 @@ _TITLE_SEARCH = """(
 
 
 # ------------- builders -------------
+
+def _version_int(value) -> int:
+    """`apps.app_version` is a text column holding an integer. Mirror SQLite's
+    `CAST(x AS INTEGER)`, which yields 0 for anything unparseable, so the value a
+    client reads and the value the SQL filters agree.
+
+    `_group_versions` deliberately drops such a row instead: `App.appVersion` is
+    non-null and has to say something, while a list of versions is better off not
+    inventing one."""
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
 
 def _iso(value) -> Optional[str]:
     """Datetime columns read through raw text() come back as strings, not
@@ -242,7 +261,7 @@ def _load_apps_for_titles(
             id=strawberry.ID(str(r.id)),
             title_id=r.tuc,
             app_id=r.app_id,
-            app_version=r.app_version,
+            app_version=_version_int(r.app_version),
             app_type=r.app_type,
             owned=bool(r.owned),
             release_date=r.release_date,
@@ -324,7 +343,7 @@ def _hydrate_file_apps(
             id=strawberry.ID(str(r.id)),
             title_id=r.title_id,
             app_id=r.app_id,
-            app_version=r.app_version,
+            app_version=_version_int(r.app_version),
             app_type=r.app_type,
             owned=bool(r.owned),
             release_date=r.release_date,
@@ -706,7 +725,9 @@ def resolve_apps(*, owned: Optional[bool], app_type: Optional[List[str]],
     # app id as a whole (any version of it), which is a HAVING on the group rather than
     # a WHERE on one row; ungrouped the two are the same clause anyway. Given both, they
     # AND, so asking for owned and unowned at once correctly matches nothing.
-    owned_col = "MAX(a.owned)" if group_by_app_id else "a.owned"
+    # SUM rather than MAX for the same reason the page query uses it: the page's
+    # bare-column resolution depends on there being exactly one min/max aggregate.
+    owned_col = "(SUM(a.owned) > 0)" if group_by_app_id else "a.owned"
     owned_args = [v for v in (owned, filter.owned if filter else None) if v is not None]
     for i, value in enumerate(owned_args):
         params[f"owned_{i}"] = 1 if value else 0
@@ -751,17 +772,20 @@ def resolve_apps(*, owned: Optional[bool], app_type: Optional[List[str]],
     if not want_items:
         return AppConnection(total=int(total), items=[])
 
-    # Grouped, the row stands for every version of the app id: its highest version,
-    # owned if any version is. The bare columns are constant within an app id.
-    version_col = ("MAX(CAST(a.app_version AS INTEGER))" if group_by_app_id else "a.app_version")
-    owned_col = "MAX(a.owned)" if group_by_app_id else "a.owned"
-    # Grouped, a.id is MIN(a.id) - still unique per group, so it stays a valid
-    # tie-break for stable paging.
-    order_by_sql = order_sql(order_by, APP_ORDER, "a.app_id" if group_by_app_id else "a.id")
+    # Grouped, the item stands for every version of the app id - and it is one of them,
+    # not a composite. `MAX(CAST(...))` is the query's only min/max aggregate, which is
+    # what makes SQLite resolve every bare column (a.id, a.release_date, a.app_type)
+    # from that same highest-version row: the item is a real app that `app(id:)` returns
+    # unchanged. Ownership is the one deliberately group-level field - owned if any
+    # version is - so it uses SUM rather than MAX, which would make the bare-column rule
+    # ambiguous and silently reintroduce the composite.
+    order_by_sql = order_sql(order_by, APP_ORDER_GROUPED if group_by_app_id else APP_ORDER,
+                             "a.app_id" if group_by_app_id else "a.id")
     page_sql = f"""
-    SELECT MIN(a.id) AS id, a.app_id AS app_id, {version_col} AS app_version,
-           a.app_type AS app_type, {owned_col} AS owned,
-           MAX(a.release_date) AS release_date, ot.title_id AS title_id
+    SELECT a.id AS id, a.app_id AS app_id,
+           MAX(CAST(a.app_version AS INTEGER)) AS app_version,
+           a.app_type AS app_type, (SUM(a.owned) > 0) AS owned,
+           a.release_date AS release_date, ot.title_id AS title_id
     {from_sql}
     {where_sql}{group_sql}{having_sql}
     ORDER BY {order_by_sql}
@@ -785,7 +809,7 @@ def resolve_apps(*, owned: Optional[bool], app_type: Optional[List[str]],
             id=strawberry.ID(str(r.id)),
             title_id=r.title_id,
             app_id=r.app_id,
-            app_version=str(r.app_version),
+            app_version=_version_int(r.app_version),
             app_type=r.app_type,
             owned=bool(r.owned),
             release_date=r.release_date,
@@ -915,7 +939,7 @@ def _build_task(row, *, with_children: bool) -> Task:
         id=strawberry.ID(str(m['id'])),
         parent_id=strawberry.ID(str(m['parent_id'])) if m['parent_id'] is not None else None,
         task_name=m['task_name'],
-        status=m['status'],
+        status=TaskStatus(m['status']),
         completion_pct=m['completion_pct'] or 0,
         exit_code=m['exit_code'],
         error_message=m['error_message'],
@@ -947,7 +971,7 @@ def _hydrate_task_children(tasks: List[Task]) -> None:
         t.children_loaded = by_parent.get(int(t.id), [])
 
 
-def resolve_tasks(*, status: Optional[str], task_name: Optional[str],
+def resolve_tasks(*, status: Optional[TaskStatus], task_name: Optional[str],
                    include_children: bool, limit: int,
                    ctx: GraphQLContext, info) -> List[Task]:
     """Top-level tasks newest first, mirroring what /api/tasks lists."""
@@ -959,9 +983,14 @@ def resolve_tasks(*, status: Optional[str], task_name: Optional[str],
     params: dict = {"limit": limit}
     where = [] if include_children else ["t.parent_id IS NULL"]
     if status:
-        params["status"] = status
+        params["status"] = status.value
         where.append("t.status = :status")
     if task_name:
+        # An unregistered name can never match, and returning [] for it is
+        # indistinguishable from "no tasks yet" - so a typo says so.
+        import tasks as tasks_mod
+        if task_name not in tasks_mod.TASK_REGISTRY:
+            raise UnknownTaskName(f"No task named {task_name!r} is registered.")
         params["task_name"] = task_name
         where.append("t.task_name = :task_name")
     where_sql = (" WHERE " + " AND ".join(where)) if where else ""

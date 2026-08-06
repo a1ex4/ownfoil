@@ -12,8 +12,8 @@ from .resolvers import (
     resolve_stats, resolve_task, resolve_tasks, resolve_title, resolve_titles,
 )
 from .types import (
-    App, AppConnection, File, FileConnection, Library, LibraryStats, Task, Title,
-    TitleConnection,
+    App, AppConnection, File, FileConnection, Library, LibraryStats, Task, TaskStatus,
+    Title, TitleConnection,
 )
 
 
@@ -54,7 +54,9 @@ class Query:
         page_size: int = 100,
     ) -> AppConnection:
         """`groupByAppId` collapses an app id's versions into one item, so a page is
-        a page of distinct apps rather than of (app id, version) rows. `upToDate` and
+        a page of distinct apps rather than of (app id, version) rows. The item is the
+        group's highest-version row - a real app, not a blend of several - except for
+        `owned`, which is group-level: true when any version is owned. `upToDate` and
         `complete` are title-level notions: `upToDate` asks the title's flag for BASE
         apps and "is the highest known version owned" for the others, while `complete`
         only ever matches BASE apps."""
@@ -83,8 +85,9 @@ class Query:
 
     @strawberry.field
     def app(self, info: Info, id: strawberry.ID) -> Optional[App]:
-        """One app by primary key. Note that under `apps(groupByAppId: true)` an item's
-        `id` is the lowest id of the group, not a stable identity - key on `appId`."""
+        """One app by primary key, including an item returned by
+        `apps(groupByAppId: true)` - a grouped item is the group's highest-version row,
+        not a composite, so its `id` resolves back to that same app."""
         return resolve_app(str(id), info.context, info)
 
     @strawberry.field
@@ -99,12 +102,14 @@ class Query:
     @strawberry.field
     def tasks(
         self, info: Info,
-        status: Optional[str] = None,
+        status: Optional[TaskStatus] = None,
         task_name: Optional[str] = None,
         include_children: bool = False,
         limit: int = 50,
     ) -> List[Task]:
-        """Background jobs, newest first. Top-level only unless `includeChildren`."""
+        """Background jobs, newest first. Top-level only unless `includeChildren`.
+        An unregistered `taskName` is an error rather than an empty list, so a typo
+        does not read as "nothing has run"."""
         return resolve_tasks(
             status=status, task_name=task_name, include_children=include_children,
             limit=limit, ctx=info.context, info=info,

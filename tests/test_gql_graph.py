@@ -210,7 +210,7 @@ def test_a_task_carries_its_children_and_payload(library):
     parent = data["tasks"][0]
     assert json.loads(parent["input"]) == {"path": "/games"}
     assert parent["children"] == [
-        {"taskName": "scan_library", "status": "running", "completionPct": 40}]
+        {"taskName": "scan_library", "status": "RUNNING", "completionPct": 40}]
 
 
 def test_including_children_flattens_them_into_the_list(library):
@@ -221,7 +221,7 @@ def test_including_children_flattens_them_into_the_list(library):
 
 def test_tasks_filter_by_status(library):
     data = query(library, """
-        query { tasks(includeChildren: true, status: "running") { taskName } }""")
+        query { tasks(includeChildren: true, status: RUNNING) { taskName } }""")
 
     assert [t["taskName"] for t in data["tasks"]] == ["scan_library"]
 
@@ -456,6 +456,154 @@ def test_file_apps_rejects_the_owned_argument(library):
     body = resp.get_json()
 
     assert body.get("errors"), body
+
+
+# ---- typed surfaces ----
+#
+# Four places where the schema described something other than what the data is: a
+# version as a string, a grouped row as a composite, a status as free text, and a
+# list column as a scalar.
+
+
+def test_app_version_is_an_integer_everywhere(library):
+    """`appVersion` and `versions { version }` are the same quantity, so they were
+    the same type - one of them just said String."""
+    item = query(library, """
+        query { apps(appType: ["UPDATE"], orderBy: {field: VERSION, direction: DESC},
+                     page: 1, pageSize: 1) {
+            items { appVersion versions { version } } } }""")["apps"]["items"][0]
+
+    assert item["appVersion"] == 131072
+    assert item["versions"][0]["version"] == 65536
+
+
+# (filter, expected app versions) - a range is the point: as strings "9" > "65536",
+# so `gte` could not have been offered on the old StringFilter at all.
+VERSION_FILTER_CASES = [
+    ("{appVersion: {gte: 65536}}", [65536, 65536, 131072]),
+    ("{appVersion: {lte: 0}}", [0, 0]),
+    ("{appVersion: {eq: 131072}}", [131072]),
+    ("{appVersion: {in: [0, 131072]}}", [0, 0, 131072]),
+]
+
+
+@pytest.mark.parametrize("filter_literal,expected", VERSION_FILTER_CASES)
+def test_apps_filter_by_version_numerically(library, filter_literal, expected):
+    versions = [i["appVersion"] for i in query(library, """
+        query { apps(filter: %s, orderBy: {field: VERSION}, page: 1, pageSize: 50) {
+            items { appVersion } } }""" % filter_literal)["apps"]["items"]]
+
+    assert sorted(versions) == expected
+
+
+def test_apps_sort_by_version(library):
+    def versions(direction):
+        return [i["appVersion"] for i in query(library, """
+            query { apps(appType: ["UPDATE"], orderBy: {field: VERSION, direction: %s},
+                         page: 1, pageSize: 50) { items { appVersion } } }
+            """ % direction)["apps"]["items"]]
+
+    assert versions("ASC") == [65536, 131072]
+    assert versions("DESC") == [131072, 65536]
+
+
+def test_a_grouped_app_is_a_real_row(library):
+    """Grouped, `id` came from MIN(id) while `appVersion` came from MAX(version), so
+    an item could describe a row that does not exist. Refetching its own id has to
+    return the same app."""
+    grouped = query(library, """
+        query { apps(groupByAppId: true, page: 1, pageSize: 50) {
+            items { id appId appVersion releaseDate } } }""")["apps"]["items"]
+
+    assert grouped, "fixture should produce grouped rows"
+    for item in grouped:
+        refetched = query(library, """
+            query { app(id: "%s") { appId appVersion } }""" % item["id"])["app"]
+        assert refetched["appId"] == item["appId"]
+        assert refetched["appVersion"] == item["appVersion"]
+
+
+def test_a_grouped_app_still_reports_the_highest_version(library):
+    """The row is real, but it is the right one: a card shows the newest version."""
+    by_app = {i["appId"]: i["appVersion"] for i in query(library, """
+        query { apps(groupByAppId: true, page: 1, pageSize: 50) {
+            items { appId appVersion } } }""")["apps"]["items"]}
+
+    assert by_app[ALPHA_UPD] == 131072
+    assert by_app[ALPHA_DLC] == 65536
+
+
+def test_grouped_ownership_is_still_group_level(library):
+    """`owned` is the one field that is deliberately about the group rather than the
+    row - the highest version of ALPHA_UPD is unowned, but the app id is owned."""
+    by_app = {i["appId"]: i for i in query(library, """
+        query { apps(groupByAppId: true, page: 1, pageSize: 50) {
+            items { appId appVersion owned } } }""")["apps"]["items"]}
+
+    assert by_app[ALPHA_UPD]["appVersion"] == 131072
+    assert by_app[ALPHA_UPD]["owned"] is True
+
+
+def test_task_status_is_an_enum(library):
+    data = query(library, """
+        query { tasks(includeChildren: true) { taskName status } }""")
+
+    assert {t["status"] for t in data["tasks"]} == {"COMPLETED", "RUNNING"}
+
+
+def test_an_unregistered_task_name_is_an_error(library):
+    """[] for a typo is indistinguishable from "nothing has run"."""
+    resp = library.client.get("/api/graphql", query_string={
+        "query": 'query { tasks(taskName: "scan_librairies") { id } }'})
+    body = resp.get_json()
+
+    assert body.get("errors"), body
+    assert "scan_librairies" in body["errors"][0]["message"]
+
+
+# (filter, whether ALPHA matches) - the column holds '["Adventure","Puzzle"]', so the
+# old StringFilter could only ever match that whole encoded string.
+CATEGORY_CASES = [
+    ('{has: "Adventure"}', True),
+    ('{has: "Racing"}', False),
+    ('{hasAny: ["Racing", "Puzzle"]}', True),
+    ('{hasAny: ["Racing"]}', False),
+    ('{hasAll: ["Adventure", "Puzzle"]}', True),
+    ('{hasAll: ["Adventure", "Racing"]}', False),
+]
+
+
+@pytest.mark.parametrize("filter_literal,matches", CATEGORY_CASES)
+def test_category_filters_by_element(library, filter_literal, matches):
+    from db import db
+    from sqlalchemy import text as sql_text
+    with library.app.app_context():
+        db.session.execute(
+            sql_text("UPDATE titledb.titles SET category = :c WHERE id = :i"),
+            {"c": '["Adventure","Puzzle"]', "i": ALPHA})
+        db.session.commit()
+
+    ids = [t["titleId"] for t in query(library, """
+        query { titles(filter: {category: %s}, page: 1, pageSize: 50) {
+            items { titleId } } }""" % filter_literal)["titles"]["items"]]
+
+    assert (ALPHA in ids) is matches
+
+
+def test_category_filter_survives_a_non_json_column(library):
+    """These columns default to an empty string, and `json_each` raises on malformed
+    JSON rather than yielding nothing."""
+    from db import db
+    from sqlalchemy import text as sql_text
+    with library.app.app_context():
+        db.session.execute(sql_text("UPDATE titledb.titles SET category = ''"))
+        db.session.commit()
+
+    total = query(library, """
+        query { titles(filter: {category: {has: "Adventure"}}, page: 1, pageSize: 50) {
+            total } }""")["titles"]["total"]
+
+    assert total == 0
 
 
 # ---- ordering ----
