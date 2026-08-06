@@ -9,8 +9,9 @@ from db import db
 
 from .context import GraphQLContext
 from .filters import (
-    AppFilter, FileFilter, TitleFilter,
-    APP_FIELDS, FILE_FIELDS, TITLE_FIELDS, build_clauses,
+    AppFilter, FileFilter, OrderBy, TitleFilter,
+    APP_FIELDS, APP_ORDER, FILE_FIELDS, FILE_ORDER, TITLE_FIELDS, TITLE_ORDER,
+    build_clauses, order_sql,
 )
 from .selection import Selection
 from .types import (
@@ -87,7 +88,7 @@ f.nb_content AS nb_content, f.download_count AS download_count,
 f.identified AS identified, f.identification_type AS identification_type,
 f.identification_error AS identification_error,
 f.identification_attempts AS identification_attempts,
-f.organized AS organized, f.mtime AS mtime
+f.organized AS organized, f.mtime AS mtime, f.added_at AS added_at
 """
 
 # `titledb.titles` already holds one row per id, merged across the metadata sources by
@@ -120,6 +121,13 @@ _TITLE_SEARCH = """(
 
 
 # ------------- builders -------------
+
+def _iso(value) -> Optional[str]:
+    """Datetime columns read through raw text() come back as strings, not
+    datetimes - SQLAlchemy only applies type coercion to typed selectables."""
+    if value is None:
+        return None
+    return value.isoformat() if hasattr(value, 'isoformat') else str(value)
 
 def _build_title(row, *, with_apps: bool, with_files: bool) -> Title:
     # `m.get(col)` returns None for columns the resolver didn't project,
@@ -187,6 +195,7 @@ def _build_file(row, *, include_filepath: bool) -> File:
         identification_attempts=row.identification_attempts or 0,
         organized=bool(row.organized),
         mtime=row.mtime,
+        added_at=_iso(row.added_at),
     )
 
 
@@ -558,7 +567,7 @@ def resolve_title(title_id: str, ctx: GraphQLContext, info) -> Optional[Title]:
 
 
 def resolve_titles(*, owned: Optional[bool], filter: Optional[TitleFilter],
-                    search: Optional[str] = None, order_by: str = "id",
+                    search: Optional[str] = None, order_by: Optional[OrderBy] = None,
                     page: int, page_size: int, ctx: GraphQLContext, info) -> TitleConnection:
     if not ctx.can_shop:
         return TitleConnection(total=0, items=[])
@@ -590,7 +599,7 @@ def resolve_titles(*, owned: Optional[bool], filter: Optional[TitleFilter],
             f"FROM main.titles ot "
             f"LEFT JOIN {_TITLEDB} td ON td.id = ot.title_id"
         )
-        order_by_sql = "ot.title_id"
+        default_order = "ot.title_id"
         cols = _title_cols("owned", items_sel)
     elif owned is False:
         from_sql = (
@@ -598,21 +607,20 @@ def resolve_titles(*, owned: Optional[bool], filter: Optional[TitleFilter],
             f"LEFT JOIN main.titles ot ON ot.title_id = td.id"
         )
         where.append("ot.id IS NULL")
-        order_by_sql = "td.id"
+        default_order = "td.id"
         cols = _title_cols("titledb", items_sel)
     else:
         from_sql = (
             f"FROM {_TITLEDB} td "
             f"LEFT JOIN main.titles ot ON ot.title_id = td.id"
         )
-        order_by_sql = "td.id"
+        default_order = "td.id"
         cols = _title_cols("titledb", items_sel)
 
     if search:
         params["search"] = f"%{search}%"
         where.append(_TITLE_SEARCH)
-    if order_by == "name":
-        order_by_sql = f"td.name IS NULL, td.name COLLATE NOCASE, {order_by_sql}"
+    order_by_sql = order_sql(order_by, TITLE_ORDER, default_order)
 
     where_sql = (" WHERE " + " AND ".join(where)) if where else ""
 
@@ -661,7 +669,7 @@ def resolve_titles(*, owned: Optional[bool], filter: Optional[TitleFilter],
 def resolve_apps(*, owned: Optional[bool], app_type: Optional[List[str]],
                   filter: Optional[AppFilter],
                   up_to_date: Optional[bool] = None, complete: Optional[bool] = None,
-                  search: Optional[str] = None, order_by: str = "id",
+                  search: Optional[str] = None, order_by: Optional[OrderBy] = None,
                   group_by_app_id: bool = False,
                   page: int, page_size: int, ctx: GraphQLContext, info,
                   only_pk: Optional[str] = None) -> AppConnection:
@@ -741,15 +749,16 @@ def resolve_apps(*, owned: Optional[bool], app_type: Optional[List[str]],
     # owned if any version is. The bare columns are constant within an app id.
     version_col = ("MAX(CAST(a.app_version AS INTEGER))" if group_by_app_id else "a.app_version")
     owned_col = "MAX(a.owned)" if group_by_app_id else "a.owned"
-    order_sql = ("td.name IS NULL, td.name COLLATE NOCASE, a.app_id"
-                 if order_by == "name" else "a.id")
+    # Grouped, a.id is MIN(a.id) - still unique per group, so it stays a valid
+    # tie-break for stable paging.
+    order_by_sql = order_sql(order_by, APP_ORDER, "a.app_id" if group_by_app_id else "a.id")
     page_sql = f"""
     SELECT MIN(a.id) AS id, a.app_id AS app_id, {version_col} AS app_version,
            a.app_type AS app_type, {owned_col} AS owned,
            MAX(a.release_date) AS release_date, ot.title_id AS title_id
     {from_sql}
     {where_sql}{group_sql}{having_sql}
-    ORDER BY {order_sql}
+    ORDER BY {order_by_sql}
     LIMIT :limit OFFSET :offset
     """ if group_by_app_id else f"""
     SELECT a.id AS id, a.app_id AS app_id, a.app_version AS app_version,
@@ -757,7 +766,7 @@ def resolve_apps(*, owned: Optional[bool], app_type: Optional[List[str]],
            a.release_date AS release_date, ot.title_id AS title_id
     {from_sql}
     {where_sql}
-    ORDER BY {order_sql}
+    ORDER BY {order_by_sql}
     LIMIT :limit OFFSET :offset
     """
     page_params = dict(params, limit=page_size, offset=(page - 1) * page_size)
@@ -793,7 +802,7 @@ def resolve_apps(*, owned: Optional[bool], app_type: Optional[List[str]],
 
 
 def resolve_files(*, filter: Optional[FileFilter], page: int, page_size: int,
-                   ctx: GraphQLContext, info,
+                   ctx: GraphQLContext, info, order_by: Optional[OrderBy] = None,
                    only_pk: Optional[str] = None) -> FileConnection:
     if not ctx.can_admin:
         return FileConnection(total=0, items=[])
@@ -834,7 +843,7 @@ def resolve_files(*, filter: Optional[FileFilter], page: int, page_size: int,
     SELECT {_FILE_COLS}
     FROM files f
     {where_sql}
-    ORDER BY f.id
+    ORDER BY {order_sql(order_by, FILE_ORDER, "f.id")}
     LIMIT :limit OFFSET :offset
     """
     page_params = dict(params, limit=page_size, offset=(page - 1) * page_size)
@@ -868,7 +877,7 @@ def _hydrate_file_libraries(files: List[File]) -> None:
     """Attach each file's library root. The table holds a handful of rows, so read it
     whole rather than building an IN list."""
     by_id = {int(r.id): Library(id=strawberry.ID(str(r.id)), path=r.path,
-                                last_scan=r.last_scan.isoformat() if r.last_scan else None)
+                                last_scan=_iso(r.last_scan))
              for r in db.session.execute(text(
                  "SELECT id, path, last_scan FROM libraries")).all()}
     for f in files:
@@ -881,7 +890,7 @@ def resolve_libraries(*, ctx: GraphQLContext, info) -> List[Library]:
     rows = db.session.execute(text(
         "SELECT id, path, last_scan FROM libraries ORDER BY id")).all()
     return [Library(id=strawberry.ID(str(r.id)), path=r.path,
-                    last_scan=r.last_scan.isoformat() if r.last_scan else None)
+                    last_scan=_iso(r.last_scan))
             for r in rows]
 
 
@@ -1039,7 +1048,7 @@ def resolve_app(app_pk: str, ctx: GraphQLContext, info) -> Optional[App]:
         return None
     conn = resolve_apps(
         owned=None, app_type=None, filter=None, up_to_date=None, complete=None,
-        search=None, order_by="id", group_by_app_id=False,
+        search=None, order_by=None, group_by_app_id=False,
         page=1, page_size=1, ctx=ctx, info=info, only_pk=app_pk,
     )
     return conn.items[0] if conn.items else None

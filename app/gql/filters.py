@@ -2,6 +2,8 @@
 
 Implicit AND across all populated fields. v1 omits OR/NOT combinators.
 """
+from enum import Enum
+
 import strawberry
 from typing import List, Optional
 
@@ -173,6 +175,76 @@ FILE_FIELDS = [
     ("download_count",      "f.download_count",      "int"),
     ("nb_content",          "f.nb_content",          "int"),
 ]
+
+
+# ---- ordering ----
+#
+# The client picks a field from an enum, never a column name: the SQL fragment is
+# looked up server-side, so nothing a caller sends is ever interpolated into ORDER BY.
+
+
+@strawberry.enum
+class OrderField(Enum):
+    """What to sort by. Not every field applies to every query - see ORDER_FIELDS."""
+    ID = "id"
+    NAME = "name"
+    SIZE = "size"
+    RELEASE_DATE = "release_date"
+    DOWNLOAD_COUNT = "download_count"
+    ADDED_AT = "added_at"
+
+
+@strawberry.enum
+class OrderDirection(Enum):
+    ASC = "ASC"
+    DESC = "DESC"
+
+
+@strawberry.input
+class OrderBy:
+    field: OrderField = OrderField.ID
+    direction: OrderDirection = OrderDirection.ASC
+
+
+# Per-query whitelist: {OrderField value: SQL expression}. A field absent from a
+# query's map falls back to that query's default, so asking a files query to sort by
+# NAME degrades to its id order rather than erroring.
+TITLE_ORDER = {
+    "name": "td.name IS NULL, td.name COLLATE NOCASE",
+    "release_date": "td.release_date IS NULL, td.release_date",
+    "size": "td.size IS NULL, CAST(td.size AS INTEGER)",
+}
+
+APP_ORDER = {
+    "name": "td.name IS NULL, td.name COLLATE NOCASE",
+    "release_date": "a.release_date IS NULL, a.release_date",
+}
+
+FILE_ORDER = {
+    "name": "f.filename COLLATE NOCASE",
+    "size": "f.size IS NULL, f.size",
+    "download_count": "f.download_count",
+    "added_at": "f.added_at IS NULL, f.added_at",
+    "release_date": "f.mtime IS NULL, f.mtime",
+}
+
+
+def order_sql(order_by: Optional[OrderBy], allowed: dict, default: str) -> str:
+    """Build an ORDER BY body from a whitelisted field plus a direction.
+
+    `default` is appended as a tie-break so paging stays stable: without a unique
+    trailing key, rows that compare equal can swap between pages and a client sees
+    one row twice and another never."""
+    if order_by is None:
+        return default
+    expr = allowed.get(order_by.field.value)
+    direction = order_by.direction.value
+    if expr is None:
+        return f"{default} {direction}"
+    # NULL-placement flags must not take the direction, or DESC would flip them.
+    parts = [p.strip() for p in expr.split(",")]
+    ordered = ", ".join(p if p.endswith("IS NULL") else f"{p} {direction}" for p in parts)
+    return f"{ordered}, {default}"
 
 
 def build_clauses(filter_obj, fields, params: dict) -> List[str]:

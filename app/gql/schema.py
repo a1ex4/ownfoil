@@ -1,11 +1,10 @@
 """GraphQL schema assembly."""
-from enum import Enum
 from typing import List, Optional
 
 import strawberry
 from strawberry.types import Info
 
-from .filters import AppFilter, FileFilter, TitleFilter
+from .filters import AppFilter, FileFilter, OrderBy, TitleFilter
 from .resolvers import (
     resolve_app, resolve_apps, resolve_file, resolve_files, resolve_libraries,
     resolve_stats, resolve_task, resolve_tasks, resolve_title, resolve_titles,
@@ -14,14 +13,6 @@ from .types import (
     App, AppConnection, File, FileConnection, Library, LibraryStats, Task, Title,
     TitleConnection,
 )
-
-
-@strawberry.enum
-class OrderBy(Enum):
-    """Sort order for the paginated queries. ID is the id order rows come back in
-    naturally; NAME sorts by title name, unrecognized titles last."""
-    ID = "id"
-    NAME = "name"
 
 
 @strawberry.type
@@ -37,12 +28,12 @@ class Query:
         owned: Optional[bool] = None,
         filter: Optional[TitleFilter] = None,
         search: Optional[str] = None,
-        order_by: OrderBy = OrderBy.ID,
+        order_by: Optional[OrderBy] = None,
         page: int = 1,
         page_size: int = 50,
     ) -> TitleConnection:
         return resolve_titles(
-            owned=owned, filter=filter, search=search, order_by=order_by.value,
+            owned=owned, filter=filter, search=search, order_by=order_by,
             page=page, page_size=page_size, ctx=info.context, info=info,
         )
 
@@ -55,7 +46,7 @@ class Query:
         up_to_date: Optional[bool] = None,
         complete: Optional[bool] = None,
         search: Optional[str] = None,
-        order_by: OrderBy = OrderBy.ID,
+        order_by: Optional[OrderBy] = None,
         group_by_app_id: bool = False,
         page: int = 1,
         page_size: int = 100,
@@ -68,7 +59,7 @@ class Query:
         return resolve_apps(
             owned=owned, app_type=app_type, filter=filter,
             up_to_date=up_to_date, complete=complete,
-            search=search, order_by=order_by.value, group_by_app_id=group_by_app_id,
+            search=search, order_by=order_by, group_by_app_id=group_by_app_id,
             page=page, page_size=page_size, ctx=info.context, info=info,
         )
 
@@ -76,11 +67,16 @@ class Query:
     def files(
         self, info: Info,
         filter: Optional[FileFilter] = None,
+        order_by: Optional[OrderBy] = None,
         page: int = 1,
         page_size: int = 100,
     ) -> FileConnection:
+        """`orderBy: {field: ADDED_AT, direction: DESC}` is the "recently added" view;
+        SIZE and DOWNLOAD_COUNT sort the obvious way. A field this query has no column
+        for falls back to id order rather than erroring."""
         return resolve_files(
-            filter=filter, page=page, page_size=page_size, ctx=info.context, info=info,
+            filter=filter, order_by=order_by, page=page, page_size=page_size,
+            ctx=info.context, info=info,
         )
 
     @strawberry.field

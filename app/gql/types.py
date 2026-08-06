@@ -113,6 +113,9 @@ class File:
     identification_attempts: int = 0
     organized: bool = False
     mtime: Optional[float] = None
+    added_at: Optional[str] = strawberry.field(default=None, description=(
+        "When ownfoil first saw this file. Distinct from `mtime`, which a re-organize "
+        "or a copy rewrites - sort by this for a 'recently added' view."))
     filepath: Optional[str] = None  # admin-only; null for non-admin
 
     # Apps linked to this file via the app_files m2m table. Eagerly batch-loaded

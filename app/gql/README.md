@@ -276,6 +276,26 @@ titledb. The current `StringFilter.contains` matches the JSON encoding;
 `StringFilter.eq` is unusable on these. Don't filter them unless that's
 understood.
 
+## Ordering
+
+`orderBy: {field: SIZE, direction: DESC}` on `titles`, `apps` and `files`.
+
+- **The client picks from an enum, never a column name.** `OrderField` →
+  SQL expression is a server-side whitelist per query (`TITLE_ORDER`,
+  `APP_ORDER`, `FILE_ORDER` in `filters.py`), so nothing a caller sends is
+  interpolated into `ORDER BY`.
+- **A field a query has no column for degrades to that query's default order**
+  rather than erroring — `DOWNLOAD_COUNT` on `titles` is meaningless, not
+  invalid.
+- **Every ordering appends the query's default as a tie-break.** Sorting on a
+  non-unique column without one lets equal rows swap between pages, so a client
+  paging through sees one row twice and another never.
+- **NULL-placement flags don't take the direction.** `td.name IS NULL` stays
+  unsuffixed so `DESC` doesn't float unrecognized titles to the top.
+
+`files.added_at` exists for this: `mtime` is the filesystem's modification time,
+which a re-organize or a copy rewrites, so it cannot answer "recently added".
+
 ## ETag / cache
 
 `view.graphql_dispatch` sets `ETag` on every response and short-circuits with

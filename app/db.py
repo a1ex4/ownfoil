@@ -144,6 +144,9 @@ class Files(db.Model):
     last_attempt = db.Column(db.DateTime, default=datetime.datetime.now())
     organized = db.Column(db.Boolean, default=False)
     mtime = db.Column(db.Float)
+    # When ownfoil first saw the file. Distinct from mtime, which a re-organize or a
+    # copy rewrites - only this one can answer "recently added".
+    added_at = db.Column(db.DateTime, default=datetime.datetime.utcnow)
 
     library = db.relationship('Libraries', backref=db.backref('files', lazy=True, cascade="all, delete-orphan"))
 

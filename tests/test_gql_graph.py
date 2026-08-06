@@ -32,14 +32,16 @@ TITLEDB_JSON = {
     ALPHA_DLC: {"id": ALPHA_DLC, "name": "Alpha Extra Levels"},
 }
 
-# (app_id, type, version, owned, filename or None)
+# (app_id, type, version, owned, filename or None, size)
+# Distinct sizes, deliberately not in id order, so a size sort is falsifiable.
 APPS = [
-    (ALPHA,     APP_TYPE_BASE, "0",      True,  "Alpha.nsp"),
-    (ALPHA_UPD, APP_TYPE_UPD,  "65536",  True,  "Alpha[v65536].nsp"),
-    (ALPHA_UPD, APP_TYPE_UPD,  "131072", False, None),
-    (ALPHA_DLC, APP_TYPE_DLC,  "0",      True,  "AlphaDLC.nsp"),
-    (ALPHA_DLC, APP_TYPE_DLC,  "65536",  False, None),
+    (ALPHA,     APP_TYPE_BASE, "0",      True,  "Alpha.nsp",         3000),
+    (ALPHA_UPD, APP_TYPE_UPD,  "65536",  True,  "Alpha[v65536].nsp", 1000),
+    (ALPHA_UPD, APP_TYPE_UPD,  "131072", False, None,                None),
+    (ALPHA_DLC, APP_TYPE_DLC,  "0",      True,  "AlphaDLC.nsp",      2000),
+    (ALPHA_DLC, APP_TYPE_DLC,  "65536",  False, None,                None),
 ]
+TOTAL_SIZE = 3000 + 1000 + 2000
 
 
 @pytest.fixture
@@ -70,14 +72,14 @@ def library(tmp_path, monkeypatch):
         db.session.add_all([title, library_row])
         db.session.flush()
 
-        for app_id, app_type, version, owned, filename in APPS:
+        for app_id, app_type, version, owned, filename, size in APPS:
             app_row = Apps(title_id=title.id, app_id=app_id, app_version=version,
                            app_type=app_type, owned=owned)
             db.session.add(app_row)
             if filename:
                 file_row = Files(library_id=library_row.id,
                                  filepath=str(tmp_path / "games" / filename),
-                                 filename=filename, extension="nsp", size=1024,
+                                 filename=filename, extension="nsp", size=size,
                                  identified=True)
                 db.session.add(file_row)
                 app_row.files.append(file_row)
@@ -235,7 +237,7 @@ def test_a_single_task_resolves_by_id(library):
 # (case, the stats selection, the expected value)
 STATS_CASES = [
     ("file count",        "totalFiles",        3),
-    ("bytes on disk",     "totalSize",         3 * 1024),
+    ("bytes on disk",     "totalSize",         TOTAL_SIZE),
     ("identified",        "identifiedFiles",   3),
     ("unidentified",      "unidentifiedFiles", 0),
     # titledb holds the base game and its DLC; only the base game is owned.
@@ -261,7 +263,8 @@ def test_stats_group_by_key(library):
             appsByType { key count }
             filesByLibrary { key count size } } }""")
 
-    assert data["stats"]["filesByExtension"] == [{"key": "nsp", "count": 3, "size": 3072}]
+    assert data["stats"]["filesByExtension"] == [
+        {"key": "nsp", "count": 3, "size": TOTAL_SIZE}]
     assert {b["key"]: b["count"] for b in data["stats"]["appsByType"]} == {
         "BASE": 1, "UPDATE": 2, "DLC": 2}
     assert data["stats"]["filesByLibrary"][0]["count"] == 3
@@ -301,6 +304,67 @@ def test_a_single_file_hydrates_like_the_list(library):
     assert data["file"]["filename"] == listed["filename"]
     assert data["file"]["library"]["path"].endswith("games")
     assert len(data["file"]["apps"]) == 1
+
+
+# ---- ordering ----
+
+def test_files_sort_by_size_in_both_directions(library):
+    """`files` had no orderBy at all: it was hard-wired to id order."""
+    def sizes(direction):
+        return [f["size"] for f in query(library, """
+            query { files(orderBy: {field: SIZE, direction: %s}, page: 1, pageSize: 10) {
+                items { size } } }""" % direction)["files"]["items"]]
+
+    assert sizes("ASC") == sorted(sizes("ASC"))
+    assert sizes("DESC") == sorted(sizes("ASC"), reverse=True)
+
+
+def test_files_sort_by_name(library):
+    names = [f["filename"] for f in query(library, """
+        query { files(orderBy: {field: NAME, direction: DESC}, page: 1, pageSize: 10) {
+            items { filename } } }""")["files"]["items"]]
+
+    assert names == sorted(names, key=str.lower, reverse=True)
+
+
+def test_titles_sort_by_name_descending(library):
+    """DESC did not exist before: OrderBy was an enum with no direction."""
+    names = [t["name"] for t in query(library, """
+        query { titles(page: 1, pageSize: 10, orderBy: {field: NAME, direction: DESC}) {
+            items { name } } }""")["titles"]["items"]]
+
+    assert names == sorted(names, key=lambda n: (n is None, (n or "").lower()), reverse=True)
+
+
+def test_ordering_is_stable_across_pages(library):
+    """Sorting on a non-unique column needs a unique tie-break, or paging can show
+    one row twice and drop another."""
+    seen = []
+    for page in (1, 2, 3):
+        seen += [f["id"] for f in query(library, """
+            query { files(orderBy: {field: SIZE}, page: %d, pageSize: 1) {
+                items { id } } }""" % page)["files"]["items"]]
+
+    assert len(seen) == len(set(seen)) == 3
+
+
+def test_an_inapplicable_sort_field_falls_back(library):
+    """DOWNLOAD_COUNT means nothing for titles; degrading to the default order beats
+    erroring, and must never reach SQL as a column name."""
+    def ids(order_clause):
+        return [t["titleId"] for t in query(library, """
+            query { titles(page: 1, pageSize: 10%s) { items { titleId } } }
+            """ % order_clause)["titles"]["items"]]
+
+    assert ids(", orderBy: {field: DOWNLOAD_COUNT}") == ids("")
+
+
+def test_added_at_is_exposed_and_sortable(library):
+    data = query(library, """
+        query { files(orderBy: {field: ADDED_AT, direction: DESC}, page: 1, pageSize: 10) {
+            items { filename addedAt } } }""")
+
+    assert all(f["addedAt"] for f in data["files"]["items"])
 
 
 def test_a_missing_id_resolves_to_null(library):

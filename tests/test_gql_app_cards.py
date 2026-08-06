@@ -94,7 +94,7 @@ def library(tmp_path, monkeypatch):
 CARDS = """
 query Cards($page: Int!, $pageSize: Int!, $appType: [String!], $search: String,
             $owned: Boolean, $upToDate: Boolean, $complete: Boolean) {
-    apps(groupByAppId: true, orderBy: NAME, page: $page, pageSize: $pageSize,
+    apps(groupByAppId: true, orderBy: {field: NAME}, page: $page, pageSize: $pageSize,
          appType: $appType, search: $search, owned: $owned,
          upToDate: $upToDate, complete: $complete) {
         total
