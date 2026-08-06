@@ -245,9 +245,13 @@ understood.
 `304` when `If-None-Match` matches:
 
 - ETag = MD5 of `(query, variables, operationName, role, world_hash)`.
-- `world_hash` = MD5 of `(apps_n, owned_n, max_app_id, files_n, max_file_id,
-  titledb.imported_at)`. Captures count-changing mutations and titledb
-  refreshes.
+- `world_hash` = MD5 of one aggregate row per source table, plus
+  `titledb.meta.imported_at`:
+  - `main.titles` — count, `SUM(have_base)`, `SUM(up_to_date)`, `SUM(complete)`
+  - `apps` — count, `SUM(owned)`, `MAX(id)`
+  - `files` — count, `MAX(id)`, `SUM(organized)`, `SUM(identified)`,
+    `SUM(identification_attempts)`, `SUM(download_count)`
+  - `tasks` — count, `MAX(id)`, `SUM(completion_pct)`
 - `role` is `admin` / `shop` / `anon` — different roles see different
   field-level gates so they can't share cache entries.
 - Headers: `Cache-Control: private, must-revalidate; Vary: Authorization,
@@ -256,13 +260,23 @@ understood.
 GET works with browser auto-revalidation. POST clients must capture and re-send
 the ETag manually.
 
-**Known staleness gap.** The world hash misses in-place mutations on existing
-rows that don't change counts: `update_titles` flipping `have_base` /
-`up_to_date` / `complete`, `download_count` on files, `organized` flag,
-identification status updates. Any new mutation that changes schema-visible
-state must invalidate the ETag — either bump `titledb.meta.imported_at` via
-`_bump_imported_at`, or (for changes that the apps/files counts already cover)
-do nothing.
+**Why aggregates rather than a revision counter.** A counter bumped by each
+writer is cheaper per request, but it couples every write path to the cache and
+fails silently when someone forgets. SQLite stores no row count, so `COUNT(*)`
+already walks the whole B-tree — folding the mutable columns into that same scan
+is close to free and makes invalidation a property rather than a convention.
+This is what catches `update_titles` flipping `have_base` / `up_to_date` /
+`complete`, the `organized` flag, identification status, and `download_count`,
+none of which change any row count.
+
+**The rule when adding a field.** If you expose a column the schema could not
+previously see, add it to `_WORLD_SQL` in `cache.py` — otherwise a change to it
+serves a stale `304`. Immutable columns and anything already covered by a count
+need nothing.
+
+**Cost.** Running tasks update `completion_pct` continuously, so an active scan
+invalidates the cache on every progress write. That is the intended trade: while
+a scan runs the library really is changing, and the `files` count is moving too.
 
 ## Auth
 
