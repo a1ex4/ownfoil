@@ -169,22 +169,34 @@ Every nested batch-loaded field follows the same two-piece pattern:
 The deepest path the chain handles (Title → apps → files → back-link apps):
 
 ```
-resolve_titles
+resolve_titles / resolve_title
  └─ _load_apps_for_titles            (one batched SELECT for apps in this page)
       ├─ _hydrate_app_files          (one batched SELECT joining app_files → files)
       │    └─ _hydrate_file_apps     (one batched SELECT for back-link apps)
-      └─ _hydrate_apps_titledb       (titledb metadata for the top-level apps)
+      ├─ _hydrate_apps_titledb       (titledb metadata for the top-level apps)
+      └─ _hydrate_app_versions       (version history, two batched SELECTs)
+
+resolve_apps
+ ├─ _hydrate_app_files
+ ├─ _hydrate_apps_titledb
+ ├─ _hydrate_apps_title              (the parent title of each app)
+ └─ _hydrate_app_versions
 
 resolve_files
  └─ _hydrate_file_apps               (apps owning each file in this page)
-      └─ _hydrate_apps_titledb       (titledb metadata for those apps)
+      ├─ _hydrate_apps_titledb       (titledb metadata for those apps)
+      ├─ _hydrate_apps_title         (names the game behind an UPDATE file)
+      └─ _hydrate_app_versions
 ```
 
-`App.titledb` is hydrated only one hop below a top-level resolver — for
-`Title.apps` / `apps` items, and for `File.apps` under the `files` query. Apps
-reached as the back-link of an app's own files (`apps { files { apps } }`) do
-not carry it, so `_hydrate_file_apps` takes its titledb arguments only from
-`resolve_files`.
+`App.titledb`, `App.title` and `App.versions` are hydrated only one hop below a
+top-level resolver. Apps reached as the back-link of an app's own files
+(`apps { files { apps } }`) carry none of them, so `_hydrate_file_apps` takes
+those arguments only from `resolve_files`.
+
+`App.title` is not hydrated under `Title.apps` — the caller already *is* the
+title, and re-fetching it per app would be a round trip for data the client
+already has in hand.
 
 Each helper takes:
 

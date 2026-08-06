@@ -1,4 +1,10 @@
-"""Strawberry GraphQL types for ownfoil."""
+"""Strawberry GraphQL types for ownfoil.
+
+Batch-loaded fields use `null` to mean "not loaded on this path, or not exposed to
+this role" and `[]` to mean "loaded, and there is nothing". The two are not the same
+thing, and no client can tell them apart from the value alone - so every such field
+says in its description which paths hydrate it.
+"""
 import json
 import strawberry
 from strawberry import Private
@@ -60,6 +66,8 @@ class File:
         app_type: Optional[List[str]] = None,
         filter: Optional[AppFilter] = None,
     ) -> Optional[List["App"]]:
+        """The apps this file carries, across the app_files m2m. Admin only, and only
+        hydrated under the top-level `files` query."""
         if self.apps_loaded is None:
             return None
         return [a for a in self.apps_loaded if match_app(a, owned, filter, app_type)]
@@ -83,14 +91,20 @@ class App:
     owned: bool
     release_date: Optional[str] = None
 
-    # The parent title, so a card built from an app can show the title's name and
-    # ownership without a second round trip. Batch-loaded by the apps resolver.
-    title: Optional["Title"] = None
+    title: Optional["Title"] = strawberry.field(default=None, description=(
+        "The parent title, so a card built from an app can show the title's name and "
+        "ownership without a second round trip - and so a file list can name the game "
+        "behind an UPDATE file, whose own titledb row usually does not exist. "
+        "Hydrated by the `apps` and `files` queries. Null under `Title.apps`, where "
+        "the parent already is the title, and for apps reached as a file's back-link "
+        "under `apps { files { apps } }`."))
 
-    # Every version known for the content this app represents: for BASE apps that
-    # means the title's UPDATE apps (a Switch update ships under its own app id),
-    # for anything else the versions of this same app id. Ascending.
-    versions: Optional[List[AppVersion]] = None
+    versions: Optional[List[AppVersion]] = strawberry.field(default=None, description=(
+        "Every version known for the content this app represents: for BASE apps that "
+        "means the title's UPDATE apps (a Switch update ships under its own app id), "
+        "for anything else the versions of this same app id. Ascending. Hydrated by "
+        "the `apps`, `title`, `titles` and `files` queries; null for apps reached as a "
+        "file's back-link under `apps { files { apps } }`."))
 
     # Eagerly batch-loaded by the apps/titles resolvers (admin only). None means
     # "not exposed for this role"; an empty list means "exposed but no files".
@@ -99,6 +113,8 @@ class App:
 
     @strawberry.field
     def files(self, filter: Optional[FileFilter] = None) -> Optional[List[File]]:
+        """The files that carry this app. Admin only - null for any other role, and
+        null for apps reached as a file's back-link (the recursion stops there)."""
         if self.files_loaded is None:
             return None
         return [f for f in self.files_loaded if match_file(f, filter)]
