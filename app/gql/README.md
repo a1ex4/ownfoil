@@ -488,12 +488,40 @@ Two-tier:
   introspection still shows these fields exist (Strawberry doesn't conditionally
   hide), but the data isn't exposed.
 
+## Schema documentation
+
+The GraphiQL docs pane is this API's only reference, so every type, field,
+argument, input field and enum member carries a description, and
+`tests/test_gql_schema_docs.py` fails if one does not.
+
+The trap it guards is that **Strawberry does not publish Python docstrings as
+GraphQL descriptions**. A type with a good docstring and a bare
+`@strawberry.type` is documented for readers of the source and for nobody else,
+and nothing complains: the schema builds and the queries work while the docs
+pane sits empty. `gql/docs.py` closes the gap so one piece of prose serves both
+audiences instead of being written twice and drifting apart:
+
+- `@described(strawberry.type)` — also `.input` and `.enum`; publishes the class
+  docstring.
+- `@described_field` / `@described_mutation` — publishes a resolver method's
+  docstring.
+- `desc("…", default=None)` — for a plain (non-resolver) field, where there is no
+  docstring to take.
+- `arg("…")` inside `Annotated[…]` — for arguments. Ones that recur across
+  queries are annotated once (`Page`, `PageSize`, `Order`, `Owned`, `AppTypes` in
+  `schema.py`; `NestedAppTypes` and friends in `types.py`) so the same argument
+  reads the same wherever a client meets it.
+
+`strawberry.enum_value("pending", description=…)` is the one place the value and
+its prose sit together, since an enum member has nowhere else to put them.
+
 ## Adding a new field
 
 For a column on an existing type:
 
 1. Add the column to the model in `app/db.py` and create an Alembic migration.
-2. Add it to the Strawberry type in `gql/types.py`.
+2. Add it to the Strawberry type in `gql/types.py`, with a `desc(...)`
+   description — the docs test will fail without one.
 3. Project the column in the SQL — for `Title` fields, add an entry to
    `_TITLE_COL_MAP`; for `App` / `File`, edit the `_FILE_COLS` constant or the
    resolver SQL directly.
@@ -503,7 +531,8 @@ For a column on an existing type:
 For a brand-new nested batch-loaded field:
 
 1. Add `Private[Optional[List[T]]] = None` slot on the parent type, plus a
-   `@strawberry.field` resolver method that returns it (or filters in-memory).
+   `@described_field` resolver method that returns it (or filters in-memory);
+   its docstring becomes the field's description.
 2. Add a `_hydrate_xxx(parent_pks, parents_by_pk, *, ..., sel: Selection)`
    helper that runs ONE batched SELECT and attaches results.
 3. In the parent resolver, derive `want_xxx = ctx.<gate> and parent_sel.has("xxxName")`

@@ -10,17 +10,21 @@ from enum import Enum
 import strawberry
 from typing import List, Optional
 
+from .docs import desc, described
 from .scalars import BigInt
 
 
-@strawberry.input
+@described(strawberry.input)
 class StringFilter:
-    eq: Optional[str] = None
-    contains: Optional[str] = None  # case-insensitive substring
-    in_: Optional[List[str]] = strawberry.field(name="in", default=None)
+    """Text predicates. Populated operators AND together."""
+    eq: Optional[str] = desc("Exact match, case-sensitive.", default=None)
+    contains: Optional[str] = desc("Case-insensitive substring match.", default=None)
+    in_: Optional[List[str]] = desc(
+        "Matches any value in the list. An empty list is no constraint.",
+        name="in", default=None)
 
 
-@strawberry.input
+@described(strawberry.input)
 class StringListFilter:
     """Membership in a JSON-encoded list column (`Title.category` and friends).
 
@@ -28,70 +32,129 @@ class StringListFilter:
     `[String!]`. A StringFilter would filter the encoding rather than the elements -
     `eq: "Adventure"` could never match - so list columns get their own operators.
     """
-    has: Optional[str] = None
-    has_any: Optional[List[str]] = None
-    has_all: Optional[List[str]] = None
+    has: Optional[str] = desc("The list contains this exact element.", default=None)
+    has_any: Optional[List[str]] = desc(
+        "The list contains at least one of these elements.", default=None)
+    has_all: Optional[List[str]] = desc(
+        "The list contains every one of these elements.", default=None)
 
 
-@strawberry.input
+@described(strawberry.input)
 class IntFilter:
-    eq: Optional[int] = None
-    gte: Optional[int] = None
-    lte: Optional[int] = None
-    in_: Optional[List[int]] = strawberry.field(name="in", default=None)
+    """Numeric predicates. Populated operators AND together, so `gte` with `lte` is
+    a range."""
+    eq: Optional[int] = desc("Exactly this value.", default=None)
+    gte: Optional[int] = desc("At least this value.", default=None)
+    lte: Optional[int] = desc("At most this value.", default=None)
+    in_: Optional[List[int]] = desc(
+        "Matches any value in the list. An empty list is no constraint.",
+        name="in", default=None)
 
 
-@strawberry.input
+@described(strawberry.input)
 class BigIntFilter:
-    """64-bit-capable variant of IntFilter; used for byte sizes."""
-    eq: Optional[BigInt] = None
-    gte: Optional[BigInt] = None
-    lte: Optional[BigInt] = None
-    in_: Optional[List[BigInt]] = strawberry.field(name="in", default=None)
+    """64-bit-capable variant of IntFilter, for byte sizes that overflow `Int`."""
+    eq: Optional[BigInt] = desc("Exactly this many bytes.", default=None)
+    gte: Optional[BigInt] = desc("At least this many bytes.", default=None)
+    lte: Optional[BigInt] = desc("At most this many bytes.", default=None)
+    in_: Optional[List[BigInt]] = desc(
+        "Matches any value in the list. An empty list is no constraint.",
+        name="in", default=None)
 
 
-@strawberry.input
+@described(strawberry.input)
 class TitleFilter:
-    title_id: Optional[StringFilter] = None
-    name: Optional[StringFilter] = None
-    publisher: Optional[StringFilter] = None
-    developer: Optional[StringFilter] = None
-    category: Optional[StringListFilter] = None
-    region: Optional[StringFilter] = None
-    language: Optional[StringFilter] = None
-    release_date: Optional[StringFilter] = None
-    parent_id: Optional[StringFilter] = None
-    nsu_id: Optional[StringFilter] = None
-    source: Optional[StringFilter] = None
-    have_base: Optional[bool] = None
-    up_to_date: Optional[bool] = None
-    complete: Optional[bool] = None
+    """Predicates on a title. Every populated field ANDs with the others."""
+    title_id: Optional[StringFilter] = desc(
+        "The 16-hex-digit title id. Uppercase - the stored ids are, and the match is "
+        "case-sensitive.", default=None)
+    name: Optional[StringFilter] = desc(
+        "The game's name. `contains` is the useful operator here; `search` on the "
+        "query searches name and ids together.", default=None)
+    publisher: Optional[StringFilter] = desc("Publisher of record.", default=None)
+    developer: Optional[StringFilter] = desc("Studio that made the game.",
+                                             default=None)
+    category: Optional[StringListFilter] = desc(
+        "Genre tags. A list filter, because the column holds a JSON array and the "
+        "field is a `[String!]` - element membership, not string matching.",
+        default=None)
+    region: Optional[StringFilter] = desc(
+        "Primary region of the catalogue entry. Filters the scalar `region`, not the "
+        "`regions` list, which is not filterable.", default=None)
+    language: Optional[StringFilter] = desc(
+        "Primary language of the catalogue entry. Filters the scalar `language`, not "
+        "the `languages` list.", default=None)
+    release_date: Optional[StringFilter] = desc(
+        "Release date as titledb spells it - matched as text, so `contains: \"2017\"` "
+        "is the practical way to ask for a year.", default=None)
+    parent_id: Optional[StringFilter] = desc(
+        "Title id this entry belongs under, for regional variants.", default=None)
+    nsu_id: Optional[StringFilter] = desc("Nintendo eShop identifier.", default=None)
+    source: Optional[StringFilter] = desc(
+        "Which metadata source won: `titledb` or `custom`.", default=None)
+    have_base: Optional[bool] = desc(
+        "Whether the base game is in the library. A title the library has never seen "
+        "counts as false, not unknown.", default=None)
+    up_to_date: Optional[bool] = desc(
+        "Whether no newer update is known than the highest one owned. Unowned titles "
+        "count as false.", default=None)
+    complete: Optional[bool] = desc(
+        "Whether every known DLC is owned. Unowned titles count as false.",
+        default=None)
 
 
-@strawberry.input
+@described(strawberry.input)
 class AppFilter:
-    title_id: Optional[StringFilter] = None
-    app_id: Optional[StringFilter] = None
-    app_version: Optional[IntFilter] = None
-    app_type: Optional[StringFilter] = None
-    owned: Optional[bool] = None
+    """Predicates on an app. Every populated field ANDs with the others."""
+    title_id: Optional[StringFilter] = desc(
+        "Id of the title the app belongs to, uppercase.", default=None)
+    app_id: Optional[StringFilter] = desc("The app's own application id.",
+                                          default=None)
+    app_version: Optional[IntFilter] = desc(
+        "The version, compared numerically - so `gte: 65536` means what it says, "
+        "which it could not if versions were compared as text.", default=None)
+    app_type: Optional[StringFilter] = desc(
+        "BASE, UPDATE or DLC. The `appType` argument is the shorthand for this and "
+        "takes a list.", default=None)
+    owned: Optional[bool] = desc(
+        "Whether a file carries the app. Identical to the `owned` argument, including "
+        "under `groupByAppId: true`, where both mean 'any version of this app id'.",
+        default=None)
 
 
-@strawberry.input
+@described(strawberry.input)
 class FileFilter:
-    filepath: Optional[StringFilter] = None
-    filename: Optional[StringFilter] = None
-    folder: Optional[StringFilter] = None
-    extension: Optional[StringFilter] = None
-    identification_type: Optional[StringFilter] = None
-    identified: Optional[bool] = None
-    organized: Optional[bool] = None
-    multicontent: Optional[bool] = None
-    compressed: Optional[bool] = None
-    library_id: Optional[IntFilter] = None
-    size: Optional[BigIntFilter] = None
-    download_count: Optional[IntFilter] = None
-    nb_content: Optional[IntFilter] = None
+    """Predicates on a file. Every populated field ANDs with the others."""
+    filepath: Optional[StringFilter] = desc(
+        "Absolute path on the server. Admin only, like the field itself.",
+        default=None)
+    filename: Optional[StringFilter] = desc("File name with extension.", default=None)
+    folder: Optional[StringFilter] = desc(
+        "Directory relative to the library root.", default=None)
+    extension: Optional[StringFilter] = desc(
+        "Lowercase extension without the dot, e.g. `nsp`.", default=None)
+    identification_type: Optional[StringFilter] = desc(
+        "How the file was identified - from its own metadata, or from its name.",
+        default=None)
+    identified: Optional[bool] = desc(
+        "Whether ownfoil worked out what the file contains. `false` is the list of "
+        "files needing attention.", default=None)
+    organized: Optional[bool] = desc(
+        "Whether the file already sits where the naming template says.", default=None)
+    multicontent: Optional[bool] = desc(
+        "Whether the file carries more than one app.", default=None)
+    compressed: Optional[bool] = desc(
+        "Whether the file is NSZ/XCZ rather than NSP/XCI.", default=None)
+    library_id: Optional[IntFilter] = desc(
+        "Which library root the file sits under.", default=None)
+    size: Optional[BigIntFilter] = desc(
+        "Size in bytes. `gte` with `lte` gives a range - the way to find the files "
+        "worth compressing.", default=None)
+    download_count: Optional[IntFilter] = desc(
+        "How many times shop clients have downloaded it.", default=None)
+    nb_content: Optional[IntFilter] = desc(
+        "How many apps the file carries. `gte: 2` is another way to say "
+        "`multicontent: true`.", default=None)
 
 
 def string_clauses(column_sql: str, f: Optional[StringFilter], params: dict, key: str) -> List[str]:
@@ -247,28 +310,49 @@ FILE_FIELDS = [
 # looked up server-side, so nothing a caller sends is ever interpolated into ORDER BY.
 
 
-@strawberry.enum
+@described(strawberry.enum)
 class OrderField(Enum):
-    """What to sort by. Not every field applies to every query - see ORDER_FIELDS."""
-    ID = "id"
-    NAME = "name"
-    SIZE = "size"
-    RELEASE_DATE = "release_date"
-    DOWNLOAD_COUNT = "download_count"
-    ADDED_AT = "added_at"
-    VERSION = "version"
+    """What to sort by. Not every member applies to every query, and one that does
+    not falls back to that query's default order rather than erroring - sorting
+    titles by DOWNLOAD_COUNT is meaningless, not invalid."""
+    ID = strawberry.enum_value("id", description=(
+        "Primary key order. Every query's default, and the tie-break appended to "
+        "every other ordering so paging stays stable."))
+    NAME = strawberry.enum_value("name", description=(
+        "Title name for `titles` and `apps`, file name for `files`. "
+        "Case-insensitive, with unnamed rows last."))
+    SIZE = strawberry.enum_value("size", description=(
+        "Bytes for `files`; the catalogue's install size, cast to a number, for "
+        "`titles`. Not applicable to `apps`."))
+    RELEASE_DATE = strawberry.enum_value("release_date", description=(
+        "Catalogue release date for `titles` and `apps`. On `files` it sorts by "
+        "`mtime`, the closest thing a file has."))
+    DOWNLOAD_COUNT = strawberry.enum_value("download_count", description=(
+        "How often shop clients fetched the file. `files` only."))
+    ADDED_AT = strawberry.enum_value("added_at", description=(
+        "When ownfoil first saw the file - the 'recently added' view, paired with "
+        "`direction: DESC`. `files` only."))
+    VERSION = strawberry.enum_value("version", description=(
+        "App version, compared numerically. `apps` only; under "
+        "`groupByAppId: true` it sorts by the group's highest version."))
 
 
-@strawberry.enum
+@described(strawberry.enum)
 class OrderDirection(Enum):
-    ASC = "ASC"
-    DESC = "DESC"
+    """Which way to sort. Null-placement is not reversed by DESC: rows with nothing
+    to sort on stay last either way."""
+    ASC = strawberry.enum_value("ASC", description="Smallest, earliest or A-Z first.")
+    DESC = strawberry.enum_value("DESC", description="Largest, latest or Z-A first.")
 
 
-@strawberry.input
+@described(strawberry.input)
 class OrderBy:
-    field: OrderField = OrderField.ID
-    direction: OrderDirection = OrderDirection.ASC
+    """How to sort a page. The query's own key is always appended as a tie-break, so
+    two rows that compare equal keep a stable order across pages."""
+    field: OrderField = desc("What to sort by. Defaults to primary key order.",
+                             default=OrderField.ID)
+    direction: OrderDirection = desc("Which way. Defaults to ascending.",
+                                     default=OrderDirection.ASC)
 
 
 # Per-query whitelist: {OrderField value: SQL expression}. A field absent from a

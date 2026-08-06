@@ -19,9 +19,11 @@ from typing import Optional
 
 import strawberry
 from strawberry.types import Info
+from typing_extensions import Annotated
 
 from constants import COMPRESS_EXT
 
+from .docs import described, described_mutation
 from .resolvers import resolve_task, resolve_title
 from .types import Task, Title
 
@@ -45,12 +47,25 @@ def _task_by_id(task_id, info) -> Optional[Task]:
     return resolve_task(str(task_id), info.context, info)
 
 
-@strawberry.type
+@described(strawberry.type)
 class Mutation:
+    """Library-domain writes: enqueue work, cancel work, edit title metadata.
 
-    @strawberry.mutation
-    def enqueue_task(self, info: Info, name: str,
-                     input: Optional[str] = None) -> Optional[Task]:
+    Deliberately narrow - settings, users and the keys upload stay on REST, being
+    form-and-file shaped rather than graph shaped. Unlike the query side, a write a
+    role may not perform raises rather than returning null: a silently ignored write
+    is not a partial result, it is a lie. All of these require admin."""
+
+    @described_mutation
+    def enqueue_task(
+        self, info: Info,
+        name: Annotated[str, strawberry.argument(
+            description="A registered task name, e.g. `identify_library`. An "
+                        "unknown name is refused.")],
+        input: Annotated[Optional[str], strawberry.argument(
+            description="The task's arguments as a JSON object string. Omit for a "
+                        "task that takes none.")] = None,
+    ) -> Optional[Task]:
         """Enqueue any registered task. `input` is a JSON object string, because the
         payload shape differs per task name. Enqueuing a duplicate returns the
         existing task rather than creating a second one."""
@@ -69,15 +84,24 @@ class Mutation:
             raise MutationFailed(str(e))
         return _task_by_id(task.id, info)
 
-    @strawberry.mutation
-    def cancel_task(self, info: Info, id: strawberry.ID) -> bool:
+    @described_mutation
+    def cancel_task(
+        self, info: Info,
+        id: Annotated[strawberry.ID, strawberry.argument(
+            description="Primary key of the task to cancel.")],
+    ) -> bool:
         """False when the task is unknown or already in a terminal state."""
         import tasks as tasks_mod
         _require_admin(info.context)
         return bool(tasks_mod.cancel_task(int(id)))
 
-    @strawberry.mutation
-    def scan_library(self, info: Info, path: Optional[str] = None) -> Optional[Task]:
+    @described_mutation
+    def scan_library(
+        self, info: Info,
+        path: Annotated[Optional[str], strawberry.argument(
+            description="Absolute path of one configured library root. Omit to scan "
+                        "every configured root.")] = None,
+    ) -> Optional[Task]:
         """Scan one library, or every configured library when `path` is omitted. The
         all-libraries form returns the last task enqueued."""
         import tasks as tasks_mod
@@ -91,8 +115,12 @@ class Mutation:
             last, _ = tasks_mod.enqueue_task('scan_library', {'library_path': lib.path})
         return _task_by_id(last.id, info) if last else None
 
-    @strawberry.mutation
-    def compress_file(self, info: Info, file_id: strawberry.ID) -> Optional[Task]:
+    @described_mutation
+    def compress_file(
+        self, info: Info,
+        file_id: Annotated[strawberry.ID, strawberry.argument(
+            description="Primary key of the file to compress.")],
+    ) -> Optional[Task]:
         """Compress one file to NSZ/XCZ. Same guards as the REST endpoint."""
         import tasks as tasks_mod
         from db import Files, db
@@ -107,8 +135,12 @@ class Mutation:
         task, _ = tasks_mod.enqueue_task('compress_file', {'file_id': int(file_id)})
         return _task_by_id(task.id, info)
 
-    @strawberry.mutation
-    def decompress_file(self, info: Info, file_id: strawberry.ID) -> Optional[Task]:
+    @described_mutation
+    def decompress_file(
+        self, info: Info,
+        file_id: Annotated[strawberry.ID, strawberry.argument(
+            description="Primary key of the file to decompress.")],
+    ) -> Optional[Task]:
         """Decompress one file back to NSP/XCI."""
         import tasks as tasks_mod
         from db import Files, db
@@ -121,9 +153,15 @@ class Mutation:
         task, _ = tasks_mod.enqueue_task('decompress_file', {'file_id': int(file_id)})
         return _task_by_id(task.id, info)
 
-    @strawberry.mutation
-    def set_title_override(self, info: Info, title_id: strawberry.ID,
-                           record: str) -> Optional[Title]:
+    @described_mutation
+    def set_title_override(
+        self, info: Info,
+        title_id: Annotated[strawberry.ID, strawberry.argument(
+            description="The 16-hex-digit title id to override.")],
+        record: Annotated[str, strawberry.argument(
+            description="A JSON object of metadata fields to override. Fields it "
+                        "omits keep their downloaded values.")],
+    ) -> Optional[Title]:
         """Write user-authored metadata for a title, winning over the downloaded
         titledb values field by field. `record` is a JSON object of the same shape the
         REST endpoint takes. Re-identification is enqueued, as there too."""
@@ -143,8 +181,12 @@ class Mutation:
         tasks_mod.enqueue_task('identify_library')
         return resolve_title(str(title_id), info.context, info)
 
-    @strawberry.mutation
-    def delete_title_override(self, info: Info, title_id: strawberry.ID) -> bool:
+    @described_mutation
+    def delete_title_override(
+        self, info: Info,
+        title_id: Annotated[strawberry.ID, strawberry.argument(
+            description="The 16-hex-digit title id whose override to drop.")],
+    ) -> bool:
         """Drop the override, restoring the next metadata source down."""
         import titledb
         _require_admin(info.context)
