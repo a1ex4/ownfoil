@@ -489,6 +489,38 @@ def test_reap_worker_task_noop_without_running_task(env):
     tasks.reap_worker_task(99)  # must not raise
 
 
+def test_parent_completes_when_children_finish_before_it_parks(env):
+    """A fan-out creates its children and only then parks. If another worker finishes them
+    all inside that window their completion checks bail (the parent still reads 'running'),
+    so the worker must re-check on the way out or the parent waits forever."""
+    from worker import TaskWorker
+    fired = []
+
+    def fanout(**kwargs):
+        parent_id = tasks._current_task_id
+        child_id = tasks.create_child_task(parent_id, "update_titles")
+        child = db.session.get(Task, child_id)
+        child.status = "completed"                    # another worker got there first
+        db.session.commit()
+        tasks.on_task_completed(child_id, parent_id)  # bails: parent is still 'running'
+        tasks.set_waiting_for_children()
+
+    env.monkeypatch.setitem(tasks.TASK_REGISTRY, "fanout_probe", fanout)
+    env.monkeypatch.setitem(tasks.TASK_CONTINUATIONS, "fanout_probe",
+                            lambda **k: fired.append(True))
+
+    t = Task(task_name="fanout_probe", status="running", worker_id=1,
+             input_hash="x", input_json="{}")
+    db.session.add(t)
+    db.session.commit()
+    tid = t.id
+
+    TaskWorker(env.app, worker_id=1).execute_task(tid)
+
+    assert db.session.get(Task, tid) is None   # completed, and parent+children deleted
+    assert fired == [True]                     # continuation ran
+
+
 def test_failed_compress_task_leaves_no_incomplete_file(env):
     """A compress_file that raises inside the worker runs its cleanup hook: the partial output
     and the in-progress marks are removed, so an ordinary failure leaves no incomplete file."""
