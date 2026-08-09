@@ -145,6 +145,13 @@ class FileFilter:
         "Whether the file carries more than one app.", default=None)
     compressed: Optional[bool] = desc(
         "Whether the file is NSZ/XCZ rather than NSP/XCI.", default=None)
+    signature_valid: Optional[bool] = desc(
+        "Whether the NCA header signatures checked out. Neither `true` nor `false` "
+        "matches a file that was never verified.", default=None)
+    hash_valid: Optional[bool] = desc(
+        "Whether the NCA contents hashed as claimed. `false` is the list of files worth "
+        "re-downloading; neither value matches one never verified at `hash` depth.",
+        default=None)
     library_id: Optional[IntFilter] = desc(
         "Which library root the file sits under.", default=None)
     size: Optional[BigIntFilter] = desc(
@@ -297,6 +304,8 @@ FILE_FIELDS = [
     ("organized",           "f.organized",           "bool"),
     ("multicontent",        "f.multicontent",        "bool"),
     ("compressed",          "f.compressed",          "bool"),
+    ("signature_valid",     "f.signature_valid",     "bool"),
+    ("hash_valid",          "f.hash_valid",          "bool"),
     ("library_id",          "f.library_id",          "int"),
     ("size",                "f.size",                "int"),
     ("download_count",      "f.download_count",      "int"),
@@ -443,6 +452,12 @@ def match_bool(value, expected: Optional[bool]) -> bool:
     return expected is None or bool(value) == expected
 
 
+def match_tristate(value, expected: Optional[bool]) -> bool:
+    """For a nullable column: null matches neither `true` nor `false`, the same way the
+    SQL side's `col = 0/1` skips it. match_bool would fold it into `false`."""
+    return expected is None or (value is not None and bool(value) == expected)
+
+
 def match_int(value, f) -> bool:
     """Matches against either IntFilter or BigIntFilter (same shape)."""
     if f is None:
@@ -490,6 +505,8 @@ def match_file(file_, f: Optional[FileFilter]) -> bool:
         and match_bool(file_.organized,             f.organized)
         and match_bool(file_.multicontent,          f.multicontent)
         and match_bool(file_.compressed,            f.compressed)
+        and match_tristate(file_.signature_valid,   f.signature_valid)
+        and match_tristate(file_.hash_valid,        f.hash_valid)
         and match_int(file_.library_id,             f.library_id)
         and match_int(file_.size,                   f.size)
         and match_int(file_.download_count,         f.download_count)

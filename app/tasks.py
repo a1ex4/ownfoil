@@ -9,6 +9,7 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 import titles as titles_lib
 import titledb
 import file_compression as compression
+import file_verification as verification_lib
 from constants import COMPRESS_EXT, DECOMPRESS_EXT
 from db import (
     db, Task, Files, Apps, Libraries, get_library_id, get_library_path, get_library_file_paths,
@@ -17,7 +18,7 @@ from db import (
     delete_files_under_dir, add_ignored_event, pop_ignored_event,
     add_temp_file, remove_temp_file, claim_temp_file, get_temp_file_paths, purge_temp_files,
     set_library_scan_time, remove_missing_files_from_db,
-    remove_file_from_apps, reset_file_identification, create_file,
+    remove_file_from_apps, reset_file_identification, reset_file_verification, create_file,
 )
 from settings import get_settings
 from utils import interval_string_to_timedelta, delete_empty_folders, human_size
@@ -641,6 +642,17 @@ def _identify(file, mgmt):
         enqueue_task('add_missing_apps_for_title', {'title_id': title_id})
 
 
+def _needs_verify(file, mgmt):
+    verification = mgmt['verification']
+    if not verification['enabled'] or file.extension not in verification_lib.VERIFY_EXT:
+        return False
+    if not titles_lib.Keys.keys_loaded:
+        return False   # nstools cannot open a container without them
+    if verification['depth'] == verification_lib.DEPTH_HASH:
+        return file.hash_valid is None
+    return file.signature_valid is None
+
+
 def _needs_organize(file, mgmt):
     return mgmt['organizer']['enabled'] and file.identified and not file.organized
 
@@ -663,12 +675,18 @@ def _organize(file, mgmt):
 def _needs_compress(file, mgmt):
     if not mgmt['compression']['enabled'] or file.compressed or file.extension not in COMPRESS_EXT:
         return False
+    if file.hash_valid is False:
+        # Known-corrupt: its NCAs do not hash to what it claims, so compressing it would
+        # just fail nsz's own round-trip check. A failed *signature* is not grounds to
+        # refuse - a re-signed repack is commonplace and its content is still intact.
+        return False
     target = compression.conversion_target(file)
     return Files.query.filter(Files.filepath == target, Files.id != file.id).first() is None
 
 
 STAGES = [
     Stage('identify', _needs_identify, _identify, None),
+    Stage('verify', _needs_verify, None, 'verify_file'),
     Stage('organize', _needs_organize, _organize, None),
     Stage('compress', _needs_compress, None, 'compress_file'),
 ]
@@ -752,6 +770,32 @@ def remove_outdated_updates_task(**kwargs):
     """Remove outdated update files."""
     remove_outdated_update_files()
     enqueue_task('update_titles')
+
+
+# --- Verification ---
+@register_task('verify_file', group='io')
+def verify_file_task(file_id, **kwargs):
+    """Verify one file's signatures and, at hash depth, its NCA content hashes."""
+    file_obj = db.session.get(Files, file_id)
+    if not file_obj or file_obj.extension not in verification_lib.VERIFY_EXT:
+        return
+    if not os.path.exists(file_obj.filepath):
+        return
+    depth = get_settings()['library']['management']['verification']['depth']
+    logger.info(f'Verifying file ({depth}): {file_obj.filename}')
+    signature_valid, hash_valid, error = verification_lib.verify(
+        file_obj.filepath, depth, progress=_task_progress(_current_task_id))
+
+    file_obj.signature_valid = signature_valid
+    if hash_valid is not None:
+        file_obj.hash_valid = hash_valid
+    file_obj.verification_error = error
+    file_obj.verified_at = datetime.datetime.now()
+    db.session.commit()
+
+    if error:
+        logger.warning(f'Verification failed for {file_obj.filename}: {error}')
+    enqueue_task('process_file', {'file_id': file_id})
 
 
 # --- Compression pipeline ---
@@ -902,6 +946,7 @@ def handle_file_added_task(library_path, filepath, **kwargs):
     file.mtime = new_mtime
     file.organized = False
     reset_file_identification(file)
+    reset_file_verification(file)
     db.session.commit()
     enqueue_task('process_file', {'file_id': file.id})
 

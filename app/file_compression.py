@@ -13,7 +13,7 @@ from multiprocessing import cpu_count
 import nsz
 from nsz import Decompressor as _nsz_decompressor
 from nsz.Fs import Nsp as _Nsp, Xci as _Xci
-from nsz.nut import Keys, Print as _nsz_print
+from nsz.nut import Print as _nsz_print
 from nsz.Decompressor import VerificationException
 
 # nsz's in-memory NCZ->NCA reconstruction (returns the reconstructed NCA's sha256).
@@ -62,12 +62,10 @@ def _with_progress(run, progress, base, span):
 
 
 def _ensure_keys():
-    """nsz reads decryption keys from the module-global Keys state."""
-    if not Keys.keys_loaded:
-        from settings import load_keys
-        load_keys()
-    if not Keys.keys_loaded:
-        raise RuntimeError('Cannot compress: no valid keys loaded.')
+    # Imported lazily: settings pulls in the whole config stack, which this module must not
+    # require at import time.
+    from settings import ensure_keys
+    ensure_keys('compress')
 
 
 def compressed_path(source):

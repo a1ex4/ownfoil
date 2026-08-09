@@ -30,9 +30,11 @@ DEFAULT_COMPRESSION = {
 }
 
 
-def _settings(compress_files=True, organizer=False, delete_older=False, group_limits=None):
+def _settings(compress_files=True, organizer=False, delete_older=False, group_limits=None,
+              verify=False, depth="signature"):
     s = {"library": {"management": {
         "compression": {**DEFAULT_COMPRESSION, "enabled": compress_files},
+        "verification": {"enabled": verify, "depth": depth},
         "delete_older_updates": delete_older,
         "organizer": {"enabled": organizer, "remove_empty_folders": False},
     }}}

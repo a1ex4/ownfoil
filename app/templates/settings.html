@@ -287,6 +287,41 @@
                     </div>
                 </div>
 
+                <h4 class="py-2">File verification</h4>
+                <p>Check that files are intact and untampered with. Requires valid console keys.</p>
+                <div class="row">
+                    <div class="col-7">
+                        <div class="mb-3 form-check">
+                            <input type="checkbox" class="form-check-input" id="verifyFilesCheck">
+                            <label class="form-check-label" for="verifyFilesCheck">Verify files</label>
+                            <div class="form-text">Files are verified after identification, before they are organized
+                                and compressed. A file whose contents fail the hash check is never compressed. A failed
+                                signature is recorded but does not block anything &mdash; a re-signed repack is common
+                                and its contents can still be intact.</div>
+                        </div>
+                        <div class="mb-3">
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="verificationDepth"
+                                       id="verificationDepthSignature" value="signature">
+                                <label class="form-check-label" for="verificationDepthSignature">Signature only</label>
+                                <div class="form-text">Fast. Checks that the container decrypts and that every
+                                    <code>NCA</code> header signature is Nintendo's.</div>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="verificationDepth"
+                                       id="verificationDepthHash" value="hash">
+                                <label class="form-check-label" for="verificationDepthHash">Full hash</label>
+                                <div class="form-text">Slow. Also hashes every byte of every <code>NCA</code> and
+                                    compares it against what the file claims. <code>NSZ</code>/<code>XCZ</code> are
+                                    decompressed in memory to do it.</div>
+                            </div>
+                        </div>
+                        <div class="alert alert-warning d-none" id="verificationKeysAlert" role="alert">
+                            Verification is disabled: no valid console keys are loaded.
+                        </div>
+                    </div>
+                </div>
+
                 <h4 class="py-2">Organizer</h4>
                 <p>Keep your library organized.</p>
                 <div class="row">
@@ -697,6 +732,11 @@
     }
 
     function updateKeysElements(titlesSettings) {
+        // Verification cannot run without keys: nstools needs them to open a container.
+        const validKeys = Boolean(titlesSettings['valid_keys']);
+        $('#verifyFilesCheck, #verificationDepthSignature, #verificationDepthHash').prop('disabled', !validKeys);
+        $('#verificationKeysAlert').toggleClass('d-none', validKeys);
+
         // Keys alert
         if (titlesSettings['valid_keys']) {
             $('#consoleKeysFeedback').text("Keys are valid!");
@@ -1179,6 +1219,10 @@
                 block_size_exponent: parseInt(getInputVal("compressBlockSizeInput")),
                 threads: parseInt(getInputVal("compressThreadsInput"))
             },
+            verification: {
+                enabled: getCheckboxStatus("verifyFilesCheck"),
+                depth: $("input[name='verificationDepth']:checked").val() || "signature"
+            },
             delete_older_updates: getCheckboxStatus("deleteOlderUpdatesCheck"),
             organizer: {
                 enabled: getCheckboxStatus("organizerEnabledCheck"),
@@ -1342,6 +1386,9 @@
             setInputVal("compressModeSelect", compression['mode']);
             setInputVal("compressBlockSizeInput", compression['block_size_exponent']);
             setInputVal("compressThreadsInput", compression['threads']);
+            const verification = librarySettings['management']['verification'];
+            $("#verifyFilesCheck").prop("checked", verification['enabled']);
+            $("input[name='verificationDepth'][value='" + verification['depth'] + "']").prop("checked", true);
             $("#deleteOlderUpdatesCheck").prop("checked", librarySettings['management']['delete_older_updates']);
             $("#organizerEnabledCheck").prop("checked", librarySettings['management']['organizer']['enabled']);
             $("#removeEmptyFoldersCheck").prop("checked", librarySettings['management']['organizer']['remove_empty_folders']);

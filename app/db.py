@@ -143,6 +143,12 @@ class Files(db.Model):
     identification_attempts = db.Column(db.Integer, default=0)
     last_attempt = db.Column(db.DateTime, default=datetime.datetime.now())
     organized = db.Column(db.Boolean, default=False)
+    # NULL on both means the level was never attempted — the tri-state matters, because
+    # "not checked" is not "checked and fine".
+    signature_valid = db.Column(db.Boolean)
+    hash_valid = db.Column(db.Boolean)
+    verification_error = db.Column(db.String)
+    verified_at = db.Column(db.DateTime)
     mtime = db.Column(db.Float)
     # When ownfoil first saw the file. Distinct from mtime, which a re-organize or a
     # copy rewrites - only this one can answer "recently added".
@@ -361,7 +367,9 @@ def init_db(app):
                 logger.info('Checking database migration...')
                 if is_migration_needed():
                     create_db_backup()
-                    upgrade()
+                    # Explicit directory: flask_migrate defaults to a CWD-relative
+                    # 'migrations', which is not where it is when run from the repo root.
+                    upgrade(directory=ALEMBIC_DIR)
                     logger.info("Database migration applied successfully.")
 
 def file_exists_in_db(filepath):
@@ -541,6 +549,13 @@ def reset_file_identification(file):
     file.identification_attempts = 0
     file.nb_content = 0
     file.multicontent = False
+
+def reset_file_verification(file):
+    """Clear verification state on a Files row: the verdicts described the old bytes."""
+    file.signature_valid = None
+    file.hash_valid = None
+    file.verification_error = None
+    file.verified_at = None
 
 def remove_file_from_apps(file_id):
     """Remove a file from all apps that reference it and update owned status"""

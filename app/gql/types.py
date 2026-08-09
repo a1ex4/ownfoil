@@ -215,6 +215,21 @@ class File:
     organized: bool = desc(
         "The file sits where the configured naming template says it should. False "
         "means a re-organize would move or rename it.", default=False)
+    signature_valid: Optional[bool] = desc(
+        "Whether every NCA header signature checked out, and the container decrypted "
+        "with the configured keys. This is a provenance check, not an integrity one: "
+        "`false` means re-signed, which a repack commonly is, and says nothing about "
+        "whether the contents are intact. Null means never verified.", default=None)
+    hash_valid: Optional[bool] = desc(
+        "Whether every NCA's content hashed to what its name and CNMT claim - the "
+        "actual integrity verdict, and the one that blocks compression. Null unless "
+        "verification ran at `hash` depth, which reads the whole file.", default=None)
+    verification_error: Optional[str] = desc(
+        "What verification objected to, if anything. Null when the file passed or was "
+        "never checked.", default=None)
+    verified_at: Optional[str] = desc(
+        "When verification last ran. The verdicts describe the bytes as of then; a "
+        "change on disk clears all four fields.", default=None)
     mtime: Optional[float] = desc(
         "Filesystem modification time, Unix epoch seconds. Rewritten by a copy or a "
         "re-organize, so it is not a reliable 'when did I get this'.", default=None)

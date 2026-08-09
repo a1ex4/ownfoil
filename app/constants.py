@@ -36,6 +36,11 @@ DEFAULT_SETTINGS = {
                 "block_size_exponent": 20,
                 "threads": 0,
             },
+            "verification": {
+                "enabled": False,
+                # 'signature' (fast: header RSA-PSS) or 'hash' (reads every byte).
+                "depth": "signature",
+            },
             "delete_older_updates": False,
             "organizer": {
                 "enabled": False,

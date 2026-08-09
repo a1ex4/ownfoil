@@ -30,7 +30,9 @@ SELECT * FROM
      FROM apps),
   (SELECT COUNT(*), COALESCE(MAX(id), 0), COALESCE(SUM(organized), 0),
           COALESCE(SUM(identified), 0), COALESCE(SUM(identification_attempts), 0),
-          COALESCE(SUM(download_count), 0)
+          COALESCE(SUM(download_count), 0),
+          COUNT(signature_valid), COALESCE(SUM(signature_valid), 0),
+          COUNT(hash_valid), COALESCE(SUM(hash_valid), 0)
      FROM files),
   (SELECT COUNT(*), COALESCE(MAX(id), 0), COALESCE(SUM(completion_pct), 0)
      FROM tasks)
