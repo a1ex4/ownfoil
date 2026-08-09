@@ -60,7 +60,7 @@ class Mutation:
     def enqueue_task(
         self, info: Info,
         name: Annotated[str, strawberry.argument(
-            description="A registered task name, e.g. `identify_library`. An "
+            description="A registered task name, e.g. `process_library`. An "
                         "unknown name is refused.")],
         input: Annotated[Optional[str], strawberry.argument(
             description="The task's arguments as a JSON object string. Omit for a "
@@ -178,7 +178,7 @@ class Mutation:
         ok, err = titledb.store.set_override(str(title_id), payload)
         if not ok:
             raise MutationFailed(err)
-        tasks_mod.enqueue_task('identify_library')
+        tasks_mod.enqueue_task('process_library')
         return resolve_title(str(title_id), info.context, info)
 
     @described_mutation

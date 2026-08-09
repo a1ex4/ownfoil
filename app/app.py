@@ -386,7 +386,7 @@ def set_library_watcher_settings_api():
 def set_library_management_settings_api():
     data = request.json
     set_library_management_settings(data)
-    tasks_mod.enqueue_task('organize_library')
+    tasks_mod.enqueue_task('process_library')
     resp = {
         'success': True,
         'errors': []
@@ -458,7 +458,7 @@ def upload_file():
             logger.info(f'Validating {file.filename}...')
             valid_keys, missing_keys, corrupt_keys = load_keys(KEYS_FILE)
             if valid_keys:
-                tasks_mod.enqueue_task('identify_library')
+                tasks_mod.enqueue_task('process_library')
             else:
                 logger.warning(f'Invalid keys from {file.filename}')
             success = True

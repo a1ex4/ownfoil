@@ -427,14 +427,6 @@ def get_all_apps():
     ]
     return apps_list
 
-def get_all_non_identified_files_from_library(library_id):
-    return Files.query.filter_by(
-        identified=False, library_id=library_id, identification_attempts=0
-    ).all()
-
-def get_files_with_identification_from_library(library_id, identification_type):
-    return Files.query.filter_by(library_id=library_id, identification_type=identification_type).all()
-
 def get_filtered_files(content_filter=None) -> list:
     """Get files from database with optional content type filtering."""
 

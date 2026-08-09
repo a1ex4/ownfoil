@@ -4,6 +4,7 @@ import json
 import datetime
 import logging
 import os
+from collections import namedtuple
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 import titles as titles_lib
 import titledb
@@ -21,7 +22,7 @@ from db import (
 from settings import get_settings
 from utils import interval_string_to_timedelta, delete_empty_folders, human_size
 from library import (
-    get_files_to_identify, add_missing_apps_for_title, update_title_flags,
+    add_missing_apps_for_title, update_title_flags,
     add_missing_apps_to_db, update_titles, organize_file,
     remove_outdated_update_files,
 )
@@ -472,7 +473,10 @@ def get_task(task_id):
 
 @register_task('startup')
 def startup_task(**kwargs):
-    """Startup task: cleanup and kick off periodic titledb update."""
+    """Startup task: resume interrupted per-file work, then kick off the titledb update."""
+    # Enqueued here rather than only from update_titledb_task, whose network fetch can fail:
+    # recovery of an interrupted pipeline must not wait for the next scheduled titledb run.
+    enqueue_task('process_library')
     update_titledb_task()
     scan_libraries_task()
 
@@ -481,7 +485,7 @@ def startup_task(**kwargs):
 def update_titledb_task(**kwargs):
     settings = get_settings()
     titledb.update_titledb(settings)
-    enqueue_task('organize_library')
+    enqueue_task('process_library')
     add_missing_apps_to_db()
     update_titles()
     # Re-enqueue for next scheduled run
@@ -525,7 +529,7 @@ def scan_library_task(library_path, **kwargs):
     for fp in new_files:
         new_file = _insert_file(library_path, library_id, fp)
         if new_file is not None:
-            enqueue_or_child('identify_file', {'filepath': fp, 'file_id': new_file.id})
+            enqueue_or_child('process_file', {'file_id': new_file.id})
             enqueued += 1
 
     if enqueued:
@@ -562,49 +566,29 @@ def add_file_task(library_path, filepath, **kwargs):
     if new_file is None:
         raise ValueError(f'Failed to add file: {filepath}')
 
-    enqueue_or_child('identify_file', {'filepath': filepath, 'file_id': new_file.id})
-    set_waiting_for_children()
+    enqueue_task('process_file', {'file_id': new_file.id})
 
 
-# --- Identify pipeline ---
-@register_task('identify_library')
-def identify_library_task(**kwargs):
-    """Identify all unidentified files across every library."""
-    logger.info("Starting library identification process ...")
-    files_to_identify = [f for lib in get_libraries() for f in get_files_to_identify(lib.id)]
-
-    if not files_to_identify:
-        logger.info('No files to identify.')
-        _identify_library_done()
-        return
-
-    for f in files_to_identify:
-        enqueue_or_child('identify_file', {'filepath': f.filepath, 'file_id': f.id})
-    set_waiting_for_children()
+# --- Per-file pipeline ---
+#
+# Every stage a file can need, in the order it needs them. A stage either runs inline in
+# the driver (`run`) or is delegated to a registered task (`task`) that re-drives the file
+# when it finishes — delegation is what buys a concurrency group, a cancel hook and a
+# progress bar, so it is reserved for the stages that want them.
+Stage = namedtuple('Stage', 'name applies run task')
 
 
-@register_continuation('identify_library')
-def _identify_library_done(**kwargs):
-    # Per-file work already handled add_missing + update_titles per touched title;
-    # final pass GCs unowned titles and recomputes flags.
-    enqueue_task('update_titles')
+def _needs_identify(file, mgmt):
+    """The per-file form of library.get_files_to_identify."""
+    if not file.identified and not file.identification_attempts:
+        return True
+    return bool(titles_lib.Keys.keys_loaded) and file.identification_type == 'filename'
 
 
-@register_task('identify_file')
-def identify_file_task(filepath, file_id, **kwargs):
-    """Identify a single file, upsert its Apps/Titles, then enqueue add_missing_apps_for_title."""
+def _identify(file, mgmt):
+    """Identify one file and upsert its Apps/Titles."""
     identified_title_ids = []
-
-    file = db.session.get(Files, file_id)
-    if not file:
-        return
-    if not os.path.exists(filepath):
-        logger.warning(f'File {file.filename} no longer exists, deleting from database.')
-        Files.query.filter_by(id=file_id).delete(synchronize_session=False)
-        db.session.commit()
-        return
-    # ensure Keys loaded status
-    get_settings()
+    filepath = file.filepath
     logger.info(f'Identifying file: {file.filename}')
     identification, success, file_contents, error = titles_lib.identify_file(filepath)
 
@@ -633,7 +617,7 @@ def identify_file_task(filepath, file_id, **kwargs):
             db.session.execute(stmt)
             db.session.commit()
 
-            add_file_to_app(file_content["app_id"], file_content["version"], file_id)
+            add_file_to_app(file_content["app_id"], file_content["version"], file.id)
             nb_content += 1
 
         if nb_content > 1:
@@ -651,21 +635,102 @@ def identify_file_task(filepath, file_id, **kwargs):
     file.last_attempt = datetime.datetime.now()
     db.session.commit()
 
-    if identified_title_ids:
-        for title_id in identified_title_ids:
-            enqueue_or_child('add_missing_apps_for_title', {'title_id': title_id})
+    # Top-level, not a child: the driver stays a leaf, so a scan is not held open by the
+    # per-title expansion and cancelling one does not cancel the other.
+    for title_id in identified_title_ids:
+        enqueue_task('add_missing_apps_for_title', {'title_id': title_id})
 
+
+def _needs_organize(file, mgmt):
+    return mgmt['organizer']['enabled'] and file.identified and not file.organized
+
+
+def _organize(file, mgmt):
+    """Place one file under the organizer templates, holding the path claim across the move."""
+    claimed = file.filepath
+    if not claim_temp_file(claimed):
+        return
+    library_path = get_library_path(file.library_id)
+    try:
+        if organize_file(file, library_path, mgmt['organizer']):
+            file.organized = True
+            db.session.commit()
+    finally:
+        remove_temp_file(claimed)
+    enqueue_task('library_maintenance', {'library_path': library_path})
+
+
+def _needs_compress(file, mgmt):
+    if not mgmt['compression']['enabled'] or file.compressed or file.extension not in COMPRESS_EXT:
+        return False
+    target = compression.conversion_target(file)
+    return Files.query.filter(Files.filepath == target, Files.id != file.id).first() is None
+
+
+STAGES = [
+    Stage('identify', _needs_identify, _identify, None),
+    Stage('organize', _needs_organize, _organize, None),
+    Stage('compress', _needs_compress, None, 'compress_file'),
+]
+
+
+@register_task('process_file')
+def process_file_task(file_id, **kwargs):
+    """Drive one file down the stage list: inline stages here, delegated stages by task."""
+    done = set()
+    while True:
+        file = db.session.get(Files, file_id)
+        if file is None:
+            return
+        if not os.path.exists(file.filepath):
+            logger.warning(f'File {file.filename} no longer exists, deleting from database.')
+            remove_file_from_apps(file_id)
+            Files.query.filter_by(id=file_id).delete(synchronize_session=False)
+            db.session.commit()
+            return
         mgmt = get_settings()['library']['management']
-        if mgmt['organizer']['enabled']:
-            # Organizer runs first; it enqueues compression after the file is in place.
-            enqueue_or_child('organize_file', {'file_id': file_id})
-        elif mgmt['compression']['enabled'] and not file.compressed:
-            enqueue_task('compress_file', {'file_id': file_id})
+        # `done` and not a plain break: a stage is not guaranteed to flip its own applies()
+        # - organize_file gives up on a file with no app or no title info, and the claim can
+        # be held elsewhere - and re-picking it would spin the worker forever.
+        stage = next((s for s in STAGES if s.name not in done and s.applies(file, mgmt)), None)
+        if stage is None:
+            return
+        done.add(stage.name)
+        if stage.task:
+            enqueue_task(stage.task, {'file_id': file_id})
+            return
+        stage.run(file, mgmt)
 
+
+@register_task('process_library')
+def process_library_task(**kwargs):
+    """Drive every file that still has pipeline work."""
+    mgmt = get_settings()['library']['management']
+    files = [f for f in Files.query.all() if any(s.applies(f, mgmt) for s in STAGES)]
+    logger.info(f'Processing library: {len(files)} file(s) with pending work.')
+    for f in files:
+        enqueue_or_child('process_file', {'file_id': f.id})
+    if files:
         set_waiting_for_children()
-    elif get_settings()['library']['management']['compression']['enabled'] and not file.compressed:
-        # Unidentified files are still compressed.
-        enqueue_task('compress_file', {'file_id': file_id})
+
+
+@register_continuation('process_library')
+def _process_library_done(**kwargs):
+    enqueue_task('library_maintenance')
+    enqueue_task('update_titles')
+
+
+@register_task('library_maintenance')
+def library_maintenance_task(library_path=None, **kwargs):
+    """Post-organization GC: prune empty folders and outdated updates."""
+    settings = get_settings()
+    organizer = settings['library']['management']['organizer']
+    if organizer.get('enabled') and organizer.get('remove_empty_folders'):
+        paths = [library_path] if library_path else [lib.path for lib in get_libraries()]
+        for path in paths:
+            delete_empty_folders(path)
+    if settings['library']['management']['delete_older_updates']:
+        enqueue_task('remove_outdated_updates')
 
 
 @register_task('add_missing_apps_for_title')
@@ -680,64 +745,6 @@ def add_missing_apps_for_title_task(title_id, **kwargs):
 def update_titles_for_title_task(title_id, **kwargs):
     """Per-title: recompute have_base / up_to_date / complete under BEGIN IMMEDIATE."""
     update_title_flags(title_id)
-
-
-# --- Organize pipeline ---
-@register_task('organize_library')
-def organize_library_task(**kwargs):
-    """Organize all identified files, creating a child task per file."""
-    app_settings = get_settings()
-    organizer_settings = app_settings['library']['management']['organizer']
-
-    if not organizer_settings['enabled']:
-        _organize_library_done()
-        return
-
-    files = Files.query.filter_by(identified=True, organized=False).all()
-    if not files:
-        logger.info('No files to organize.')
-        _organize_library_done()
-        return
-    for f in files:
-        enqueue_or_child('organize_file', {'file_id': f.id})
-    set_waiting_for_children()
-
-
-@register_task('organize_library_done')
-@register_continuation('organize_library')
-def _organize_library_done(library_path=None, **kwargs):
-    settings = get_settings()
-    organizer_settings = settings['library']['management']['organizer']
-    if organizer_settings.get('enabled') and organizer_settings.get('remove_empty_folders'):
-        paths = [library_path] if library_path else [lib.path for lib in get_libraries()]
-        for path in paths:
-            delete_empty_folders(path)
-    if settings['library']['management']['delete_older_updates']:
-        enqueue_task('remove_outdated_updates')
-    if settings['library']['management']['compression']['enabled']:
-        enqueue_task('compress_library')
-
-
-@register_task('organize_file')
-def organize_file_task(file_id, **kwargs):
-    """Organize a single file."""
-    file_obj = db.session.get(Files, file_id)
-    if not file_obj:
-        return
-    claimed = file_obj.filepath
-    if not claim_temp_file(claimed):
-        return
-    library_path = get_library_path(file_obj.library_id)
-    organizer_settings = get_settings()['library']['management']['organizer']
-    try:
-        if organize_file(file_obj, library_path, organizer_settings):
-            file_obj.organized = True
-            db.session.commit()
-    finally:
-        remove_temp_file(claimed)
-    if get_settings()['library']['management']['compression']['enabled'] and not file_obj.compressed:
-        enqueue_task('compress_file', {'file_id': file_id})
-    enqueue_task('organize_library_done', {'library_path': library_path})
 
 
 @register_task('remove_outdated_updates')
@@ -763,16 +770,18 @@ def _finalize_conversion(file_obj, target, new_extension, compressed):
 
 
 def _convert_file(file_obj, produce, new_extension, compressed):
-    """Run a (de)compression: produce the verified output at its final path, then finalize."""
+    """Run a (de)compression: produce the verified output at its final path, then finalize.
+    Returns whether the row was flipped onto the new file - a caller that re-drives the
+    pipeline must not do so after a no-op, or it delegates the same stage forever."""
     source = file_obj.filepath
     target = compression.conversion_target(file_obj)
     if Files.query.filter(Files.filepath == target, Files.id != file_obj.id).first() is not None:
         logger.warning(f'Skipping conversion of {os.path.basename(source)}: '
                        f'{os.path.basename(target)} is already in the library.')
-        return
+        return False
     if not claim_temp_file(source):
         logger.debug(f'Skipping conversion of {os.path.basename(source)}: file is busy.')
-        return
+        return False
     before = file_obj.size
     add_temp_file(target)
     try:
@@ -786,30 +795,7 @@ def _convert_file(file_obj, produce, new_extension, compressed):
     verb = 'compressing' if compressed else 'decompressing'
     logger.info(f'Finished {verb} {os.path.basename(target)}: '
                 f'{human_size(before)} -> {human_size(after)} (ratio {ratio:.1%})')
-
-
-@register_task('compress_library')
-def compress_library_task(**kwargs):
-    """Compress every uncompressed game file, one child task per file."""
-    mgmt = get_settings()['library']['management']
-    if not mgmt['compression']['enabled']:
-        return
-    query = Files.query.filter(
-        Files.compressed.is_(False),
-        Files.extension.in_(list(COMPRESS_EXT.keys())),
-    )
-    if mgmt['organizer']['enabled']:
-        # Files still awaiting organization are compressed by organize_file once placed;
-        # don't sweep them here before they've been organized.
-        query = query.filter(~(Files.identified.is_(True) & Files.organized.is_(False)))
-    files = query.all()
-    logger.info(f'Compressing library: {len(files)} file(s) to compress.')
-    enqueued = 0
-    for f in files:
-        enqueue_or_child('compress_file', {'file_id': f.id})
-        enqueued += 1
-    if enqueued:
-        set_waiting_for_children()
+    return True
 
 
 @register_task('compress_file', group='io')
@@ -820,20 +806,13 @@ def compress_file_task(file_id, **kwargs):
         return
     if not os.path.exists(file_obj.filepath):
         return
-    mgmt = get_settings()['library']['management']
-    if mgmt['organizer']['enabled'] and file_obj.identified and not file_obj.organized:
-        # Must be organized first; organize_file re-triggers compression once placed.
-        return
     logger.info(f'Compressing file: {file_obj.filename}')
-    opts = mgmt['compression']
+    opts = get_settings()['library']['management']['compression']
     progress = _task_progress(_current_task_id)
-    _convert_file(file_obj,
-                  lambda source, out_dir: compression.compress_to(source, out_dir, opts, progress=progress),
-                  COMPRESS_EXT[file_obj.extension], True)
-    # If compression ran ahead of organization (it started before the file was identified),
-    # hand the now-placed file back to the organizer, which deferred while we held the claim.
-    if mgmt['organizer']['enabled'] and file_obj.identified and file_obj.compressed and not file_obj.organized:
-        enqueue_task('organize_file', {'file_id': file_id})
+    if _convert_file(file_obj,
+                     lambda source, out_dir: compression.compress_to(source, out_dir, opts, progress=progress),
+                     COMPRESS_EXT[file_obj.extension], True):
+        enqueue_task('process_file', {'file_id': file_id})
 
 
 @register_task('decompress_file', group='io')
@@ -845,6 +824,8 @@ def decompress_file_task(file_id, **kwargs):
     if not os.path.exists(file_obj.filepath):
         return
     progress = _task_progress(_current_task_id)
+    # No re-drive: the pipeline's compress stage would immediately undo what the user asked
+    # for. The next process_library sweep still re-compresses it, as compress_library did.
     _convert_file(file_obj,
                   lambda source, out_dir: compression.decompress_to(source, out_dir, progress=progress),
                   DECOMPRESS_EXT[file_obj.extension], False)
@@ -922,7 +903,7 @@ def handle_file_added_task(library_path, filepath, **kwargs):
     file.organized = False
     reset_file_identification(file)
     db.session.commit()
-    enqueue_task('identify_file', {'filepath': filepath, 'file_id': file.id})
+    enqueue_task('process_file', {'file_id': file.id})
 
 
 @register_task('handle_file_moved')

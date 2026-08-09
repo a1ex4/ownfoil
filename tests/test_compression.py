@@ -287,21 +287,6 @@ def test_compress_file_missing_source_noop(env):
     tasks.compress_file_task(file_id=f.id)  # returns cleanly, does not call nsz
 
 
-def test_organize_file_skips_compress_when_already_compressed(env):
-    """organize_file only enqueues compress_file for an uncompressed file."""
-    enqueued = []
-    env.monkeypatch.setattr(tasks, "organize_file", lambda *a, **k: False)
-    env.monkeypatch.setattr(tasks, "enqueue_task", lambda name, data=None: enqueued.append(name))
-
-    already = env.seed("Game.nsz", compressed=True)
-    tasks.organize_file_task(file_id=already.id)
-    assert "compress_file" not in enqueued
-
-    raw = env.seed("Other.nsp")
-    tasks.organize_file_task(file_id=raw.id)
-    assert "compress_file" in enqueued
-
-
 def test_compress_file_skips_when_target_row_exists(env):
     """A duplicate whose compressed target is already a library file is skipped, not compressed
     into a UNIQUE(filepath) collision at finalize."""
@@ -319,26 +304,14 @@ def test_compress_file_skips_when_target_row_exists(env):
     assert db.session.get(Files, other_id) is not None         # existing row intact
 
 
-def test_compress_file_defers_unorganized(env):
-    """With the organizer on, an identified-but-unorganized file must not be compressed;
-    organize_file re-triggers compression once the file is placed."""
-    env.monkeypatch.setattr(tasks, "get_settings", lambda: _settings(organizer=True))
-    env.monkeypatch.setattr(compression, "compress_to", lambda *a, **k: 1 / 0)
-    f = env.seed("Game.nsp")           # organized defaults to False
-    source, fid = f.filepath, f.id
-
-    tasks.compress_file_task(file_id=fid)  # returns without invoking nsz
-
-    f = db.session.get(Files, fid)
-    assert f.compressed is False and f.filepath == source and f.extension == "nsp"
-
-
-def test_compress_file_compresses_organized(env):
-    """The same file, once organized, is compressed even with the organizer on."""
+@pytest.mark.parametrize("organized", [True, False])
+def test_compress_file_ignores_organization_state(env, organized):
+    """compress_file no longer defers to the organizer: ordering is the driver's job, and a
+    deferring guard would make the compressFile mutation a silent no-op on a placed file."""
     env.monkeypatch.setattr(tasks, "get_settings", lambda: _settings(organizer=True))
     env.monkeypatch.setattr(compression, "compress_to", _stub_produce())
     f = env.seed("Game.nsp")
-    f.organized = True
+    f.organized = organized
     db.session.commit()
     fid = f.id
 
@@ -365,51 +338,49 @@ def test_compress_file_defers_while_source_is_busy(env):
     assert f.compressed is False and f.filepath == source and f.extension == "nsp"
 
 
-def test_organize_file_defers_while_source_is_being_converted(env):
+def test_organize_stage_defers_while_source_is_being_converted(env):
     """The organizer must not move a file a conversion holds: it neither relocates the file
-    nor enqueues anything while the claim is held (the conversion re-triggers it when done)."""
+    nor enqueues anything while the claim is held (the next sweep re-drives it)."""
     from db import claim_temp_file
     moved, enqueued = [], []
+    env.monkeypatch.setattr(tasks, "get_settings",
+                            lambda: _settings(organizer=True, compress_files=False))
     env.monkeypatch.setattr(tasks, "organize_file", lambda *a, **k: moved.append(1) or True)
     env.monkeypatch.setattr(tasks, "enqueue_task", lambda name, data=None, **k: enqueued.append(name))
     f = env.seed("Game.nsp")
     fid = f.id
     assert claim_temp_file(f.filepath)   # a conversion holds the source
 
-    tasks.organize_file_task(file_id=fid)
+    tasks.process_file_task(file_id=fid)
 
     assert moved == [] and enqueued == []          # file left in place, nothing scheduled
     assert db.session.get(Files, fid).organized is False
 
 
-def test_compress_hands_back_to_organizer_after_winning_race(env):
-    """When compression finishes on a file that became identified mid-run (it started before
-    identification landed, so the organizer had nothing to place yet), it re-enqueues
-    organize_file so the placed file still gets organized."""
-    env.monkeypatch.setattr(tasks, "get_settings", lambda: _settings(organizer=True))
+def test_compress_file_redrives_only_when_it_advanced(env):
+    """The re-drive is conditional on the conversion actually happening: re-driving after a
+    silent drop would delegate the same stage forever."""
+    from db import claim_temp_file
     enqueued = []
     env.monkeypatch.setattr(tasks, "enqueue_task", lambda name, data=None, **k: enqueued.append(name))
-    f = env.seed("Game.nsp", identified=False)   # guard passes (not identified) -> compression runs
-    fid = f.id
+    env.monkeypatch.setattr(compression, "compress_to", _stub_produce())
 
-    stub = _stub_produce()
-    def produce_then_identify(source, out_dir, *a, **k):
-        obj = db.session.get(Files, fid)         # a concurrent identify lands while compressing
-        obj.identified = True
-        db.session.commit()
-        return stub(source, out_dir)
-    env.monkeypatch.setattr(compression, "compress_to", produce_then_identify)
+    done = env.seed("Game.nsp")
+    tasks.compress_file_task(file_id=done.id)
+    assert enqueued == ["process_file"]
 
-    tasks.compress_file_task(file_id=fid)
-
-    f = db.session.get(Files, fid)
-    assert f.compressed is True and f.organized is False
-    assert "organize_file" in enqueued           # handed back to the organizer
+    enqueued.clear()
+    busy = env.seed("Other.nsp")
+    assert claim_temp_file(busy.filepath)      # another task holds it: conversion drops
+    tasks.compress_file_task(file_id=busy.id)
+    assert enqueued == []
 
 
 # --- decompress_file ---------------------------------------------------------------------
 
 def test_decompress_file_success(env):
+    enqueued = []
+    env.monkeypatch.setattr(tasks, "enqueue_task", lambda name, data=None, **k: enqueued.append(name))
     env.monkeypatch.setattr(compression, "decompress_to", _stub_produce(b"RAWAGAIN"))
     f = env.seed("Game.nsz", compressed=True)
     source, fid = f.filepath, f.id
@@ -420,6 +391,7 @@ def test_decompress_file_success(env):
     target = source.rsplit(".", 1)[0] + ".nsp"
     assert f.compressed is False and f.extension == "nsp" and f.filepath == target
     assert os.path.exists(target) and not os.path.exists(source)
+    assert enqueued == []   # no re-drive: the compress stage would undo this immediately
 
 
 # --- cleanup hook & startup purge --------------------------------------------------------
@@ -447,10 +419,10 @@ def test_cleanup_clears_pending_and_fails_running(env):
         return t
 
     task("compress_file", "pending")
-    task("organize_library", "pending")   # library-level leftover that would re-spawn compression
+    task("process_library", "pending")    # library-level leftover that would re-spawn per-file work
     task("identify_file", "pending")
     running = task("compress_file", "running")
-    waiting = task("organize_library", "waiting_for_children")
+    waiting = task("process_library", "waiting_for_children")
     db.session.commit()
     running_id, waiting_id = running.id, waiting.id
 
@@ -560,7 +532,7 @@ def test_blocked_task_names(env):
     assert tasks.blocked_task_names([]) == set()
     blocked = tasks.blocked_task_names(["compress_file"])
     assert {"compress_file", "decompress_file"} <= blocked   # whole io group blocked
-    assert "organize_file" not in blocked                    # ungrouped stays claimable
+    assert "process_file" not in blocked                     # ungrouped stays claimable
     # No limits configured -> nothing is blocked.
     env.monkeypatch.setattr(tasks, "get_settings", lambda: _settings())
     assert tasks.blocked_task_names(["compress_file"]) == set()
@@ -577,7 +549,7 @@ def test_claim_task_respects_group_cap(env):
                    input_hash="r", created_at=base)
     io_pending = Task(task_name="compress_file", status="pending",
                       input_hash="a", created_at=base + datetime.timedelta(seconds=1))
-    light_pending = Task(task_name="organize_file", status="pending",
+    light_pending = Task(task_name="process_file", status="pending",
                          input_hash="b", created_at=base + datetime.timedelta(seconds=2))
     db.session.add_all([running, io_pending, light_pending])
     db.session.commit()
@@ -646,61 +618,136 @@ def test_scan_and_watcher_skip_in_progress(env):
     assert is_temp_file(target) is True
 
 
-# --- compress_library fan-out ------------------------------------------------------------
+# --- process_library sweep -----------------------------------------------------------------
 
-def test_compress_library_selects_eligible(env):
+def _sweep(env, **settings):
+    """Run process_library with its fan-out captured, returning the file_ids it drove."""
     enqueued = []
+    if settings:
+        env.monkeypatch.setattr(tasks, "get_settings", lambda: _settings(**settings))
     env.monkeypatch.setattr(tasks, "enqueue_or_child",
                             lambda name, data=None: enqueued.append((name, data["file_id"])))
     env.monkeypatch.setattr(tasks, "set_waiting_for_children", lambda: None)
+    tasks.process_library_task()
+    assert all(name == "process_file" for name, _ in enqueued)
+    return sorted(fid for _, fid in enqueued)
 
+
+def test_process_library_selects_files_with_pending_work(env):
     ok1 = env.seed("A.nsp")
     ok2 = env.seed("B.xci")
     ok3 = env.seed("D.nsp", identified=False)  # unidentified files are compressed too
-    env.seed("C.nsz", compressed=True)         # already compressed: excluded
+    env.seed("C.nsz", compressed=True)         # nothing left to do: excluded
 
-    tasks.compress_library_task()
-
-    assert sorted(fid for _, fid in enqueued) == sorted([ok1.id, ok2.id, ok3.id])
-    assert all(name == "compress_file" for name, _ in enqueued)
+    assert _sweep(env) == sorted([ok1.id, ok2.id, ok3.id])
 
 
-def test_compress_library_excludes_awaiting_organization(env):
-    """With the organizer on, files still awaiting organization are skipped by the sweep;
-    organized files and unorganizable (unidentified) files stay eligible."""
-    enqueued = []
-    env.monkeypatch.setattr(tasks, "get_settings", lambda: _settings(organizer=True))
-    env.monkeypatch.setattr(tasks, "enqueue_or_child",
-                            lambda name, data=None: enqueued.append(data["file_id"]))
-    env.monkeypatch.setattr(tasks, "set_waiting_for_children", lambda: None)
-
+def test_process_library_includes_files_awaiting_organization(env):
+    """The inverse of the old compress_library rule: a file that still needs organizing is
+    swept in, because the driver organizes it before it delegates compression."""
     organized = env.seed("A.nsp")
     organized.organized = True
-    unidentified = env.seed("D.nsp", identified=False)  # organizer can't place it
-    env.seed("B.xci")  # identified, not organized: deferred
+    unidentified = env.seed("D.nsp", identified=False)
+    awaiting = env.seed("B.xci")   # identified, not organized
     db.session.commit()
 
-    tasks.compress_library_task()
-
-    assert sorted(enqueued) == sorted([organized.id, unidentified.id])
+    assert _sweep(env, organizer=True) == sorted([organized.id, unidentified.id, awaiting.id])
 
 
-def test_compress_library_disabled_noop(env):
-    env.monkeypatch.setattr(tasks, "get_settings", lambda: _settings(compress_files=False))
-    env.monkeypatch.setattr(tasks, "enqueue_or_child",
-                            lambda *a, **k: pytest.fail("should not enqueue"))
-    env.seed("A.nsp")
-    tasks.compress_library_task()
+def test_process_library_skips_a_settled_library(env):
+    """With every stage disabled or satisfied the sweep enqueues nothing at all."""
+    f = env.seed("C.nsz", compressed=True)
+    f.organized = True
+    db.session.commit()
+    env.seed("A.nsp")   # only the compress stage would apply, and it is off
+
+    assert _sweep(env, compress_files=False) == []
 
 
-# --- pipeline wiring ---------------------------------------------------------------------
+# --- process_file driver -------------------------------------------------------------------
+
+def test_process_file_runs_inline_stages_then_delegates(env):
+    """One call identifies, organizes, and hands compression off to its own task — in that
+    order, and without a hop through the queue between the inline stages."""
+    enqueued = []
+    env.monkeypatch.setattr(tasks, "get_settings", lambda: _settings(organizer=True))
+    env.monkeypatch.setattr(tasks.titles_lib, "identify_file", lambda fp: (
+        "cnmt", True, [{"title_id": "0100AAA000000000", "app_id": "0100AAA000000000",
+                        "type": "BASE", "version": "0"}], ""))
+    env.monkeypatch.setattr(tasks, "organize_file", lambda *a, **k: True)
+    env.monkeypatch.setattr(tasks, "enqueue_task",
+                            lambda name, data=None, **k: enqueued.append((name, data)))
+    f = env.seed("Game.nsp", identified=False)
+    fid = f.id
+
+    tasks.process_file_task(file_id=fid)
+
+    f = db.session.get(Files, fid)
+    assert f.identified is True and f.organized is True
+    assert [name for name, _ in enqueued] == [
+        "add_missing_apps_for_title", "library_maintenance", "compress_file"]
+    assert enqueued[-1][1] == {"file_id": fid}   # delegation carries only the id
+
+
+def test_process_file_skips_a_stage_that_did_not_advance(env):
+    """A stage is attempted at most once per drive. organize_file gives up on a file with no
+    app or no title info, so re-picking a still-applicable stage would spin the worker."""
+    attempts, enqueued = [], []
+    env.monkeypatch.setattr(tasks, "get_settings", lambda: _settings(organizer=True))
+    env.monkeypatch.setattr(tasks, "organize_file", lambda *a, **k: attempts.append(1) or False)
+    env.monkeypatch.setattr(tasks, "enqueue_task", lambda name, data=None, **k: enqueued.append(name))
+    f = env.seed("Game.nsp")
+
+    tasks.process_file_task(file_id=f.id)   # must terminate
+
+    assert attempts == [1]                                  # tried once, then skipped
+    assert db.session.get(Files, f.id).organized is False
+    assert "compress_file" in enqueued                      # still falls through to compression
+
+
+def test_process_file_deletes_row_when_file_vanished(env):
+    """A file gone from disk is dropped from the DB, and its app ownership released with it."""
+    released = []
+    env.monkeypatch.setattr(tasks, "remove_file_from_apps", lambda fid: released.append(fid))
+    f = env.seed("Game.nsp")
+    fid = f.id
+    os.remove(f.filepath)
+
+    tasks.process_file_task(file_id=fid)
+
+    assert db.session.get(Files, fid) is None
+    assert released == [fid]
+
+
+def test_identify_stage_enqueues_title_expansion_top_level(env):
+    """The driver stays a leaf: per-title expansion is enqueued top-level, never as a child,
+    so a scan is not held open by it and cancelling one does not cancel the other."""
+    enqueued, children = [], []
+    env.monkeypatch.setattr(tasks.titles_lib, "identify_file", lambda fp: (
+        "cnmt", True, [{"title_id": "0100AAA000000000", "app_id": "0100AAA000000000",
+                        "type": "BASE", "version": "0"}], ""))
+    env.monkeypatch.setattr(tasks, "enqueue_task", lambda name, data=None, **k: enqueued.append(name))
+    env.monkeypatch.setattr(tasks, "enqueue_or_child", lambda *a, **k: children.append(a))
+    f = env.seed("Game.nsp", identified=False)
+
+    tasks._identify(f, _settings()["library"]["management"])
+
+    assert db.session.get(Files, f.id).identified is True
+    assert enqueued == ["add_missing_apps_for_title"]
+    assert children == []
+
+
+def test_process_library_continuation_runs_maintenance(env):
+    enqueued = []
+    env.monkeypatch.setattr(tasks, "enqueue_task", lambda name, data=None, **k: enqueued.append(name))
+    tasks._process_library_done()
+    assert enqueued == ["library_maintenance", "update_titles"]
+
 
 @pytest.mark.parametrize("enabled,expected", [(True, True), (False, False)])
-def test_organize_done_chains_compression(env, enabled, expected):
+def test_library_maintenance_chains_outdated_updates(env, enabled, expected):
     enqueued = []
-    env.monkeypatch.setattr(tasks, "get_settings",
-                            lambda: _settings(compress_files=enabled))
-    env.monkeypatch.setattr(tasks, "enqueue_task",
-                            lambda name, data=None: enqueued.append(name))
-    tasks._organize_library_done()
-    assert ("compress_library" in enqueued) is expected
+    env.monkeypatch.setattr(tasks, "get_settings", lambda: _settings(delete_older=enabled))
+    env.monkeypatch.setattr(tasks, "enqueue_task", lambda name, data=None: enqueued.append(name))
+    tasks.library_maintenance_task()
+    assert ("remove_outdated_updates" in enqueued) is expected
