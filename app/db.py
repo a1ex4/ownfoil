@@ -18,6 +18,7 @@ import logging
 import datetime
 from constants import *
 from utils import throttle
+import titledb
 
 # Retrieve main logger
 logger = logging.getLogger('main')
@@ -26,14 +27,57 @@ db = SQLAlchemy()
 migrate = Migrate()
 
 
+def _titledb_signature():
+    try:
+        st = os.stat(TITLES_DB_FILE)
+        return (st.st_dev, st.st_ino)
+    except FileNotFoundError:
+        return None
+
+
 @event.listens_for(Engine, "connect")
 def _set_sqlite_pragmas(dbapi_connection, connection_record):
     cursor = dbapi_connection.cursor()
     cursor.execute("PRAGMA foreign_keys=ON")
-    cursor.execute("PRAGMA journal_mode=WAL")
-    cursor.execute("PRAGMA synchronous=NORMAL")
     cursor.execute("PRAGMA busy_timeout=30000")
+
+    rows = cursor.execute("PRAGMA database_list").fetchall()
+    main_path = next((r[2] for r in rows if r[1] == 'main'), None)
+    is_main = bool(
+        main_path and os.path.realpath(main_path) == os.path.realpath(DB_FILE)
+    )
+    if is_main:
+        # Main-db only: titles.db is os.replace'd and read back through `mode=ro` connections,
+        # and SQLite cannot open a WAL database read-only without an existing -shm. Keep the
+        # schema qualifier too - unqualified, the pragma applies to attached databases as well.
+        cursor.execute("PRAGMA main.journal_mode=WAL")
+        cursor.execute("PRAGMA synchronous=NORMAL")
+    connection_record.info['is_main_db'] = is_main
+    connection_record.info['titledb_signature'] = None
     cursor.close()
+
+
+@event.listens_for(Engine, "checkout")
+def _sync_titledb_attach(dbapi_connection, connection_record, connection_proxy):
+    # Keep `titledb` ATTACH state in sync with the on-disk titles.db inode.
+    # Handles two cases the connect-time ATTACH cannot: titles.db not yet
+    # built when the connection was opened, and atomic replacement of
+    # titles.db by another process (the new inode replaces the old one).
+    info = connection_record.info
+    if not info.get('is_main_db'):
+        return
+    current_sig = _titledb_signature()
+    if current_sig == info.get('titledb_signature'):
+        return
+    cursor = dbapi_connection.cursor()
+    try:
+        if info.get('titledb_signature') is not None:
+            cursor.execute("DETACH DATABASE titledb")
+        if current_sig is not None:
+            cursor.execute("ATTACH DATABASE ? AS titledb", (TITLES_DB_FILE,))
+        info['titledb_signature'] = current_sig
+    finally:
+        cursor.close()
 
 # Alembic functions
 def get_alembic_cfg():
@@ -43,10 +87,15 @@ def get_alembic_cfg():
 
 def get_current_db_version():
     engine = create_engine(OWNFOIL_DB)
-    with engine.connect() as connection:
-        context = MigrationContext.configure(connection)
-        current_rev = context.get_current_revision()
-        return current_rev or '0'
+    try:
+        with engine.connect() as connection:
+            context = MigrationContext.configure(connection)
+            current_rev = context.get_current_revision()
+            return current_rev or '0'
+    finally:
+        # Undisposed, this pool keeps a connection with titles.db ATTACHed for the whole
+        # process, which can defeat the replace at the end of a titledb import on Windows.
+        engine.dispose()
     
 def create_db_backup():
     current_revision = get_current_db_version()
@@ -95,8 +144,45 @@ class Files(db.Model):
     last_attempt = db.Column(db.DateTime, default=datetime.datetime.now())
     organized = db.Column(db.Boolean, default=False)
     mtime = db.Column(db.Float)
+    # When ownfoil first saw the file. Distinct from mtime, which a re-organize or a
+    # copy rewrites - only this one can answer "recently added".
+    added_at = db.Column(db.DateTime, default=datetime.datetime.utcnow)
 
     library = db.relationship('Libraries', backref=db.backref('files', lazy=True, cascade="all, delete-orphan"))
+
+# Durable home of the title metadata that isn't downloaded: user-authored ('custom') and,
+# later, extracted from the files themselves ('extract'). Sparse - a row only sets the
+# fields that source knows about. titles.db is disposable and gets these projected into it
+# on every rebuild, which is why they live here instead. Core table, not a model: it has
+# no ORM relationships and its columns come from the titledb schema.
+title_overrides = db.Table(
+    'title_overrides', db.metadata,
+    db.Column('id', db.String, primary_key=True),
+    db.Column('source', db.String, primary_key=True),
+    *titledb.schema.metadata_columns(),
+)
+
+
+def list_title_overrides(source):
+    rows = db.session.execute(
+        title_overrides.select().where(title_overrides.c.source == source)).all()
+    return [dict(row._mapping) for row in rows]
+
+
+def upsert_title_override(title_id, source, values):
+    stmt = insert(title_overrides).values(id=title_id, source=source, **values)
+    db.session.execute(stmt.on_conflict_do_update(
+        index_elements=['id', 'source'], set_=values))
+    db.session.commit()
+
+
+def delete_title_override(title_id, source):
+    """Delete an override row. Returns False when there was nothing to delete."""
+    result = db.session.execute(title_overrides.delete().where(
+        (title_overrides.c.id == title_id) & (title_overrides.c.source == source)))
+    db.session.commit()
+    return bool(result.rowcount)
+
 
 class Titles(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -105,10 +191,13 @@ class Titles(db.Model):
     up_to_date = db.Column(db.Boolean, default=False)
     complete = db.Column(db.Boolean, default=False)
 
-# Association table for many-to-many relationship between Apps and Files
+# Association table for many-to-many relationship between Apps and Files.
+# The composite PK indexes (app_id, file_id) left-to-right, so the explicit
+# index on file_id is what makes back-link queries (WHERE file_id IN ...) fast.
 app_files = db.Table('app_files',
     db.Column('app_id', db.Integer, db.ForeignKey('apps.id', ondelete="CASCADE"), primary_key=True),
-    db.Column('file_id', db.Integer, db.ForeignKey('files.id', ondelete="CASCADE"), primary_key=True)
+    db.Column('file_id', db.Integer, db.ForeignKey('files.id', ondelete="CASCADE"), primary_key=True),
+    db.Index('ix_app_files_file_id', 'file_id'),
 )
 
 class Apps(db.Model):
@@ -118,6 +207,7 @@ class Apps(db.Model):
     app_version = db.Column(db.String)
     app_type = db.Column(db.String)
     owned = db.Column(db.Boolean, default=False)
+    release_date = db.Column(db.String)
 
     title = db.relationship('Titles', backref=db.backref('apps', lazy=True, cascade="all, delete-orphan"))
     files = db.relationship('Files', secondary=app_files, backref=db.backref('apps', lazy='select'))
@@ -257,6 +347,9 @@ def purge_temp_files():
 
 
 def init_db(app):
+    # Before the ownfoil.db block: every main connection ATTACHes titles.db, and recreating it
+    # while a connection holds it open is exactly what the file swap cannot survive.
+    titledb.store.init_titledb()
     with app.app_context():
         # create or migrate database
         if "db" not in sys.argv:

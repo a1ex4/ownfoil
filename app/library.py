@@ -1,4 +1,3 @@
-import hashlib
 import os
 import re
 import shutil
@@ -7,7 +6,6 @@ from db import *
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 import titles as titles_lib
-import datetime
 import sys
 from pathlib import Path
 from utils import *
@@ -206,27 +204,45 @@ def add_missing_apps_for_title(title_id):
     Safe to run concurrently with other workers expanding the same title."""
     title_db_id = get_title_id_db_id(title_id)
 
-    rows = [dict(app_id=title_id, app_version="0", app_type=APP_TYPE_BASE,
-                 owned=False, title_id=title_db_id)]
-
+    rows = []
     update_app_id = title_id[:-3] + '800'
+    base_added = False
     for version_info in titles_lib.get_all_existing_versions(title_id):
-        rows.append(dict(app_id=update_app_id, app_version=str(version_info['version']),
-                         app_type=APP_TYPE_UPD, owned=False, title_id=title_db_id))
+        v = str(version_info['version'])
+        if v == '0':
+            rows.append(dict(app_id=title_id, app_version=v, app_type=APP_TYPE_BASE,
+                             owned=False, title_id=title_db_id,
+                             release_date=version_info.get('release_date')))
+            base_added = True
+        else:
+            rows.append(dict(app_id=update_app_id, app_version=v, app_type=APP_TYPE_UPD,
+                             owned=False, title_id=title_db_id,
+                             release_date=version_info.get('release_date')))
 
-    for dlc_app_id, dlc_version in titles_lib.get_all_dlc_versions(title_id):
+    if not base_added:
+        rows.append(dict(app_id=title_id, app_version="0", app_type=APP_TYPE_BASE,
+                         owned=False, title_id=title_db_id, release_date=None))
+
+    for dlc_app_id, dlc_version, dlc_release_date in titles_lib.get_all_dlc_versions(title_id):
         rows.append(dict(app_id=dlc_app_id, app_version=str(dlc_version),
-                         app_type=APP_TYPE_DLC, owned=False, title_id=title_db_id))
+                         app_type=APP_TYPE_DLC, owned=False, title_id=title_db_id,
+                         release_date=dlc_release_date))
 
-    stmt = sqlite_insert(Apps.__table__).values(rows).on_conflict_do_nothing(
-        index_elements=['app_id', 'app_version']
+    # Only refresh release_date on conflict — never touch `owned` or any other
+    # column, since this same row may have been flipped to owned=True by a file
+    # scan in between.
+    stmt = sqlite_insert(Apps.__table__).values(rows)
+    stmt = stmt.on_conflict_do_update(
+        index_elements=['app_id', 'app_version'],
+        set_={'release_date': stmt.excluded.release_date},
+        where=Apps.__table__.c.release_date.is_not(stmt.excluded.release_date),
     )
     result = db.session.execute(stmt)
     db.session.commit()
-    apps_added = result.rowcount or 0
-    if apps_added:
-        logger.debug(f'Added {apps_added} missing apps for Title ID {title_id}')
-    return apps_added
+    apps_upserted = result.rowcount or 0
+    if apps_upserted:
+        logger.debug(f'Upserted {apps_upserted} apps for Title ID {title_id}')
+    return apps_upserted
 
 
 def add_missing_apps_to_db():
@@ -237,8 +253,8 @@ def add_missing_apps_to_db():
     for n, title in enumerate(titles):
         total += add_missing_apps_for_title(title.title_id)
         if (n + 1) % 100 == 0:
-            logger.info(f'Processed {n + 1}/{len(titles)} titles, added {total} missing apps so far')
-    logger.info(f'Finished adding missing apps to database. Total apps added: {total}')
+            logger.info(f'Processed {n + 1}/{len(titles)} titles, upserted {total} apps so far')
+    logger.info(f'Finished adding missing apps to database. Total apps upserted: {total}')
 
 def remove_outdated_update_files():
     logger.info("Starting removal of outdated update files...")
@@ -370,186 +386,3 @@ def update_titles():
     for title in get_all_titles():
         update_title_flags(title.title_id)
 
-def get_library_status(title_id):
-    title = get_title(title_id)
-    title_apps = get_all_title_apps(title_id)
-
-    available_versions = titles_lib.get_all_existing_versions(title_id)
-    for version in available_versions:
-        if len(list(filter(lambda x: x.get('app_type') == APP_TYPE_UPD and str(x.get('app_version')) == str(version['version']), title_apps))):
-            version['owned'] = True
-        else:
-            version['owned'] = False
-
-    library_status = {
-        'has_base': title.have_base,
-        'has_latest_version': title.up_to_date,
-        'version': available_versions,
-        'has_all_dlcs': title.complete
-    }
-    return library_status
-
-def compute_apps_hash():
-    """
-    Computes a hash of all Apps table content to detect changes in library state.
-    """
-    hash_md5 = hashlib.md5()
-    apps = get_all_apps()
-    
-    # Sort apps with safe handling of None values
-    for app in sorted(apps, key=lambda x: (x['app_id'] or '', x['app_version'] or '')):
-        hash_md5.update((app['app_id'] or '').encode())
-        hash_md5.update((app['app_version'] or '').encode())
-        hash_md5.update((app['app_type'] or '').encode())
-        hash_md5.update(str(app['owned'] or False).encode())
-        hash_md5.update((app['title_id'] or '').encode())
-    return hash_md5.hexdigest()
-
-def is_library_unchanged():
-    cache_path = Path(LIBRARY_CACHE_FILE)
-    if not cache_path.exists():
-        return False
-
-    saved_library = load_library_from_disk()
-    if not saved_library:
-        return False
-
-    if not saved_library.get('hash'):
-        return False
-
-    current_hash = compute_apps_hash()
-    return saved_library['hash'] == current_hash
-
-def save_library_to_disk(library_data):
-    cache_path = Path(LIBRARY_CACHE_FILE)
-    # Ensure cache directory exists
-    cache_path.parent.mkdir(parents=True, exist_ok=True)
-    safe_write_json(cache_path, library_data)
-
-def load_library_from_disk():
-    cache_path = Path(LIBRARY_CACHE_FILE)
-    if not cache_path.exists():
-        return None
-
-    try:
-        with cache_path.open("r", encoding="utf-8") as f:
-            return json.load(f)
-    except:
-        return None
-
-def generate_library():
-    """Generate the game library from Apps table, using cached version if unchanged"""
-    if is_library_unchanged():
-        saved_library = load_library_from_disk()
-        if saved_library:
-            return saved_library['library']
-    
-    logger.info(f'Generating library ...')
-    titles = get_all_apps()
-    games_info = []
-    processed_dlc_apps = set()  # Track processed DLC app_ids to avoid duplicates
-
-    for title in titles:
-        has_none_value = any(value is None for value in title.values())
-        if has_none_value:
-            logger.warning(f'File contains None value, it will be skipped: {title}')
-            continue
-        if title['app_type'] == APP_TYPE_UPD:
-            continue
-            
-        # Get title info from titledb
-        info_from_titledb = titles_lib.get_game_info(title['app_id'])
-        if info_from_titledb is None:
-            logger.warning(f'Info not found for game: {title}')
-            continue
-        title.update(info_from_titledb)
-        
-        if title['app_type'] == APP_TYPE_BASE:
-            # Get title status from Titles table (already calculated by update_titles)
-            title_obj = get_title(title['title_id'])
-            if title_obj:
-                title['has_base'] = title_obj.have_base
-                # Only mark as up to date if the base itself is owned and up_to_date
-                title['has_latest_version'] = (
-                    title_obj.have_base and title_obj.up_to_date
-                )
-                title['has_all_dlcs'] = title_obj.complete
-            else:
-                title['has_base'] = False
-                title['has_latest_version'] = False
-                title['has_all_dlcs'] = False
-            
-            # Get version info from Apps table and add release dates from versions_db
-            title_apps = get_all_title_apps(title['title_id'])
-            update_apps = [app for app in title_apps if app.get('app_type') == APP_TYPE_UPD]
-            
-            # Get release date information from external source
-            available_versions = titles_lib.get_all_existing_versions(title['title_id'])
-            version_release_dates = {v['version']: v['release_date'] for v in available_versions}
-            
-            version_list = []
-            for update_app in update_apps:
-                app_version = int(update_app['app_version'])
-                version_list.append({
-                    'version': app_version,
-                    'owned': update_app.get('owned', False),
-                    'release_date': version_release_dates.get(app_version, 'Unknown')
-                })
-            
-            title['version'] = sorted(version_list, key=lambda x: x['version'])
-            title['title_id_name'] = title['name']
-            
-        elif title['app_type'] == APP_TYPE_DLC:
-            # Skip if we've already processed this DLC app_id
-            if title['app_id'] in processed_dlc_apps:
-                continue
-            processed_dlc_apps.add(title['app_id'])
-            
-            # Get all versions for this DLC app_id
-            title_apps = get_all_title_apps(title['title_id'])
-            dlc_apps = [app for app in title_apps if app.get('app_type') == APP_TYPE_DLC and app['app_id'] == title['app_id']]
-            
-            # Create version list for this DLC
-            version_list = []
-            for dlc_app in dlc_apps:
-                app_version = int(dlc_app['app_version'])
-                version_list.append({
-                    'version': app_version,
-                    'owned': dlc_app.get('owned', False),
-                    'release_date': 'Unknown'  # DLC release dates not available in versions_db
-                })
-            
-            title['version'] = sorted(version_list, key=lambda x: x['version'])
-            title['owned'] = any(app.get('owned') for app in dlc_apps)
-
-            # Check if this DLC has latest version
-            if dlc_apps:
-                highest_version = max(int(app['app_version']) for app in dlc_apps)
-                owned_versions = [int(app['app_version']) for app in dlc_apps if app.get('owned')]
-                # Only true if at least one version is OWNED and the highest owned >= highest available
-                title['has_latest_version'] = (
-                    len(owned_versions) > 0 and max(owned_versions) >= highest_version
-                )
-            else:
-                title['has_latest_version'] = True
-            
-            # Get title name for DLC
-            titleid_info = titles_lib.get_game_info(title['title_id'])
-            title['title_id_name'] = titleid_info['name'] if titleid_info else 'Unrecognized'
-            
-        games_info.append(title)
-    
-    library_data = {
-        'hash': compute_apps_hash(),
-        'library': sorted(games_info, key=lambda x: (
-            "title_id_name" not in x, 
-            x.get("title_id_name", "Unrecognized") or "Unrecognized", 
-            x.get('app_id', "") or ""
-        ))
-    }
-
-    save_library_to_disk(library_data)
-
-    logger.info(f'Generating library done.')
-
-    return library_data['library']

@@ -1,16 +1,25 @@
-import unzip_http
-import requests
-import os, re
+"""Drive a titledb refresh: download the upstream JSON files, rebuild titles.db from them."""
 import logging
+import os
+import re
 
-from constants import *
+import requests
+import unzip_http
 
+from constants import APP_DIR, TITLEDB_ARTEFACTS_URL, TITLEDB_DEFAULT_FILES, TITLEDB_DIR
+from titledb import store
 
 # Retrieve main logger
 logger = logging.getLogger('main')
 
+
 def get_region_titles_file(app_settings):
     return f"titles.{app_settings['titles']['region']}.{app_settings['titles']['language']}.json"
+
+
+def get_locale(app_settings):
+    return f"{app_settings['titles']['region']}.{app_settings['titles']['language']}"
+
 
 def download_from_remote_zip(rzf, path, store_path):
     with rzf.open(path) as fpin:
@@ -31,21 +40,21 @@ def is_titledb_update_available(rzf):
     if not os.path.isfile(local_commit_file):
         logger.info('Retrieving titledb for the first time...')
         update_available = True
-    else: 
+    else:
         with open(local_commit_file, 'r') as f:
             current_commit = f.read()
-            
+
         if current_commit == latest_remote_commit:
             logger.info(f'Titledb already up to date, commit: {current_commit}')
             update_available = False
         else:
             logger.info(f'Titledb update available, current commit: {current_commit}, latest commit: {latest_remote_commit}')
             update_available = True
-    
+
     if update_available:
         with open(local_commit_file, 'w') as f:
             f.write(latest_remote_commit)
-    
+
     return update_available
 
 
@@ -83,17 +92,15 @@ def update_titledb_files(app_settings):
 
 def update_titledb(app_settings):
     """Download titledb JSON updates and (re)build titles.db if anything changed."""
-    import titledb_store  # local import to avoid circular import
     logger.info('Updating titledb...')
     if not os.path.isdir(TITLEDB_DIR):
         os.makedirs(TITLEDB_DIR, exist_ok=True)
 
     downloaded = update_titledb_files(app_settings)
-    current_locale = f"{app_settings['titles']['region']}.{app_settings['titles']['language']}"
-    imported_locale = titledb_store.get_imported_locale()
-    if downloaded or imported_locale != current_locale:
-        locale_changed = imported_locale != current_locale
-        titledb_store.import_from_json(app_settings)
+    locale = get_locale(app_settings)
+    locale_changed = store.get_imported_locale() != locale
+    if downloaded or locale_changed:
+        store.import_from_json(os.path.join(TITLEDB_DIR, get_region_titles_file(app_settings)), locale)
         if locale_changed:
             from db import reset_files_organized
             reset_files_organized()

@@ -11,11 +11,7 @@ from pathlib import Path
 from typing import Optional, Tuple
 import json
 import os
-import tempfile
 from constants import *
-
-# Global lock for all JSON writes in this process
-_json_write_lock = threading.Lock()
 
 # Shared log format used by the app, workers and the Gunicorn logger
 LOG_FORMAT = '[%(asctime)s.%(msecs)03d] %(levelname)s (%(module)s) %(message)s'
@@ -232,18 +228,6 @@ def get_lan_ip(family=socket.AF_INET):
 def allowed_file(filename):
     return '.' in filename and \
            filename.rsplit('.', 1)[1].lower() in ['keys', 'txt']
-
-def safe_write_json(path, data, **dump_kwargs):
-    with _json_write_lock:
-        dirpath = os.path.dirname(path) or "."
-        # Create temporary file in same directory
-        with tempfile.NamedTemporaryFile("w", dir=dirpath, delete=False, encoding="utf-8") as tmp:
-            tmp_path = tmp.name
-            json.dump(data, tmp, ensure_ascii=False, indent=2, **dump_kwargs)
-            tmp.flush()
-            os.fsync(tmp.fileno())  # flush to disk
-        # Atomically replace target file
-        os.replace(tmp_path, path)
 
 def merge_dicts_recursive(source, destination):
     """
