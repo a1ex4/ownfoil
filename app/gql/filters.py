@@ -130,12 +130,10 @@ class AppFilter:
 
 @described(strawberry.enum)
 class VerificationStatus(Enum):
-    """One label for a file's two verification verdicts. Derived from `signatureValid`
-    and `hashValid` rather than stored, so it can never disagree with them."""
-    UNVERIFIED = strawberry.enum_value(
-        STATUS_UNVERIFIED,
-        description="Never checked. Either verification is off, the keys are missing, "
-                    "or the file has not come round yet.")
+    """One label for a file's verification verdicts. Derived from `signatureValid`,
+    `hashValid` and `hashModified` rather than stored, so it can never disagree with
+    them. Declared best-to-worst then unknown, which is the order
+    `stats.filesByVerificationStatus` reports."""
     VALID = strawberry.enum_value(
         STATUS_VALID,
         description="Signed by Nintendo and every content hashed as claimed. The only "
@@ -168,6 +166,10 @@ class VerificationStatus(Enum):
         description="Signatures did not check out and the contents were never read, so "
                     "this is either an ordinary repack or a corrupt file - `hash` depth "
                     "is what tells the two apart.")
+    UNVERIFIED = strawberry.enum_value(
+        STATUS_UNVERIFIED,
+        description="Never checked. Either verification is off, the keys are missing, "
+                    "or the file has not come round yet.")
 
 
 @described(strawberry.input)

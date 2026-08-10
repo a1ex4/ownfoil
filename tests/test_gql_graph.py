@@ -270,6 +270,40 @@ def test_stats_group_by_key(library):
     assert data["stats"]["filesByLibrary"][0]["count"] == 3
 
 
+# (filename, signature_valid, hash_valid, hash_modified, the status it has to land in).
+# One file per verdict shape a real library produces, so a bucket that mis-folds shows
+# up as a count landing on the wrong status rather than as a wrong total.
+VERIFICATION_CASES = [
+    ("Alpha.nsp",         True,  True,  False, "VALID"),
+    ("Alpha[v65536].nsp", False, True,  False, "REPACK"),
+    ("AlphaDLC.nsp",      True,  False, True,  "MODIFIED"),
+]
+
+# Best verdict first, unknown last - the order the field promises.
+VERIFICATION_LADDER = ["VALID", "REPACK", "MODIFIED", "CORRUPT", "SIGNATURE_OK",
+                       "SIGNATURE_FAILED", "UNVERIFIED"]
+
+
+def test_stats_bucket_files_by_verification_status(library):
+    with library.app.app_context():
+        for filename, signature, hashed, modified, _ in VERIFICATION_CASES:
+            row = Files.query.filter_by(filename=filename).one()
+            row.signature_valid, row.hash_valid, row.hash_modified = (
+                signature, hashed, modified)
+        db.session.commit()
+    sizes = {app[4]: app[5] for app in APPS if app[4]}
+
+    buckets = query(library, """
+        query { stats { filesByVerificationStatus { status count size } } }
+        """)["stats"]["filesByVerificationStatus"]
+
+    expected = {status: (0, 0) for status in VERIFICATION_LADDER}
+    for filename, _, _, _, status in VERIFICATION_CASES:
+        expected[status] = (1, sizes[filename])
+    assert [b["status"] for b in buckets] == VERIFICATION_LADDER
+    assert {b["status"]: (b["count"], b["size"]) for b in buckets} == expected
+
+
 def test_unselected_stats_groups_stay_null(library):
     """Each group is its own GROUP BY; not asking must not run it."""
     data = query(library, "query { stats { totalFiles } }")["stats"]

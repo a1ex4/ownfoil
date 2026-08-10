@@ -144,6 +144,16 @@ class SizedCountByKey:
 
 
 @described(strawberry.type)
+class VerificationStatusCount:
+    """Files sharing one verification verdict. Typed rather than a `SizedCountByKey`
+    so the bucket can be handed straight back to `files(filter: {verificationStatus:})`
+    without a string round-trip."""
+    status: VerificationStatus = desc("The verdict this bucket groups on.")
+    count: int = desc("How many files carry it.")
+    size: BigInt = desc("Total bytes of the files in this bucket.", default=0)
+
+
+@described(strawberry.type)
 class LibraryStats:
     """Library-wide aggregates, for dashboards. Each field is computed only when
     selected, so asking for one count does not pay for the others. The file-level
@@ -175,6 +185,12 @@ class LibraryStats:
     files_by_library: Optional[List[SizedCountByKey]] = desc(
         "File count and bytes per configured library root, keyed by path. Includes "
         "roots holding nothing. Admin only; null for any other role.", default=None)
+    files_by_verification_status: Optional[List[VerificationStatusCount]] = desc(
+        "File count and bytes per `File.verificationStatus`, best verdict first and "
+        "`UNVERIFIED` last. Always all seven buckets, empty ones included - the set is "
+        "closed, and `CORRUPT: 0` says something a missing bucket does not. Note "
+        "`SIGNATURE_OK` and `SIGNATURE_FAILED` can only be non-zero while verification "
+        "runs at `signature` depth. Admin only; null for any other role.", default=None)
 
 
 @described(strawberry.type)

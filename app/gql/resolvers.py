@@ -5,11 +5,12 @@ import strawberry
 from sqlalchemy import text
 
 from constants import APP_TYPE_BASE, APP_TYPE_UPD
+from containers.verification import status_of
 from db import db
 
 from .context import GraphQLContext
 from .filters import (
-    AppFilter, FileFilter, OrderBy, TitleFilter,
+    AppFilter, FileFilter, OrderBy, TitleFilter, VerificationStatus,
     APP_FIELDS, APP_FIELDS_EXCEPT_OWNED, APP_ORDER, APP_ORDER_GROUPED,
     FILE_FIELDS, FILE_ORDER, TITLE_FIELDS, TITLE_ORDER,
     build_clauses, order_sql,
@@ -18,7 +19,7 @@ from .selection import Selection
 from .types import (
     App, AppConnection, AppVersion, CountByKey, File, FileConnection, Library,
     LibraryStats, Ownership, SizedCountByKey, Task, TaskStatus, Title, TitleConnection,
-    TitledbDlc, TitledbVersion, decode_json_list,
+    TitledbDlc, TitledbVersion, VerificationStatusCount, decode_json_list,
 )
 
 
@@ -1078,6 +1079,22 @@ def resolve_stats(*, ctx: GraphQLContext, info) -> LibraryStats:
         SELECT l.path, COUNT(f.id), COALESCE(SUM(f.size), 0)
         FROM libraries l LEFT JOIN files f ON f.library_id = l.id
         GROUP BY l.id, l.path ORDER BY l.id""")
+
+    if ctx.can_admin and sel.has("filesByVerificationStatus"):
+        # Grouped on the raw verdicts, not on a SQL CASE ladder: eight combinations at
+        # most, folded through the same status_of every other reader uses, so the rule
+        # table stays the only place the vocabulary is defined.
+        buckets = {status: [0, 0] for status in VerificationStatus}
+        for sig, hashed, modified, count, size in db.session.execute(text("""
+        SELECT signature_valid, hash_valid, hash_modified, COUNT(*),
+               COALESCE(SUM(size), 0)
+        FROM files GROUP BY 1, 2, 3""")).all():
+            bucket = buckets[VerificationStatus(status_of(sig, hashed, modified))]
+            bucket[0] += int(count)
+            bucket[1] += int(size)
+        stats.files_by_verification_status = [
+            VerificationStatusCount(status=status, count=count, size=size)
+            for status, (count, size) in buckets.items()]
 
     return stats
 
