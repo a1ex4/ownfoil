@@ -276,16 +276,26 @@ def test_verify_runs_before_organize_and_compress(env):
     assert enqueued == ["verify_file"]
 
 
+# (filename, verdict columns, the status they derive to). CORRUPT is the only one that
+# blocks, so the expectation is read off the status rather than restated per case.
+COMPRESS_CASES = [
+    ("A.nsp", {}, verification.STATUS_UNVERIFIED),
+    ("B.nsp", {"signature_valid": True}, verification.STATUS_SIGNATURE_OK),
+    ("C.nsp", {"signature_valid": False}, verification.STATUS_SIGNATURE_FAILED),
+    ("D.nsp", {"signature_valid": True, "hash_valid": True}, verification.STATUS_VALID),
+    ("E.nsp", {"signature_valid": False, "hash_valid": True}, verification.STATUS_REPACK),
+    ("F.nsp", {"hash_valid": False, "hash_modified": True}, verification.STATUS_MODIFIED),
+    ("G.nsp", {"hash_valid": False}, verification.STATUS_CORRUPT),
+]
+
+
 def test_compress_stage_refuses_only_a_corrupt_file(env):
-    """A failed hash means the bytes are not what the file claims, and nsz's own round-trip
-    check would reject it anyway. A failed signature only means the file was re-signed -
-    commonplace for a repack, and no reason to refuse to compress intact content."""
+    """Damaged bytes would fail nsz's own round-trip check. Nothing else is grounds to
+    refuse: a re-signed or un-renamed repack is commonplace and its content still compresses."""
     mgmt = _settings(verify=True)["library"]["management"]
-    assert tasks._needs_compress(env.seed("A.nsp", signature_valid=True), mgmt) is True
-    assert tasks._needs_compress(env.seed("B.nsp", signature_valid=False), mgmt) is True
-    assert tasks._needs_compress(env.seed("C.nsp", hash_valid=False), mgmt) is False
-    assert tasks._needs_compress(
-        env.seed("D.nsp", signature_valid=False, hash_valid=True), mgmt) is True
+    for filename, verdicts, status in COMPRESS_CASES:
+        assert tasks._needs_compress(env.seed(filename, **verdicts), mgmt) is (
+            status != verification.STATUS_CORRUPT), status
 
 
 # --- verify_file task --------------------------------------------------------------------

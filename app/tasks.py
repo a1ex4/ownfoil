@@ -679,10 +679,12 @@ def _organize(file, mgmt):
 def _needs_compress(file, mgmt):
     if not mgmt['compression']['enabled'] or file.compressed or file.extension not in COMPRESS_EXT:
         return False
-    if file.hash_valid is False:
-        # Known-corrupt: its NCAs do not hash to what it claims, so compressing it would
-        # just fail nsz's own round-trip check. A failed *signature* is not grounds to
-        # refuse - a re-signed repack is commonplace and its content is still intact.
+    if verification_lib.status_of(file.signature_valid, file.hash_valid,
+                                  file.hash_modified) == verification_lib.STATUS_CORRUPT:
+        # The one verdict that says the bytes themselves are damaged, so nsz's own
+        # round-trip check would reject the file anyway. Every other status is some flavour
+        # of repack: MODIFIED only means the contents were never renamed to their new hash,
+        # which nothing in the compressor looks at, and a failed signature says even less.
         return False
     target = compression.conversion_target(file)
     return Files.query.filter(Files.filepath == target, Files.id != file.id).first() is None
