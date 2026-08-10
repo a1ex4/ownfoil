@@ -649,7 +649,11 @@ def _needs_verify(file, mgmt):
     if not titles_lib.Keys.keys_loaded:
         return False   # nstools cannot open a container without them
     if verification['depth'] == verification_lib.DEPTH_HASH:
-        return file.hash_valid is None
+        # A failed hash recorded before hash_modified existed cannot say whether it was a
+        # repack or real damage, and that is the difference between a shrug and an alert.
+        # Re-check those - only already-failing files pay for it, and they are rare.
+        return file.hash_valid is None or (file.hash_valid is False
+                                           and file.hash_modified is None)
     return file.signature_valid is None
 
 
@@ -783,12 +787,13 @@ def verify_file_task(file_id, **kwargs):
         return
     depth = get_settings()['library']['management']['verification']['depth']
     logger.info(f'Verifying file ({depth}): {file_obj.filename}')
-    signature_valid, hash_valid, error = verification_lib.verify(
+    signature_valid, hash_valid, hash_modified, error = verification_lib.verify(
         file_obj.filepath, depth, progress=_task_progress(_current_task_id))
 
     file_obj.signature_valid = signature_valid
     if hash_valid is not None:
         file_obj.hash_valid = hash_valid
+        file_obj.hash_modified = hash_modified
     file_obj.verification_error = error
     file_obj.verified_at = datetime.datetime.now()
     db.session.commit()

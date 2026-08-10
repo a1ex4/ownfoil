@@ -24,24 +24,29 @@ from gql.filters import VerificationStatus
 ALPHA = "0100000000AAAAA0"
 TITLEDB_JSON = {ALPHA: {"id": ALPHA, "name": "Alpha Game"}}
 
-# (filename, signature_valid, hash_valid, status). Every combination of the two columns
-# the verify task can write: the signature is always recorded, and the hash only when
-# the depth asked for it, so a null signature with a non-null hash cannot occur.
+# (filename, signature_valid, hash_valid, hash_modified, status). Every combination the
+# verify task can write: the signature is always recorded, the hash only when the depth
+# asked for it, and hash_modified only alongside a hash verdict - so a null signature
+# with a non-null hash cannot occur, nor a modification verdict without one.
 CASES = [
-    ("unverified.nsp",  None,  None,  "UNVERIFIED"),
-    ("shallow-pass.nsp", True,  None,  "SIGNATURE_OK"),
-    ("shallow-fail.nsp", False, None,  "SIGNATURE_FAILED"),
-    ("pristine.nsp",    True,  True,  "VALID"),
-    ("resigned.nsp",    False, True,  "REPACK"),
-    ("rotted.nsp",      True,  False, "CORRUPT"),
-    ("broken.nsp",      False, False, "CORRUPT"),
+    ("unverified.nsp",   None,  None,  None,  "UNVERIFIED"),
+    ("shallow-pass.nsp", True,  None,  None,  "SIGNATURE_OK"),
+    ("shallow-fail.nsp", False, None,  None,  "SIGNATURE_FAILED"),
+    ("pristine.nsp",     True,  True,  False, "VALID"),
+    ("resigned.nsp",     False, True,  False, "REPACK"),
+    ("repacked.xci",     False, False, True,  "MODIFIED"),
+    ("rotted.nsp",       True,  False, False, "CORRUPT"),
+    ("broken.nsp",       False, False, False, "CORRUPT"),
+    # Verified before hash_modified existed: the failure is real but its kind was never
+    # recorded, so it holds the alarming label until the stage re-checks it.
+    ("legacy-failure.nsp", False, False, None, "CORRUPT"),
 ]
 
 STATUSES = sorted({status for *_, status in CASES})
 
 
 def expected_files(status):
-    return sorted(name for name, _, _, s in CASES if s == status)
+    return sorted(name for name, *_, s in CASES if s == status)
 
 
 @pytest.fixture
@@ -72,11 +77,13 @@ def library(tmp_path, monkeypatch):
         app_row = Apps(title_id=title.id, app_id=ALPHA, app_version="0",
                        app_type=APP_TYPE_BASE, owned=True)
         db.session.add(app_row)
-        for filename, signature_valid, hash_valid, _ in CASES:
+        for filename, signature_valid, hash_valid, hash_modified, _ in CASES:
             file_row = Files(library_id=library_row.id,
                              filepath=str(tmp_path / "games" / filename),
-                             filename=filename, extension="nsp", size=1, identified=True,
-                             signature_valid=signature_valid, hash_valid=hash_valid)
+                             filename=filename, extension=filename.rsplit(".", 1)[-1],
+                             size=1, identified=True,
+                             signature_valid=signature_valid, hash_valid=hash_valid,
+                             hash_modified=hash_modified)
             db.session.add(file_row)
             app_row.files.append(file_row)
         db.session.commit()
@@ -92,21 +99,20 @@ def query(library, text_query):
     return body["data"]
 
 
-@pytest.mark.parametrize("signature_valid,hash_valid,expected",
-                         [(s, h, status) for _, s, h, status in CASES],
-                         ids=[name for name, *_ in CASES])
-def test_the_table_labels_every_verdict_pair(signature_valid, hash_valid, expected):
-    assert status_of(signature_valid, hash_valid) == expected
+VERDICTS = [(verdicts, status) for _, *verdicts, status in CASES]
+VERDICT_IDS = [name for name, *_ in CASES]
 
 
-@pytest.mark.parametrize("signature_valid,hash_valid,expected",
-                         [(s, h, status) for _, s, h, status in CASES],
-                         ids=[name for name, *_ in CASES])
-def test_raw_sql_integers_land_on_the_same_label(signature_valid, hash_valid, expected):
+@pytest.mark.parametrize("verdicts,expected", VERDICTS, ids=VERDICT_IDS)
+def test_the_table_labels_every_verdict_combination(verdicts, expected):
+    assert status_of(*verdicts) == expected
+
+
+@pytest.mark.parametrize("verdicts,expected", VERDICTS, ids=VERDICT_IDS)
+def test_raw_sql_integers_land_on_the_same_label(verdicts, expected):
     """A row read through the ORM carries booleans, one read through raw SQL carries
     0/1 - and the files query reads through raw SQL."""
-    as_int = [None if v is None else int(v) for v in (signature_valid, hash_valid)]
-    assert status_of(*as_int) == expected
+    assert status_of(*(None if v is None else int(v) for v in verdicts)) == expected
 
 
 def test_every_status_the_schema_offers_is_covered():
@@ -121,7 +127,7 @@ def test_the_field_reports_the_label(library):
         query { files(page: 1, pageSize: 50) {
             items { filename verificationStatus } } }""")
     labelled = {f["filename"]: f["verificationStatus"] for f in data["files"]["items"]}
-    assert labelled == {name: status for name, _, _, status in CASES}
+    assert labelled == {name: status for name, *_, status in CASES}
 
 
 @pytest.mark.parametrize("status", STATUSES)
@@ -145,15 +151,21 @@ def test_a_nested_file_list_filters_the_same_way(library, status):
     assert sorted(names) == expected_files(status)
 
 
-def test_the_status_and_the_bare_booleans_agree(library):
-    """CORRUPT spans both signature polarities, so it is not a rename of `hashValid`."""
+def test_a_failed_hash_splits_into_two_statuses(library):
+    """The whole point of hash_modified: `hashValid: false` is three files, and calling
+    all three CORRUPT is what this change exists to stop."""
     data = query(library, """
         query {
+          hashFailed: files(page: 1, pageSize: 50, filter: {hashValid: false}) {
+            items { filename verificationStatus } }
+          modified: files(page: 1, pageSize: 50, filter: {verificationStatus: MODIFIED}) {
+            items { filename } }
           corrupt: files(page: 1, pageSize: 50, filter: {verificationStatus: CORRUPT}) {
             items { filename } }
-          hashFailed: files(page: 1, pageSize: 50, filter: {hashValid: false}) {
-            items { filename } }
         }""")
-    assert ([f["filename"] for f in data["corrupt"]["items"]]
-            == [f["filename"] for f in data["hashFailed"]["items"]])
-    assert len(data["corrupt"]["items"]) == 2
+    failed = {f["filename"] for f in data["hashFailed"]["items"]}
+    modified = {f["filename"] for f in data["modified"]["items"]}
+    corrupt = {f["filename"] for f in data["corrupt"]["items"]}
+    assert modified | corrupt == failed
+    assert not modified & corrupt
+    assert (len(modified), len(corrupt)) == (1, 3)

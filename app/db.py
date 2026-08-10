@@ -147,6 +147,9 @@ class Files(db.Model):
     # "not checked" is not "checked and fine".
     signature_valid = db.Column(db.Boolean)
     hash_valid = db.Column(db.Boolean)
+    # Splits a failed hash test: True means the failing contents are still filed under
+    # the names the CNMT records, so they were rewritten in place rather than damaged.
+    hash_modified = db.Column(db.Boolean)
     verification_error = db.Column(db.String)
     verified_at = db.Column(db.DateTime)
     mtime = db.Column(db.Float)
@@ -554,6 +557,7 @@ def reset_file_verification(file):
     """Clear verification state on a Files row: the verdicts described the old bytes."""
     file.signature_valid = None
     file.hash_valid = None
+    file.hash_modified = None
     file.verification_error = None
     file.verified_at = None
 

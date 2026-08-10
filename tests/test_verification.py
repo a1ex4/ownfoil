@@ -1,7 +1,7 @@
 """Behavioural tests for file integrity verification.
 
 nstools is stubbed throughout: there are no sample game files in the repo, and these
-assert the *contract* — how the three phases map onto the two stored verdicts, when the
+assert the *contract* — how the three phases map onto the stored verdicts, when the
 pipeline asks for verification, and what a failed verdict stops downstream.
 """
 import os
@@ -84,16 +84,15 @@ def _keys_loaded(monkeypatch):
 
 def test_signature_depth_skips_the_hash_phase(monkeypatch, tmp_path):
     ran = _stub_phases(monkeypatch)
-    sig, hashed, error = verification.verify(str(tmp_path / "Game.nsp"),
-                                             verification.DEPTH_SIGNATURE)
-    assert (sig, hashed, error) == (True, None, None)
+    verdict = verification.verify(str(tmp_path / "Game.nsp"), verification.DEPTH_SIGNATURE)
+    assert verdict == (True, None, None, None)
     assert "hash" not in ran
 
 
 def test_hash_depth_runs_every_phase(monkeypatch, tmp_path):
     ran = _stub_phases(monkeypatch)
     assert verification.verify(str(tmp_path / "Game.nsp"),
-                               verification.DEPTH_HASH) == (True, True, None)
+                               verification.DEPTH_HASH) == (True, True, False, None)
     assert ran[:3] == ["decrypt", "sig", "hash"]
 
 
@@ -102,8 +101,8 @@ def test_decrypt_failure_counts_against_the_signature_verdict(monkeypatch, tmp_p
     column of its own; it is folded in, because it is a prerequisite for the signature."""
     _stub_phases(monkeypatch, decrypt=False,
                  messages=["> abc.nca\t -> is MISSING <<<-"])
-    sig, _, error = verification.verify(str(tmp_path / "Game.nsp"),
-                                        verification.DEPTH_SIGNATURE)
+    sig, _, _, error = verification.verify(str(tmp_path / "Game.nsp"),
+                                           verification.DEPTH_SIGNATURE)
     assert sig is False
     assert error == "> abc.nca\t -> is MISSING <<<-"
 
@@ -114,10 +113,32 @@ def test_corrupt_content_reports_only_the_failing_lines(monkeypatch, tmp_path):
         "> FILE: abc.nca\n> SHA256: dead\n> FILE IS CORRUPT",
         "\nVERDICT: NSP FILE IS SAFE",
     ])
-    sig, hashed, error = verification.verify(str(tmp_path / "Game.nsp"),
-                                             verification.DEPTH_HASH)
-    assert (sig, hashed) == (True, False)
+    sig, hashed, modified, error = verification.verify(str(tmp_path / "Game.nsp"),
+                                                       verification.DEPTH_HASH)
+    assert (sig, hashed, modified) == (True, False, False)
     assert error == "> FILE IS CORRUPT"
+
+
+def test_a_repack_is_told_apart_from_damage(monkeypatch, tmp_path):
+    """nstools reports MODIFIED and CORRUPT as the same failed verdict. The extra column
+    is the only thing that keeps a repacked file from being called damaged."""
+    _stub_phases(monkeypatch, hashed=False, messages=[
+        "> FILE WAS MODIFIED", "\nVERDICT: XCI FILE WAS MODIFIED"])
+    sig, hashed, modified, error = verification.verify(str(tmp_path / "Game.xci"),
+                                                       verification.DEPTH_HASH)
+    assert (sig, hashed, modified) == (True, False, True)
+    assert error == "> FILE WAS MODIFIED; VERDICT: XCI FILE WAS MODIFIED"
+
+
+def test_a_resigned_header_alone_is_not_a_modified_verdict(monkeypatch, tmp_path):
+    """verify_sig writes a per-content '-> was MODIFIED' for every re-signed header, and
+    that is the common case - a repack whose contents still hash correctly. Only the
+    file-level VERDICT line from the hash phase decides the column."""
+    _stub_phases(monkeypatch, signature=False, messages=[
+        "> abc.nca\t\t -> was MODIFIED", "\nVERDICT: NSP FILE COULD'VE BEEN TAMPERED WITH",
+        "\nVERDICT: NSP FILE IS CORRECT"])
+    assert verification.verify(str(tmp_path / "Game.nsp"),
+                               verification.DEPTH_HASH)[:3] == (False, True, False)
 
 
 def test_unreadable_file_is_not_vouched_for(monkeypatch, tmp_path):
@@ -127,14 +148,37 @@ def test_unreadable_file_is_not_vouched_for(monkeypatch, tmp_path):
     monkeypatch.setattr(verification.Verify, "verify_sig",
                         lambda c, m: (_ for _ in ()).throw(OSError("master_key_0a missing")))
     assert verification.verify(str(tmp_path / "Game.nsp"), verification.DEPTH_HASH) == (
-        False, False, "master_key_0a missing")
+        False, False, None, "master_key_0a missing")
 
 
 def test_unopenable_file_reports_without_raising(monkeypatch, tmp_path):
     monkeypatch.setattr(verification, "open_container",
                         _fake_container(raises=ValueError("not a PFS0")))
     assert verification.verify(str(tmp_path / "Game.nsp"), verification.DEPTH_SIGNATURE) == (
-        False, None, "not a PFS0")
+        False, None, None, "not a PFS0")
+
+
+# --- the verdict line nstools actually emits ---------------------------------------------
+#
+# _modified_from reads nstools' log, so it is pinned to wording. These cases are copied
+# verbatim from Verify.py rather than paraphrased, and the last one is the trap: the same
+# two words appear in the signature phase, about headers rather than contents.
+
+MODIFIED_LINES = [
+    ("\nVERDICT: XCI FILE WAS MODIFIED", True),
+    ("\nVERDICT: NSP FILE WAS MODIFIED", True),
+    ("\nVERDICT: NSP FILE IS CORRECT", False),
+    ("\nVERDICT: NSP FILE IS CORRUPT", False),
+    ("\nVERDICT: NSP FILE COULD'VE BEEN TAMPERED WITH", False),
+    ("> abc.nca\t\t -> was MODIFIED", False),
+    ("> FILE WAS MODIFIED", False),          # per content, not the file's verdict
+]
+
+
+@pytest.mark.parametrize("line,expected", MODIFIED_LINES,
+                         ids=[line.strip()[:38] for line, _ in MODIFIED_LINES])
+def test_only_the_hash_phase_verdict_line_means_modified(line, expected):
+    assert verification._modified_from([line]) is expected
 
 
 def test_progress_shim_reports_monotonic_whole_file_percent(monkeypatch, tmp_path):
@@ -187,7 +231,11 @@ def test_nstools_chatter_is_silenced():
     ("signature", {"signature_valid": True}, False),
     ("signature", {"signature_valid": False}, False),      # a verdict is a verdict
     ("hash", {"signature_valid": True}, True),             # deeper level not yet attempted
-    ("hash", {"hash_valid": False}, False),
+    ("hash", {"hash_valid": False, "hash_modified": False}, False),
+    ("hash", {"hash_valid": True}, False),
+    # A failure recorded before hash_modified existed cannot say whether it was a repack
+    # or damage, so it is re-checked. A pass has nothing left to learn.
+    ("hash", {"hash_valid": False}, True),
 ])
 def test_needs_verify_tracks_the_configured_depth(env, depth, columns, expected):
     f = env.seed(**columns)
@@ -248,14 +296,14 @@ def test_verify_file_stores_the_verdicts_and_redrives(env):
     env.monkeypatch.setattr(tasks, "enqueue_task",
                             lambda name, data=None, **k: enqueued.append((name, data)))
     env.monkeypatch.setattr(tasks.verification_lib, "verify",
-                            lambda fp, depth, progress=None: (True, False, "> FILE IS CORRUPT"))
+                            lambda fp, depth, progress=None: (True, False, True, "> FILE IS CORRUPT"))
     f = env.seed()
     fid = f.id
 
     tasks.verify_file_task(file_id=fid)
 
     f = db.session.get(Files, fid)
-    assert f.signature_valid is True and f.hash_valid is False
+    assert f.signature_valid is True and f.hash_valid is False and f.hash_modified is True
     assert f.verification_error == "> FILE IS CORRUPT"
     assert f.verified_at is not None
     assert enqueued == [("process_file", {"file_id": fid})]
@@ -265,7 +313,7 @@ def test_verify_file_at_signature_depth_leaves_hash_untouched(env):
     """A shallow run must not overwrite a hash verdict a deeper run already produced."""
     env.monkeypatch.setattr(tasks, "enqueue_task", lambda *a, **k: None)
     env.monkeypatch.setattr(tasks.verification_lib, "verify",
-                            lambda fp, depth, progress=None: (True, None, None))
+                            lambda fp, depth, progress=None: (True, None, None, None))
     f = env.seed(hash_valid=True)
     fid = f.id
 
@@ -286,7 +334,7 @@ def test_verify_stage_converges(env):
     env.monkeypatch.setattr(tasks, "get_settings", lambda: _settings(verify=True, depth="hash"))
     env.monkeypatch.setattr(tasks, "enqueue_task", lambda *a, **k: None)
     env.monkeypatch.setattr(tasks.verification_lib, "verify",
-                            lambda fp, depth, progress=None: (False, False, "bad"))
+                            lambda fp, depth, progress=None: (False, False, False, "bad"))
     f = env.seed()
     fid = f.id
 
@@ -310,7 +358,7 @@ def test_content_change_clears_the_verdicts(env):
     tasks.handle_file_added_task(library_path=str(env.lib_dir), filepath=path)
 
     f = db.session.get(Files, fid)
-    assert f.signature_valid is None and f.hash_valid is None
+    assert f.signature_valid is None and f.hash_valid is None and f.hash_modified is None
     assert f.verification_error is None and f.verified_at is None
 
 
@@ -331,10 +379,10 @@ def test_compression_preserves_the_verdicts(env):
     assert f.signature_valid is True and f.hash_valid is True
 
 
-def test_reset_file_verification_clears_all_four(env):
-    f = env.seed(signature_valid=True, hash_valid=False)
+def test_reset_file_verification_clears_every_column(env):
+    f = env.seed(signature_valid=True, hash_valid=False, hash_modified=True)
     f.verification_error = "boom"
     reset_file_verification(f)
     db.session.commit()
-    assert (f.signature_valid, f.hash_valid, f.verification_error, f.verified_at) == \
-        (None, None, None, None)
+    assert (f.signature_valid, f.hash_valid, f.hash_modified,
+            f.verification_error, f.verified_at) == (None, None, None, None, None)

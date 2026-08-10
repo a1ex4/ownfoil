@@ -226,6 +226,11 @@ class File:
         "Whether every NCA's content hashed to what its name and CNMT claim - the "
         "actual integrity verdict, and the one that blocks compression. Null unless "
         "verification ran at `hash` depth, which reads the whole file.", default=None)
+    hash_modified: Optional[bool] = desc(
+        "Splits a `hashValid: false` in two. `true` means the failing contents are still "
+        "filed under exactly the names the container's CNMT records, so they were "
+        "rewritten in place rather than damaged or swapped. Null when the contents were "
+        "never hashed, and on rows verified before this was recorded.", default=None)
     verification_error: Optional[str] = desc(
         "What verification objected to, if anything. Null when the file passed or was "
         "never checked.", default=None)
@@ -249,11 +254,13 @@ class File:
 
     @described_field
     def verification_status(self) -> VerificationStatus:
-        """`signatureValid` and `hashValid` read as one label - which of the two matters
-        depends on the other, and a client that reasons about them separately gets it
-        wrong. Computed from those two fields, so it costs no extra query and is never
-        stale. `filter: {verificationStatus:}` selects on the same rule."""
-        return VerificationStatus(status_of(self.signature_valid, self.hash_valid))
+        """`signatureValid`, `hashValid` and `hashModified` read as one label - which of
+        them matters depends on the others, and a client that reasons about them
+        separately gets it wrong. Computed from those three fields, so it costs no extra
+        query and is never stale. `filter: {verificationStatus:}` selects on the same
+        rule."""
+        return VerificationStatus(
+            status_of(self.signature_valid, self.hash_valid, self.hash_modified))
 
     @described_field
     def library(self) -> Optional[Library]:

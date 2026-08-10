@@ -95,7 +95,8 @@ f.identified AS identified, f.identification_type AS identification_type,
 f.identification_error AS identification_error,
 f.identification_attempts AS identification_attempts,
 f.organized AS organized, f.signature_valid AS signature_valid,
-f.hash_valid AS hash_valid, f.verification_error AS verification_error,
+f.hash_valid AS hash_valid, f.hash_modified AS hash_modified,
+f.verification_error AS verification_error,
 f.verified_at AS verified_at, f.mtime AS mtime, f.added_at AS added_at
 """
 
@@ -219,6 +220,7 @@ def _build_file(row, *, include_filepath: bool) -> File:
         # Kept tri-state: None means the level was never attempted.
         signature_valid=None if row.signature_valid is None else bool(row.signature_valid),
         hash_valid=None if row.hash_valid is None else bool(row.hash_valid),
+        hash_modified=None if row.hash_modified is None else bool(row.hash_modified),
         verification_error=row.verification_error,
         verified_at=_iso(row.verified_at),
         mtime=row.mtime,

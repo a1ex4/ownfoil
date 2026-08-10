@@ -11,8 +11,9 @@ import strawberry
 from typing import List, Optional
 
 from containers.verification import (
-    STATUS_ANY, STATUS_CORRUPT, STATUS_REPACK, STATUS_RULES, STATUS_SIGNATURE_FAILED,
-    STATUS_SIGNATURE_OK, STATUS_UNVERIFIED, STATUS_VALID, status_of,
+    STATUS_ANY, STATUS_CORRUPT, STATUS_MODIFIED, STATUS_REPACK, STATUS_RULES,
+    STATUS_SIGNATURE_FAILED, STATUS_SIGNATURE_OK, STATUS_UNVERIFIED, STATUS_VALID,
+    status_of,
 )
 
 from .docs import desc, described
@@ -144,10 +145,20 @@ class VerificationStatus(Enum):
         description="Re-signed, contents intact. A repacked file rather than a damaged "
                     "one - much of a normal library looks like this, and it is not on "
                     "its own a reason to re-download.")
+    MODIFIED = strawberry.enum_value(
+        STATUS_MODIFIED,
+        description="A content no longer hashes to the name it is filed under, but that "
+                    "name is still exactly what the container's own CNMT records for it. "
+                    "The metadata consistently describes the original content, so "
+                    "something rewrote the content in place - in practice a re-signed "
+                    "header. Not proof the payload survived, but not damage either.")
     CORRUPT = strawberry.enum_value(
         STATUS_CORRUPT,
-        description="At least one content did not hash to what it claims. These are the "
-                    "files worth replacing, and the ones compression refuses to touch.")
+        description="A content does not hash to the name it is filed under and nothing "
+                    "corroborates that name - the CNMT has no entry for it, disagrees, or "
+                    "lives in a metadata content whose own signature failed. Worth "
+                    "replacing. Also where a file verified before `hashModified` existed "
+                    "sits until it is checked again.")
     SIGNATURE_OK = strawberry.enum_value(
         STATUS_SIGNATURE_OK,
         description="Signatures checked out, contents never read. A pass as far as the "
@@ -189,10 +200,13 @@ class FileFilter:
         "Whether the NCA contents hashed as claimed. `false` is the list of files worth "
         "re-downloading; neither value matches one never verified at `hash` depth.",
         default=None)
+    hash_modified: Optional[bool] = desc(
+        "Whether a failed hash test was a repack rather than damage. Neither value "
+        "matches a file whose contents were never hashed.", default=None)
     verification_status: Optional[VerificationStatus] = desc(
-        "The two verdicts as one label. Every status is a fixed combination of "
-        "`signatureValid` and `hashValid`, so this is shorthand rather than an extra "
-        "predicate - `CORRUPT` is the one worth an alert.", default=None)
+        "The verdicts as one label. Every status is a fixed combination of "
+        "`signatureValid`, `hashValid` and `hashModified`, so this is shorthand rather "
+        "than an extra predicate - `CORRUPT` is the one worth an alert.", default=None)
     library_id: Optional[IntFilter] = desc(
         "Which library root the file sits under.", default=None)
     size: Optional[BigIntFilter] = desc(
@@ -272,29 +286,46 @@ def string_list_clauses(column_sql: str, f: Optional[StringListFilter],
     return out
 
 
-def _verdict_sql(column_sql: str, want) -> Optional[str]:
-    """One verdict column tested against one row of STATUS_RULES."""
-    if want is STATUS_ANY:
-        return None
-    if want is None:
-        return f"{column_sql} IS NULL"
-    return f"{column_sql} = {1 if want else 0}"
+# The verdict columns STATUS_RULES tests, in the order the rules list them.
+_VERDICT_COLUMNS = ("signature_valid", "hash_valid", "hash_modified")
+
+
+def _rule_sql(alias: str, wanted) -> str:
+    """One row of STATUS_RULES as a predicate.
+
+    `IS` rather than `=`, because these predicates get negated below and SQL's `NOT
+    (x = 1)` is NULL - not true - when x is NULL, which would silently drop exactly the
+    rows a catch-all rule exists to catch. SQLite's `IS` is null-safe equality.
+    """
+    tests = [f"{alias}.{col} IS {'NULL' if want is None else int(want)}"
+             for col, want in zip(_VERDICT_COLUMNS, wanted) if want is not STATUS_ANY]
+    return f"({' AND '.join(tests)})"
+
+
+def _rules_can_overlap(wanted, other) -> bool:
+    """Whether one row could satisfy both rules - true unless a column forces them apart."""
+    return all(a is STATUS_ANY or b is STATUS_ANY or a is b for a, b in zip(wanted, other))
 
 
 def verification_status_clauses(alias: str, status) -> List[str]:
-    """Translate a VerificationStatus into a test on the two verdict columns.
+    """Translate a VerificationStatus into a test on the verdict columns.
 
-    Reads the same table the projection reads, so the filter and the value it filters
-    on cannot drift apart. Nothing is bound: the operands come from that table, never
-    from anything a caller sent.
+    Reads the same table the projection reads, so the filter and the value it filters on
+    cannot drift apart. STATUS_RULES is first-match, so a rule claims only the rows no
+    earlier overlapping rule already claimed - without that, CORRUPT's catch-all would
+    also return every MODIFIED file. Nothing is bound: the operands come from that table,
+    never from anything a caller sent.
     """
     if status is None:
         return []
-    for name, want_signature, want_hash in STATUS_RULES:
+    earlier = []
+    for name, *wanted in STATUS_RULES:
         if name != status.value:
+            earlier.append(wanted)
             continue
-        tests = [t for t in (_verdict_sql(f"{alias}.signature_valid", want_signature),
-                             _verdict_sql(f"{alias}.hash_valid", want_hash)) if t]
+        tests = [_rule_sql(alias, wanted)]
+        tests += [f"NOT {_rule_sql(alias, e)}" for e in earlier
+                  if _rules_can_overlap(wanted, e)]
         return [f"({' AND '.join(tests)})"]
     return []
 
@@ -374,7 +405,8 @@ FILE_FIELDS = [
     ("compressed",          "f.compressed",          "bool"),
     ("signature_valid",     "f.signature_valid",     "bool"),
     ("hash_valid",          "f.hash_valid",          "bool"),
-    # Spans both verdict columns, so the entry carries the table alias rather than one
+    ("hash_modified",       "f.hash_modified",       "bool"),
+    # Spans every verdict column, so the entry carries the table alias rather than one
     # column and the clause builder picks the columns out of STATUS_RULES.
     ("verification_status", "f",                     "vstatus"),
     ("library_id",          "f.library_id",          "int"),
@@ -536,7 +568,8 @@ def match_verification_status(file_, expected) -> bool:
     a second time - two spellings of one rule is how they come to disagree."""
     if expected is None:
         return True
-    return status_of(file_.signature_valid, file_.hash_valid) == expected.value
+    return status_of(file_.signature_valid, file_.hash_valid,
+                     file_.hash_modified) == expected.value
 
 
 def match_int(value, f) -> bool:
@@ -588,6 +621,7 @@ def match_file(file_, f: Optional[FileFilter]) -> bool:
         and match_bool(file_.compressed,            f.compressed)
         and match_tristate(file_.signature_valid,   f.signature_valid)
         and match_tristate(file_.hash_valid,        f.hash_valid)
+        and match_tristate(file_.hash_modified,     f.hash_modified)
         and match_verification_status(file_,        f.verification_status)
         and match_int(file_.library_id,             f.library_id)
         and match_int(file_.size,                   f.size)
