@@ -10,7 +10,7 @@ from contextlib import contextmanager
 
 import pytest
 
-import file_verification as verification
+from containers import verification
 import tasks
 from db import db, Files, Libraries, reset_file_verification
 
@@ -317,7 +317,7 @@ def test_content_change_clears_the_verdicts(env):
 def test_compression_preserves_the_verdicts(env):
     """nsz round-trip-verifies NCA content hashes itself, so an NSP that verified good is
     still good as an NSZ - re-reading every byte again would buy nothing."""
-    import file_compression as compression
+    from containers import compression
     from test_compression import _stub_produce
     env.monkeypatch.setattr(tasks, "enqueue_task", lambda *a, **k: None)
     env.monkeypatch.setattr(compression, "compress_to", _stub_produce())

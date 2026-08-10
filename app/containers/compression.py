@@ -20,7 +20,7 @@ _decompress_ncz = getattr(_nsz_decompressor, '__decompressNcz')
 
 from constants import COMPRESS_EXT, DECOMPRESS_EXT
 
-from containers import open_container
+from .container import open_container
 
 logger = logging.getLogger('main')
 

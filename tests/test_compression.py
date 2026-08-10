@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-import file_compression as compression
+from containers import compression
 import tasks
 from db import (db, Files, Libraries, IgnoredEvent, TempFile, Task,
                 add_ignored_event, add_temp_file)

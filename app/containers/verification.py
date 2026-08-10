@@ -18,7 +18,7 @@ from nstools import Verify
 
 from constants import COMPRESS_EXT, DECOMPRESS_EXT
 
-from containers import open_container
+from .container import open_container
 
 logger = logging.getLogger('main')
 

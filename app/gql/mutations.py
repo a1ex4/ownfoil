@@ -162,7 +162,7 @@ class Mutation:
         """Re-verify one file at the configured depth. The stored verdicts are cleared
         first, so this re-checks a file that already has them rather than no-opping."""
         import tasks as tasks_mod
-        import file_verification as verification_lib
+        from containers import verification as verification_lib
         from db import Files, db, reset_file_verification
         _require_admin(info.context)
         file = db.session.get(Files, int(file_id))

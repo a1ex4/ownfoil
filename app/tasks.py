@@ -8,8 +8,8 @@ from collections import namedtuple
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 import titles as titles_lib
 import titledb
-import file_compression as compression
-import file_verification as verification_lib
+from containers import compression
+from containers import verification as verification_lib
 from constants import COMPRESS_EXT, DECOMPRESS_EXT
 from db import (
     db, Task, Files, Apps, Libraries, get_library_id, get_library_path, get_library_file_paths,
