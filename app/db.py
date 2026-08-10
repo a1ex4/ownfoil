@@ -561,6 +561,13 @@ def reset_file_verification(file):
     file.verification_error = None
     file.verified_at = None
 
+def verification_status(file):
+    """The verification status of a Files row, given the row or its id."""
+    from containers.verification import status_of
+    if isinstance(file, int):
+        file = db.session.get(Files, file)
+    return status_of(file.signature_valid, file.hash_valid, file.hash_modified)
+
 def remove_file_from_apps(file_id):
     """Remove a file from all apps that reference it and update owned status"""
     apps_updated = 0

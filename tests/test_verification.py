@@ -12,7 +12,7 @@ import pytest
 
 from containers import verification
 import tasks
-from db import db, Files, Libraries, reset_file_verification
+from db import db, Files, Libraries, reset_file_verification, verification_status
 
 from app import create_app
 
@@ -276,9 +276,10 @@ def test_verify_runs_before_organize_and_compress(env):
     assert enqueued == ["verify_file"]
 
 
-# (filename, verdict columns, the status they derive to). CORRUPT is the only one that
-# blocks, so the expectation is read off the status rather than restated per case.
-COMPRESS_CASES = [
+# (filename, verdict columns, the status they derive to). One file per status a real
+# library produces, so the compression expectation can be read off the status rather than
+# restated per case - CORRUPT is the only one that blocks.
+VERDICT_CASES = [
     ("A.nsp", {}, verification.STATUS_UNVERIFIED),
     ("B.nsp", {"signature_valid": True}, verification.STATUS_SIGNATURE_OK),
     ("C.nsp", {"signature_valid": False}, verification.STATUS_SIGNATURE_FAILED),
@@ -289,11 +290,19 @@ COMPRESS_CASES = [
 ]
 
 
+def test_verification_status_takes_a_row_or_an_id(env):
+    """The row-level reader every caller shares, so the columns are folded in one place."""
+    for filename, verdicts, status in VERDICT_CASES:
+        f = env.seed(filename, **verdicts)
+        assert verification_status(f) == status
+        assert verification_status(f.id) == status
+
+
 def test_compress_stage_refuses_only_a_corrupt_file(env):
     """Damaged bytes would fail nsz's own round-trip check. Nothing else is grounds to
     refuse: a re-signed or un-renamed repack is commonplace and its content still compresses."""
     mgmt = _settings(verify=True)["library"]["management"]
-    for filename, verdicts, status in COMPRESS_CASES:
+    for filename, verdicts, status in VERDICT_CASES:
         assert tasks._needs_compress(env.seed(filename, **verdicts), mgmt) is (
             status != verification.STATUS_CORRUPT), status
 

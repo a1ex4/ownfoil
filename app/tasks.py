@@ -19,6 +19,7 @@ from db import (
     add_temp_file, remove_temp_file, claim_temp_file, get_temp_file_paths, purge_temp_files,
     set_library_scan_time, remove_missing_files_from_db,
     remove_file_from_apps, reset_file_identification, reset_file_verification, create_file,
+    verification_status,
 )
 from settings import get_settings
 from utils import interval_string_to_timedelta, delete_empty_folders, human_size
@@ -679,8 +680,7 @@ def _organize(file, mgmt):
 def _needs_compress(file, mgmt):
     if not mgmt['compression']['enabled'] or file.compressed or file.extension not in COMPRESS_EXT:
         return False
-    if verification_lib.status_of(file.signature_valid, file.hash_valid,
-                                  file.hash_modified) == verification_lib.STATUS_CORRUPT:
+    if verification_status(file) == verification_lib.STATUS_CORRUPT:
         # The one verdict that says the bytes themselves are damaged, so nsz's own
         # round-trip check would reject the file anyway. Every other status is some flavour
         # of repack: MODIFIED only means the contents were never renamed to their new hash,

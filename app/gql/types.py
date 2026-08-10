@@ -13,7 +13,7 @@ from strawberry import Private
 from typing import List, Optional
 from typing_extensions import Annotated
 
-from containers.verification import status_of
+from db import verification_status
 
 from .docs import arg, desc, described, described_field
 from .filters import AppFilter, FileFilter, VerificationStatus, match_app, match_file
@@ -275,8 +275,7 @@ class File:
         separately gets it wrong. Computed from those three fields, so it costs no extra
         query and is never stale. `filter: {verificationStatus:}` selects on the same
         rule."""
-        return VerificationStatus(
-            status_of(self.signature_valid, self.hash_valid, self.hash_modified))
+        return VerificationStatus(verification_status(self))
 
     @described_field
     def library(self) -> Optional[Library]:

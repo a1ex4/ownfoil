@@ -13,8 +13,8 @@ from typing import List, Optional
 from containers.verification import (
     STATUS_ANY, STATUS_CORRUPT, STATUS_MODIFIED, STATUS_REPACK, STATUS_RULES,
     STATUS_SIGNATURE_FAILED, STATUS_SIGNATURE_OK, STATUS_UNVERIFIED, STATUS_VALID,
-    status_of,
 )
+from db import verification_status
 
 from .docs import desc, described
 from .scalars import BigInt
@@ -570,8 +570,7 @@ def match_verification_status(file_, expected) -> bool:
     a second time - two spellings of one rule is how they come to disagree."""
     if expected is None:
         return True
-    return status_of(file_.signature_valid, file_.hash_valid,
-                     file_.hash_modified) == expected.value
+    return verification_status(file_) == expected.value
 
 
 def match_int(value, f) -> bool:
