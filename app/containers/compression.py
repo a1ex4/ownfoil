@@ -61,8 +61,6 @@ def _with_progress(run, progress, base, span):
 
 
 def _ensure_keys():
-    # Imported lazily: settings pulls in the whole config stack, which this module must not
-    # require at import time.
     from settings import ensure_keys
     ensure_keys('compress')
 

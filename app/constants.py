@@ -37,9 +37,8 @@ DEFAULT_SETTINGS = {
                 "threads": 0,
             },
             "verification": {
-                "enabled": False,
-                # 'signature' (fast: header RSA-PSS) or 'hash' (reads every byte).
-                "depth": "signature",
+                "enabled": True,
+                "depth": "hash",
             },
             "delete_older_updates": False,
             "organizer": {

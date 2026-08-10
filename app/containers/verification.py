@@ -2,13 +2,6 @@
 
 Owns all nstools interaction. Verification is cumulative: the signature test needs the
 container decrypted, and the hash test needs the header list the signature test builds
-(it is what tells a re-signed-but-intact file apart from a corrupt one). So a deeper
-depth always runs the shallower ones, and `signature_valid` covers the structural
-decrypt test - missing NCAs, missing tickets, wrong title keys - as well as the RSA-PSS
-header signature.
-
-nstools' own `Verify.verify()` is not used: it leaks the container handle when a phase
-raises, and its vlevel guard silently promotes anything outside {1, 2} to a full hash.
 """
 import logging
 import os
@@ -29,8 +22,7 @@ DEPTHS = (DEPTH_SIGNATURE, DEPTH_HASH)
 # The container formats nstools can open. Same set the compressor works on.
 VERIFY_EXT = frozenset(COMPRESS_EXT) | frozenset(DECOMPRESS_EXT)
 
-# One label for the verdicts `verify` returns. Derived on read, never stored: a status
-# column would be a second copy of what the verdict columns already say, free to drift.
+# One label for the verdicts `verify` returns. Derived on read, never stored.
 STATUS_UNVERIFIED = 'UNVERIFIED'
 STATUS_VALID = 'VALID'
 STATUS_REPACK = 'REPACK'
@@ -71,17 +63,11 @@ def status_of(signature_valid, hash_valid, hash_modified):
     # verify task never does - hash depth always records both.
     return STATUS_UNVERIFIED
 
-# Lines nstools emits for a content that failed. Everything else it prints is progress
-# narration, and a whole run's log is far too long to put in a DB column. 'MODIFIED'
-# is matched bare because the two phases disagree on case: verify_sig writes
-# '-> was MODIFIED', verify_hash '> FILE WAS MODIFIED'.
+# Lines nstools emits for a content that failed.
 _FAILURES = ('<<<-', 'MODIFIED', 'FILE IS CORRUPT')
 _MAX_ERROR = 2000
 
-# nstools decides CORRECT / MODIFIED / CORRUPT per content and then collapses the last two
-# into `verdict = False` (Verify.py:785-789), so the verdict it returns cannot say which.
-# Only verify_hash writes this line - verify_sig's own MODIFIED lines are per-content,
-# lowercase and describe headers rather than contents - so matching it needs no context.
+# nstools decides CORRECT / MODIFIED / CORRUPT per content.
 _MODIFIED_VERDICT = 'FILE WAS MODIFIED'
 
 # nstools prints its whole log with bare print(), which nsz's Print.silent does not reach.
@@ -146,9 +132,7 @@ def verify(filepath, depth, progress=None):
     hash_valid and hash_modified are None when the depth did not ask for the hash test.
     hash_modified splits a failed hash test in two: True means the failing contents are
     still filed under the names the container's own CNMT records, so they were rewritten
-    in place rather than damaged or swapped. A phase that raises rather than returning a
-    verdict counts as invalid, with the exception text as the error: a file we cannot read
-    is not a file we can vouch for.
+    in place rather than damaged or swapped.
     """
     from settings import ensure_keys
     ensure_keys('verify')

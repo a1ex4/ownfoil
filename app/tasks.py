@@ -637,8 +637,6 @@ def _identify(file, mgmt):
     file.last_attempt = datetime.datetime.now()
     db.session.commit()
 
-    # Top-level, not a child: the driver stays a leaf, so a scan is not held open by the
-    # per-title expansion and cancelling one does not cancel the other.
     for title_id in identified_title_ids:
         enqueue_task('add_missing_apps_for_title', {'title_id': title_id})
 
@@ -648,13 +646,9 @@ def _needs_verify(file, mgmt):
     if not verification['enabled'] or file.extension not in verification_lib.VERIFY_EXT:
         return False
     if not titles_lib.Keys.keys_loaded:
-        return False   # nstools cannot open a container without them
+        return False
     if verification['depth'] == verification_lib.DEPTH_HASH:
-        # A failed hash recorded before hash_modified existed cannot say whether it was a
-        # repack or real damage, and that is the difference between a shrug and an alert.
-        # Re-check those - only already-failing files pay for it, and they are rare.
-        return file.hash_valid is None or (file.hash_valid is False
-                                           and file.hash_modified is None)
+        return file.hash_valid is None
     return file.signature_valid is None
 
 
@@ -681,10 +675,6 @@ def _needs_compress(file, mgmt):
     if not mgmt['compression']['enabled'] or file.compressed or file.extension not in COMPRESS_EXT:
         return False
     if verification_status(file) == verification_lib.STATUS_CORRUPT:
-        # The one verdict that says the bytes themselves are damaged, so nsz's own
-        # round-trip check would reject the file anyway. Every other status is some flavour
-        # of repack: MODIFIED only means the contents were never renamed to their new hash,
-        # which nothing in the compressor looks at, and a failed signature says even less.
         return False
     target = compression.conversion_target(file)
     return Files.query.filter(Files.filepath == target, Files.id != file.id).first() is None
@@ -692,8 +682,8 @@ def _needs_compress(file, mgmt):
 
 STAGES = [
     Stage('identify', _needs_identify, _identify, None),
-    Stage('verify', _needs_verify, None, 'verify_file'),
     Stage('organize', _needs_organize, _organize, None),
+    Stage('verify', _needs_verify, None, 'verify_file'),
     Stage('compress', _needs_compress, None, 'compress_file'),
 ]
 
@@ -713,9 +703,6 @@ def process_file_task(file_id, **kwargs):
             db.session.commit()
             return
         mgmt = get_settings()['library']['management']
-        # `done` and not a plain break: a stage is not guaranteed to flip its own applies()
-        # - organize_file gives up on a file with no app or no title info, and the claim can
-        # be held elsewhere - and re-picking it would spin the worker forever.
         stage = next((s for s in STAGES if s.name not in done and s.applies(file, mgmt)), None)
         if stage is None:
             return
@@ -875,8 +862,6 @@ def decompress_file_task(file_id, **kwargs):
     if not os.path.exists(file_obj.filepath):
         return
     progress = _task_progress(_current_task_id)
-    # No re-drive: the pipeline's compress stage would immediately undo what the user asked
-    # for. The next process_library sweep still re-compresses it, as compress_library did.
     _convert_file(file_obj,
                   lambda source, out_dir: compression.decompress_to(source, out_dir, progress=progress),
                   DECOMPRESS_EXT[file_obj.extension], False)

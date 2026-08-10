@@ -1,8 +1,4 @@
-"""CNMT metadata extraction — the title id, type and version a container declares.
-
-Split out of titles.py, which is otherwise titledb lookups and filename parsing: this is the
-only part of identification that opens the container itself.
-"""
+"""CNMT metadata extraction — the title id, type and version a container declares."""
 import logging
 import re
 

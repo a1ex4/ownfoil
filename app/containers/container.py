@@ -1,9 +1,4 @@
-"""nsz container access — the one place that turns a path into an open Nsp/Xci.
-
-nsz's factory dispatches on the exact-case suffix and hands back an unopened instance, so
-every caller had grown its own way past that. Owning the open here also owns the nsz output
-globals: they are module state, so they were already process-wide by import order.
-"""
+"""nsz container access — the one place that turns a path into an open Nsp/Xci."""
 import logging
 from contextlib import contextmanager
 from pathlib import Path

@@ -136,40 +136,34 @@ class VerificationStatus(Enum):
     `stats.filesByVerificationStatus` reports."""
     VALID = strawberry.enum_value(
         STATUS_VALID,
-        description="Signed by Nintendo and every content hashed as claimed. The only "
-                    "status that means the bytes are both authentic and intact.")
+        description="Signed by Nintendo and every content is original. The only "
+                    "status that means the file is both authentic and intact.")
     REPACK = strawberry.enum_value(
         STATUS_REPACK,
-        description="Re-signed, contents intact. A repacked file rather than a damaged "
-                    "one - much of a normal library looks like this, and it is not on "
-                    "its own a reason to re-download.")
+        description="Re-signed, contents intact. of the modified content has been "
+                    "updated in both the filename and CNMT record, to allow integrity "
+                    "verification.")
     MODIFIED = strawberry.enum_value(
         STATUS_MODIFIED,
         description="A content no longer hashes to the name it is filed under, but that "
-                    "name is still exactly what the container's own CNMT records for it. "
-                    "The metadata consistently describes the original content, so "
-                    "something rewrote the content in place - in practice a re-signed "
-                    "header. Not proof the payload survived, but not damage either.")
+                    "name match the container's own CNMT records for it. "
+                    "It proves the container's metadata is intact and consistent. "
+                    "It does not prove the payload survived — no hash of the content " 
+                    "sections alone is recorded anywhere, so there is nothing to check them against.")
     CORRUPT = strawberry.enum_value(
         STATUS_CORRUPT,
-        description="A content does not hash to the name it is filed under and nothing "
-                    "corroborates that name - the CNMT has no entry for it, disagrees, or "
-                    "lives in a metadata content whose own signature failed. Worth "
-                    "replacing. Also where a file verified before `hashModified` existed "
-                    "sits until it is checked again.")
+        description="A content does not hash to the name it is filed under and there "
+                    "is nothing in the CNMT records that matches.")
     SIGNATURE_OK = strawberry.enum_value(
         STATUS_SIGNATURE_OK,
-        description="Signatures checked out, contents never read. A pass as far as the "
-                    "configured depth looked - raise it to `hash` to learn more.")
+        description="Signatures have been verified authentic, no content hash verification run.")
     SIGNATURE_FAILED = strawberry.enum_value(
         STATUS_SIGNATURE_FAILED,
-        description="Signatures did not check out and the contents were never read, so "
-                    "this is either an ordinary repack or a corrupt file - `hash` depth "
-                    "is what tells the two apart.")
+        description="Signatures verification failed, no content hash verification run.")
     UNVERIFIED = strawberry.enum_value(
         STATUS_UNVERIFIED,
         description="Never checked. Either verification is off, the keys are missing, "
-                    "or the file has not come round yet.")
+                    "or the file has not been checked yet.")
 
 
 @described(strawberry.input)
@@ -199,16 +193,14 @@ class FileFilter:
         "Whether the NCA header signatures checked out. Neither `true` nor `false` "
         "matches a file that was never verified.", default=None)
     hash_valid: Optional[bool] = desc(
-        "Whether the NCA contents hashed as claimed. `false` is the list of files worth "
-        "re-downloading; neither value matches one never verified at `hash` depth.",
+        "Whether the NCA contents hashed as claimed.",
         default=None)
     hash_modified: Optional[bool] = desc(
         "Whether a failed hash test was a repack rather than damage. Neither value "
         "matches a file whose contents were never hashed.", default=None)
     verification_status: Optional[VerificationStatus] = desc(
         "The verdicts as one label. Every status is a fixed combination of "
-        "`signatureValid`, `hashValid` and `hashModified`, so this is shorthand rather "
-        "than an extra predicate - `CORRUPT` is the one worth an alert.", default=None)
+        "`signatureValid`, `hashValid` and `hashModified`.", default=None)
     library_id: Optional[IntFilter] = desc(
         "Which library root the file sits under.", default=None)
     size: Optional[BigIntFilter] = desc(
@@ -408,8 +400,6 @@ FILE_FIELDS = [
     ("signature_valid",     "f.signature_valid",     "bool"),
     ("hash_valid",          "f.hash_valid",          "bool"),
     ("hash_modified",       "f.hash_modified",       "bool"),
-    # Spans every verdict column, so the entry carries the table alias rather than one
-    # column and the clause builder picks the columns out of STATUS_RULES.
     ("verification_status", "f",                     "vstatus"),
     ("library_id",          "f.library_id",          "int"),
     ("size",                "f.size",                "int"),

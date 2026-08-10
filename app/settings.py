@@ -89,12 +89,11 @@ def load_keys(key_file=KEYS_FILE):
         return valid, missing, corrupt
 
 def ensure_keys(action):
-    """Raise unless valid keys are loaded — nsz and nstools both read them from module state."""
+    """Raise unless valid keys are loaded."""
     if not Keys.keys_loaded:
         load_keys()
     if not Keys.keys_loaded:
         raise RuntimeError(f'Cannot {action}: no valid keys loaded.')
-
 
 def remove_obsolete_keys(target, defaults, path=''):
     removed = False

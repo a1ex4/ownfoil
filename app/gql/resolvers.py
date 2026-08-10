@@ -218,7 +218,6 @@ def _build_file(row, *, include_filepath: bool) -> File:
         identification_error=row.identification_error,
         identification_attempts=row.identification_attempts or 0,
         organized=bool(row.organized),
-        # Kept tri-state: None means the level was never attempted.
         signature_valid=None if row.signature_valid is None else bool(row.signature_valid),
         hash_valid=None if row.hash_valid is None else bool(row.hash_valid),
         hash_modified=None if row.hash_modified is None else bool(row.hash_modified),
@@ -1081,9 +1080,6 @@ def resolve_stats(*, ctx: GraphQLContext, info) -> LibraryStats:
         GROUP BY l.id, l.path ORDER BY l.id""")
 
     if ctx.can_admin and sel.has("filesByVerificationStatus"):
-        # Grouped on the raw verdicts, not on a SQL CASE ladder: eight combinations at
-        # most, folded through the same status_of every other reader uses, so the rule
-        # table stays the only place the vocabulary is defined.
         buckets = {status: [0, 0] for status in VerificationStatus}
         for sig, hashed, modified, count, size in db.session.execute(text("""
         SELECT signature_valid, hash_valid, hash_modified, COUNT(*),
