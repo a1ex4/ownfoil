@@ -13,8 +13,10 @@ from strawberry import Private
 from typing import List, Optional
 from typing_extensions import Annotated
 
+from containers.verification import status_of
+
 from .docs import arg, desc, described, described_field
-from .filters import AppFilter, FileFilter, match_app, match_file
+from .filters import AppFilter, FileFilter, VerificationStatus, match_app, match_file
 from .scalars import BigInt
 
 # Arguments shared by the nested list fields, annotated once so `Title.apps` and
@@ -244,6 +246,14 @@ class File:
     # by resolvers; None means "not exposed for this path/role".
     apps_loaded: Private[Optional[List["App"]]] = None
     library_loaded: Private[Optional[Library]] = None
+
+    @described_field
+    def verification_status(self) -> VerificationStatus:
+        """`signatureValid` and `hashValid` read as one label - which of the two matters
+        depends on the other, and a client that reasons about them separately gets it
+        wrong. Computed from those two fields, so it costs no extra query and is never
+        stale. `filter: {verificationStatus:}` selects on the same rule."""
+        return VerificationStatus(status_of(self.signature_valid, self.hash_valid))
 
     @described_field
     def library(self) -> Optional[Library]:
