@@ -6,6 +6,7 @@ pipeline asks for verification, and what a failed verdict stops downstream.
 """
 import os
 import types
+from contextlib import contextmanager
 
 import pytest
 
@@ -47,13 +48,21 @@ def env(tmp_path, monkeypatch):
     ctx.pop()
 
 
+def _fake_container(raises=None):
+    """Stand in for containers.open_container; lifecycle itself is tested in test_containers."""
+    @contextmanager
+    def opener(filepath, meta_only=False):
+        if raises is not None:
+            raise raises
+        yield types.SimpleNamespace()
+    return opener
+
+
 def _stub_phases(monkeypatch, *, decrypt=True, signature=True, hashed=True, messages=None):
     """Replace the three nstools phases, recording which ones ran."""
     ran = []
     msgs = messages or []
-    container = types.SimpleNamespace(flush=lambda: ran.append("flush"),
-                                      close=lambda: ran.append("close"))
-    monkeypatch.setattr(verification, "_open", lambda fp: container)
+    monkeypatch.setattr(verification, "open_container", _fake_container())
     monkeypatch.setattr(verification.Verify, "verify_decrypt",
                         lambda c, m: (ran.append("decrypt"), (decrypt, msgs))[1])
     monkeypatch.setattr(verification.Verify, "verify_sig",
@@ -79,7 +88,6 @@ def test_signature_depth_skips_the_hash_phase(monkeypatch, tmp_path):
                                              verification.DEPTH_SIGNATURE)
     assert (sig, hashed, error) == (True, None, None)
     assert "hash" not in ran
-    assert ran[-2:] == ["flush", "close"]      # container always closed
 
 
 def test_hash_depth_runs_every_phase(monkeypatch, tmp_path):
@@ -123,8 +131,8 @@ def test_unreadable_file_is_not_vouched_for(monkeypatch, tmp_path):
 
 
 def test_unopenable_file_reports_without_raising(monkeypatch, tmp_path):
-    monkeypatch.setattr(verification, "_open",
-                        lambda fp: (_ for _ in ()).throw(ValueError("not a PFS0")))
+    monkeypatch.setattr(verification, "open_container",
+                        _fake_container(raises=ValueError("not a PFS0")))
     assert verification.verify(str(tmp_path / "Game.nsp"), verification.DEPTH_SIGNATURE) == (
         False, None, "not a PFS0")
 

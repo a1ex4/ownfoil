@@ -13,13 +13,12 @@ raises, and its vlevel guard silently promotes anything outside {1, 2} to a full
 import logging
 import os
 from contextlib import contextmanager
-from pathlib import Path
 
 from nstools import Verify
-from nsz.Fs import Nsp as _Nsp, Xci as _Xci, factory as _factory
-from nsz.nut import Print as _nsz_print
 
 from constants import COMPRESS_EXT, DECOMPRESS_EXT
+
+from containers import open_container
 
 logger = logging.getLogger('main')
 
@@ -39,22 +38,6 @@ _MAX_ERROR = 2000
 # Shadowing the module's builtin is targeted; redirect_stdout would swap sys.stdout for
 # every thread in the worker. Nothing is lost - the same text comes back in the vmsg list.
 Verify.print = lambda *args, **kwargs: None
-
-# The container layer underneath is nsz's, and it narrates every partition it opens.
-# file_compression silences this too; neither module should depend on the other's import.
-_nsz_print.enableInfo = False
-
-
-def _open(filepath):
-    """Open a container the way nstools expects for its extension."""
-    ext = filepath.rsplit('.', 1)[-1].lower()
-    if ext == 'xci':
-        container = _factory(Path(filepath).resolve())
-        container.open(filepath, 'rb')
-        return container
-    if ext == 'xcz':
-        return _Xci.Xci(filepath)
-    return _Nsp.Nsp(filepath, 'rb')
 
 
 @contextmanager
@@ -111,27 +94,19 @@ def verify(filepath, depth, progress=None):
     from settings import ensure_keys
     ensure_keys('verify')
 
-    try:
-        container = _open(filepath)
-    except Exception as e:
-        logger.warning(f'Could not open {os.path.basename(filepath)} for verification: {e}')
-        return False, (False if depth == DEPTH_HASH else None), str(e)
-
     messages = []
     try:
-        ok_decrypt, messages = Verify.verify_decrypt(container, messages)
-        ok_signature, headers, messages = Verify.verify_sig(container, messages)
-        signature_valid = bool(ok_decrypt) and bool(ok_signature)
-        hash_valid = None
-        if depth == DEPTH_HASH:
-            with _progress_bars(progress, filepath):
-                ok_hash, messages = Verify.verify_hash(container, headers, messages)
-            hash_valid = bool(ok_hash)
+        with open_container(filepath) as container:
+            ok_decrypt, messages = Verify.verify_decrypt(container, messages)
+            ok_signature, headers, messages = Verify.verify_sig(container, messages)
+            signature_valid = bool(ok_decrypt) and bool(ok_signature)
+            hash_valid = None
+            if depth == DEPTH_HASH:
+                with _progress_bars(progress, filepath):
+                    ok_hash, messages = Verify.verify_hash(container, headers, messages)
+                hash_valid = bool(ok_hash)
     except Exception as e:
         logger.warning(f'Verification of {os.path.basename(filepath)} failed: {e}')
         return False, (False if depth == DEPTH_HASH else None), str(e)
-    finally:
-        container.flush()
-        container.close()
 
     return signature_valid, hash_valid, _error_from(messages)

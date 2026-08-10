@@ -1,22 +1,19 @@
 import os
-import sys
 import re
 
 import titledb
 from constants import *
 from utils import *
 from settings import *
-from pathlib import Path
-from binascii import hexlify as hx, unhexlify as uhx
 import logging
 
-from nsz.Fs import Pfs0, Xci, Nsp, Nca, Type, factory
+from nsz.Fs import Pfs0, Xci, Nsp, Nca, Type
 from nsz.nut import Keys
+
+from containers import open_container
 
 # Retrieve main logger
 logger = logging.getLogger('main')
-
-Pfs0.Print.silent = True
 
 app_id_regex = r"\[([0-9A-Fa-f]{16})\]"
 version_regex = r"\[v(\d+)\]"
@@ -172,11 +169,10 @@ def extract_meta_from_cnmt(cnmt_sections):
 
 def identify_file_from_cnmt(filepath):
     contents = []
-    container = factory(Path(filepath).resolve())
     try:
-        container.open(filepath, 'rb', meta_only=True)
-        for cnmt_sections in get_cnmts(container):
-            contents += extract_meta_from_cnmt(cnmt_sections)
+        with open_container(filepath, meta_only=True) as container:
+            for cnmt_sections in get_cnmts(container):
+                contents += extract_meta_from_cnmt(cnmt_sections)
     except OSError as e:
         # Check if the error is due to a missing master_key
         match = re.search(r"master_key_([0-9a-fA-F]{2}) missing from", str(e))
@@ -185,8 +181,6 @@ def identify_file_from_cnmt(filepath):
             raise ValueError(f"Missing valid master_key_{key_index} from keys file.") from e
         else:
             raise # Re-raise other OSErrors
-    finally:
-        container.close()
 
     return contents
 
