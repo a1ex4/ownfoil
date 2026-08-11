@@ -83,6 +83,9 @@ class TaskWorker:
             task = db.session.get(Task, task_id)
 
             if task.status == 'waiting_for_children':
+                # Children created before the park may already all be done, and their own
+                # completion checks bailed out while this row still read 'running'.
+                tasks_mod._try_complete_parent(task_id)
                 return
 
             task.status = 'completed'

@@ -12,8 +12,7 @@ from multiprocessing import cpu_count
 
 import nsz
 from nsz import Decompressor as _nsz_decompressor
-from nsz.Fs import Nsp as _Nsp, Xci as _Xci
-from nsz.nut import Keys, Print as _nsz_print
+from nsz.nut import Print as _nsz_print
 from nsz.Decompressor import VerificationException
 
 # nsz's in-memory NCZ->NCA reconstruction (returns the reconstructed NCA's sha256).
@@ -21,14 +20,14 @@ _decompress_ncz = getattr(_nsz_decompressor, '__decompressNcz')
 
 from constants import COMPRESS_EXT, DECOMPRESS_EXT
 
+from .container import open_container
+
 logger = logging.getLogger('main')
 
 POLL_INTERVAL = 2.0   # seconds between statusReport polls
 COMPRESS_SPAN = 90    # compress fills 0..COMPRESS_SPAN, verify the rest (empirically ~90/10 of wall time)
 
-# suppress nsz's logs and progress bars
-_nsz_print.enableInfo = False
-_nsz_print.minimalOutput = True
+# suppress nsz's progress bars; containers owns the output flags
 _nsz_print.progress = lambda *a, **k: None
 
 
@@ -62,12 +61,8 @@ def _with_progress(run, progress, base, span):
 
 
 def _ensure_keys():
-    """nsz reads decryption keys from the module-global Keys state."""
-    if not Keys.keys_loaded:
-        from settings import load_keys
-        load_keys()
-    if not Keys.keys_loaded:
-        raise RuntimeError('Cannot compress: no valid keys loaded.')
+    from settings import ensure_keys
+    ensure_keys('compress')
 
 
 def compressed_path(source):
@@ -104,11 +99,9 @@ def _nca_content_hashes(path, sri=None):
     """Map each NCA's identity (name minus .nca/.ncz) to the sha256 of its content."""
     path = Path(path)
     is_xci = path.suffix.lower() in ('.xci', '.xcz')
-    container = (_Xci.Xci() if is_xci else _Nsp.Nsp())
-    container.open(str(path), 'rb')
-    members = (f for part in container.hfs0 for f in part) if is_xci else iter(container)
     hashes = {}
-    try:
+    with open_container(path) as container:
+        members = (f for part in container.hfs0 for f in part) if is_xci else iter(container)
         for f in members:
             if f._path.endswith('.ncz'):
                 _, hexhash = _decompress_ncz(f, None, sri, None)
@@ -121,8 +114,6 @@ def _nca_content_hashes(path, sri=None):
             else:
                 continue
             hashes[f._path[:-4]] = hexhash
-    finally:
-        container.close()
     return hashes
 
 

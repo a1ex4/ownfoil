@@ -1,22 +1,18 @@
 import os
-import sys
 import re
 
 import titledb
 from constants import *
 from utils import *
 from settings import *
-from pathlib import Path
-from binascii import hexlify as hx, unhexlify as uhx
 import logging
 
-from nsz.Fs import Pfs0, Xci, Nsp, Nca, Type, factory
 from nsz.nut import Keys
+
+from containers.cnmt import identify_file_from_cnmt
 
 # Retrieve main logger
 logger = logging.getLogger('main')
-
-Pfs0.Print.silent = True
 
 app_id_regex = r"\[([0-9A-Fa-f]{16})\]"
 version_regex = r"\[v(\d+)\]"
@@ -133,62 +129,6 @@ def identify_file_from_filename(filename):
     
     error = ' '.join(errors)
     return app_id, title_id, app_type, version, error
-
-def get_cnmts(container):
-    cnmts = []
-    if isinstance(container, Nsp.Nsp):
-        try:
-            cnmt = container.cnmt()
-            cnmts.append(cnmt)
-        except Exception as e:
-            logger.warning(f'CNMT section not found in Nsp: {e}')
-            raise
-
-    elif isinstance(container, Xci.Xci):
-        container = container.hfs0['secure']
-        for nspf in container:
-            if isinstance(nspf, Nca.Nca) and nspf.header.contentType == Type.Content.META:
-                cnmts.append(nspf)
-        if not cnmts:
-            raise ValueError("No META NCA found in XCI secure partition.")
-
-    else:
-        raise ValueError(f"Unsupported container type: {type(container).__name__}.")
-
-    return cnmts
-
-def extract_meta_from_cnmt(cnmt_sections):
-    contents = []
-    for section in cnmt_sections:
-        if isinstance(section, Pfs0.Pfs0):
-            Cnmt = section.getCnmt()
-            titleType = APP_TYPE_MAP[Cnmt.titleType]
-            titleId = Cnmt.titleId.upper()
-            version = Cnmt.version
-            contents.append((titleType, titleId, version))
-    if not contents:
-        raise ValueError("No Pfs0 sections found in CNMT container.")
-    return contents
-
-def identify_file_from_cnmt(filepath):
-    contents = []
-    container = factory(Path(filepath).resolve())
-    try:
-        container.open(filepath, 'rb', meta_only=True)
-        for cnmt_sections in get_cnmts(container):
-            contents += extract_meta_from_cnmt(cnmt_sections)
-    except OSError as e:
-        # Check if the error is due to a missing master_key
-        match = re.search(r"master_key_([0-9a-fA-F]{2}) missing from", str(e))
-        if match:
-            key_index = match.group(1)
-            raise ValueError(f"Missing valid master_key_{key_index} from keys file.") from e
-        else:
-            raise # Re-raise other OSErrors
-    finally:
-        container.close()
-
-    return contents
 
 def identify_file(filepath):
     filename = os.path.split(filepath)[-1]

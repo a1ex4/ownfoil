@@ -36,6 +36,10 @@ DEFAULT_SETTINGS = {
                 "block_size_exponent": 20,
                 "threads": 0,
             },
+            "verification": {
+                "enabled": True,
+                "depth": "hash",
+            },
             "delete_older_updates": False,
             "organizer": {
                 "enabled": False,

@@ -13,8 +13,10 @@ from strawberry import Private
 from typing import List, Optional
 from typing_extensions import Annotated
 
+from db import verification_status
+
 from .docs import arg, desc, described, described_field
-from .filters import AppFilter, FileFilter, match_app, match_file
+from .filters import AppFilter, FileFilter, VerificationStatus, match_app, match_file
 from .scalars import BigInt
 
 # Arguments shared by the nested list fields, annotated once so `Title.apps` and
@@ -142,6 +144,16 @@ class SizedCountByKey:
 
 
 @described(strawberry.type)
+class VerificationStatusCount:
+    """Files sharing one verification verdict. Typed rather than a `SizedCountByKey`
+    so the bucket can be handed straight back to `files(filter: {verificationStatus:})`
+    without a string round-trip."""
+    status: VerificationStatus = desc("The verdict this bucket groups on.")
+    count: int = desc("How many files carry it.")
+    size: BigInt = desc("Total bytes of the files in this bucket.", default=0)
+
+
+@described(strawberry.type)
 class LibraryStats:
     """Library-wide aggregates, for dashboards. Each field is computed only when
     selected, so asking for one count does not pay for the others. The file-level
@@ -173,6 +185,12 @@ class LibraryStats:
     files_by_library: Optional[List[SizedCountByKey]] = desc(
         "File count and bytes per configured library root, keyed by path. Includes "
         "roots holding nothing. Admin only; null for any other role.", default=None)
+    files_by_verification_status: Optional[List[VerificationStatusCount]] = desc(
+        "File count and bytes per `File.verificationStatus`, best verdict first and "
+        "`UNVERIFIED` last. Always all seven buckets, empty ones included - the set is "
+        "closed, and `CORRUPT: 0` says something a missing bucket does not. Note "
+        "`SIGNATURE_OK` and `SIGNATURE_FAILED` can only be non-zero while verification "
+        "runs at `signature` depth. Admin only; null for any other role.", default=None)
 
 
 @described(strawberry.type)
@@ -215,6 +233,26 @@ class File:
     organized: bool = desc(
         "The file sits where the configured naming template says it should. False "
         "means a re-organize would move or rename it.", default=False)
+    signature_valid: Optional[bool] = desc(
+        "Whether every NCA header signature checked out, and the container decrypted "
+        "with the configured keys. `true` means the signature is Nintendo's, "
+        "`false` means re-signed, which a repack commonly is. "
+        "Null means never verified.", default=None)
+    hash_valid: Optional[bool] = desc(
+        "Whether every NCA's content hashed to what its name and CNMT claim. "
+        "`true` means integrity of the content is verified valid. "
+        "Null unless verification ran at `hash` depth.", default=None)
+    hash_modified: Optional[bool] = desc(
+        "Splits a `hashValid: false` in two. `true` means the failing contents are still "
+        "filed under exactly the names the container's CNMT records, so they were "
+        "rewritten in place rather than damaged or swapped. Null when the contents were "
+        "never hashed, and on rows verified before this was recorded.", default=None)
+    verification_error: Optional[str] = desc(
+        "List of verification errors, if anything. Null when the file passed or was "
+        "never checked.", default=None)
+    verified_at: Optional[str] = desc(
+        "When verification last ran. The verdicts describe the bytes as of then; a "
+        "change on disk clears all four fields.", default=None)
     mtime: Optional[float] = desc(
         "Filesystem modification time, Unix epoch seconds. Rewritten by a copy or a "
         "re-organize, so it is not a reliable 'when did I get this'.", default=None)
@@ -229,6 +267,14 @@ class File:
     # by resolvers; None means "not exposed for this path/role".
     apps_loaded: Private[Optional[List["App"]]] = None
     library_loaded: Private[Optional[Library]] = None
+
+    @described_field
+    def verification_status(self) -> VerificationStatus:
+        """`signatureValid`, `hashValid` and `hashModified` read as one label - which of
+        them matters depends on the others, and a client that reasons about them
+        separately gets it wrong. `filter: {verificationStatus:}` selects on the same
+        rule."""
+        return VerificationStatus(verification_status(self))
 
     @described_field
     def library(self) -> Optional[Library]:

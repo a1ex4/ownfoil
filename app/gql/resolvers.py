@@ -5,11 +5,12 @@ import strawberry
 from sqlalchemy import text
 
 from constants import APP_TYPE_BASE, APP_TYPE_UPD
+from containers.verification import status_of
 from db import db
 
 from .context import GraphQLContext
 from .filters import (
-    AppFilter, FileFilter, OrderBy, TitleFilter,
+    AppFilter, FileFilter, OrderBy, TitleFilter, VerificationStatus,
     APP_FIELDS, APP_FIELDS_EXCEPT_OWNED, APP_ORDER, APP_ORDER_GROUPED,
     FILE_FIELDS, FILE_ORDER, TITLE_FIELDS, TITLE_ORDER,
     build_clauses, order_sql,
@@ -18,7 +19,7 @@ from .selection import Selection
 from .types import (
     App, AppConnection, AppVersion, CountByKey, File, FileConnection, Library,
     LibraryStats, Ownership, SizedCountByKey, Task, TaskStatus, Title, TitleConnection,
-    TitledbDlc, TitledbVersion, decode_json_list,
+    TitledbDlc, TitledbVersion, VerificationStatusCount, decode_json_list,
 )
 
 
@@ -94,7 +95,10 @@ f.nb_content AS nb_content, f.download_count AS download_count,
 f.identified AS identified, f.identification_type AS identification_type,
 f.identification_error AS identification_error,
 f.identification_attempts AS identification_attempts,
-f.organized AS organized, f.mtime AS mtime, f.added_at AS added_at
+f.organized AS organized, f.signature_valid AS signature_valid,
+f.hash_valid AS hash_valid, f.hash_modified AS hash_modified,
+f.verification_error AS verification_error,
+f.verified_at AS verified_at, f.mtime AS mtime, f.added_at AS added_at
 """
 
 # `titledb.titles` already holds one row per id, merged across the metadata sources by
@@ -214,6 +218,11 @@ def _build_file(row, *, include_filepath: bool) -> File:
         identification_error=row.identification_error,
         identification_attempts=row.identification_attempts or 0,
         organized=bool(row.organized),
+        signature_valid=None if row.signature_valid is None else bool(row.signature_valid),
+        hash_valid=None if row.hash_valid is None else bool(row.hash_valid),
+        hash_modified=None if row.hash_modified is None else bool(row.hash_modified),
+        verification_error=row.verification_error,
+        verified_at=_iso(row.verified_at),
         mtime=row.mtime,
         added_at=_iso(row.added_at),
     )
@@ -1069,6 +1078,19 @@ def resolve_stats(*, ctx: GraphQLContext, info) -> LibraryStats:
         SELECT l.path, COUNT(f.id), COALESCE(SUM(f.size), 0)
         FROM libraries l LEFT JOIN files f ON f.library_id = l.id
         GROUP BY l.id, l.path ORDER BY l.id""")
+
+    if ctx.can_admin and sel.has("filesByVerificationStatus"):
+        buckets = {status: [0, 0] for status in VerificationStatus}
+        for sig, hashed, modified, count, size in db.session.execute(text("""
+        SELECT signature_valid, hash_valid, hash_modified, COUNT(*),
+               COALESCE(SUM(size), 0)
+        FROM files GROUP BY 1, 2, 3""")).all():
+            bucket = buckets[VerificationStatus(status_of(sig, hashed, modified))]
+            bucket[0] += int(count)
+            bucket[1] += int(size)
+        stats.files_by_verification_status = [
+            VerificationStatusCount(status=status, count=count, size=size)
+            for status, (count, size) in buckets.items()]
 
     return stats
 

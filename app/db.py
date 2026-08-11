@@ -143,6 +143,11 @@ class Files(db.Model):
     identification_attempts = db.Column(db.Integer, default=0)
     last_attempt = db.Column(db.DateTime, default=datetime.datetime.now())
     organized = db.Column(db.Boolean, default=False)
+    signature_valid = db.Column(db.Boolean)
+    hash_valid = db.Column(db.Boolean)
+    hash_modified = db.Column(db.Boolean)
+    verification_error = db.Column(db.String)
+    verified_at = db.Column(db.DateTime)
     mtime = db.Column(db.Float)
     # When ownfoil first saw the file. Distinct from mtime, which a re-organize or a
     # copy rewrites - only this one can answer "recently added".
@@ -361,7 +366,7 @@ def init_db(app):
                 logger.info('Checking database migration...')
                 if is_migration_needed():
                     create_db_backup()
-                    upgrade()
+                    upgrade(directory=ALEMBIC_DIR)
                     logger.info("Database migration applied successfully.")
 
 def file_exists_in_db(filepath):
@@ -426,14 +431,6 @@ def get_all_apps():
         for app in Apps.query.options(db.joinedload(Apps.title)).all()  # Optimized with joinedload
     ]
     return apps_list
-
-def get_all_non_identified_files_from_library(library_id):
-    return Files.query.filter_by(
-        identified=False, library_id=library_id, identification_attempts=0
-    ).all()
-
-def get_files_with_identification_from_library(library_id, identification_type):
-    return Files.query.filter_by(library_id=library_id, identification_type=identification_type).all()
 
 def get_filtered_files(content_filter=None) -> list:
     """Get files from database with optional content type filtering."""
@@ -549,6 +546,21 @@ def reset_file_identification(file):
     file.identification_attempts = 0
     file.nb_content = 0
     file.multicontent = False
+
+def reset_file_verification(file):
+    """Clear verification state on a Files row: the verdicts described the old bytes."""
+    file.signature_valid = None
+    file.hash_valid = None
+    file.hash_modified = None
+    file.verification_error = None
+    file.verified_at = None
+
+def verification_status(file):
+    """The verification status of a Files row, given the row or its id."""
+    from containers.verification import status_of
+    if isinstance(file, int):
+        file = db.session.get(Files, file)
+    return status_of(file.signature_valid, file.hash_valid, file.hash_modified)
 
 def remove_file_from_apps(file_id):
     """Remove a file from all apps that reference it and update owned status"""

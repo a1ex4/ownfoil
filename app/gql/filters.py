@@ -10,6 +10,12 @@ from enum import Enum
 import strawberry
 from typing import List, Optional
 
+from containers.verification import (
+    STATUS_ANY, STATUS_CORRUPT, STATUS_MODIFIED, STATUS_REPACK, STATUS_RULES,
+    STATUS_SIGNATURE_FAILED, STATUS_SIGNATURE_OK, STATUS_UNVERIFIED, STATUS_VALID,
+)
+from db import verification_status
+
 from .docs import desc, described
 from .scalars import BigInt
 
@@ -122,6 +128,45 @@ class AppFilter:
         default=None)
 
 
+@described(strawberry.enum)
+class VerificationStatus(Enum):
+    """One label for a file's verification verdicts. Derived from `signatureValid`,
+    `hashValid` and `hashModified` rather than stored, so it can never disagree with
+    them. Declared best-to-worst then unknown, which is the order
+    `stats.filesByVerificationStatus` reports."""
+    VALID = strawberry.enum_value(
+        STATUS_VALID,
+        description="Signed by Nintendo and every content is original. The only "
+                    "status that means the file is both authentic and intact.")
+    REPACK = strawberry.enum_value(
+        STATUS_REPACK,
+        description="Re-signed, contents intact. The hash of the modified content has "
+                    "been updated in both the filename and CNMT record, to allow "
+                    "integrity verification.")
+    MODIFIED = strawberry.enum_value(
+        STATUS_MODIFIED,
+        description="A content no longer hashes to the name it is filed under, but that "
+                    "name matches the container's own CNMT records for it. "
+                    "It proves the container's metadata is intact and consistent. "
+                    "It does not prove the payload survived — no hash of the content "
+                    "sections alone is recorded anywhere, so there is nothing to check "
+                    "them against.")
+    CORRUPT = strawberry.enum_value(
+        STATUS_CORRUPT,
+        description="A content does not hash to the name it is filed under and there "
+                    "is nothing in the CNMT records that matches.")
+    SIGNATURE_OK = strawberry.enum_value(
+        STATUS_SIGNATURE_OK,
+        description="Signatures have been verified authentic, no content hash verification run.")
+    SIGNATURE_FAILED = strawberry.enum_value(
+        STATUS_SIGNATURE_FAILED,
+        description="Signatures verification failed, no content hash verification run.")
+    UNVERIFIED = strawberry.enum_value(
+        STATUS_UNVERIFIED,
+        description="Never checked. Either verification is off, the keys are missing, "
+                    "or the file has not been checked yet.")
+
+
 @described(strawberry.input)
 class FileFilter:
     """Predicates on a file. Every populated field ANDs with the others."""
@@ -145,6 +190,18 @@ class FileFilter:
         "Whether the file carries more than one app.", default=None)
     compressed: Optional[bool] = desc(
         "Whether the file is NSZ/XCZ rather than NSP/XCI.", default=None)
+    signature_valid: Optional[bool] = desc(
+        "Whether the NCA header signatures checked out. Neither `true` nor `false` "
+        "matches a file that was never verified.", default=None)
+    hash_valid: Optional[bool] = desc(
+        "Whether the NCA contents hashed as claimed.",
+        default=None)
+    hash_modified: Optional[bool] = desc(
+        "Whether a failed hash test was a repack rather than damage. Neither value "
+        "matches a file whose contents were never hashed.", default=None)
+    verification_status: Optional[VerificationStatus] = desc(
+        "The verdicts as one label. Every status is a fixed combination of "
+        "`signatureValid`, `hashValid` and `hashModified`.", default=None)
     library_id: Optional[IntFilter] = desc(
         "Which library root the file sits under.", default=None)
     size: Optional[BigIntFilter] = desc(
@@ -224,6 +281,50 @@ def string_list_clauses(column_sql: str, f: Optional[StringListFilter],
     return out
 
 
+# The verdict columns STATUS_RULES tests, in the order the rules list them.
+_VERDICT_COLUMNS = ("signature_valid", "hash_valid", "hash_modified")
+
+
+def _rule_sql(alias: str, wanted) -> str:
+    """One row of STATUS_RULES as a predicate.
+
+    `IS` rather than `=`, because these predicates get negated below and SQL's `NOT
+    (x = 1)` is NULL - not true - when x is NULL, which would silently drop exactly the
+    rows a catch-all rule exists to catch. SQLite's `IS` is null-safe equality.
+    """
+    tests = [f"{alias}.{col} IS {'NULL' if want is None else int(want)}"
+             for col, want in zip(_VERDICT_COLUMNS, wanted) if want is not STATUS_ANY]
+    return f"({' AND '.join(tests)})"
+
+
+def _rules_can_overlap(wanted, other) -> bool:
+    """Whether one row could satisfy both rules - true unless a column forces them apart."""
+    return all(a is STATUS_ANY or b is STATUS_ANY or a is b for a, b in zip(wanted, other))
+
+
+def verification_status_clauses(alias: str, status) -> List[str]:
+    """Translate a VerificationStatus into a test on the verdict columns.
+
+    Reads the same table the projection reads, so the filter and the value it filters on
+    cannot drift apart. STATUS_RULES is first-match, so a rule claims only the rows no
+    earlier overlapping rule already claimed - without that, CORRUPT's catch-all would
+    also return every MODIFIED file. Nothing is bound: the operands come from that table,
+    never from anything a caller sent.
+    """
+    if status is None:
+        return []
+    earlier = []
+    for name, *wanted in STATUS_RULES:
+        if name != status.value:
+            earlier.append(wanted)
+            continue
+        tests = [_rule_sql(alias, wanted)]
+        tests += [f"NOT {_rule_sql(alias, e)}" for e in earlier
+                  if _rules_can_overlap(wanted, e)]
+        return [f"({' AND '.join(tests)})"]
+    return []
+
+
 def int_clauses(column_sql: str, f: Optional[IntFilter], params: dict, key: str) -> List[str]:
     if f is None:
         return []
@@ -297,6 +398,10 @@ FILE_FIELDS = [
     ("organized",           "f.organized",           "bool"),
     ("multicontent",        "f.multicontent",        "bool"),
     ("compressed",          "f.compressed",          "bool"),
+    ("signature_valid",     "f.signature_valid",     "bool"),
+    ("hash_valid",          "f.hash_valid",          "bool"),
+    ("hash_modified",       "f.hash_modified",       "bool"),
+    ("verification_status", "f",                     "vstatus"),
     ("library_id",          "f.library_id",          "int"),
     ("size",                "f.size",                "int"),
     ("download_count",      "f.download_count",      "int"),
@@ -419,6 +524,8 @@ def build_clauses(filter_obj, fields, params: dict) -> List[str]:
             clauses += int_clauses(col, f, params, attr)
         elif kind == "strlist":
             clauses += string_list_clauses(col, f, params, attr)
+        elif kind == "vstatus":
+            clauses += verification_status_clauses(col, f)
     return clauses
 
 
@@ -441,6 +548,20 @@ def match_string(value, f: Optional[StringFilter]) -> bool:
 
 def match_bool(value, expected: Optional[bool]) -> bool:
     return expected is None or bool(value) == expected
+
+
+def match_tristate(value, expected: Optional[bool]) -> bool:
+    """For a nullable column: null matches neither `true` nor `false`, the same way the
+    SQL side's `col = 0/1` skips it. match_bool would fold it into `false`."""
+    return expected is None or (value is not None and bool(value) == expected)
+
+
+def match_verification_status(file_, expected) -> bool:
+    """Derives the status the same way the field does, rather than testing the columns
+    a second time - two spellings of one rule is how they come to disagree."""
+    if expected is None:
+        return True
+    return verification_status(file_) == expected.value
 
 
 def match_int(value, f) -> bool:
@@ -490,6 +611,10 @@ def match_file(file_, f: Optional[FileFilter]) -> bool:
         and match_bool(file_.organized,             f.organized)
         and match_bool(file_.multicontent,          f.multicontent)
         and match_bool(file_.compressed,            f.compressed)
+        and match_tristate(file_.signature_valid,   f.signature_valid)
+        and match_tristate(file_.hash_valid,        f.hash_valid)
+        and match_tristate(file_.hash_modified,     f.hash_modified)
+        and match_verification_status(file_,        f.verification_status)
         and match_int(file_.library_id,             f.library_id)
         and match_int(file_.size,                   f.size)
         and match_int(file_.download_count,         f.download_count)

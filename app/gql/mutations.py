@@ -60,7 +60,7 @@ class Mutation:
     def enqueue_task(
         self, info: Info,
         name: Annotated[str, strawberry.argument(
-            description="A registered task name, e.g. `identify_library`. An "
+            description="A registered task name, e.g. `process_library`. An "
                         "unknown name is refused.")],
         input: Annotated[Optional[str], strawberry.argument(
             description="The task's arguments as a JSON object string. Omit for a "
@@ -154,6 +154,28 @@ class Mutation:
         return _task_by_id(task.id, info)
 
     @described_mutation
+    def verify_file(
+        self, info: Info,
+        file_id: Annotated[strawberry.ID, strawberry.argument(
+            description="Primary key of the file to verify.")],
+    ) -> Optional[Task]:
+        """Re-verify one file at the configured depth. The stored verdicts are cleared
+        first, so this re-checks a file that already has them rather than no-opping."""
+        import tasks as tasks_mod
+        from containers import verification as verification_lib
+        from db import Files, db, reset_file_verification
+        _require_admin(info.context)
+        file = db.session.get(Files, int(file_id))
+        if not file:
+            raise MutationFailed("File not found")
+        if file.extension not in verification_lib.VERIFY_EXT:
+            raise MutationFailed("File type cannot be verified")
+        reset_file_verification(file)
+        db.session.commit()
+        task, _ = tasks_mod.enqueue_task('verify_file', {'file_id': int(file_id)})
+        return _task_by_id(task.id, info)
+
+    @described_mutation
     def set_title_override(
         self, info: Info,
         title_id: Annotated[strawberry.ID, strawberry.argument(
@@ -178,7 +200,7 @@ class Mutation:
         ok, err = titledb.store.set_override(str(title_id), payload)
         if not ok:
             raise MutationFailed(err)
-        tasks_mod.enqueue_task('identify_library')
+        tasks_mod.enqueue_task('process_library')
         return resolve_title(str(title_id), info.context, info)
 
     @described_mutation

@@ -192,13 +192,6 @@ def init_libraries(app, watcher, paths):
                 # Ensure watchdog is monitoring existing library
                 watcher.add_directory(path)
 
-def get_files_to_identify(library_id):
-    non_identified_files = get_all_non_identified_files_from_library(library_id)
-    if titles_lib.Keys.keys_loaded:
-        files_to_identify_with_cnmt = get_files_with_identification_from_library(library_id, 'filename')
-        non_identified_files = list(set(non_identified_files).union(files_to_identify_with_cnmt))
-    return non_identified_files
-
 def add_missing_apps_for_title(title_id):
     """Expand missing base/update/DLC apps (owned=False) for a single title via one bulk upsert.
     Safe to run concurrently with other workers expanding the same title."""

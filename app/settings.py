@@ -88,6 +88,13 @@ def load_keys(key_file=KEYS_FILE):
             logger.error(f'Provided keys file {key_file} is invalid.')
         return valid, missing, corrupt
 
+def ensure_keys(action):
+    """Raise unless valid keys are loaded."""
+    if not Keys.keys_loaded:
+        load_keys()
+    if not Keys.keys_loaded:
+        raise RuntimeError(f'Cannot {action}: no valid keys loaded.')
+
 def remove_obsolete_keys(target, defaults, path=''):
     removed = False
     keys_to_remove = [key for key in target if key not in defaults]
