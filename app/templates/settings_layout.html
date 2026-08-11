@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block content %}
+{% include 'nav.html' %}
+
+<div class="container-fluid setting-body">
+    <div class="row g-0">
+        <nav class="settings-sidebar bg-body-tertiary border-end">
+            <ul class="nav flex-column">
+                <li class="nav-item">
+                    <a class="nav-link{% if request.path == '/settings' %} active{% endif %}" href="/settings">
+                        <i class="bi bi-sliders"></i> Settings
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link{% if request.path.startswith('/settings/tasks') %} active{% endif %}" href="/settings/tasks">
+                        <i class="bi bi-list-task"></i> Tasks
+                    </a>
+                </li>
+            </ul>
+        </nav>
+        <div class="col settings-panel">
+            {% block panel %}{% endblock %}
+        </div>
+    </div>
+</div>
+
+{% block panel_scripts %}{% endblock %}
+{% endblock %}

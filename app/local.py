@@ -63,6 +63,8 @@ def main(open_browser=False):
         server.serve_forever()
     finally:
         # make_server exits the process on a bind failure, so guard the cleanup below.
+        from realtime import stop as stop_realtime
+        stop_realtime()
         if server is not None:
             server.server_close()
         app_mod.pool.shutdown()

@@ -1,0 +1,419 @@
+{% extends "settings_layout.html" %}
+{% block panel %}
+<div class="settings-container container mt-3">
+
+    <div class="d-flex align-items-center justify-content-between">
+        <h2>Tasks</h2>
+        <span id="liveStatus" class="badge text-bg-secondary">connecting…</span>
+    </div>
+    <p class="text-secondary">Live view of the background work queue. Updates stream from
+        the server as tasks progress.</p>
+
+    <h4 class="mt-4">Queue</h4>
+    <div class="task-scroll">
+        <ul id="queueTasks" class="task-list"></ul>
+    </div>
+    <p id="queueEmpty" class="text-secondary fst-italic">Nothing queued.</p>
+    <p id="queueTruncated" class="text-secondary fst-italic d-none">
+        Showing the {{ max_tasks }} oldest tasks — more are queued behind them.</p>
+
+    <h4 class="mt-4">Scheduled</h4>
+    <ul id="scheduledTasks" class="task-list"></ul>
+    <p id="scheduledEmpty" class="text-secondary fst-italic">Nothing scheduled.</p>
+
+    <h4 class="mt-4">Failed</h4>
+    <div class="task-scroll">
+        <ul id="failedTasks" class="task-list"></ul>
+    </div>
+    <p id="failedEmpty" class="text-secondary fst-italic">No failures.</p>
+
+    <hr class="hr-settings">
+    <h2 class="pb-2">Workers</h2>
+    <div id="workerCards" class="row g-3"></div>
+
+</div>
+{% endblock %}
+
+{% block panel_scripts %}
+<script>
+    // Installed before anything else so a failure in the scripts below — including one
+    // that stops them parsing at all — shows up here instead of silently leaving the
+    // page frozen on "connecting…" with nothing to go on.
+    window.addEventListener('error', function (e) {
+        var badge = document.getElementById('liveStatus');
+        if (!badge) return;
+        badge.textContent = 'page error';
+        badge.className = 'badge text-bg-danger';
+        badge.title = e.message || 'see the browser console';
+    });
+</script>
+<script src="{{ url_for('static', filename='js/realtime.js') }}"></script>
+<script>
+
+    const CANCEL_MUTATION = `
+        mutation Cancel($id: ID!) {
+            cancelTask(id: $id)
+        }`;
+
+    // Task rows the server has dropped. Kept on screen briefly so work that finishes
+    // does not simply blink out of existence, then faded and forgotten.
+    const FADE_AFTER_MS = 10000;
+
+    // The server sends at most this many tasks, so the page never has to cap anything
+    // itself. Injected rather than duplicated, so the limit has one definition.
+    const MAX_TASKS = {{ max_tasks }};
+
+    let tasks = {};      // id -> task, including ones being faded out
+    let workers = {};    // id -> worker
+    let renderQueued = false;
+    // Cancelling deletes the row, which reaches us as an ordinary removal. Remembering
+    // what we cancelled is what keeps it from being reported back as "finished".
+    const cancelled = new Set();
+
+    function scheduleRender() {
+        // Several updates can land per second; coalesce them into one paint.
+        if (renderQueued) return;
+        renderQueued = true;
+        requestAnimationFrame(() => { renderQueued = false; render(); });
+    }
+
+    /** Undo an optimistic cancel mark, correcting the row if the removal already used it. */
+    function unmarkCancelled(key) {
+        cancelled.delete(key);
+        const task = tasks[key];
+        if (task && task.cancelled) {
+            task.cancelled = false;
+            task.completionPct = 100;
+            scheduleRender();
+        }
+    }
+
+    async function cancelTask(id) {
+        const key = String(id);
+        $(`.task-cancel[data-id="${id}"]`).prop('disabled', true);
+        // Marked before the request, not after it. Cancelling a *running* task restarts
+        // its worker process, which takes far longer than the poll interval, so the row's
+        // removal reaches us over the WebSocket well before this response does — and
+        // markDone has to already know the row was cancelled rather than finished.
+        cancelled.add(key);
+        try {
+            const r = await fetch('/api/graphql', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json', 'Accept': 'application/json'},
+                credentials: 'same-origin',
+                body: JSON.stringify({query: CANCEL_MUTATION, variables: {id: key}}),
+            });
+            if (!r.ok) throw new Error(`GraphQL HTTP ${r.status}`);
+            const body = await r.json();
+            if (body.errors && body.errors.length) {
+                throw new Error('GraphQL errors: ' + JSON.stringify(body.errors));
+            }
+            // False means it was already finished or failed, so it was never cancelled.
+            if (!body.data.cancelTask) unmarkCancelled(key);
+        } catch (e) {
+            console.error(e);
+            unmarkCancelled(key);
+            $(`.task-cancel[data-id="${id}"]`).prop('disabled', false);
+        }
+    }
+
+    // --- Formatting ---
+
+    // Wall clock the rows are measured against. While the stream is down the task data
+    // is frozen, so the clock has to freeze with it — otherwise elapsed times climb and
+    // "3m left" counts down against numbers that stopped arriving, which reads as live
+    // progress on a page that is not receiving any.
+    let stoppedAt = null;
+
+    function clockNow() {
+        return stoppedAt ?? Date.now();
+    }
+
+    function humanizeDuration(ms) {
+        const s = Math.round(ms / 1000);
+        if (s < 60) return `${s}s`;
+        const m = Math.floor(s / 60);
+        if (m < 60) return `${m}m ${s % 60}s`;
+        const h = Math.floor(m / 60);
+        if (h < 24) return `${h}h ${m % 60}m`;
+        return `${Math.floor(h / 24)}d ${h % 24}h`;
+    }
+
+    function relativeTime(iso) {
+        const delta = new Date(iso).getTime() - clockNow();
+        return delta <= 0 ? 'due now' : `in ${humanizeDuration(delta)}`;
+    }
+
+    function taskMeta(task) {
+        if (task.cancelled) return 'cancelled';
+        if (task.done) return 'finished';
+        if (task.status === 'failed') return task.errorMessage || 'failed';
+        if (task.runAfter) {
+            return `${new Date(task.runAfter).toLocaleString()} — ${relativeTime(task.runAfter)}`;
+        }
+        if (!task.startedAt) return '';
+
+        const elapsed = clockNow() - new Date(task.startedAt).getTime();
+        let meta = `running for ${humanizeDuration(elapsed)}`;
+        if (task.completionPct > 0 && task.completionPct < 100) {
+            // The bar is too slim to hold a legible label, so the percentage lives here.
+            const remaining = elapsed / (task.completionPct / 100) - elapsed;
+            meta = `${task.completionPct}% — ${meta} — ${humanizeDuration(remaining)} left`;
+        }
+        return meta;
+    }
+
+    const ICONS = {
+        cancelled: '<i class="bi bi-slash-circle-fill text-secondary"></i>',
+        done:      '<i class="bi bi-check-circle-fill text-success"></i>',
+        failed:    '<i class="bi bi-exclamation-circle-fill text-danger"></i>',
+        pending:   '<i class="bi bi-hourglass-split text-secondary"></i>',
+        running:   '<i class="bi bi-arrow-repeat spin text-info"></i>',
+    };
+
+    function statusIconKey(task) {
+        if (task.cancelled) return 'cancelled';
+        if (task.done) return 'done';
+        if (task.status === 'failed') return 'failed';
+        if (task.status === 'pending') return 'pending';
+        return 'running';
+    }
+
+    // A task with no reported percentage should not look stalled at 0%: only the
+    // verify/compress/decompress tasks report real progress, everything else jumps
+    // straight from queued to done.
+    function isIndeterminate(task) {
+        return !task.done && task.status !== 'pending' && task.status !== 'failed'
+            && !task.completionPct;
+    }
+
+    // --- Rendering ---
+
+    function childrenOf(id) {
+        return Object.values(tasks).filter(t => t.parentId === id)
+                     .sort((a, b) => a.id - b.id);
+    }
+
+    function buildRow(task) {
+        const li = document.createElement('li');
+        li.className = 'task-row';
+        li.dataset.id = task.id;
+        li.innerHTML = `
+            <div class="task-head">
+                <span class="task-icon"></span>
+                <span class="task-name"></span>
+                <span class="task-meta text-secondary"></span>
+                <button type="button" class="task-cancel" data-id="${task.id}" title="Cancel">
+                    <i class="bi bi-x-lg"></i>
+                </button>
+            </div>
+            <div class="progress task-progress">
+                <div class="progress-bar" role="progressbar"></div>
+            </div>
+            <ul class="task-children"></ul>`;
+        li.querySelector(':scope > .task-head > .task-cancel')
+          .addEventListener('click', () => cancelTask(task.id));
+        return li;
+    }
+
+    function updateRow(li, task) {
+        // `:scope >` throughout: a row contains its sub-task rows, so an unanchored
+        // selector could reach into a child's markup instead of this row's own.
+        const own = sel => li.querySelector(`:scope > ${sel}`);
+
+        li.classList.toggle('task-done', !!task.done);
+        li.classList.toggle('task-failed', task.status === 'failed');
+
+        // Rewritten only when it actually changes: replacing the element on every tick
+        // restarts the spinner's CSS animation, which reads as a stutter.
+        const icon = own('.task-head > .task-icon');
+        const iconKey = statusIconKey(task);
+        if (icon.dataset.icon !== iconKey) {
+            icon.dataset.icon = iconKey;
+            icon.innerHTML = ICONS[iconKey];
+        }
+
+        own('.task-head > .task-name').textContent = task.displayName;
+        own('.task-head > .task-meta').textContent = taskMeta(task);
+
+        const pct = task.done ? 100 : (task.completionPct || 0);
+        const bar = own('.task-progress > .progress-bar');
+        const indeterminate = isIndeterminate(task);
+        bar.style.width = indeterminate ? '100%' : `${pct}%`;
+        // Stripes always; they only travel while the task is live, so a finished bar
+        // does not keep implying work is happening.
+        const active = !task.done && task.status !== 'failed';
+        bar.className = 'progress-bar progress-bar-striped'
+            + (active ? ' progress-bar-animated' : '')
+            + (task.done && !task.cancelled ? ' bg-success' : '')
+            + (task.cancelled ? ' bg-secondary' : '')
+            + (task.status === 'failed' ? ' bg-danger' : '');
+        own('.task-progress').classList.toggle(
+            'd-none', task.status === 'pending' || task.status === 'failed');
+
+        // `done` covers both finished and cancelled rows: the task is already gone
+        // server-side, so the button has nothing to act on and is taken away.
+        const cancel = own('.task-head > .task-cancel');
+        cancel.classList.toggle('d-none', !!task.done);
+        cancel.disabled = task.status === 'failed';
+    }
+
+    /** Sync a <ul> to a list of tasks, reusing rows so progress bars animate instead of flicker. */
+    function syncList(container, items) {
+        const wanted = new Set(items.map(t => String(t.id)));
+        Array.from(container.children).forEach(child => {
+            if (!wanted.has(child.dataset.id)) child.remove();
+        });
+        const existing = {};
+        Array.from(container.children).forEach(c => { existing[c.dataset.id] = c; });
+
+        items.forEach(task => {
+            let li = existing[String(task.id)];
+            if (!li) {
+                li = buildRow(task);
+                container.appendChild(li);
+            }
+            updateRow(li, task);
+            syncList(li.querySelector(':scope > .task-children'), childrenOf(task.id));
+        });
+        return items.length;
+    }
+
+    function section(listId, emptyId, items) {
+        const count = syncList(document.getElementById(listId), items);
+        document.getElementById(emptyId).classList.toggle('d-none', count > 0);
+    }
+
+    function renderWorkers() {
+        const container = document.getElementById('workerCards');
+        container.innerHTML = '';
+        const list = Object.values(workers).sort((a, b) => a.id - b.id);
+        if (!list.length) {
+            container.innerHTML =
+                '<p class="text-secondary fst-italic">No workers reported.</p>';
+            return;
+        }
+        list.forEach(worker => {
+            const task = worker.taskId ? tasks[worker.taskId] : null;
+            const col = document.createElement('div');
+            col.className = 'col-md-6 col-xl-4';
+            col.innerHTML = `
+                <div class="card h-100">
+                    <div class="card-body">
+                        <h5 class="card-title d-flex justify-content-between">
+                            <span>Worker ${worker.id}</span>
+                            <span class="badge ${worker.alive ? 'text-bg-success' : 'text-bg-danger'}">
+                                ${worker.alive ? 'alive' : 'stopped'}</span>
+                        </h5>
+                        <p class="card-subtitle text-secondary small mb-2">pid ${worker.pid ?? '—'}</p>
+                        <div class="worker-task"></div>
+                    </div>
+                </div>`;
+            const slot = col.querySelector('.worker-task');
+            if (task) {
+                slot.innerHTML = `<div class="fw-semibold">${task.displayName}</div>
+                    <div class="text-secondary small">${taskMeta(task)}</div>`;
+            } else {
+                slot.innerHTML = '<span class="text-secondary fst-italic">Idle</span>';
+            }
+            container.appendChild(col);
+        });
+    }
+
+    function render() {
+        // Sub-tasks are rendered nested under their parent, so the sections only list
+        // roots — plus any child whose parent has already gone, which would vanish.
+        const roots = Object.values(tasks)
+            .filter(t => t.parentId === null || !(t.parentId in tasks))
+            .sort((a, b) => a.id - b.id);
+
+        // Running and pending share one list: tasks are claimed oldest-first, so the
+        // order already says what is running and what is waiting behind it.
+        section('queueTasks', 'queueEmpty', roots.filter(
+            t => t.status !== 'failed' && !t.runAfter));
+        section('scheduledTasks', 'scheduledEmpty', roots.filter(
+            t => t.status === 'pending' && t.runAfter));
+        section('failedTasks', 'failedEmpty', roots.filter(t => t.status === 'failed'));
+
+        // A full window means the server had more rows to give. Counting what arrived
+        // avoids asking it for a total nothing else needs.
+        document.getElementById('queueTruncated').classList.toggle(
+            'd-none', Object.keys(tasks).length < MAX_TASKS);
+        renderWorkers();
+    }
+
+    // --- Wiring ---
+
+    function upsert(task) {
+        delete task.done;
+        tasks[task.id] = task;
+    }
+
+    function markDone(task) {
+        // The row is gone server-side: completed tasks are deleted rather than kept in a
+        // terminal state, so completion is shown here and then dropped.
+        const known = tasks[task.id];
+        if (!known) return;
+        const wasCancelled = cancelled.delete(String(task.id));
+        Object.assign(known, task, {
+            done: true,
+            cancelled: wasCancelled,
+            completionPct: wasCancelled ? known.completionPct : 100,
+        });
+        setTimeout(() => {
+            const li = document.querySelector(`.task-row[data-id="${task.id}"]`);
+            if (li) li.classList.add('task-fading');
+            setTimeout(() => { delete tasks[task.id]; scheduleRender(); }, 600);
+        }, FADE_AFTER_MS);
+    }
+
+    const live = new Realtime(['tasks', 'workers']);
+
+    live.on('tasks', (type, data) => {
+        if (type === 'snapshot') {
+            const faded = Object.values(tasks).filter(t => t.done);
+            tasks = {};
+            faded.forEach(t => { tasks[t.id] = t; });  // keep rows still fading out
+            data.forEach(upsert);
+        } else if (type === 'remove') {
+            markDone(data);
+        } else {
+            upsert(data);
+        }
+        scheduleRender();
+    });
+
+    live.on('workers', (type, data) => {
+        if (type === 'snapshot') {
+            workers = {};
+            data.forEach(w => { workers[w.id] = w; });
+        } else if (type === 'remove') {
+            delete workers[data.id];
+        } else {
+            workers[data.id] = data;
+        }
+        scheduleRender();
+    });
+
+    live.onStatus(connected => {
+        // Only stamp the first drop: this fires again on every failed reconnect, and
+        // re-stamping would let the frozen clock creep forward with each attempt.
+        if (connected) {
+            stoppedAt = null;
+        } else if (stoppedAt === null) {
+            stoppedAt = Date.now();
+        }
+        $('#liveStatus')
+            .text(connected ? 'live' : 'reconnecting…')
+            .attr('class', 'badge ' + (connected ? 'text-bg-success' : 'text-bg-warning'));
+        scheduleRender();
+    });
+
+    live.start();
+
+    // Elapsed times and countdowns move on their own, without a server event — but only
+    // while connected, since nothing on a frozen page changes between ticks.
+    setInterval(() => { if (stoppedAt === null) scheduleRender(); }, 1000);
+
+</script>
+{% endblock %}

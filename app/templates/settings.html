@@ -1,10 +1,5 @@
-{% extends "base.html" %}
-{% block content %}
-{% include 'nav.html' %}
-
-<div class="container-fluid setting-body">
-    <div class="row">
-        <div class="col">
+{% extends "settings_layout.html" %}
+{% block panel %}
             <div class="settings-container container mt-3">
 
                 {% if admin_account_created == false %}
@@ -560,10 +555,9 @@
                 </div>
 
             </div>
-        </div>
-    </div>
-</div>
+{% endblock %}
 
+{% block panel_scripts %}
 <script>
 
     settings_map = {

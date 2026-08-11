@@ -70,6 +70,8 @@ def main():
 
     def worker_exit(server, worker):
         """Stop watcher and worker pool when Gunicorn worker exits."""
+        from realtime import stop as stop_realtime
+        stop_realtime()
         if app_mod.pool is not None:
             app_mod.pool.shutdown()
         if app_mod.watcher is not None:
@@ -79,7 +81,9 @@ def main():
         'bind': '0.0.0.0:8465',
         'workers': 1,
         'worker_class': 'gthread',
-        'threads': 4,
+        # Each open realtime WebSocket pins a thread for its lifetime, so the pool has to
+        # leave room for ordinary requests alongside every watching browser tab.
+        'threads': 16,
         'accesslog': '-',
         'access_log_format': 'Handled request: %(h)s %(u)s %(s)s %(L)ss %(m)s %(U)s',
         'logger_class': OwnfoilLogger,

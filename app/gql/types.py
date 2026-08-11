@@ -93,6 +93,10 @@ class Task:
     id: strawberry.ID = desc("Primary key of the task row.")
     task_name: str = desc("Which registered task this is, e.g. `scan_library`. The "
                           "name determines the shape of `input`.")
+    display_name: str = desc(
+        "Human-readable label built from `taskName` and `input`, e.g. `Compress "
+        "game.nsp`. Falls back to the humanised task name when the input no longer "
+        "matches what the task expects.")
     status: TaskStatus = desc("Where the task is in its lifecycle.")
     completion_pct: int = desc("Progress, 0-100. Only tasks that report progress "
                                "move it off 0 before finishing.", default=0)
@@ -113,6 +117,9 @@ class Task:
     parent_id: Optional[strawberry.ID] = desc(
         "The task that spawned this one. Null for top-level tasks, which are the "
         "only ones `tasks` returns unless `includeChildren` is set.", default=None)
+    worker_id: Optional[int] = desc(
+        "Which worker process claimed this task. Null until a worker picks it up.",
+        default=None)
     input: Optional[str] = desc(
         "The task's arguments, as a JSON object string. JSON rather than a typed "
         "field because the payload shape differs per task name, and the schema "
@@ -128,6 +135,19 @@ class Task:
         """Sub-tasks spawned by this one, e.g. the per-library `scan_library` jobs
         under a `scan_libraries`. Only hydrated when selected; null otherwise."""
         return self.children_loaded
+
+
+@described(strawberry.type)
+class Worker:
+    """One task worker subprocess in the pool."""
+    id: int = desc("The worker's number in the pool, matching `Task.workerId`.")
+    pid: Optional[int] = desc(
+        "Operating system process id, or null if the process never started.",
+        default=None)
+    alive: bool = desc("Whether the process is still running.", default=False)
+    current_task: Optional[Task] = desc(
+        "The task this worker is executing right now, or null if it is idle.",
+        default=None)
 
 
 @described(strawberry.type)
