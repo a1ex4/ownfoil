@@ -305,10 +305,13 @@ def _try_complete_parent(parent_id):
 
 # --- Cancellation ---
 
-def _cancel_atomic(task_id):
+def _cancel_atomic(task_id, removable=('pending', 'running', 'waiting_for_children')):
     """Delete the task and any pending descendants under one transaction.
     Running descendants are orphaned (parent_id=NULL) so they finish naturally
     and self-delete on completion. Waiting descendants are recursed into.
+
+    `removable` is which statuses may be taken out, so cancelling (live work) and
+    dismissing (a failed row) share one transaction and one set of descendant rules.
     """
     connection = db.engine.raw_connection()
     try:
@@ -323,7 +326,7 @@ def _cancel_atomic(task_id):
             connection.commit()
             return False, None, None, None, None
         status, task_name, input_json, parent_id, worker_id = row
-        if status in ('completed', 'failed'):
+        if status not in removable:
             connection.commit()
             return False, None, None, None, None
 
@@ -378,6 +381,37 @@ def cancel_task(task_id):
     if parent_id:
         _try_complete_parent(parent_id)
     return True
+
+
+def dismiss_task(task_id):
+    """Remove a failed task. Returns True if a row was removed, False otherwise.
+
+    Failed tasks are kept on purpose so a failure is not lost between page loads, which
+    makes this the only way to clear one. Nothing is running by definition, so unlike
+    cancel there is no worker to restart and no cleanup hook to run - the failure path
+    in the worker already ran it.
+    """
+    found, parent_id, _worker_id, _task_name, _input_json = _cancel_atomic(
+        task_id, removable=('failed',))
+    if not found:
+        return False
+    if parent_id:
+        _try_complete_parent(parent_id)
+    return True
+
+
+def purge_failed_tasks():
+    """Remove every failed task. Returns how many were removed."""
+    connection = db.engine.raw_connection()
+    try:
+        cursor = connection.cursor()
+        cursor.execute("SELECT id FROM tasks WHERE status = 'failed'")
+        task_ids = [r[0] for r in cursor.fetchall()]
+    finally:
+        connection.close()
+    # One at a time rather than a bulk DELETE: each has descendants to unpick and a
+    # parent that may now be able to complete, which dismiss_task already handles.
+    return sum(1 for task_id in task_ids if dismiss_task(task_id))
 
 
 def _run_cleanup_hook(task_name, input_json):

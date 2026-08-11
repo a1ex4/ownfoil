@@ -21,7 +21,13 @@
     <ul id="scheduledTasks" class="task-list"></ul>
     <p id="scheduledEmpty" class="text-secondary fst-italic">Nothing scheduled.</p>
 
-    <h4 class="mt-4">Failed</h4>
+    <div class="task-section-head mt-4">
+        <h4 class="mb-0">Failed</h4>
+        <button type="button" id="purgeFailed" class="icon-btn ms-auto d-none"
+                onClick="purgeFailed()" title="Dismiss all failed tasks">
+            <i class="bi bi-trash"></i>
+        </button>
+    </div>
     <div class="task-scroll">
         <ul id="failedTasks" class="task-list"></ul>
     </div>
@@ -55,6 +61,16 @@
             cancelTask(id: $id)
         }`;
 
+    const DISMISS_MUTATION = `
+        mutation Dismiss($id: ID!) {
+            dismissTask(id: $id)
+        }`;
+
+    const PURGE_MUTATION = `
+        mutation Purge {
+            purgeFailedTasks
+        }`;
+
     // Task rows the server has dropped. Kept on screen briefly so work that finishes
     // does not simply blink out of existence, then faded and forgotten.
     const FADE_AFTER_MS = 10000;
@@ -77,6 +93,21 @@
         requestAnimationFrame(() => { renderQueued = false; render(); });
     }
 
+    async function mutate(query, variables) {
+        const r = await fetch('/api/graphql', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json', 'Accept': 'application/json'},
+            credentials: 'same-origin',
+            body: JSON.stringify({query: query, variables: variables || {}}),
+        });
+        if (!r.ok) throw new Error(`GraphQL HTTP ${r.status}`);
+        const body = await r.json();
+        if (body.errors && body.errors.length) {
+            throw new Error('GraphQL errors: ' + JSON.stringify(body.errors));
+        }
+        return body.data;
+    }
+
     /** Undo an optimistic cancel mark, correcting the row if the removal already used it. */
     function unmarkCancelled(key) {
         cancelled.delete(key);
@@ -97,23 +128,43 @@
         // markDone has to already know the row was cancelled rather than finished.
         cancelled.add(key);
         try {
-            const r = await fetch('/api/graphql', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json', 'Accept': 'application/json'},
-                credentials: 'same-origin',
-                body: JSON.stringify({query: CANCEL_MUTATION, variables: {id: key}}),
-            });
-            if (!r.ok) throw new Error(`GraphQL HTTP ${r.status}`);
-            const body = await r.json();
-            if (body.errors && body.errors.length) {
-                throw new Error('GraphQL errors: ' + JSON.stringify(body.errors));
-            }
             // False means it was already finished or failed, so it was never cancelled.
-            if (!body.data.cancelTask) unmarkCancelled(key);
+            if (!(await mutate(CANCEL_MUTATION, {id: key})).cancelTask) unmarkCancelled(key);
         } catch (e) {
             console.error(e);
             unmarkCancelled(key);
             $(`.task-cancel[data-id="${id}"]`).prop('disabled', false);
+        }
+    }
+
+    /** Drop rows locally so the incoming removal has nothing left to dress up. */
+    function forget(keys) {
+        // A dismissed failure is not an accomplishment: it should just go, without the
+        // green tick and ten-second fade that markDone gives work that ran to the end.
+        keys.forEach(key => { delete tasks[key]; });
+        scheduleRender();
+    }
+
+    async function dismissTask(id) {
+        const key = String(id);
+        $(`.task-cancel[data-id="${id}"]`).prop('disabled', true);
+        try {
+            if ((await mutate(DISMISS_MUTATION, {id: key})).dismissTask) forget([key]);
+        } catch (e) {
+            console.error(e);
+            $(`.task-cancel[data-id="${id}"]`).prop('disabled', false);
+        }
+    }
+
+    async function purgeFailed() {
+        const button = $('#purgeFailed').prop('disabled', true);
+        try {
+            await mutate(PURGE_MUTATION);
+            forget(Object.values(tasks).filter(t => t.status === 'failed').map(t => String(t.id)));
+        } catch (e) {
+            console.error(e);
+        } finally {
+            button.prop('disabled', false);
         }
     }
 
@@ -203,7 +254,7 @@
                 <span class="task-icon"></span>
                 <span class="task-name"></span>
                 <span class="task-meta text-secondary"></span>
-                <button type="button" class="task-cancel" data-id="${task.id}" title="Cancel">
+                <button type="button" class="icon-btn task-cancel" data-id="${task.id}" title="Cancel">
                     <i class="bi bi-x-lg"></i>
                 </button>
             </div>
@@ -211,8 +262,14 @@
                 <div class="progress-bar" role="progressbar"></div>
             </div>
             <ul class="task-children"></ul>`;
+        // Resolved at click time, not here: a row that was queued when it was built can
+        // have failed by the time the button is pressed, and the two need different calls.
         li.querySelector(':scope > .task-head > .task-cancel')
-          .addEventListener('click', () => cancelTask(task.id));
+          .addEventListener('click', () => {
+              const current = tasks[String(task.id)];
+              if (current && current.status === 'failed') dismissTask(task.id);
+              else cancelTask(task.id);
+          });
         return li;
     }
 
@@ -252,10 +309,11 @@
             'd-none', task.status === 'pending' || task.status === 'failed');
 
         // `done` covers both finished and cancelled rows: the task is already gone
-        // server-side, so the button has nothing to act on and is taken away.
+        // server-side, so the button has nothing to act on and is taken away. On a
+        // failed row it stays, as the only way to clear a failure.
         const cancel = own('.task-head > .task-cancel');
         cancel.classList.toggle('d-none', !!task.done);
-        cancel.disabled = task.status === 'failed';
+        cancel.title = task.status === 'failed' ? 'Dismiss' : 'Cancel';
     }
 
     /** Sync a <ul> to a list of tasks, reusing rows so progress bars animate instead of flicker. */
@@ -333,7 +391,9 @@
             t => t.status !== 'failed' && !t.runAfter));
         section('scheduledTasks', 'scheduledEmpty', roots.filter(
             t => t.status === 'pending' && t.runAfter));
-        section('failedTasks', 'failedEmpty', roots.filter(t => t.status === 'failed'));
+        const failed = roots.filter(t => t.status === 'failed');
+        section('failedTasks', 'failedEmpty', failed);
+        document.getElementById('purgeFailed').classList.toggle('d-none', !failed.length);
 
         // A full window means the server had more rows to give. Counting what arrived
         // avoids asking it for a total nothing else needs.

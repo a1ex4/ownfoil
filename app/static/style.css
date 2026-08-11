@@ -191,13 +191,25 @@ p.game-description {
     white-space: nowrap;
 }
 
-/* A bare red cross: the row is already dense, and a bordered button competed with the
-   status icon for attention. */
-.task-cancel {
+/* Bare icon buttons: the rows are already dense, and bordered buttons competed with the
+   status icons for attention. Muted by default; the per-row cross opts into danger. */
+.icon-btn {
     padding: 0;
     border: 0;
     background: none;
     line-height: 1;
+    color: var(--bs-secondary-color);
+}
+
+.icon-btn:hover:not(:disabled) {
+    color: var(--bs-body-color);
+}
+
+.icon-btn:disabled {
+    opacity: .25;
+}
+
+.task-cancel {
     font-size: .8rem;
     color: var(--bs-danger);
 }
@@ -206,8 +218,12 @@ p.game-description {
     color: var(--bs-danger-text-emphasis);
 }
 
-.task-cancel:disabled {
-    opacity: .25;
+/* Matches the scroll container's padding, so the section's action lines up with the
+   per-row crosses below it rather than sitting a scrollbar's width to their right. */
+.task-section-head {
+    display: flex;
+    align-items: center;
+    padding-right: .75rem;
 }
 
 /* Too slim for a label, so the percentage is shown in the row's meta text instead. */

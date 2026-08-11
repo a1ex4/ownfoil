@@ -223,6 +223,58 @@ def test_a_task_whose_input_no_longer_fits_still_gets_a_label(queue):
     assert task_events.tasks_snapshot()[0]["displayName"] == "Scan library"
 
 
+# --- Dismissing failures ---
+
+def test_a_failed_task_can_be_dismissed(queue):
+    """Failed tasks are kept so a failure survives a reload, so this is the only way out."""
+    import tasks as tasks_mod
+
+    task = add_task(status="failed", error_message="boom")
+    assert tasks_mod.dismiss_task(task.id) is True
+    assert task_events.tasks_snapshot() == []
+
+
+DISMISS_REFUSED = [
+    ("a queued task", "pending"),
+    ("a running task", "running"),
+    ("a task waiting on children", "waiting_for_children"),
+]
+
+
+@pytest.mark.parametrize("label,status", DISMISS_REFUSED,
+                         ids=[c[0] for c in DISMISS_REFUSED])
+def test_dismiss_refuses_live_work(queue, label, status):
+    """Cancelling live work restarts workers and runs cleanup hooks; dismiss must not
+    become a back door that skips all of it."""
+    import tasks as tasks_mod
+
+    task = add_task(status=status)
+    assert tasks_mod.dismiss_task(task.id) is False
+    assert len(task_events.tasks_snapshot()) == 1
+
+
+def test_dismissing_an_unknown_task_is_false(queue):
+    import tasks as tasks_mod
+    assert tasks_mod.dismiss_task(9999) is False
+
+
+def test_purge_clears_only_the_failures(queue):
+    import tasks as tasks_mod
+
+    for n in range(3):
+        add_task(status="failed", input_hash="f%d" % n)
+    kept = add_task(status="pending", input_hash="keep")
+
+    assert tasks_mod.purge_failed_tasks() == 3
+    assert [t["id"] for t in task_events.tasks_snapshot()] == [kept.id]
+
+
+def test_purging_nothing_is_not_an_error(queue):
+    import tasks as tasks_mod
+    add_task(status="pending")
+    assert tasks_mod.purge_failed_tasks() == 0
+
+
 # --- Workers ---
 
 class FakeProcess:

@@ -96,6 +96,28 @@ class Mutation:
         return bool(tasks_mod.cancel_task(int(id)))
 
     @described_mutation
+    def dismiss_task(
+        self, info: Info,
+        id: Annotated[strawberry.ID, strawberry.argument(
+            description="Primary key of the failed task to remove.")],
+    ) -> bool:
+        """Clear one failed task. Failed tasks are kept so a failure survives a page
+        reload, so this is how a task queue gets tidied once its failures have been
+        read. False when the task is unknown or has not failed - a running or queued
+        task is `cancelTask`'s job, not this one."""
+        import tasks as tasks_mod
+        _require_admin(info.context)
+        return bool(tasks_mod.dismiss_task(int(id)))
+
+    @described_mutation
+    def purge_failed_tasks(self, info: Info) -> int:
+        """Clear every failed task at once, returning how many were removed. Zero when
+        there was nothing to clear, which is not an error."""
+        import tasks as tasks_mod
+        _require_admin(info.context)
+        return tasks_mod.purge_failed_tasks()
+
+    @described_mutation
     def scan_library(
         self, info: Info,
         path: Annotated[Optional[str], strawberry.argument(
