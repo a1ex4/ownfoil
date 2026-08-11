@@ -7,12 +7,12 @@
         <nav class="settings-sidebar bg-body-tertiary border-end">
             <ul class="nav flex-column">
                 <li class="nav-item">
-                    <a class="nav-link{% if request.path == '/settings' %} active{% endif %}" href="/settings">
+                    <a class="nav-link{% if request.path == '/admin/settings' %} active{% endif %}" href="/admin/settings">
                         <i class="bi bi-sliders"></i> Settings
                     </a>
                 </li>
                 <li class="nav-item">
-                    <a class="nav-link{% if request.path.startswith('/settings/tasks') %} active{% endif %}" href="/settings/tasks">
+                    <a class="nav-link{% if request.path.startswith('/admin/tasks') %} active{% endif %}" href="/admin/tasks">
                         <i class="bi bi-list-task"></i> Tasks
                     </a>
                 </li>

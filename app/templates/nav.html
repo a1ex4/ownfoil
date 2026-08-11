@@ -21,7 +21,7 @@
                 {% endif %}
                 {% if current_user.is_admin or admin_account_created == false %}
                 <li class="nav-item">
-                    <a class="nav-link{% if request.path.startswith('/settings') %} active" aria-current="page"{% else %}"{% endif %}" href="/settings">Settings</a>
+                    <a class="nav-link{% if request.path.startswith('/admin') %} active" aria-current="page"{% else %}"{% endif %}" href="/admin/settings">Admin</a>
                 </li>
                 {% endif %}
             </ul>

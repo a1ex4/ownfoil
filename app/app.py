@@ -240,7 +240,12 @@ def index(path=None):
         return access_shop_auth()
     return access_shop()
 
-@app.route('/settings')
+@app.route('/admin')
+@access_required('admin')
+def admin_page():
+    return redirect('/admin/settings')
+
+@app.route('/admin/settings')
 @access_required('admin')
 def settings_page():
     with open(os.path.join(TITLEDB_DIR, 'languages.json')) as f:
@@ -252,7 +257,7 @@ def settings_page():
         languages_from_titledb=languages,
         admin_account_created=admin_account_created())
 
-@app.route('/settings/tasks')
+@app.route('/admin/tasks')
 @access_required('admin')
 def tasks_page():
     import task_events

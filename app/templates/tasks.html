@@ -2,14 +2,11 @@
 {% block panel %}
 <div class="settings-container container mt-3">
 
-    <div class="d-flex align-items-center justify-content-between">
-        <h2>Tasks</h2>
-        <span id="liveStatus" class="badge text-bg-secondary">connecting…</span>
-    </div>
+    <h2>Tasks</h2>
     <p class="text-secondary">Live view of the background work queue. Updates stream from
         the server as tasks progress.</p>
 
-    <h4 class="mt-4">Queue</h4>
+    <h4 class="mt-4 mb-3">Queue</h4>
     <div class="task-scroll">
         <ul id="queueTasks" class="task-list"></ul>
     </div>
@@ -17,11 +14,11 @@
     <p id="queueTruncated" class="text-secondary fst-italic d-none">
         Showing the {{ max_tasks }} oldest tasks — more are queued behind them.</p>
 
-    <h4 class="mt-4">Scheduled</h4>
+    <h4 class="mt-4 mb-3">Scheduled</h4>
     <ul id="scheduledTasks" class="task-list"></ul>
     <p id="scheduledEmpty" class="text-secondary fst-italic">Nothing scheduled.</p>
 
-    <div class="task-section-head mt-4">
+    <div class="task-section-head mt-4 mb-3">
         <h4 class="mb-0">Failed</h4>
         <button type="button" id="purgeFailed" class="icon-btn ms-auto d-none"
                 onClick="purgeFailed()" title="Dismiss all failed tasks">
@@ -41,18 +38,6 @@
 {% endblock %}
 
 {% block panel_scripts %}
-<script>
-    // Installed before anything else so a failure in the scripts below — including one
-    // that stops them parsing at all — shows up here instead of silently leaving the
-    // page frozen on "connecting…" with nothing to go on.
-    window.addEventListener('error', function (e) {
-        var badge = document.getElementById('liveStatus');
-        if (!badge) return;
-        badge.textContent = 'page error';
-        badge.className = 'badge text-bg-danger';
-        badge.title = e.message || 'see the browser console';
-    });
-</script>
 <script src="{{ url_for('static', filename='js/realtime.js') }}"></script>
 <script>
 
@@ -463,9 +448,6 @@
         } else if (stoppedAt === null) {
             stoppedAt = Date.now();
         }
-        $('#liveStatus')
-            .text(connected ? 'live' : 'reconnecting…')
-            .attr('class', 'badge ' + (connected ? 'text-bg-success' : 'text-bg-warning'));
         scheduleRender();
     });
 

@@ -335,7 +335,7 @@ def signup_post():
         resp = {
             'success': False,
             'status_code': 400,
-            'location': '/settings',
+            'location': '/admin/settings',
         } 
         return jsonify(resp)
 
@@ -358,7 +358,7 @@ def signup_post():
     if not existing_admin and admin_access:
         logger.debug('First admin account created')
         resp['status_code'] = 302,
-        resp['location'] = '/settings'
+        resp['location'] = '/admin/settings'
     
     return jsonify(resp)
 
