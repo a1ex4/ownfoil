@@ -140,16 +140,17 @@ class VerificationStatus(Enum):
                     "status that means the file is both authentic and intact.")
     REPACK = strawberry.enum_value(
         STATUS_REPACK,
-        description="Re-signed, contents intact. of the modified content has been "
-                    "updated in both the filename and CNMT record, to allow integrity "
-                    "verification.")
+        description="Re-signed, contents intact. The hash of the modified content has "
+                    "been updated in both the filename and CNMT record, to allow "
+                    "integrity verification.")
     MODIFIED = strawberry.enum_value(
         STATUS_MODIFIED,
         description="A content no longer hashes to the name it is filed under, but that "
-                    "name match the container's own CNMT records for it. "
+                    "name matches the container's own CNMT records for it. "
                     "It proves the container's metadata is intact and consistent. "
-                    "It does not prove the payload survived — no hash of the content " 
-                    "sections alone is recorded anywhere, so there is nothing to check them against.")
+                    "It does not prove the payload survived — no hash of the content "
+                    "sections alone is recorded anywhere, so there is nothing to check "
+                    "them against.")
     CORRUPT = strawberry.enum_value(
         STATUS_CORRUPT,
         description="A content does not hash to the name it is filed under and there "

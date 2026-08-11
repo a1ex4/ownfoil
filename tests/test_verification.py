@@ -233,8 +233,8 @@ def test_nstools_chatter_is_silenced():
     ("hash", {"signature_valid": True}, True),             # deeper level not yet attempted
     ("hash", {"hash_valid": False, "hash_modified": False}, False),
     ("hash", {"hash_valid": True}, False),
-    # A failure recorded before hash_modified existed cannot say whether it was a repack
-    # or damage, so it is re-checked. A pass has nothing left to learn.
+    # A failure with no hash_modified came from a phase that raised - an unreadable file
+    # rather than a verdict - so it is re-checked. A pass has nothing left to learn.
     ("hash", {"hash_valid": False}, True),
 ])
 def test_needs_verify_tracks_the_configured_depth(env, depth, columns, expected):
@@ -261,8 +261,8 @@ def test_needs_verify_is_off_when_disabled(env):
     assert tasks._needs_verify(f, _settings(verify=False)["library"]["management"]) is False
 
 
-def test_verify_runs_before_organize_and_compress(env):
-    """A file must not be organized or compressed before it has been vouched for."""
+def test_verify_runs_after_organize_and_before_compress(env):
+    """A file is verified where it will live, and never compressed before it is vouched for."""
     enqueued = []
     env.monkeypatch.setattr(tasks, "get_settings",
                             lambda: _settings(verify=True, organizer=True))
@@ -273,7 +273,8 @@ def test_verify_runs_before_organize_and_compress(env):
 
     tasks.process_file_task(file_id=f.id)
 
-    assert enqueued == ["verify_file"]
+    assert db.session.get(Files, f.id).organized is True
+    assert enqueued == ["library_maintenance", "verify_file"]
 
 
 # (filename, verdict columns, the status they derive to). One file per status a real

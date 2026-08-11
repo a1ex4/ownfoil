@@ -648,7 +648,8 @@ def _needs_verify(file, mgmt):
     if not titles_lib.Keys.keys_loaded:
         return False
     if verification['depth'] == verification_lib.DEPTH_HASH:
-        return file.hash_valid is None
+        return file.hash_valid is None or (file.hash_valid is False
+                                           and file.hash_modified is None)
     return file.signature_valid is None
 
 
