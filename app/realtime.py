@@ -33,11 +33,16 @@ Topic = namedtuple('Topic', 'name access snapshot poll')
 
 TOPICS = {}
 
+# Queued at shutdown to wake a client thread that is idling on its queue. The flag is
+# what actually ends the loop; this only saves it the wait.
+_SHUTDOWN = object()
+
 _app = None
 _subscribers = set()
 _lock = threading.Lock()
 _poller = None
 _stop = threading.Event()
+_shutdown = threading.Event()
 
 
 class Subscription:
@@ -177,11 +182,21 @@ def _poll_loop():
 
 
 def stop():
-    """Stop the poller thread and wait for it to exit, for shutdown."""
+    """Stop the poller thread and release every client socket, for shutdown."""
     _stop.set()
+    _shutdown.set()
     poller = _poller
     if poller is not None:
         poller.join(timeout=POLL_INTERVAL * 8)
+    # A client thread left blocked here holds a server thread the interpreter joins on
+    # its way out, so the process would hang until the client itself went away.
+    with _lock:
+        subs = list(_subscribers)
+    for sub in subs:
+        try:
+            sub.queue.put_nowait(_SHUTDOWN)
+        except queue.Full:
+            pass  # it is already draining events, and sees the flag on the next lap
 
 
 # --- WebSocket endpoint ---
@@ -199,11 +214,13 @@ def serve(ws, requested):
             event = snapshot_event(topic)
             if event:
                 ws.send(json.dumps(event))
-        while ws.connected:
+        while ws.connected and not _shutdown.is_set():
             try:
                 event = sub.queue.get(timeout=IDLE_TIMEOUT)
             except queue.Empty:
                 continue
+            if event is _SHUTDOWN:
+                break
             if event['type'] == 'resync':
                 # Cleared before the snapshot is built, so a change landing mid-build is
                 # queued behind it rather than dropped.

@@ -4,6 +4,7 @@ Nothing here imports tasks: if this file ever needs to, the generic layer has st
 being generic.
 """
 import queue
+import threading
 
 import pytest
 from flask import Flask
@@ -23,6 +24,7 @@ def broker():
     realtime.TOPICS.clear()
     realtime._subscribers.clear()
     realtime._poller = None
+    realtime._shutdown.clear()
     _seen.clear()
 
 
@@ -165,6 +167,43 @@ def test_a_failing_source_does_not_take_the_poller_down(broker):
 
     _wait_for(lambda: len(calls) >= 2)
     assert realtime._poller is not None
+
+
+# --- Shutdown ---
+
+class FakeWS:
+    """Just enough socket for serve(): it stays open until someone closes it."""
+
+    def __init__(self):
+        self.connected = True
+        self.sent = []
+
+    def send(self, data):
+        self.sent.append(data)
+
+    def close(self):
+        self.connected = False
+
+
+def test_stopping_the_broker_releases_a_still_open_client(broker, monkeypatch):
+    # A client left parked on its queue holds a server thread the interpreter joins on
+    # its way out: the process would then hang until the browser tab went away.
+    monkeypatch.setattr('auth.admin_account_created', lambda: False)
+    broker.register_topic('alpha', snapshot=lambda: ['seed'])
+    ws = FakeWS()
+    returned = threading.Event()
+
+    def client():
+        realtime.serve(ws, ['alpha'])
+        returned.set()
+
+    threading.Thread(target=client, daemon=True).start()
+    _wait_for(lambda: ws.sent)  # seeded, so it is now parked waiting for events
+
+    broker.stop()
+
+    assert returned.wait(timeout=2), 'client thread never let go of its socket'
+    assert realtime._subscribers == set()
 
 
 # --- helpers ---
