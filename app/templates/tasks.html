@@ -215,14 +215,6 @@
         return 'running';
     }
 
-    // A task with no reported percentage should not look stalled at 0%: only the
-    // verify/compress/decompress tasks report real progress, everything else jumps
-    // straight from queued to done.
-    function isIndeterminate(task) {
-        return !task.done && task.status !== 'pending' && task.status !== 'failed'
-            && !task.completionPct;
-    }
-
     // --- Rendering ---
 
     function childrenOf(id) {
@@ -278,20 +270,18 @@
         own('.task-head > .task-name').textContent = task.displayName;
         own('.task-head > .task-meta').textContent = taskMeta(task);
 
-        const pct = task.done ? 100 : (task.completionPct || 0);
-        const bar = own('.task-progress > .progress-bar');
-        const indeterminate = isIndeterminate(task);
-        bar.style.width = indeterminate ? '100%' : `${pct}%`;
-        // Stripes always; they only travel while the task is live, so a finished bar
-        // does not keep implying work is happening.
-        const active = !task.done && task.status !== 'failed';
-        bar.className = 'progress-bar progress-bar-striped'
-            + (active ? ' progress-bar-animated' : '')
-            + (task.done && !task.cancelled ? ' bg-success' : '')
-            + (task.cancelled ? ' bg-secondary' : '')
-            + (task.status === 'failed' ? ' bg-danger' : '');
-        own('.task-progress').classList.toggle(
-            'd-none', task.status === 'pending' || task.status === 'failed');
+        // Only a live row carries a bar: a queued one has nothing to report yet, and a
+        // finished, cancelled or failed one says so in its icon and meta text already.
+        const inFlight = !task.done && task.status !== 'pending' && task.status !== 'failed';
+        own('.task-progress').classList.toggle('d-none', !inFlight);
+        if (inFlight) {
+            // A task with no reported percentage should not look stalled at 0%: only the
+            // verify/compress/decompress tasks report real progress, everything else jumps
+            // straight from queued to done.
+            const bar = own('.task-progress > .progress-bar');
+            bar.style.width = task.completionPct ? `${task.completionPct}%` : '100%';
+            bar.className = 'progress-bar progress-bar-striped progress-bar-animated';
+        }
 
         // `done` covers both finished and cancelled rows: the task is already gone
         // server-side, so the button has nothing to act on and is taken away. On a
