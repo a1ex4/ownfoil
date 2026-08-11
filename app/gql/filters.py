@@ -10,6 +10,7 @@ from enum import Enum
 import strawberry
 from typing import List, Optional
 
+from constants import APP_TYPE_BASE, APP_TYPE_DLC, APP_TYPE_UPD
 from containers.verification import (
     STATUS_ANY, STATUS_CORRUPT, STATUS_MODIFIED, STATUS_REPACK, STATUS_RULES,
     STATUS_SIGNATURE_FAILED, STATUS_SIGNATURE_OK, STATUS_UNVERIFIED, STATUS_VALID,
@@ -109,19 +110,46 @@ class TitleFilter:
         default=None)
 
 
+@described(strawberry.enum)
+class AppType(Enum):
+    """What kind of content an app is. A closed set of three, so it is an enum rather
+    than a string: the values are exactly what the `app_type` column stores, which is
+    what makes them safe to compare without translation."""
+    BASE = strawberry.enum_value(
+        APP_TYPE_BASE,
+        description="The game itself. Its `appId` is the `titleId` exactly - the id "
+                    "ending in `000` - and it is the only type `complete` and the "
+                    "title-level flags speak about.")
+    UPDATE = strawberry.enum_value(
+        APP_TYPE_UPD,
+        description="A patch for a base game, carrying the version `upToDate` compares. "
+                    "Its `appId` is the title id with the trailing `000` replaced by "
+                    "`800`, so a title has one update app id however many versions ship "
+                    "under it.")
+    DLC = strawberry.enum_value(
+        APP_TYPE_DLC,
+        description="Add-on content. Its `appId` takes the title id's first thirteen "
+                    "digits plus one, then numbers each DLC in the last three (`001`, "
+                    "`002`, ...) - so a title's DLC ids are consecutive and never equal "
+                    "its own.")
+
+
 @described(strawberry.input)
 class AppFilter:
     """Predicates on an app. Every populated field ANDs with the others."""
     title_id: Optional[StringFilter] = desc(
-        "Id of the title the app belongs to, uppercase.", default=None)
-    app_id: Optional[StringFilter] = desc("The app's own application id.",
-                                          default=None)
+        "Id of the title the app belongs to, uppercase. Groups a base game with its "
+        "updates and DLC, whose own ids differ from it.", default=None)
+    app_id: Optional[StringFilter] = desc(
+        "The app's own application id, which equals `titleId` only for a BASE app - "
+        "`AppType` gives the rule for each kind.", default=None)
     app_version: Optional[IntFilter] = desc(
         "The version, compared numerically - so `gte: 65536` means what it says, "
         "which it could not if versions were compared as text.", default=None)
-    app_type: Optional[StringFilter] = desc(
-        "BASE, UPDATE or DLC. The `appType` argument is the shorthand for this and "
-        "takes a list.", default=None)
+    app_type: Optional[AppType] = desc(
+        "Exactly this kind of content. Bare rather than an operator object, like the "
+        "booleans: the set is closed, so equality is the only predicate worth having. "
+        "The `appType` argument is the several-at-once version.", default=None)
     owned: Optional[bool] = desc(
         "Whether a file carries the app. Identical to the `owned` argument, including "
         "under `groupByAppId: true`, where both mean 'any version of this app id'.",
@@ -233,6 +261,14 @@ def string_clauses(column_sql: str, f: Optional[StringFilter], params: dict, key
             keys.append(f":{pk}")
         out.append(f"{column_sql} IN ({','.join(keys)})")
     return out
+
+
+def enum_clauses(column_sql: str, value, params: dict, key: str) -> List[str]:
+    """Equality against an enum member, binding the value the column actually stores."""
+    if value is None:
+        return []
+    params[f"{key}_eq"] = value.value
+    return [f"{column_sql} = :{key}_eq"]
 
 
 def bool_clauses(column_sql: str, value: Optional[bool], params: dict, key: str) -> List[str]:
@@ -377,7 +413,7 @@ APP_FIELDS = [
     # Stored as text but semantically an integer, so it is filtered and sorted as one:
     # lexicographically "9" sorts above "65536", which is never what a caller means.
     ("app_version", "CAST(a.app_version AS INTEGER)", "int"),
-    ("app_type",    "a.app_type",    "string"),
+    ("app_type",    "a.app_type",    "enum"),
     ("owned",       "a.owned",       "bool"),
 ]
 
@@ -520,6 +556,8 @@ def build_clauses(filter_obj, fields, params: dict) -> List[str]:
             clauses += string_clauses(col, f, params, attr)
         elif kind == "bool":
             clauses += bool_clauses(col, f, params, attr)
+        elif kind == "enum":
+            clauses += enum_clauses(col, f, params, attr)
         elif kind == "int":
             clauses += int_clauses(col, f, params, attr)
         elif kind == "strlist":
@@ -544,6 +582,11 @@ def match_string(value, f: Optional[StringFilter]) -> bool:
     if f.in_ is not None and value not in f.in_:
         return False
     return True
+
+
+def match_enum(value, expected) -> bool:
+    """The hydrated row holds the stored string, the filter an enum member."""
+    return expected is None or value == expected.value
 
 
 def match_bool(value, expected: Optional[bool]) -> bool:
@@ -582,10 +625,10 @@ def match_int(value, f) -> bool:
 
 
 def match_app(app, owned: Optional[bool], f: Optional[AppFilter],
-              app_type: Optional[List[str]] = None) -> bool:
+              app_type: Optional[List[AppType]] = None) -> bool:
     if owned is not None and bool(app.owned) != owned:
         return False
-    if app_type and app.app_type not in app_type:
+    if app_type and app.app_type not in {t.value for t in app_type}:
         return False
     if f is None:
         return True
@@ -593,7 +636,7 @@ def match_app(app, owned: Optional[bool], f: Optional[AppFilter],
         match_string(app.title_id,    f.title_id)
         and match_string(app.app_id,      f.app_id)
         and match_int(app.app_version,    f.app_version)
-        and match_string(app.app_type,    f.app_type)
+        and match_enum(app.app_type,      f.app_type)
         and match_bool(app.owned,         f.owned)
     )
 

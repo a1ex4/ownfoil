@@ -114,7 +114,7 @@ EXPECTED_BASE_VERSIONS = [(65536, True), (131072, False)]
 def test_a_titles_apps_carry_their_versions(library):
     """The title-detail page's query. Previously always null on this path."""
     data = query(library, """
-        query { title(titleId: "%s") { name apps(appType: ["BASE"]) {
+        query { title(titleId: "%s") { name apps(appType: [BASE]) {
             appId versions { version owned } } } }""" % ALPHA)
 
     base = data["title"]["apps"][0]
@@ -124,7 +124,7 @@ def test_a_titles_apps_carry_their_versions(library):
 def test_the_titles_list_carries_versions_too(library):
     data = query(library, """
         query { titles(owned: true, page: 1, pageSize: 10) { items {
-            titleId apps(appType: ["BASE"]) { versions { version owned } } } } }""")
+            titleId apps(appType: [BASE]) { versions { version owned } } } } }""")
 
     base = data["titles"]["items"][0]["apps"][0]
     assert [(v["version"], v["owned"]) for v in base["versions"]] == EXPECTED_BASE_VERSIONS
@@ -133,10 +133,10 @@ def test_the_titles_list_carries_versions_too(library):
 def test_reaching_an_app_by_title_or_by_apps_gives_the_same_versions(library):
     """The point of the fix: a field cannot mean two different things by path."""
     via_apps = query(library, """
-        query { apps(groupByAppId: true, appType: ["BASE"], page: 1, pageSize: 10) {
+        query { apps(groupByAppId: true, appType: [BASE], page: 1, pageSize: 10) {
             items { appId versions { version owned } } } }""")["apps"]["items"][0]
     via_title = query(library, """
-        query { title(titleId: "%s") { apps(appType: ["BASE"]) {
+        query { title(titleId: "%s") { apps(appType: [BASE]) {
             appId versions { version owned } } } }""" % ALPHA)["title"]["apps"][0]
 
     assert via_apps["versions"] == via_title["versions"]
@@ -169,7 +169,7 @@ def test_unrequested_nested_fields_stay_null(library):
     """The hydrators are selection-gated: not asking must still cost nothing, and the
     back-link path must not start recursing."""
     data = query(library, """
-        query { apps(appType: ["BASE"], page: 1, pageSize: 10) { items {
+        query { apps(appType: [BASE], page: 1, pageSize: 10) { items {
             files { filename apps { appId files { filename } } } } } }""")
 
     backlinked = data["apps"]["items"][0]["files"][0]["apps"][0]
@@ -315,7 +315,7 @@ def test_a_single_app_hydrates_like_the_list(library):
     """`app(id:)` reuses the list resolver, so nested fields must behave identically
     even though the selection set is flat rather than under `items`."""
     listed = query(library, """
-        query { apps(appType: ["BASE"], page: 1, pageSize: 1) { items {
+        query { apps(appType: [BASE], page: 1, pageSize: 1) { items {
             id appId versions { version owned } } } }""")["apps"]["items"][0]
 
     data = query(library, """
@@ -494,16 +494,16 @@ def test_file_apps_rejects_the_owned_argument(library):
 
 # ---- typed surfaces ----
 #
-# Four places where the schema described something other than what the data is: a
-# version as a string, a grouped row as a composite, a status as free text, and a
-# list column as a scalar.
+# Five places where the schema described something other than what the data is: a
+# version as a string, a grouped row as a composite, a status and an app type as free
+# text, and a list column as a scalar.
 
 
 def test_app_version_is_an_integer_everywhere(library):
     """`appVersion` and `versions { version }` are the same quantity, so they were
     the same type - one of them just said String."""
     item = query(library, """
-        query { apps(appType: ["UPDATE"], orderBy: {field: VERSION, direction: DESC},
+        query { apps(appType: [UPDATE], orderBy: {field: VERSION, direction: DESC},
                      page: 1, pageSize: 1) {
             items { appVersion versions { version } } } }""")["apps"]["items"][0]
 
@@ -533,12 +533,55 @@ def test_apps_filter_by_version_numerically(library, filter_literal, expected):
 def test_apps_sort_by_version(library):
     def versions(direction):
         return [i["appVersion"] for i in query(library, """
-            query { apps(appType: ["UPDATE"], orderBy: {field: VERSION, direction: %s},
+            query { apps(appType: [UPDATE], orderBy: {field: VERSION, direction: %s},
                          page: 1, pageSize: 50) { items { appVersion } } }
             """ % direction)["apps"]["items"]]
 
     assert versions("ASC") == [65536, 131072]
     assert versions("DESC") == [131072, 65536]
+
+
+# (app type, expected app ids) - the set is closed and small, so every member of it
+# is exercised rather than a representative one.
+APP_TYPE_CASES = [
+    ("BASE",   [ALPHA]),
+    ("UPDATE", [ALPHA_UPD, ALPHA_UPD]),
+    ("DLC",    [ALPHA_DLC, ALPHA_DLC]),
+]
+
+
+@pytest.mark.parametrize("app_type,expected", APP_TYPE_CASES)
+def test_app_type_argument_and_filter_agree(library, app_type, expected):
+    """Two spellings of one predicate, running different SQL - the argument binds an
+    IN list, the filter an equality - so they are held to the same answer."""
+    def app_ids(arg):
+        return sorted(i["appId"] for i in query(library, """
+            query { apps(%s, page: 1, pageSize: 50) { items { appId } } }
+            """ % arg)["apps"]["items"])
+
+    assert app_ids("appType: [%s]" % app_type) == sorted(expected)
+    assert app_ids("filter: {appType: %s}" % app_type) == sorted(expected)
+
+
+@pytest.mark.parametrize("app_type,expected", APP_TYPE_CASES)
+def test_nested_apps_filter_by_type_in_memory(library, app_type, expected):
+    """`Title.apps` filters an already-hydrated list in Python, not in SQL, so on that
+    path the enum has to be compared against the string the row actually holds."""
+    items = query(library, """
+        query { title(titleId: "%s") { apps(appType: [%s], filter: {appType: %s}) {
+            appId appType } } }""" % (ALPHA, app_type, app_type))["title"]["apps"]
+
+    assert sorted(i["appId"] for i in items) == sorted(expected)
+    assert {i["appType"] for i in items} == {app_type}
+
+
+def test_an_unknown_app_type_is_rejected(library):
+    """What the enum buys over a string: a misspelt type is an error at the schema
+    boundary rather than an empty page that reads like an answer."""
+    resp = library.client.get("/api/graphql", query_string={
+        "query": "query { apps(appType: [BASES], page: 1, pageSize: 10) { total } }"})
+
+    assert resp.get_json().get("errors")
 
 
 def test_a_grouped_app_is_a_real_row(library):

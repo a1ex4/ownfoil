@@ -7,7 +7,7 @@ from strawberry.types import Info
 from typing_extensions import Annotated
 
 from .docs import arg as _arg, described, described_field
-from .filters import AppFilter, FileFilter, OrderBy, TitleFilter
+from .filters import AppFilter, AppType, FileFilter, OrderBy, TitleFilter
 from .mutations import Mutation
 from .resolvers import (
     resolve_app, resolve_apps, resolve_file, resolve_files, resolve_libraries,
@@ -33,9 +33,10 @@ Order = Annotated[Optional[OrderBy], _arg(
 Owned = Annotated[Optional[bool], _arg(
     "Restrict to owned or unowned rows. Omit for both. ANDs with `filter`, which "
     "carries the same predicate under a different spelling.")]
-AppTypes = Annotated[Optional[List[str]], _arg(
-    "Restrict to these app types (BASE, UPDATE, DLC). A bare string is coerced to a "
-    "one-element list; an empty list is no constraint.")]
+AppTypes = Annotated[Optional[List[AppType]], _arg(
+    "Restrict to these kinds of content. A bare value is coerced to a one-element "
+    "list; an empty list is no constraint. ANDs with `filter: {appType:}`, which asks "
+    "for exactly one.")]
 
 
 @described(strawberry.type)
@@ -93,7 +94,7 @@ class Query:
             "the rest.")] = None,
         complete: Annotated[Optional[bool], _arg(
             "Restrict to titles whose DLC set is complete. Only ever matches BASE "
-            "apps, so combining it with `appType: [\"DLC\"]` matches nothing.")] = None,
+            "apps, so combining it with `appType: [DLC]` matches nothing.")] = None,
         search: Annotated[Optional[str], _arg(
             "Free-text match across the parent title's name and either id.")] = None,
         order_by: Order = None,

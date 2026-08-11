@@ -16,14 +16,16 @@ from typing_extensions import Annotated
 from db import verification_status
 
 from .docs import arg, desc, described, described_field
-from .filters import AppFilter, FileFilter, VerificationStatus, match_app, match_file
+from .filters import (
+    AppFilter, AppType, FileFilter, VerificationStatus, match_app, match_file,
+)
 from .scalars import BigInt
 
 # Arguments shared by the nested list fields, annotated once so `Title.apps` and
 # `File.apps` describe them identically.
-NestedAppTypes = Annotated[Optional[List[str]], arg(
-    "Restrict to these app types (BASE, UPDATE, DLC). A bare string is coerced to a "
-    "one-element list; an empty list is no constraint.")]
+NestedAppTypes = Annotated[Optional[List[AppType]], arg(
+    "Restrict to these kinds of content. A bare value is coerced to a one-element "
+    "list; an empty list is no constraint.")]
 NestedAppFilter = Annotated[Optional[AppFilter], arg(
     "Field-level predicates, applied in memory to the already-loaded list. Same "
     "semantics as the SQL the top-level `apps` query runs.")]
@@ -324,7 +326,8 @@ class TitledbVersion:
 @described(strawberry.type)
 class TitledbDlc:
     """A DLC titledb attributes to a title, again independent of ownership."""
-    app_id: str = desc("The DLC's own 16-hex-digit application id.")
+    app_id: str = desc("The DLC's own 16-hex-digit application id - the title id's "
+                       "first thirteen digits plus one, then this DLC's index.")
     version: Optional[int] = desc(
         "Highest version titledb knows for this DLC. Null when it says nothing.",
         default=None)
@@ -340,15 +343,17 @@ class App:
     a (application id, version) pair, and it is `owned` exactly when a file carries
     it."""
     id: strawberry.ID = desc("Primary key of the app row.")
-    title_id: str = desc("The 16-hex-digit id of the title this belongs to, "
-                         "uppercase. For a DLC or update this differs from `appId`.")
-    app_id: str = desc("This content's own 16-hex-digit application id. Equal to "
-                       "`titleId` for a base game; derived from it for updates and DLC.")
+    title_id: str = desc("The 16-hex-digit id of the title this belongs to, uppercase "
+                         "and ending in `000`. Equal to `appId` only for a BASE app.")
+    app_id: str = desc("This content's own 16-hex-digit application id: the title id "
+                       "itself for BASE, its trailing `000` replaced by `800` for "
+                       "UPDATE, and its first thirteen digits plus one followed by a "
+                       "per-DLC index for DLC. `AppType` spells each case out.")
     app_version: int = desc(
         "The content version, as an integer - the same quantity `AppVersion.version` "
         "reports. Stored as text in the database, so it is cast on the way out; a "
         "non-numeric value reads as 0, matching what SQL comparisons on it do.")
-    app_type: str = desc("BASE, UPDATE or DLC.")
+    app_type: AppType = desc("Which kind of content this app is.")
     owned: bool = desc(
         "At least one file in the library carries this app. Under "
         "`apps(groupByAppId: true)` this is group-level: true when any version of the "

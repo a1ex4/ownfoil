@@ -92,7 +92,7 @@ def library(tmp_path, monkeypatch):
 
 
 CARDS = """
-query Cards($page: Int!, $pageSize: Int!, $appType: [String!], $search: String,
+query Cards($page: Int!, $pageSize: Int!, $appType: [AppType!], $search: String,
             $owned: Boolean, $upToDate: Boolean, $complete: Boolean) {
     apps(groupByAppId: true, orderBy: {field: NAME}, page: $page, pageSize: $pageSize,
          appType: $appType, search: $search, owned: $owned,
@@ -204,7 +204,7 @@ def test_dlc_cards_carry_their_own_versions_and_their_parent(library):
 
 def test_ungrouped_apps_still_page_by_version_row(library):
     """groupByAppId is opt-in: without it the query still answers per (app id, version)."""
-    query = """query { apps(page: 1, pageSize: 50, appType: ["DLC"]) { total items { appId } } }"""
+    query = """query { apps(page: 1, pageSize: 50, appType: [DLC]) { total items { appId } } }"""
     resp = library.client.get("/api/graphql", query_string={"query": query})
     body = resp.get_json()
 

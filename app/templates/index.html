@@ -182,7 +182,7 @@
     // groupByAppId: one item per app id rather than per (app id, version), so a card
     // is an item and `pageSize` really is the number of cards on the page.
     const CARDS_QUERY = `
-        query Cards($page: Int!, $pageSize: Int!, $appType: [String!], $search: String,
+        query Cards($page: Int!, $pageSize: Int!, $appType: [AppType!], $search: String,
                     $owned: Boolean, $upToDate: Boolean, $complete: Boolean) {
             apps(groupByAppId: true, orderBy: {field: NAME}, page: $page, pageSize: $pageSize,
                  appType: $appType, search: $search, owned: $owned,
@@ -200,7 +200,7 @@
         }`;
 
     const ICONS_QUERY = `
-        query Icons($page: Int!, $pageSize: Int!, $appType: [String!], $search: String,
+        query Icons($page: Int!, $pageSize: Int!, $appType: [AppType!], $search: String,
                     $owned: Boolean, $upToDate: Boolean, $complete: Boolean) {
             apps(groupByAppId: true, orderBy: {field: NAME}, page: $page, pageSize: $pageSize,
                  appType: $appType, search: $search, owned: $owned,

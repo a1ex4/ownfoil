@@ -10,7 +10,7 @@ from db import db
 
 from .context import GraphQLContext
 from .filters import (
-    AppFilter, FileFilter, OrderBy, TitleFilter, VerificationStatus,
+    AppFilter, AppType, FileFilter, OrderBy, TitleFilter, VerificationStatus,
     APP_FIELDS, APP_FIELDS_EXCEPT_OWNED, APP_ORDER, APP_ORDER_GROUPED,
     FILE_FIELDS, FILE_ORDER, TITLE_FIELDS, TITLE_ORDER,
     build_clauses, order_sql,
@@ -695,7 +695,7 @@ def resolve_titles(*, owned: Optional[bool], filter: Optional[TitleFilter],
     return TitleConnection(total=int(total), items=titles)
 
 
-def resolve_apps(*, owned: Optional[bool], app_type: Optional[List[str]],
+def resolve_apps(*, owned: Optional[bool], app_type: Optional[List[AppType]],
                   filter: Optional[AppFilter],
                   up_to_date: Optional[bool] = None, complete: Optional[bool] = None,
                   search: Optional[str] = None, order_by: Optional[OrderBy] = None,
@@ -742,7 +742,7 @@ def resolve_apps(*, owned: Optional[bool], app_type: Optional[List[str]],
         params[f"owned_{i}"] = 1 if value else 0
         (having if group_by_app_id else where).append(f"{owned_col} = :owned_{i}")
     if app_type:
-        params.update({f"at_{i}": v for i, v in enumerate(app_type)})
+        params.update({f"at_{i}": t.value for i, t in enumerate(app_type)})
         where.append(f"a.app_type IN ({','.join(f':at_{i}' for i in range(len(app_type)))})")
     if up_to_date is not None:
         params["utd_arg"] = 1 if up_to_date else 0
