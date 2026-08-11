@@ -1,4 +1,5 @@
 """Query resolvers for the GraphQL API."""
+import json
 from typing import Dict, List, Optional
 
 import strawberry
@@ -19,7 +20,7 @@ from .selection import Selection
 from .types import (
     App, AppConnection, AppVersion, CountByKey, File, FileConnection, Library,
     LibraryStats, Ownership, SizedCountByKey, Task, TaskStatus, Title, TitleConnection,
-    TitledbDlc, TitledbVersion, VerificationStatusCount, decode_json_list,
+    TitledbDlc, TitledbVersion, VerificationStatusCount, Worker, decode_json_list,
 )
 
 
@@ -938,16 +939,32 @@ t.id AS id, t.parent_id AS parent_id, t.task_name AS task_name, t.status AS stat
 t.completion_pct AS completion_pct, t.exit_code AS exit_code,
 t.error_message AS error_message, t.created_at AS created_at,
 t.started_at AS started_at, t.completed_at AS completed_at, t.run_after AS run_after,
-t.input_json AS input_json, t.output_json AS output_json
+t.input_json AS input_json, t.output_json AS output_json, t.worker_id AS worker_id,
+f.filepath AS filepath
+"""
+
+# File tasks label themselves with a filename rather than a row id, so the path is joined
+# in rather than looked up per task - a page of 500 tasks would otherwise be 500 queries.
+_TASK_FROM = """
+FROM tasks t LEFT JOIN files f ON f.id = json_extract(t.input_json, '$.file_id')
 """
 
 
 def _build_task(row, *, with_children: bool) -> Task:
+    import tasks as tasks_mod
     m = row._mapping
+    try:
+        input_data = json.loads(m['input_json']) if m['input_json'] else {}
+    except ValueError:
+        input_data = {}
+    # Set even when the join found nothing - see _file_label on why presence matters.
+    input_data.setdefault('filepath', m['filepath'])
     return Task(
         id=strawberry.ID(str(m['id'])),
         parent_id=strawberry.ID(str(m['parent_id'])) if m['parent_id'] is not None else None,
         task_name=m['task_name'],
+        display_name=tasks_mod.task_display_name(m['task_name'], input_data),
+        worker_id=m['worker_id'],
         status=TaskStatus(m['status']),
         completion_pct=m['completion_pct'] or 0,
         exit_code=m['exit_code'],
@@ -968,7 +985,7 @@ def _hydrate_task_children(tasks: List[Task]) -> None:
     params = {f"p_{i}": pk for i, pk in enumerate(parent_pks)}
     placeholders = ",".join(f":p_{i}" for i in range(len(parent_pks)))
     rows = db.session.execute(text(f"""
-    SELECT {_TASK_COLS} FROM tasks t
+    SELECT {_TASK_COLS} {_TASK_FROM}
     WHERE t.parent_id IN ({placeholders})
     ORDER BY t.id
     """), params).all()
@@ -1005,7 +1022,7 @@ def resolve_tasks(*, status: Optional[TaskStatus], task_name: Optional[str],
     where_sql = (" WHERE " + " AND ".join(where)) if where else ""
 
     rows = db.session.execute(text(f"""
-    SELECT {_TASK_COLS} FROM tasks t{where_sql}
+    SELECT {_TASK_COLS} {_TASK_FROM}{where_sql}
     ORDER BY t.created_at DESC, t.id DESC
     LIMIT :limit
     """), params).all()
@@ -1021,7 +1038,7 @@ def resolve_task(task_id: str, ctx: GraphQLContext, info) -> Optional[Task]:
     if not ctx.can_admin:
         return None
     sel = Selection.from_info(info)
-    row = db.session.execute(text(f"SELECT {_TASK_COLS} FROM tasks t WHERE t.id = :id"),
+    row = db.session.execute(text(f"SELECT {_TASK_COLS} {_TASK_FROM} WHERE t.id = :id"),
                              {"id": task_id}).first()
     if not row:
         return None
@@ -1030,6 +1047,31 @@ def resolve_task(task_id: str, ctx: GraphQLContext, info) -> Optional[Task]:
     if want_children:
         _hydrate_task_children([task])
     return task
+
+
+def resolve_workers(*, ctx: GraphQLContext, info) -> List[Worker]:
+    """The worker pool as it stands in this process, with what each worker is running."""
+    import app as app_mod
+
+    if not ctx.can_admin:
+        return []
+    pool = app_mod.pool
+    if pool is None:
+        return []
+
+    running = {}
+    if Selection.from_info(info).has("currentTask"):
+        rows = db.session.execute(text(
+            f"SELECT {_TASK_COLS} {_TASK_FROM} "
+            "WHERE t.status = 'running' AND t.worker_id IS NOT NULL")).all()
+        running = {r._mapping['worker_id']: _build_task(r, with_children=False)
+                   for r in rows}
+
+    return [
+        Worker(id=worker_id, pid=proc.pid, alive=proc.is_alive(),
+               current_task=running.get(worker_id))
+        for worker_id, (proc, _stop_event) in sorted(pool.workers.items())
+    ]
 
 
 def resolve_stats(*, ctx: GraphQLContext, info) -> LibraryStats:

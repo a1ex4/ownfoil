@@ -72,6 +72,7 @@ class TaskWorker:
         task = db.session.get(Task, task_id)
         task_func = get_registered_task(task.task_name)
         input_data = json.loads(task.input_json) if task.input_json else {}
+        display_name = tasks_mod.task_display_name(task.task_name, input_data)
 
         try:
             tasks_mod._current_task_id = task_id
@@ -102,7 +103,7 @@ class TaskWorker:
                 db.session.commit()
         except Exception as e:
             tasks_mod._current_task_id = None
-            logger.error(f"Task {task_id} failed: {e}")
+            logger.error(f"Task '{display_name}' ({task_id}) failed: {e}")
             db.session.rollback()
             task = db.session.get(Task, task_id)
             task.status = 'failed'

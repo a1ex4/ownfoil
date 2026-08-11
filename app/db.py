@@ -342,11 +342,12 @@ def purge_temp_files():
     for entry in TempFile.query.all():
         committed = Files.query.filter_by(filepath=entry.filepath).first()
         if committed is None and os.path.exists(entry.filepath):
+            add_ignored_event(entry.filepath, '')  # our own deletion
             try:
                 os.remove(entry.filepath)
                 logger.info(f"Removed interrupted temp file: {entry.filepath}")
             except OSError:
-                pass
+                pop_ignored_event(src_path=entry.filepath, dest_path='')
         db.session.delete(entry)
     db.session.commit()
 

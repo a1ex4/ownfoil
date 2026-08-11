@@ -12,10 +12,11 @@ from .mutations import Mutation
 from .resolvers import (
     resolve_app, resolve_apps, resolve_file, resolve_files, resolve_libraries,
     resolve_stats, resolve_task, resolve_tasks, resolve_title, resolve_titles,
+    resolve_workers,
 )
 from .types import (
     App, AppConnection, File, FileConnection, Library, LibraryStats, Task, TaskStatus,
-    Title, TitleConnection,
+    Title, TitleConnection, Worker,
 )
 
 
@@ -197,6 +198,13 @@ class Query:
         """One task by id, with its children when selected. Admin only - null for any
         other role."""
         return resolve_task(str(id), info.context, info)
+
+    @described_field
+    def workers(self, info: Info) -> List[Worker]:
+        """The task worker pool, ordered by worker number, each with the task it is
+        running now. Admin only; empty for any other role, and empty in a process that
+        does not own the pool."""
+        return resolve_workers(ctx=info.context, info=info)
 
     @described_field
     def stats(self, info: Info) -> LibraryStats:

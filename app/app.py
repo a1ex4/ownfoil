@@ -1,6 +1,7 @@
 import datetime
 from flask import Flask, render_template, request, redirect, url_for, jsonify, send_from_directory, Response
 from flask_login import LoginManager
+from flask_sock import Sock
 from functools import wraps
 from file_watcher import Watcher
 import threading
@@ -18,6 +19,7 @@ from utils import *
 from library import *
 import json
 import tasks as tasks_mod
+import realtime
 import titledb
 import os
 from clients import CyberFoilClient, TinfoilClient, SphairaClient, SPHAIRA_ENDPOINT
@@ -91,6 +93,22 @@ def on_library_change(events):
     """Enqueue individual tasks per file event, skipping ignored events."""
     with app.app_context():
         for event in events:
+            if event.type == 'deleted':
+                # Ignore marks are written before our own removes, so they are checked ahead of
+                # the temp mark: a converted source carries both, and a mark left unpopped leaks.
+                if pop_ignored_event(src_path=event.src_path, dest_path=''):
+                    continue
+                # Also check if this delete is part of a move (dest_path != '')
+                if pop_ignored_event(src_path=event.src_path):
+                    continue
+                # A path a task is writing is not a library file - unless it is a committed row,
+                # in which case the file really is gone and has to leave the library.
+                if is_temp_file(event.src_path) and not file_exists_in_db(event.src_path):
+                    continue
+                tasks_mod.enqueue_task('handle_file_deleted', {
+                    'filepath': event.src_path,
+                })
+                continue
             if is_temp_file(event.src_path) or (
                     event.dest_path and is_temp_file(event.dest_path)):
                 continue
@@ -101,15 +119,6 @@ def on_library_change(events):
                     'library_path': event.directory,
                     'src_path': event.src_path,
                     'dest_path': event.dest_path,
-                })
-            elif event.type == 'deleted':
-                if pop_ignored_event(src_path=event.src_path, dest_path=''):
-                    continue
-                # Also check if this delete is part of a move (dest_path != '')
-                if pop_ignored_event(src_path=event.src_path):
-                    continue
-                tasks_mod.enqueue_task('handle_file_deleted', {
-                    'filepath': event.src_path,
                 })
             elif event.type == 'created':
                 if pop_ignored_event(dest_path=event.src_path):
@@ -145,6 +154,20 @@ def create_app(db_uri=None):
 
 # Create app
 app = create_app()
+
+# Realtime WebSocket. ping_interval keeps idle sockets alive through proxies and lets
+# the server notice a peer that went away without closing.
+app.config['SOCK_SERVER_OPTIONS'] = {'ping_interval': 25}
+sock = Sock(app)
+realtime.init_app(app)
+import task_events  # noqa: F401 — registers the tasks/workers topics
+
+
+@sock.route('/api/ws')
+def realtime_ws(ws):
+    """Multiplexed realtime stream: /api/ws?topics=tasks,workers"""
+    requested = [t for t in request.args.get('topics', '').split(',') if t]
+    realtime.serve(ws, requested)
 
 # Add proper Seek support to Range requests 
 from werkzeug.wsgi import FileWrapper as WerkzeugFileWrapper
@@ -224,7 +247,12 @@ def index(path=None):
         return access_shop_auth()
     return access_shop()
 
-@app.route('/settings')
+@app.route('/admin')
+@access_required('admin')
+def admin_page():
+    return redirect('/admin/settings')
+
+@app.route('/admin/settings')
 @access_required('admin')
 def settings_page():
     with open(os.path.join(TITLEDB_DIR, 'languages.json')) as f:
@@ -235,6 +263,14 @@ def settings_page():
         title='Settings',
         languages_from_titledb=languages,
         admin_account_created=admin_account_created())
+
+@app.route('/admin/tasks')
+@access_required('admin')
+def tasks_page():
+    import task_events
+    return render_template('tasks.html', title='Tasks',
+                           max_tasks=task_events.MAX_TASKS,
+                           admin_account_created=admin_account_created())
 
 @app.route('/setup')
 def setup_page():

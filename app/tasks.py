@@ -89,6 +89,74 @@ def get_registered_task(name):
     return TASK_REGISTRY.get(name)
 
 
+# --- Display names ---
+def register_display(task_name):
+    """Register a function building a task's human-readable label from its input kwargs."""
+    def decorator(func):
+        TASK_DISPLAY[task_name] = func
+        return func
+    return decorator
+
+
+def _file_label(file_id=None, **kwargs):
+    """Basename for a file task.
+
+    A caller listing many tasks resolves the path in its own query and passes it in -
+    including as None for a file that is gone, which is why the key being *present*
+    is what suppresses the lookup here. Only the enqueue path, one task at a time,
+    arrives without it.
+    """
+    if 'filepath' in kwargs:
+        filepath = kwargs['filepath']
+    else:
+        file_obj = db.session.get(Files, file_id)
+        filepath = file_obj.filepath if file_obj else None
+    return os.path.basename(filepath) if filepath else f'file #{file_id}'
+
+
+TASK_DISPLAY = {
+    'startup': lambda **kw: 'Startup',
+    'update_titledb': lambda **kw: 'Update TitleDB',
+    'scan_libraries': lambda **kw: 'Scan all libraries',
+    'scan_library': lambda library_path, **kw: f'Scan {library_path}',
+    'add_file': lambda filepath, **kw: f'Add {os.path.basename(filepath)}',
+    'process_file': lambda **kw: f'Process {_file_label(**kw)}',
+    'process_library': lambda **kw: 'Process library files',
+    'library_maintenance': lambda library_path=None, **kw: (
+        f'Maintain {library_path}' if library_path else 'Library maintenance'),
+    'add_missing_apps_for_title': lambda title_id, **kw: f'Add missing content for {title_id}',
+    'update_titles_for_title': lambda title_id, **kw: f'Update title {title_id}',
+    'remove_outdated_updates': lambda **kw: 'Remove outdated updates',
+    'verify_file': lambda **kw: f'Verify {_file_label(**kw)}',
+    'compress_file': lambda **kw: f'Compress {_file_label(**kw)}',
+    'decompress_file': lambda **kw: f'Decompress {_file_label(**kw)}',
+    'add_missing_apps': lambda **kw: 'Add missing content',
+    'remove_missing_files': lambda **kw: 'Remove missing files',
+    'update_titles': lambda **kw: 'Update titles',
+    'remove_library': lambda library_path, **kw: f'Remove library {library_path}',
+    'handle_file_added': lambda filepath, **kw: f'New file {os.path.basename(filepath)}',
+    'handle_file_moved': lambda src_path, dest_path, **kw: (
+        f'Moved {os.path.basename(src_path)} to {os.path.basename(dest_path)}'),
+    'handle_file_deleted': lambda filepath, **kw: f'Deleted {os.path.basename(filepath)}',
+    'handle_dir_deleted': lambda dirpath, **kw: f'Deleted folder {os.path.basename(dirpath)}',
+}
+
+
+def task_display_name(task_name, input_data):
+    """Human-readable label for a task, falling back to the humanised task name.
+
+    input_json is persisted data that can outlive a change to a task's arguments, so a
+    label that no longer builds must never break enqueueing, the worker loop or the UI.
+    """
+    build = TASK_DISPLAY.get(task_name)
+    if build:
+        try:
+            return build(**(input_data or {}))
+        except Exception as e:
+            logger.debug(f"Could not build display name for '{task_name}': {e}")
+    return task_name.replace('_', ' ').capitalize()
+
+
 # --- Progress ---
 _current_task_id = None
 
@@ -237,10 +305,13 @@ def _try_complete_parent(parent_id):
 
 # --- Cancellation ---
 
-def _cancel_atomic(task_id):
+def _cancel_atomic(task_id, removable=('pending', 'running', 'waiting_for_children')):
     """Delete the task and any pending descendants under one transaction.
     Running descendants are orphaned (parent_id=NULL) so they finish naturally
     and self-delete on completion. Waiting descendants are recursed into.
+
+    `removable` is which statuses may be taken out, so cancelling (live work) and
+    dismissing (a failed row) share one transaction and one set of descendant rules.
     """
     connection = db.engine.raw_connection()
     try:
@@ -255,7 +326,7 @@ def _cancel_atomic(task_id):
             connection.commit()
             return False, None, None, None, None
         status, task_name, input_json, parent_id, worker_id = row
-        if status in ('completed', 'failed'):
+        if status not in removable:
             connection.commit()
             return False, None, None, None, None
 
@@ -310,6 +381,37 @@ def cancel_task(task_id):
     if parent_id:
         _try_complete_parent(parent_id)
     return True
+
+
+def dismiss_task(task_id):
+    """Remove a failed task. Returns True if a row was removed, False otherwise.
+
+    Failed tasks are kept on purpose so a failure is not lost between page loads, which
+    makes this the only way to clear one. Nothing is running by definition, so unlike
+    cancel there is no worker to restart and no cleanup hook to run - the failure path
+    in the worker already ran it.
+    """
+    found, parent_id, _worker_id, _task_name, _input_json = _cancel_atomic(
+        task_id, removable=('failed',))
+    if not found:
+        return False
+    if parent_id:
+        _try_complete_parent(parent_id)
+    return True
+
+
+def purge_failed_tasks():
+    """Remove every failed task. Returns how many were removed."""
+    connection = db.engine.raw_connection()
+    try:
+        cursor = connection.cursor()
+        cursor.execute("SELECT id FROM tasks WHERE status = 'failed'")
+        task_ids = [r[0] for r in cursor.fetchall()]
+    finally:
+        connection.close()
+    # One at a time rather than a bulk DELETE: each has descendants to unpick and a
+    # parent that may now be able to complete, which dismiss_task already handles.
+    return sum(1 for task_id in task_ids if dismiss_task(task_id))
 
 
 def _run_cleanup_hook(task_name, input_json):
@@ -419,7 +521,8 @@ def enqueue_task(task_name, input_data=None, run_after=None):
             schedule_info = f", run_after={local_run_after.strftime('%Y-%m-%d %H:%M:%S')}"
         else:
             schedule_info = ""
-        logger.debug(f"Enqueued task '{task_name}' (id={new_id}{schedule_info})")
+        logger.debug(f"Enqueued task '{task_display_name(task_name, input_data)}' "
+                     f"(id={new_id}{schedule_info})")
         task = db.session.get(Task, new_id)
         return task, True
     except Exception:
@@ -879,9 +982,10 @@ def _compression_cleanup(file_id, **kwargs):
     remove_temp_file(file_obj.filepath)  # release the source in-progress claim
     target = compression.conversion_target(file_obj)
     if target:
-        remove_temp_file(target)
         if Files.query.filter_by(filepath=target).first() is None and os.path.exists(target):
+            add_ignored_event(target, '')  # our own deletion of the partial output
             os.remove(target)
+        remove_temp_file(target)
     pop_ignored_event(src_path=file_obj.filepath, dest_path='')
 
 # --- Batch maintenance ---

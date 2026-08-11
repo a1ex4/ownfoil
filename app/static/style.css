@@ -100,6 +100,165 @@ p.game-description {
     margin-top: 2rem !important;
 }
 
+/* Settings / Tasks sidebar */
+.settings-sidebar {
+    position: sticky;
+    top: 0;
+    align-self: flex-start;
+    width: 200px;
+    flex: 0 0 200px;
+    height: 100vh;
+    padding-top: 1rem;
+}
+
+.settings-sidebar .nav-link {
+    color: var(--bs-secondary-color);
+    border-radius: 0;
+    border-left: 3px solid transparent;
+}
+
+.settings-sidebar .nav-link:hover {
+    color: var(--bs-body-color);
+    background-color: var(--bs-secondary-bg);
+}
+
+.settings-sidebar .nav-link.active {
+    color: var(--bs-body-color);
+    background-color: var(--bs-secondary-bg);
+    border-left-color: var(--bs-primary);
+}
+
+.settings-panel {
+    min-width: 0;  /* let long task names shrink instead of widening the row */
+}
+
+@media (max-width: 768px) {
+    .settings-sidebar {
+        position: static;
+        width: 100%;
+        flex-basis: 100%;
+        height: auto;
+    }
+    .settings-sidebar .nav {
+        flex-direction: row !important;
+    }
+}
+
+/* Task list */
+.task-list {
+    list-style: none;
+    padding-left: 0;
+    margin-bottom: 0;
+}
+
+.task-row {
+    margin-bottom: .5rem;
+    transition: opacity .5s ease-out;
+}
+
+/* The queue is unbounded — a library scan queues one task per file — so it scrolls
+   inside a fixed frame instead of running the page off the bottom of the screen.
+   The gutter and padding keep the scrollbar off the cancel button, which sits flush
+   right and is otherwise covered by an overlay scrollbar the moment the list overflows. */
+.task-scroll {
+    max-height: 26rem;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+    padding-right: .75rem;
+}
+
+.task-row.task-fading {
+    opacity: 0;
+}
+
+.task-head {
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+}
+
+.task-name {
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.task-meta {
+    margin-left: auto;
+    font-size: .875rem;
+    white-space: nowrap;
+}
+
+/* Bare icon buttons: the rows are already dense, and bordered buttons competed with the
+   status icons for attention. Muted by default; the per-row cross opts into danger. */
+.icon-btn {
+    padding: 0;
+    border: 0;
+    background: none;
+    line-height: 1;
+    color: var(--bs-secondary-color);
+}
+
+.icon-btn:hover:not(:disabled) {
+    color: var(--bs-body-color);
+}
+
+.icon-btn:disabled {
+    opacity: .25;
+}
+
+.task-cancel {
+    font-size: .8rem;
+    color: var(--bs-danger);
+}
+
+.task-cancel:hover:not(:disabled) {
+    color: var(--bs-danger-text-emphasis);
+}
+
+/* Matches the scroll container's padding, so the section's action lines up with the
+   per-row crosses below it rather than sitting a scrollbar's width to their right. */
+.task-section-head {
+    display: flex;
+    align-items: center;
+    padding-right: .75rem;
+}
+
+/* Too slim for a label, so the percentage is shown in the row's meta text instead. */
+.task-progress {
+    height: .8rem;
+    margin-top: .25rem;
+}
+
+/* The bar is driven by percentages arriving a few times a second; easing the width
+   turns those steps into continuous movement. */
+.task-progress .progress-bar {
+    transition: width .3s linear;
+}
+
+.task-children {
+    list-style: none;
+    padding-left: 1.25rem;
+    margin: .375rem 0 0;
+    border-left: 2px solid var(--bs-border-color);
+}
+
+.task-children:empty {
+    display: none;
+}
+
+
+.spin {
+    display: inline-block;
+    animation: spin 1.4s linear infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
 .h1, .h2, .h3, .h4, .h5, .h6, h1, h2, h3, h4, h5, h6 {
   margin-top: 0 !important;
   margin-bottom: 0 !important;

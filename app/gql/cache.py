@@ -35,7 +35,9 @@ SELECT * FROM
           COUNT(hash_valid), COALESCE(SUM(hash_valid), 0),
           COUNT(hash_modified), COALESCE(SUM(hash_modified), 0)
      FROM files),
-  (SELECT COUNT(*), COALESCE(MAX(id), 0), COALESCE(SUM(completion_pct), 0)
+  (SELECT COUNT(*), COALESCE(MAX(id), 0), COALESCE(SUM(completion_pct), 0),
+          COALESCE(SUM(worker_id), 0),
+          SUM(CASE WHEN status = 'running' THEN 1 ELSE 0 END)
      FROM tasks)
 """
 
