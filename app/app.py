@@ -93,6 +93,22 @@ def on_library_change(events):
     """Enqueue individual tasks per file event, skipping ignored events."""
     with app.app_context():
         for event in events:
+            if event.type == 'deleted':
+                # Ignore marks are written before our own removes, so they are checked ahead of
+                # the temp mark: a converted source carries both, and a mark left unpopped leaks.
+                if pop_ignored_event(src_path=event.src_path, dest_path=''):
+                    continue
+                # Also check if this delete is part of a move (dest_path != '')
+                if pop_ignored_event(src_path=event.src_path):
+                    continue
+                # A path a task is writing is not a library file - unless it is a committed row,
+                # in which case the file really is gone and has to leave the library.
+                if is_temp_file(event.src_path) and not file_exists_in_db(event.src_path):
+                    continue
+                tasks_mod.enqueue_task('handle_file_deleted', {
+                    'filepath': event.src_path,
+                })
+                continue
             if is_temp_file(event.src_path) or (
                     event.dest_path and is_temp_file(event.dest_path)):
                 continue
@@ -103,15 +119,6 @@ def on_library_change(events):
                     'library_path': event.directory,
                     'src_path': event.src_path,
                     'dest_path': event.dest_path,
-                })
-            elif event.type == 'deleted':
-                if pop_ignored_event(src_path=event.src_path, dest_path=''):
-                    continue
-                # Also check if this delete is part of a move (dest_path != '')
-                if pop_ignored_event(src_path=event.src_path):
-                    continue
-                tasks_mod.enqueue_task('handle_file_deleted', {
-                    'filepath': event.src_path,
                 })
             elif event.type == 'created':
                 if pop_ignored_event(dest_path=event.src_path):

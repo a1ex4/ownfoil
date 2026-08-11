@@ -409,7 +409,8 @@ def test_compression_cleanup_removes_partial_and_mark(env):
 
     assert not os.path.exists(target)                 # partial removed
     assert TempFile.query.count() == 0   # mark cleared
-    assert IgnoredEvent.query.count() == 0            # source-deletion event popped
+    assert not _ignored(f.filepath, "")               # source-deletion event popped
+    assert _ignored(target, "")                       # our own delete of the partial, for the watcher
 
 
 def test_cleanup_clears_pending_and_fails_running(env):
@@ -453,9 +454,10 @@ def test_reap_worker_task_runs_cleanup(env):
     tasks.reap_worker_task(7)
 
     assert db.session.get(Task, tid).status == "failed"
-    assert not os.path.exists(target)          # partial removed by the cleanup hook
-    assert TempFile.query.count() == 0         # in-progress mark cleared
-    assert IgnoredEvent.query.count() == 0     # source-deletion event popped
+    assert not os.path.exists(target)           # partial removed by the cleanup hook
+    assert TempFile.query.count() == 0          # in-progress mark cleared
+    assert not _ignored(f.filepath, "")         # source-deletion event popped
+    assert _ignored(target, "")                 # our own delete of the partial, for the watcher
 
 
 def test_reap_worker_task_noop_without_running_task(env):
@@ -618,6 +620,43 @@ def test_scan_and_watcher_skip_in_progress(env):
     assert target in files and target not in [f for f in files if f not in skip]
     # Watcher gate.
     assert is_temp_file(target) is True
+
+
+def _deliver(env, *paths):
+    """Push delete events for paths through the watcher callback; return the tasks it enqueued."""
+    import app as app_mod
+    enqueued = []
+    env.monkeypatch.setattr(app_mod, "app", env.app)
+    env.monkeypatch.setattr(tasks, "enqueue_task",
+                            lambda name, data=None: enqueued.append((name, data)))
+    app_mod.on_library_change([
+        types.SimpleNamespace(type="deleted", directory=str(env.lib_dir), src_path=p, dest_path="")
+        for p in paths
+    ])
+    return enqueued
+
+
+def test_cancelled_compression_delete_is_not_a_library_event(env):
+    """Cancelling a compression removes the partial .nsz we created: the delete is ours and
+    must not reach the library, the way the file's creation never did."""
+    f = env.seed("Game.nsp")
+    target = str(compression.compressed_path(f.filepath))
+    add_temp_file(target)
+    open(target, "wb").close()
+
+    tasks._compression_cleanup(file_id=f.id)
+
+    assert _deliver(env, target) == []
+    assert not _ignored(target)   # mark consumed by the event, not leaked
+
+
+def test_delete_of_committed_file_survives_its_temp_mark(env):
+    """A file the user really deleted leaves the library even while a task holds it in-progress
+    (a compression source is temp-claimed for the whole run)."""
+    f = env.seed("Game.nsp")
+    add_temp_file(f.filepath)
+
+    assert _deliver(env, f.filepath) == [("handle_file_deleted", {"filepath": f.filepath})]
 
 
 # --- process_library sweep -----------------------------------------------------------------

@@ -982,9 +982,10 @@ def _compression_cleanup(file_id, **kwargs):
     remove_temp_file(file_obj.filepath)  # release the source in-progress claim
     target = compression.conversion_target(file_obj)
     if target:
-        remove_temp_file(target)
         if Files.query.filter_by(filepath=target).first() is None and os.path.exists(target):
+            add_ignored_event(target, '')  # our own deletion of the partial output
             os.remove(target)
+        remove_temp_file(target)
     pop_ignored_event(src_path=file_obj.filepath, dest_path='')
 
 # --- Batch maintenance ---
