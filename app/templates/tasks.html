@@ -217,9 +217,17 @@
 
     // --- Rendering ---
 
+    // A task that finishes moves above the live rows and holds there until it fades out.
+    // The finished group runs oldest-finished first, so each new one lands at its end,
+    // right above the running rows. Live rows keep their oldest-first order below: they
+    // are claimed oldest-first, so it says what is running and what is waiting behind it.
+    function queueOrder(a, b) {
+        if (!!a.done !== !!b.done) return a.done ? -1 : 1;
+        return a.done ? a.finishSeq - b.finishSeq : a.id - b.id;
+    }
+
     function childrenOf(id) {
-        return Object.values(tasks).filter(t => t.parentId === id)
-                     .sort((a, b) => a.id - b.id);
+        return Object.values(tasks).filter(t => t.parentId === id).sort(queueOrder);
     }
 
     function buildRow(task) {
@@ -300,12 +308,15 @@
         const existing = {};
         Array.from(container.children).forEach(c => { existing[c.dataset.id] = c; });
 
+        // Re-inserting a node restarts its CSS animations, so rows are walked against a
+        // cursor and only moved where the order actually differs: a row that finishes
+        // slots in above the live ones without disturbing their spinners.
+        let cursor = container.firstChild;
         items.forEach(task => {
             let li = existing[String(task.id)];
-            if (!li) {
-                li = buildRow(task);
-                container.appendChild(li);
-            }
+            if (!li) li = buildRow(task);
+            if (li === cursor) cursor = cursor.nextSibling;
+            else container.insertBefore(li, cursor);
             updateRow(li, task);
             syncList(li.querySelector(':scope > .task-children'), childrenOf(task.id));
         });
@@ -358,10 +369,9 @@
         // roots — plus any child whose parent has already gone, which would vanish.
         const roots = Object.values(tasks)
             .filter(t => t.parentId === null || !(t.parentId in tasks))
-            .sort((a, b) => a.id - b.id);
+            .sort(queueOrder);
 
-        // Running and pending share one list: tasks are claimed oldest-first, so the
-        // order already says what is running and what is waiting behind it.
+        // Running and pending share one list, under the rows that just finished.
         section('queueTasks', 'queueEmpty', roots.filter(
             t => t.status !== 'failed' && !t.runAfter));
         section('scheduledTasks', 'scheduledEmpty', roots.filter(
@@ -384,6 +394,11 @@
         tasks[task.id] = task;
     }
 
+    // Stamped on each row as it finishes, to order the finished group by end time: a task
+    // is deleted on completion rather than timestamped, so the row arrives here with no
+    // end time on it and the order these events land in is the only one there is.
+    let finishes = 0;
+
     function markDone(task) {
         // The row is gone server-side: completed tasks are deleted rather than kept in a
         // terminal state, so completion is shown here and then dropped.
@@ -392,6 +407,7 @@
         const wasCancelled = cancelled.delete(String(task.id));
         Object.assign(known, task, {
             done: true,
+            finishSeq: ++finishes,
             cancelled: wasCancelled,
             completionPct: wasCancelled ? known.completionPct : 100,
         });
