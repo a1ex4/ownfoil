@@ -120,6 +120,12 @@ def _reidentify_file(session):
     session.query(Files).update({"identified": False, "identification_attempts": 3})
 
 
+def _compress_a_file(session):
+    # Compression replaces the file in place, so the row survives and only its size and
+    # container change - the shape a size aggregate would otherwise serve stale.
+    session.query(Files).update({"compressed": True, "size": 512})
+
+
 def _start_a_task(session):
     session.add(Task(task_name="scan_library", status="running", completion_pct=40,
                      input_hash="x"))
@@ -131,6 +137,7 @@ IN_PLACE_CHANGES = [
     ("a file is organized",           _mark_file_organized),
     ("a file is downloaded",          _count_a_download),
     ("a file is re-identified",       _reidentify_file),
+    ("a file is compressed in place", _compress_a_file),
     ("a task reports progress",       _start_a_task),
 ]
 

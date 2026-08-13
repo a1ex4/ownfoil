@@ -28,7 +28,8 @@ SELECT * FROM
      FROM main.titles),
   (SELECT COUNT(*), COALESCE(SUM(owned), 0), COALESCE(MAX(id), 0)
      FROM apps),
-  (SELECT COUNT(*), COALESCE(MAX(id), 0), COALESCE(SUM(organized), 0),
+  (SELECT COUNT(*), COALESCE(MAX(id), 0), COALESCE(SUM(size), 0),
+          COALESCE(SUM(compressed), 0), COALESCE(SUM(organized), 0),
           COALESCE(SUM(identified), 0), COALESCE(SUM(identification_attempts), 0),
           COALESCE(SUM(download_count), 0),
           COUNT(signature_valid), COALESCE(SUM(signature_valid), 0),

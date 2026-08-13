@@ -151,10 +151,13 @@ class Worker:
 
 
 @described(strawberry.type)
-class CountByKey:
-    """One bucket of a grouped count."""
-    key: str = desc("The value grouped on, e.g. an app type.")
-    count: int = desc("How many rows fell into this bucket.")
+class AppTypeCount:
+    """Apps of one type, split by whether the library holds them. Both figures rather
+    than one: a bucket counting only owned apps cannot say what is missing, and one
+    counting everything cannot say what is there."""
+    key: str = desc("The app type grouped on: `BASE`, `UPDATE` or `DLC`.")
+    count: int = desc("App rows of this type, owned or not.")
+    owned: int = desc("How many of them are backed by at least one file.", default=0)
 
 
 @described(strawberry.type)
@@ -193,6 +196,12 @@ class LibraryStats:
         "the ones owned. Compare `ownedTitles`.", default=0)
     owned_titles: int = desc(
         "Titles whose base game is in the library.", default=0)
+    complete_titles: int = desc(
+        "Owned titles whose DLC set is complete. Counted over owned titles only, so "
+        "it never exceeds `ownedTitles`.", default=0)
+    up_to_date_titles: int = desc(
+        "Owned titles carrying the latest known update. Counted over owned titles "
+        "only, so it never exceeds `ownedTitles`.", default=0)
     total_apps: int = desc(
         "App rows, owned or not: every base, update and DLC ownfoil knows about for "
         "the titles it tracks.", default=0)
@@ -200,10 +209,10 @@ class LibraryStats:
     files_by_extension: Optional[List[SizedCountByKey]] = desc(
         "File count and bytes per extension, most files first. Admin only; null for "
         "any other role.", default=None)
-    apps_by_type: Optional[List[CountByKey]] = desc(
-        "App count per type (BASE/UPDATE/DLC). No byte totals: apps are metadata "
-        "rows, and the files behind them are counted by `filesByExtension`.",
-        default=None)
+    apps_by_type: Optional[List[AppTypeCount]] = desc(
+        "App count per type (BASE/UPDATE/DLC), owned and total. No byte totals: apps "
+        "are metadata rows, and the files behind them are counted by "
+        "`filesByExtension`.", default=None)
     files_by_library: Optional[List[SizedCountByKey]] = desc(
         "File count and bytes per configured library root, keyed by path. Includes "
         "roots holding nothing. Admin only; null for any other role.", default=None)

@@ -272,6 +272,12 @@ def tasks_page():
                            max_tasks=task_events.MAX_TASKS,
                            admin_account_created=admin_account_created())
 
+@app.route('/admin/stats')
+@access_required('admin')
+def stats_page():
+    return render_template('stats.html', title='Stats',
+                           admin_account_created=admin_account_created())
+
 @app.route('/setup')
 def setup_page():
     """Setup page showing client information and connection instructions."""
