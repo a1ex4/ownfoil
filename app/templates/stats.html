@@ -1,0 +1,169 @@
+{% extends "settings_layout.html" %}
+{% block panel %}
+<div class="settings-container container mt-3">
+
+    <div class="task-section-head">
+        <h2 class="mb-0">Stats</h2>
+        <button type="button" id="refreshStats" class="icon-btn ms-auto" onClick="loadStats()"
+                title="Refresh">
+            <i class="bi bi-arrow-clockwise"></i>
+        </button>
+    </div>
+    <p class="text-secondary">Library-wide figures, counted at the moment the page loaded.</p>
+
+    <div id="statTiles" class="stat-grid"></div>
+
+    <div class="stat-sections mt-4">
+        <section>
+            <h4 class="mb-3">Extensions</h4>
+            <table class="table table-sm stat-table">
+                <thead><tr><th>Extension</th><th>Files</th><th>Size</th></tr></thead>
+                <tbody id="byExtension"></tbody>
+            </table>
+        </section>
+
+        <section>
+            <h4 class="mb-3">Libraries</h4>
+            <table class="table table-sm stat-table">
+                <thead><tr><th>Path</th><th>Files</th><th>Size</th></tr></thead>
+                <tbody id="byLibrary"></tbody>
+            </table>
+        </section>
+
+        <section>
+            <h4 class="mb-3">Verification status</h4>
+            <table class="table table-sm stat-table">
+                <thead><tr><th>Status</th><th>Files</th><th>Size</th></tr></thead>
+                <tbody id="byVerification"></tbody>
+            </table>
+        </section>
+
+        <section>
+            <h4 class="mb-3">App types</h4>
+            <table class="table table-sm stat-table">
+                <thead><tr><th>Type</th><th>Tracked</th><th>Owned</th></tr></thead>
+                <tbody id="byAppType"></tbody>
+            </table>
+        </section>
+    </div>
+
+</div>
+{% endblock %}
+
+{% block panel_scripts %}
+<script src="{{ url_for('static', filename='js/format.js') }}"></script>
+<script>
+
+    const STATS_QUERY = `
+        query Stats {
+            stats {
+                totalFiles totalSize identifiedFiles unidentifiedFiles
+                totalTitles ownedTitles completeTitles upToDateTitles
+                totalApps ownedApps
+                filesByExtension { key count size }
+                filesByLibrary { key count size }
+                filesByVerificationStatus { status count size }
+                appsByType { key count owned }
+            }
+        }`;
+
+    function count(n) {
+        return Number(n || 0).toLocaleString();
+    }
+
+    // (label, value, note under it)
+    function tiles(s) {
+        return [
+            ['Files', count(s.totalFiles), `${count(s.identifiedFiles)} identified`],
+            ['Total size', formatBytes(s.totalSize), 'across every library'],
+            ['Unidentified', count(s.unidentifiedFiles), 'files ownfoil could not match'],
+            ['Owned titles', count(s.ownedTitles), `of ${count(s.totalTitles)} in the catalogue`],
+            ['Complete', count(s.completeTitles), 'owned titles with every DLC'],
+            ['Up to date', count(s.upToDateTitles), 'owned titles on the latest update'],
+            ['Owned apps', count(s.ownedApps), `of ${count(s.totalApps)} known`],
+        ];
+    }
+
+    function renderTiles(s) {
+        const container = document.getElementById('statTiles');
+        container.innerHTML = '';
+        // Every tile value is a formatted number and every label a literal, so these
+        // interpolate directly. The tables below hold library paths and go through
+        // textContent instead.
+        tiles(s).forEach(([label, value, note]) => {
+            const tile = document.createElement('div');
+            tile.innerHTML = `<div class="stat-value">${value}</div>
+                <div class="stat-label">${label}</div>
+                <div class="stat-note">${note}</div>`;
+            container.appendChild(tile);
+        });
+    }
+
+    /** Fill a table body with rows of cells: first column left, the figures right. */
+    function renderTable(id, rows) {
+        const tbody = document.getElementById(id);
+        tbody.innerHTML = '';
+        if (!rows.length) {
+            const columns = tbody.closest('table').querySelectorAll('thead th').length;
+            tbody.innerHTML = `<tr><td colspan="${columns}"
+                class="text-secondary fst-italic">Nothing to report.</td></tr>`;
+            return;
+        }
+        rows.forEach(cells => {
+            const tr = document.createElement('tr');
+            cells.forEach(cell => {
+                const td = document.createElement('td');
+                td.textContent = cell;
+                tr.appendChild(td);
+            });
+            tbody.appendChild(tr);
+        });
+    }
+
+    /** VERIFICATION_FAILED -> "Verification failed". */
+    function humanize(key) {
+        const words = key.replace(/_/g, ' ').toLowerCase();
+        return words.charAt(0).toUpperCase() + words.slice(1);
+    }
+
+    async function loadStats() {
+        const button = $('#refreshStats').prop('disabled', true);
+        let data;
+        try {
+            // GET, like the library grid: the endpoint ETags its responses, so a refresh
+            // that changes nothing costs a 304.
+            const params = new URLSearchParams({query: STATS_QUERY});
+            const r = await fetch('/api/graphql?' + params.toString(), {
+                headers: {'Accept': 'application/json'},
+                credentials: 'same-origin',
+            });
+            if (!r.ok) throw new Error(`GraphQL HTTP ${r.status}`);
+            const body = await r.json();
+            if (body.errors && body.errors.length) {
+                throw new Error('GraphQL errors: ' + JSON.stringify(body.errors));
+            }
+            data = body.data.stats;
+        } catch (e) {
+            console.error(e);
+            return;
+        } finally {
+            button.prop('disabled', false);
+        }
+
+        renderTiles(data);
+        renderTable('byExtension', (data.filesByExtension || []).map(
+            b => [b.key || '(none)', count(b.count), formatBytes(b.size)]));
+        renderTable('byLibrary', (data.filesByLibrary || []).map(
+            b => [b.key, count(b.count), formatBytes(b.size)]));
+        renderTable('byVerification', (data.filesByVerificationStatus || []).map(
+            b => [humanize(b.status), count(b.count), formatBytes(b.size)]));
+        // App types stay as the schema spells them: humanizing BASE/UPDATE/DLC would
+        // turn the last one into "Dlc".
+        renderTable('byAppType', (data.appsByType || []).map(
+            b => [b.key, count(b.count), count(b.owned)]));
+    }
+
+    loadStats();
+
+</script>
+{% endblock %}

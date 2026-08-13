@@ -243,6 +243,9 @@ STATS_CASES = [
     # titledb holds the base game and its DLC; only the base game is owned.
     ("catalogue size",    "totalTitles",       2),
     ("owned titles",      "ownedTitles",       1),
+    # The owned title holds every DLC but not the newest update.
+    ("complete titles",   "completeTitles",    1),
+    ("up to date titles", "upToDateTitles",    0),
     ("app rows",          "totalApps",         5),
     ("owned app rows",    "ownedApps",         3),
 ]
@@ -260,13 +263,15 @@ def test_stats_group_by_key(library):
     data = query(library, """
         query { stats {
             filesByExtension { key count size }
-            appsByType { key count }
+            appsByType { key count owned }
             filesByLibrary { key count size } } }""")
 
     assert data["stats"]["filesByExtension"] == [
         {"key": "nsp", "count": 3, "size": TOTAL_SIZE}]
-    assert {b["key"]: b["count"] for b in data["stats"]["appsByType"]} == {
-        "BASE": 1, "UPDATE": 2, "DLC": 2}
+    # Owned is a strict subset per bucket: one of the two updates and one of the two
+    # DLC are backed by a file, so a bucket reporting its total as owned would show.
+    assert {b["key"]: (b["count"], b["owned"]) for b in data["stats"]["appsByType"]} == {
+        "BASE": (1, 1), "UPDATE": (2, 1), "DLC": (2, 1)}
     assert data["stats"]["filesByLibrary"][0]["count"] == 3
 
 

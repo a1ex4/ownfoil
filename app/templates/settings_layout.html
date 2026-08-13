@@ -16,6 +16,11 @@
                         Tasks
                     </a>
                 </li>
+                <li class="nav-item">
+                    <a class="nav-link{% if request.path.startswith('/admin/stats') %} active{% endif %}" href="/admin/stats">
+                        Stats
+                    </a>
+                </li>
             </ul>
         </nav>
         <div class="col settings-panel">

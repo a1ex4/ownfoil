@@ -250,6 +250,70 @@ p.game-description {
 }
 
 
+/* Stats */
+.stat-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+    gap: 1.25rem;
+}
+
+.stat-value {
+    font-size: 1.75rem;
+    font-weight: 600;
+    line-height: 1.1;
+}
+
+.stat-label {
+    font-weight: 500;
+}
+
+.stat-note {
+    color: var(--bs-secondary-color);
+    font-size: .8rem;
+}
+
+/* Two columns rather than auto-fit: four sections in a row would put each table's
+   figures a screen away from the next, and the tables are all the same shape anyway. */
+.stat-sections {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: 2.5rem;
+}
+
+@media (max-width: 768px) {
+    .stat-sections {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* Three short columns: left to itself the table would stretch across its half of the
+   panel and strand the figures a screen away from their labels. */
+.stat-table {
+    max-width: 30rem;
+}
+
+.stat-table th:not(:first-child),
+.stat-table td:not(:first-child) {
+    text-align: right;
+    white-space: nowrap;
+}
+
+/* A library root is a full path, and it now shares the row with a second table:
+   wrapping keeps the figures beside it rather than pushed out of the column. */
+.stat-table td:first-child {
+    overflow-wrap: anywhere;
+}
+
+/* The library grid's one-line summary above the cards. */
+.library-stats {
+    color: var(--bs-secondary-color);
+    text-align: center;
+}
+
+.library-stats span + span::before {
+    content: " · ";
+}
+
 .spin {
     display: inline-block;
     animation: spin 1.4s linear infinite;

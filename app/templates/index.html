@@ -128,6 +128,7 @@
             <input type="range" class="form-range" min="1" max="5" step="1" id="cardSizeRange">
         </div>
     </div>
+    <p id="libraryStats" class="library-stats mt-3 mb-0 d-none"></p>
     <div class="grid-container" id="gridContainer">
         <div class="row g-3" id="gameGrid"></div>
         <!-- <div class="row row-cols-1 row-cols-md-3 g-4" id="gameGrid"></div> -->
@@ -139,6 +140,7 @@
     </nav>
 </div>
 
+<script src="{{ url_for('static', filename='js/format.js') }}"></script>
 <script>
     // The grid is served page by page: every render is one GraphQL call for exactly the
     // items on screen. Filters, search and ordering are query arguments, so a page of
@@ -265,6 +267,48 @@
         // init version popovers
         const popoverTriggerList = document.querySelectorAll('[data-bs-toggle="popover"]')
         const popoverList = [...popoverTriggerList].map(popoverTriggerEl => new bootstrap.Popover(popoverTriggerEl))
+    }
+
+    // Library-wide, so the line stays put while filters and search move the grid.
+    const LIBRARY_STATS_QUERY = `
+        query LibraryStats {
+            stats {
+                ownedTitles completeTitles upToDateTitles totalFiles totalSize
+            }
+        }`;
+
+    async function loadLibraryStats() {
+        let stats;
+        try {
+            stats = (await gqlFetch(LIBRARY_STATS_QUERY)).stats;
+        } catch (e) {
+            console.error(e);
+            return;
+        }
+        // An empty install, or a visitor without shop access reading zeros: either way
+        // the line has nothing to say and stays hidden.
+        if (!stats.ownedTitles) return;
+
+        const parts = [
+            `${stats.ownedTitles.toLocaleString()} titles`,
+            `${stats.completeTitles.toLocaleString()} complete`,
+            `${stats.upToDateTitles.toLocaleString()} up to date`,
+        ];
+        // File figures are admin only and read zero for every other role, which is what
+        // keeps the library's storage footprint off a shop user's screen.
+        if (stats.totalFiles) {
+            parts.push(`${stats.totalFiles.toLocaleString()} files`,
+                       formatBytes(stats.totalSize));
+        }
+
+        const line = document.getElementById('libraryStats');
+        line.innerHTML = '';
+        parts.forEach(text => {
+            const span = document.createElement('span');
+            span.textContent = text;
+            line.appendChild(span);
+        });
+        line.classList.remove('d-none');
     }
 
     function goToPage(page) {
@@ -588,6 +632,7 @@
 
         loadFiltersFromStorage();
         loadPage();
+        loadLibraryStats();
 
         // Event listeners for items per page dropdown
         $('.items-per-page').click(function () {

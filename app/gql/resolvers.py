@@ -18,7 +18,7 @@ from .filters import (
 )
 from .selection import Selection
 from .types import (
-    App, AppConnection, AppVersion, CountByKey, File, FileConnection, Library,
+    App, AppConnection, AppTypeCount, AppVersion, File, FileConnection, Library,
     LibraryStats, Ownership, SizedCountByKey, Task, TaskStatus, Title, TitleConnection,
     TitledbDlc, TitledbVersion, VerificationStatusCount, Worker, decode_json_list,
 )
@@ -1093,11 +1093,18 @@ def resolve_stats(*, ctx: GraphQLContext, info) -> LibraryStats:
                 int(r[0]), int(r[1]), int(r[2]))
             stats.unidentified_files = stats.total_files - stats.identified_files
 
-    if any(sel.has(f) for f in ("totalTitles", "ownedTitles")):
+    if sel.has("totalTitles"):
         stats.total_titles = int(db.session.execute(text(
             "SELECT COUNT(*) FROM titledb.titles")).scalar() or 0)
-        stats.owned_titles = int(db.session.execute(text(
-            "SELECT COUNT(*) FROM main.titles WHERE have_base = 1")).scalar() or 0)
+
+    # Completeness is only meaningful for a title that is owned, so all three figures
+    # come off the same owned-titles scan.
+    if any(sel.has(f) for f in ("ownedTitles", "completeTitles", "upToDateTitles")):
+        r = db.session.execute(text("""
+        SELECT COUNT(*), COALESCE(SUM(complete), 0), COALESCE(SUM(up_to_date), 0)
+        FROM main.titles WHERE have_base = 1""")).first()
+        stats.owned_titles, stats.complete_titles, stats.up_to_date_titles = (
+            int(r[0]), int(r[1]), int(r[2]))
 
     if any(sel.has(f) for f in ("totalApps", "ownedApps")):
         r = db.session.execute(text(
@@ -1110,10 +1117,13 @@ def resolve_stats(*, ctx: GraphQLContext, info) -> LibraryStats:
             "FROM files GROUP BY extension ORDER BY COUNT(*) DESC")
 
     if sel.has("appsByType"):
-        # Apps are metadata rows, so there are no bytes to report: plain CountByKey.
-        stats.apps_by_type = [CountByKey(key=str(r[0]), count=int(r[1])) for r in
-                              db.session.execute(text("SELECT app_type, COUNT(*) FROM apps "
-                                                      "GROUP BY app_type ORDER BY app_type")).all()]
+        # Apps are metadata rows, so there are no bytes to report - what a bucket can
+        # say instead is how much of it the library actually holds.
+        stats.apps_by_type = [
+            AppTypeCount(key=str(r[0]), count=int(r[1]), owned=int(r[2]))
+            for r in db.session.execute(text(
+                "SELECT app_type, COUNT(*), COALESCE(SUM(owned), 0) FROM apps "
+                "GROUP BY app_type ORDER BY app_type")).all()]
 
     if ctx.can_admin and sel.has("filesByLibrary"):
         stats.files_by_library = _sized_count_by("""
