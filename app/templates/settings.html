@@ -138,6 +138,8 @@
                     </table>
                 </div>
 
+                <div class="alert alert-danger d-none" id="pathsAlert" role="alert"></div>
+
                 <!-- Library buttons -->
                 <div class="row g-3">
                     <div class="col-auto">
@@ -604,11 +606,19 @@
                 throw new Error('GraphQL errors: ' + JSON.stringify(body.errors));
             }
             console.log('Scan enqueued:', body.data.scanLibrary);
+            showPathsError(null);
         } catch (e) {
             console.error(e);
+            showPathsError('Could not start scan: ' + e.message);
         } finally {
             $('.scanBtn').prop('disabled', false);
         }
+    }
+
+    // Shows API `errors` (or a plain message) above the paths table; falsy clears it.
+    function showPathsError(errors) {
+        const text = Array.isArray(errors) ? errors.map(e => e.error || e).join(' ') : errors;
+        $('#pathsAlert').text(text || '').toggleClass('d-none', !text);
     }
 
     function fillLibraryTable() {
@@ -628,12 +638,12 @@
                     '<tr><td>-</td><td>-</td><td>');
             } else {
                 paths.forEach(path => {
+                    // The path is set with .text()/.attr(): concatenating it into markup, or into an
+                    // inline handler, makes the browser eat backslashes in Windows paths (issue #297).
+                    const scanBtn = $('<button type="button" class="btn btn-outline-info btn-sm scanBtn"><i class="bi bi-arrow-clockwise"></i></button>').attr('data-bs-path', path);
+                    const deleteBtn = $('<button type="button" class="btn btn-outline-danger btn-sm" data-bs-toggle="modal" data-bs-target="#deletePathModal"><i class="bi bi-x-circle"></i></button>').attr('data-bs-path', path);
                     $('#pathsTable tbody').append(
-                        '<tr><td>' + path + '</td>' +
-                        '<td>' +
-                        '<button type="button" class="btn btn-outline-info btn-sm scanBtn" onclick=\'scanLibrary("' + path + '");\' ><i class="bi bi-arrow-clockwise"></i></button> ' +
-                        '<button type="button" class="btn btn-outline-danger btn-sm" data-bs-toggle="modal" data-bs-target="#deletePathModal" data-bs-path="' + path + '"\'><i class="bi bi-x-circle"></i></button>' +
-                        '</td></tr>');
+                        $('<tr>').append($('<td>').text(path), $('<td>').append(scanBtn, ' ', deleteBtn)));
                 })
             }
             const watcher = result.watcher || { enabled: true, polling_interval: 60 };
@@ -777,27 +787,20 @@
         }
     }
 
+    // Row buttons carry their path in data-bs-path, read back as a string rather than
+    // re-parsed as markup or JS.
+    $('#pathsTable').on('click', '.scanBtn', function () {
+        scanLibrary($(this).attr('data-bs-path'))
+    })
+
     const deletePathModal = $('#deletePathModal')
     if (deletePathModal) {
         deletePathModal.on('show.bs.modal', event => {
-            // Button that triggered the modal
-            const button = event.relatedTarget
-            // Extract info from data-bs-* attributes
-            const path = button.getAttribute('data-bs-path')
-            // If necessary, you could initiate an Ajax request here
-            // and then do the updating in a callback.
-
-            // Update the modal's content.
-            // const modalTitle = deletePathModal.querySelector('.modal-title')
-            const modalBody = deletePathModal.find('.modal-body')
-            const deleteBtn = deletePathModal.find('.btn-danger')
-
-
-            deleteBtn.attr('onClick', 'deleteLibraryPath("' + path + '");');
-
-            // modalTitle.textContent = `New message to ${recipient}`
-            modalBody.text("Delete path " + path + " ?")
+            const path = event.relatedTarget.getAttribute('data-bs-path')
+            deletePathModal.data('path', path)
+            deletePathModal.find('.modal-body').text("Delete path " + path + " ?")
         })
+        deletePathModal.find('.btn-danger').on('click', () => deleteLibraryPath(deletePathModal.data('path')))
     }
 
     const deleteUserModal = $('#deleteUserModal')
@@ -851,9 +854,13 @@
             data: JSON.stringify(data),
             contentType: "application/json",
             success: function (result) {
+                showPathsError(result['success'] ? null : result['errors']);
                 if (result['success']) {
                     fillLibraryTable();
                 }
+            },
+            error: function (xhr) {
+                showPathsError('Could not delete path: HTTP ' + xhr.status + '.');
             }
         });
     }
@@ -1096,10 +1103,15 @@
                     }
                     console.log('Sucessfully added path ' + path);
                     setInputVal("libraryPathInput", "")
+                    showPathsError(null);
                     fillLibraryTable();
                 } else {
-                    console.log('Error adding path ' + path);
+                    showPathsError(result['errors']);
                 }
+                $('#submitNewLibraryPathBtn').prop('disabled', false);
+            },
+            error: function (xhr) {
+                showPathsError('Could not add path: HTTP ' + xhr.status + '.');
                 $('#submitNewLibraryPathBtn').prop('disabled', false);
             }
         });
