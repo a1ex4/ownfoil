@@ -374,7 +374,7 @@
         gameGrid.empty(); // Clear existing games
 
         games.forEach(function (game) {
-            const gameCol = $('<div class="col game-col"></div>').addClass(`col-${12 / getColumnsForCardSize(cardSize)}`);
+            const gameCol = $('<div class="col game-col"></div>').addClass(cardColumnClasses());
 
             const card = $('<div class="card text-bg-dark game-card"></div>');
 
@@ -447,6 +447,14 @@
 
         // Adjust icon sizes based on the slider value
         adjustIconSizes(cardSize);
+    }
+
+    /** The slider sets how many cards a row holds, but only from `md` up: below that
+     *  the screen cannot carry six of them, and a card too narrow to fit its own title
+     *  grows an overlay taller than the banner it sits on. */
+    function cardColumnClasses() {
+        const columns = getColumnsForCardSize(cardSize);
+        return `col-${12 / Math.min(columns, 2)} col-md-${12 / columns}`;
     }
 
     function getColumnsForCardSize(size) {
@@ -527,7 +535,7 @@
         const gameGrid = $('#gameGrid');
         const gameCols = gameGrid.find('.game-col');
         gameCols.each(function () {
-            $(this).removeClass().addClass(`col game-col col-${12 / getColumnsForCardSize(cardSize)}`);
+            $(this).removeClass().addClass(`col game-col ${cardColumnClasses()}`);
         });
     }
 

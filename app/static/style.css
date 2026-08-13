@@ -56,6 +56,43 @@ p.game-description {
     margin-top: 10px;
 }
 
+/* A title id is one unbreakable 16-character token: without this it pushes the
+   overlay wider than the card and hangs off its edge. */
+.game-title,
+p.game-description {
+    overflow-wrap: break-word;
+}
+
+/* The metadata can only be an overlay while the banner is wide enough to hold it. On
+   a phone the text wraps to several lines, the overlay outgrows the image it is
+   anchored to, and the badges - placed from the card's own corner - land on top of
+   that text. Below md it stops being an overlay and becomes a block under the banner,
+   where growing costs nothing. */
+@media (max-width: 767.98px) {
+    .game-info {
+        position: static;
+    }
+
+    .card-img {
+        /* The fade was there to keep text legible over the banner; nothing sits on it
+           once the metadata is below. */
+        mask-image: none;
+        border-bottom-right-radius: 0;
+        border-bottom-left-radius: 0;
+    }
+
+    .tags-container {
+        position: static;
+        display: flex;
+        justify-content: flex-end;
+        margin-top: .5rem;
+    }
+
+    .game-tag:last-child {
+        margin-right: 0;
+    }
+}
+
 .btn-outline-info {
     --bs-btn-hover-color: #fff;
 }
@@ -132,15 +169,41 @@ p.game-description {
     min-width: 0;  /* let long task names shrink instead of widening the row */
 }
 
-@media (max-width: 768px) {
+/* Below md the sidebar becomes a row of tabs across the top. 767.98 rather than 768,
+   so the switch happens exactly where Bootstrap's own md rules take over. */
+@media (max-width: 767.98px) {
     .settings-sidebar {
         position: static;
         width: 100%;
         flex-basis: 100%;
         height: auto;
+        /* The divider now separates the tabs from the panel below them, not from a
+           column beside them. */
+        border-right: 0 !important;
+        border-bottom: var(--bs-border-width) solid var(--bs-border-color);
     }
+
     .settings-sidebar .nav {
         flex-direction: row !important;
+    }
+
+    /* The panel's flex-basis is 0, so a full-width sidebar alone never overflows the
+       row and the two stay on one line: the sidebar takes all of it and the panel is
+       squeezed to nothing against the right edge. Giving the panel a basis of its own
+       is what pushes it onto the next line. */
+    .settings-panel {
+        flex-basis: 100%;
+    }
+
+    /* A left border marks the active item in a column of links; in a row of tabs it
+       belongs underneath. */
+    .settings-sidebar .nav-link {
+        border-left: 0;
+        border-bottom: 3px solid transparent;
+    }
+
+    .settings-sidebar .nav-link.active {
+        border-bottom-color: var(--bs-primary);
     }
 }
 
@@ -280,7 +343,7 @@ p.game-description {
     column-gap: 2.5rem;
 }
 
-@media (max-width: 768px) {
+@media (max-width: 767.98px) {
     .stat-sections {
         grid-template-columns: 1fr;
     }
