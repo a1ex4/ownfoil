@@ -82,7 +82,7 @@ def main():
     url = shop_url(args.port)
 
     print(f"\n{SEP}\nCapturing {args.client}: {len(selected)} scenario(s)")
-    print(f"Shop url   {url}{'/sphaira' if args.client == 'sphaira' else ''}")
+    print(f"Shop url   {url}")
     print(f"Captures   {os.path.join(CAPTURES, args.client)}")
     print(SEP)
 
@@ -95,7 +95,7 @@ def main():
             print(f"  credentials  user '{user}'  password '{password}'")
         else:
             print("  credentials  none")
-        print(f"  url          {shop_path(url, args.client, scenario.path)}")
+        print(f"  url          {shop_path(url, scenario.path)}")
         print(f"  do           {scenario.instruction}")
         print(f"  expect       {scenario.expect}")
         try:
@@ -120,9 +120,8 @@ def shop_url(port):
     return f"http://{get_lan_ip() or '127.0.0.1'}:{port}"
 
 
-def shop_path(url, client, path):
-    prefix = "/sphaira" if client == "sphaira" else ""
-    return f"{url}{prefix}/{path}".rstrip("/")
+def shop_path(url, path):
+    return f"{url}/{path}".rstrip("/")
 
 
 if __name__ == "__main__":

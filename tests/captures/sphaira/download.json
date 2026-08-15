@@ -46,7 +46,7 @@
     {
       "request": {
         "method": "GET",
-        "path": "/sphaira/",
+        "path": "/",
         "query": "",
         "scheme": "http",
         "remote_addr": "192.0.2.11",
@@ -58,6 +58,10 @@
           [
             "Authorization",
             "Basic c2hvcHBlcjpzaG9wcGFzczE="
+          ],
+          [
+            "User-Agent",
+            "Sphaira/1.0.6"
           ],
           [
             "Accept",
@@ -92,7 +96,7 @@
     {
       "request": {
         "method": "GET",
-        "path": "/sphaira/Test Game/",
+        "path": "/Test Game/",
         "query": "",
         "scheme": "http",
         "remote_addr": "192.0.2.11",
@@ -104,6 +108,10 @@
           [
             "Authorization",
             "Basic c2hvcHBlcjpzaG9wcGFzczE="
+          ],
+          [
+            "User-Agent",
+            "Sphaira/1.0.6"
           ],
           [
             "Accept",
@@ -138,7 +146,7 @@
     {
       "request": {
         "method": "HEAD",
-        "path": "/sphaira/Test Game/Test Game [0100000000010000][v0].nsp",
+        "path": "/Test Game/Test Game [0100000000010000][v0].nsp",
         "query": "",
         "scheme": "http",
         "remote_addr": "192.0.2.11",
@@ -150,6 +158,10 @@
           [
             "Authorization",
             "Basic c2hvcHBlcjpzaG9wcGFzczE="
+          ],
+          [
+            "User-Agent",
+            "Sphaira/1.0.6"
           ],
           [
             "Accept",
@@ -210,7 +222,7 @@
     {
       "request": {
         "method": "GET",
-        "path": "/sphaira/Test Game/Test Game [0100000000010000][v0].nsp",
+        "path": "/Test Game/Test Game [0100000000010000][v0].nsp",
         "query": "",
         "scheme": "http",
         "remote_addr": "192.0.2.11",
@@ -222,6 +234,10 @@
           [
             "Authorization",
             "Basic c2hvcHBlcjpzaG9wcGFzczE="
+          ],
+          [
+            "User-Agent",
+            "Sphaira/1.0.6"
           ],
           [
             "Accept",

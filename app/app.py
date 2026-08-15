@@ -22,7 +22,7 @@ import tasks as tasks_mod
 import realtime
 import titledb
 import os
-from clients import CyberFoilClient, TinfoilClient, SphairaClient, SPHAIRA_ENDPOINT
+from clients import CyberFoilClient, TinfoilClient, SphairaClient
 
 def init():
     global watcher
@@ -219,8 +219,6 @@ def access_shop_auth():
     return access_shop()
 
 @app.route('/', defaults={'path': ''})
-@app.route(SPHAIRA_ENDPOINT, defaults={'path': SPHAIRA_ENDPOINT.strip('/')})
-@app.route(f'{SPHAIRA_ENDPOINT}/<path:path>')
 @app.route('/<path:path>')
 def index(path=None):
     """Main shop endpoint routing to either client-specific shop or web browser UI."""
@@ -322,7 +320,6 @@ def setup_page():
         show_local_tab=show_local_tab,
         tinfoil_enabled=tinfoil_enabled,
         sphaira_enabled=sphaira_enabled,
-        sphaira_endpoint=SPHAIRA_ENDPOINT,
         cyberfoil_enabled=cyberfoil_enabled,
         shop_public=shop_public,
         admin_account_created=admin_account_created()

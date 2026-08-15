@@ -80,7 +80,7 @@ Ownfoil supports multiple clients to install content on your Nintendo Switch. Th
 
 Sphaira browses your shop as a folder tree rather than a shop listing, so what you see is the layout of your library on disk. Opening a file shows a preview of its content - to actually install it, press `Options` → `Install`.
 
-Sphaira does not identify itself in its requests, so when you access it through a reverse proxy the URL must end with `/sphaira` for Ownfoil to know who is asking. Locally, pointing it at your IP and port is enough.
+Sphaira identifies itself in its requests since version `1.0.6`, which Ownfoil needs to serve the shop. Be sure to use an up to date version if encountering issues.
 
 ## [CyberFoil:](https://github.com/luketanti/CyberFoil)
 - `HTTP` / `HTTPS` protocol support
@@ -108,8 +108,6 @@ Adding a path to the shop URL configured in your client filters what it serves:
 This is how you get several shops out of one Ownfoil: add one entry per filter in your client and you can browse your updates without scrolling past every game you own.
 
 Note that only the unfiltered shop shows unidentified files. As soon as you use a filter, Ownfoil has to know what a file contains to decide whether it belongs, so anything it failed to identify disappears. If a file shows up in the root shop but in none of the filters, it was not identified.
-
-For Sphaira the filters are appended to the endpoint instead, i.e. `/sphaira/base`.
 
 # Settings reference
 

@@ -142,7 +142,6 @@ Exposing your shop to the internet is done with a reverse proxy in front of Ownf
 
 * Send the `X-Forwarded-Proto` header, and make sure it does __not__ serve the shop over plain `http` (or redirect it to `https`). Ownfoil only enforces host verification on secure requests, so a proxy that leaves `http` open means anyone who learns your URL can use your shop.
 * Don't set a small request body limit, clients download multi-GB files through it.
-* Sphaira does not identify itself in its requests, so behind a proxy it must be pointed at `https://your.domain/sphaira` - see [Sphaira](./Usage.md#sphaira).
 
 Once that is done, set the `Shop URL` in the `Settings` to the same hostname - see [Shop](./Usage.md#shop) for what it does and how to configure it.
 

@@ -46,7 +46,7 @@
     {
       "request": {
         "method": "GET",
-        "path": "/sphaira/",
+        "path": "/",
         "query": "",
         "scheme": "http",
         "remote_addr": "192.0.2.11",
@@ -58,6 +58,10 @@
           [
             "Authorization",
             "Basic c2hvcHBlcjpzaG9wcGFzczE="
+          ],
+          [
+            "User-Agent",
+            "Sphaira/1.0.6"
           ],
           [
             "Accept",
@@ -92,7 +96,7 @@
     {
       "request": {
         "method": "GET",
-        "path": "/sphaira/Bundles/",
+        "path": "/Bundles/",
         "query": "",
         "scheme": "http",
         "remote_addr": "192.0.2.11",
@@ -104,6 +108,10 @@
           [
             "Authorization",
             "Basic c2hvcHBlcjpzaG9wcGFzczE="
+          ],
+          [
+            "User-Agent",
+            "Sphaira/1.0.6"
           ],
           [
             "Accept",
@@ -138,7 +146,7 @@
     {
       "request": {
         "method": "GET",
-        "path": "/sphaira/",
+        "path": "/",
         "query": "",
         "scheme": "http",
         "remote_addr": "192.0.2.11",
@@ -150,6 +158,10 @@
           [
             "Authorization",
             "Basic c2hvcHBlcjpzaG9wcGFzczE="
+          ],
+          [
+            "User-Agent",
+            "Sphaira/1.0.6"
           ],
           [
             "Accept",
@@ -184,7 +196,7 @@
     {
       "request": {
         "method": "GET",
-        "path": "/sphaira/Unsorted/",
+        "path": "/Unsorted/",
         "query": "",
         "scheme": "http",
         "remote_addr": "192.0.2.11",
@@ -196,6 +208,10 @@
           [
             "Authorization",
             "Basic c2hvcHBlcjpzaG9wcGFzczE="
+          ],
+          [
+            "User-Agent",
+            "Sphaira/1.0.6"
           ],
           [
             "Accept",
@@ -230,7 +246,7 @@
     {
       "request": {
         "method": "GET",
-        "path": "/sphaira/",
+        "path": "/",
         "query": "",
         "scheme": "http",
         "remote_addr": "192.0.2.11",
@@ -242,6 +258,10 @@
           [
             "Authorization",
             "Basic c2hvcHBlcjpzaG9wcGFzczE="
+          ],
+          [
+            "User-Agent",
+            "Sphaira/1.0.6"
           ],
           [
             "Accept",
@@ -276,7 +296,7 @@
     {
       "request": {
         "method": "GET",
-        "path": "/sphaira/Bundles/",
+        "path": "/Bundles/",
         "query": "",
         "scheme": "http",
         "remote_addr": "192.0.2.11",
@@ -288,6 +308,10 @@
           [
             "Authorization",
             "Basic c2hvcHBlcjpzaG9wcGFzczE="
+          ],
+          [
+            "User-Agent",
+            "Sphaira/1.0.6"
           ],
           [
             "Accept",
@@ -322,7 +346,7 @@
     {
       "request": {
         "method": "HEAD",
-        "path": "/sphaira/Bundles/Multi Pack [0100000000012000].xci",
+        "path": "/Bundles/Multi Pack [0100000000012000].xci",
         "query": "",
         "scheme": "http",
         "remote_addr": "192.0.2.11",
@@ -334,6 +358,10 @@
           [
             "Authorization",
             "Basic c2hvcHBlcjpzaG9wcGFzczE="
+          ],
+          [
+            "User-Agent",
+            "Sphaira/1.0.6"
           ],
           [
             "Accept",
@@ -394,7 +422,7 @@
     {
       "request": {
         "method": "GET",
-        "path": "/sphaira/",
+        "path": "/",
         "query": "",
         "scheme": "http",
         "remote_addr": "192.0.2.11",
@@ -406,6 +434,10 @@
           [
             "Authorization",
             "Basic c2hvcHBlcjpzaG9wcGFzczE="
+          ],
+          [
+            "User-Agent",
+            "Sphaira/1.0.6"
           ],
           [
             "Accept",
@@ -440,7 +472,7 @@
     {
       "request": {
         "method": "GET",
-        "path": "/sphaira/Unsorted/",
+        "path": "/Unsorted/",
         "query": "",
         "scheme": "http",
         "remote_addr": "192.0.2.11",
@@ -452,6 +484,10 @@
           [
             "Authorization",
             "Basic c2hvcHBlcjpzaG9wcGFzczE="
+          ],
+          [
+            "User-Agent",
+            "Sphaira/1.0.6"
           ],
           [
             "Accept",
@@ -486,7 +522,7 @@
     {
       "request": {
         "method": "HEAD",
-        "path": "/sphaira/Unsorted/Mystery File.nsp",
+        "path": "/Unsorted/Mystery File.nsp",
         "query": "",
         "scheme": "http",
         "remote_addr": "192.0.2.11",
@@ -498,6 +534,10 @@
           [
             "Authorization",
             "Basic c2hvcHBlcjpzaG9wcGFzczE="
+          ],
+          [
+            "User-Agent",
+            "Sphaira/1.0.6"
           ],
           [
             "Accept",
@@ -558,7 +598,7 @@
     {
       "request": {
         "method": "GET",
-        "path": "/sphaira/Unsorted/Mystery File.nsp",
+        "path": "/Unsorted/Mystery File.nsp",
         "query": "",
         "scheme": "http",
         "remote_addr": "192.0.2.11",
@@ -570,6 +610,10 @@
           [
             "Authorization",
             "Basic c2hvcHBlcjpzaG9wcGFzczE="
+          ],
+          [
+            "User-Agent",
+            "Sphaira/1.0.6"
           ],
           [
             "Accept",

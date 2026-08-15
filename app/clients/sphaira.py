@@ -8,20 +8,8 @@ from db import Files, Libraries, increment_download_count_throttled
 from constants import APP_TYPE_FILTERS, ALLOWED_EXTENSIONS
 from utils import client_address
 
-# Dedicated endpoint used to explicitly identify a Sphaira client, needed when
-# the request goes through a reverse proxy that alters the original headers.
-SPHAIRA_ENDPOINT = '/sphaira'
-
-SPHAIRA_DEFAULT_HEADERS = [
-    'Host',
-    'Accept',
-    'Accept-Encoding',
-]
-
-SPHAIRA_ADDITIONAL_HEADERS = [
-    'Authorization',
-    'Range',
-]
+# Sphaira announces itself as `Sphaira/<version>` since version 1.0.6.
+SPHAIRA_USER_AGENT = 'Sphaira/'
 
 SPHAIRA_HTML_TEMPLATE = '''<!DOCTYPE html>
 <html>
@@ -33,7 +21,7 @@ SPHAIRA_HTML_TEMPLATE = '''<!DOCTYPE html>
 </html>'''
 
 class SphairaClient(BaseClient):
-    """Sphaira client with header-based identification, and directory listing support."""
+    """Sphaira client with User-Agent identification, and directory listing support."""
 
     # Class variables
     CLIENT_NAME = "Sphaira"
@@ -42,46 +30,8 @@ class SphairaClient(BaseClient):
 
     @classmethod
     def identify_client(cls, request: Request) -> bool:
-        """
-        Identify Sphaira client, either from the dedicated endpoint or by validating
-        required and allowed headers.
-        """
-        # Explicit identification through the dedicated endpoint
-        if cls._is_sphaira_endpoint(request):
-            return True
-
-        headers = set(request.headers.keys())
-
-        default_headers = set(SPHAIRA_DEFAULT_HEADERS)
-        additional_headers = set(SPHAIRA_ADDITIONAL_HEADERS)
-
-        # All default headers must be present
-        if not default_headers.issubset(headers):
-            return False
-
-        # Remove headers added by reverse proxy
-        headers -= set([h for h in headers if h.startswith('X-')])
-
-        # Any extra headers must be allowed
-        extra_headers = headers - default_headers
-        if not extra_headers.issubset(additional_headers):
-            return False
-
-        return True
-
-    @classmethod
-    def _is_sphaira_endpoint(cls, request: Request) -> bool:
-        """Check if the request targets the dedicated Sphaira endpoint."""
-        path = '/' + request.path.strip('/')
-        return path == SPHAIRA_ENDPOINT or path.startswith(SPHAIRA_ENDPOINT + '/')
-
-    @classmethod
-    def _client_path(cls, request: Request) -> str:
-        """Return the request path, without the dedicated endpoint prefix."""
-        path = request.path.strip('/')
-        if cls._is_sphaira_endpoint(request):
-            path = path[len(SPHAIRA_ENDPOINT.strip('/')):]
-        return path.strip('/')
+        """Identify Sphaira client by its User-Agent."""
+        return request.headers.get('User-Agent', '').lower().startswith(SPHAIRA_USER_AGENT.lower())
 
     def error_response(self, error_message: str) -> Response:
         """Generate error response in dir list format."""
@@ -97,7 +47,7 @@ class SphairaClient(BaseClient):
     @BaseClient.verify_shop_access
     def _handle_get(self, request: Request) -> Response:
         """Handle GET requests for directory listing or file downloads."""
-        subpath = self._client_path(request)
+        subpath = request.path.strip('/')
         paths = subpath.split('/')
         # Check if requesting a specific file
         if paths and any([paths[-1].endswith(ext) for ext in ALLOWED_EXTENSIONS]):
@@ -115,7 +65,7 @@ class SphairaClient(BaseClient):
         Handle HEAD requests for file lookups.
         Sphaira sends HEAD requests to filenames to get file headers before downloading.
         """
-        filename = self._client_path(request).split('/')[-1]
+        filename = request.path.split('/')[-1] if request.path else ''
         if filename and any([filename.endswith(ext) for ext in ALLOWED_EXTENSIONS]):
             return self._serve_file(filename)
         return self.error_response("File not found")

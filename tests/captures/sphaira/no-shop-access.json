@@ -46,7 +46,7 @@
     {
       "request": {
         "method": "GET",
-        "path": "/sphaira/",
+        "path": "/",
         "query": "",
         "scheme": "http",
         "remote_addr": "192.0.2.11",
@@ -58,6 +58,10 @@
           [
             "Authorization",
             "Basic bm9zaG9wOm5vc2hvcHBhc3Mx"
+          ],
+          [
+            "User-Agent",
+            "Sphaira/1.0.6"
           ],
           [
             "Accept",

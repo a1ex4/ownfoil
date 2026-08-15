@@ -432,7 +432,7 @@
                                                         </tr>
                                                         <tr>
                                                             <td class="fw-bold">URL:</td>
-                                                            <td><code>https://{{ remote_host }}{{ sphaira_endpoint }}</code></td>
+                                                            <td><code>https://{{ remote_host }}</code></td>
                                                             <td><span class="text-muted">Append <code>/base</code>, <code>/update</code>, <code>/dlc</code>, <code>/multi</code> to serve specific content.</span></td>
                                                         </tr>
                                                         <tr>
@@ -459,10 +459,6 @@
                                         <li class="mb-2">Press <strong>Save</strong> and <strong>restart Sphaira</strong></li>
                                         <li class="mb-2">Navigate to <strong>FileBrowser</strong> → <strong>Options</strong> → <strong>Mount</strong> → Select <code>[HTTP] Ownfoil - Remote</code></li>
                                     </ol>
-                                    <div class="alert alert-warning">
-                                        <i class="bi bi-exclamation-triangle-fill"></i>
-                                        Sphaira does not identify itself in its requests, the <code>{{ sphaira_endpoint }}</code> part of the URL is <strong>required</strong> for remote access so that Ownfoil can serve the Sphaira shop behind a reverse proxy.
-                                    </div>
                                     <div class="alert alert-success">
                                         <i class="bi bi-check-circle-fill"></i>
                                         Opening a file will show a preview of its content. To actually install the file, press <strong>Options</strong> → <strong>Install</strong>.

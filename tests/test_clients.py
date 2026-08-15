@@ -39,7 +39,7 @@ Client = namedtuple("Client", "cls readable root hauth file_route directories")
 CLIENTS = {
     "tinfoil": Client(TinfoilClient, "tinfoil-plaintext", "/", True, True, False),
     "cyberfoil": Client(CyberFoilClient, "authenticated-browse", "/", True, True, False),
-    "sphaira": Client(SphairaClient, "authenticated-browse", "/sphaira/", False, False, True),
+    "sphaira": Client(SphairaClient, "authenticated-browse", "/", False, False, True),
 }
 
 RECORDED = [name for name in CLIENTS if os.path.isdir(os.path.join(CAPTURES, name))]
@@ -458,7 +458,7 @@ def test_sphaira_serves_a_file_by_name_whatever_the_directory(shop):
     exchange = load("sphaira", "download")["exchanges"][index]
     filename = served_filename(exchange)
     _, response = play(shop, "sphaira", "download", index=index,
-                       path=f"/sphaira/Nowhere In The Library/{filename}")
+                       path=f"/Nowhere In The Library/{filename}")
     response.close()
     assert response.headers["Content-Disposition"] == \
         dict(exchange["response"]["headers"])["Content-Disposition"]
@@ -468,7 +468,7 @@ def test_sphaira_says_when_a_file_is_not_found(shop):
     """The one refusal Sphaira answers a file request with, rather than the shop's."""
     index = one_transfer("sphaira", method="GET")
     _, response = play(shop, "sphaira", "download", index=index,
-                       path="/sphaira/Test Game/Not A Real File.nsp")
+                       path="/Test Game/Not A Real File.nsp")
     response.close()
     assert error_of(response) == "File not found"
 
