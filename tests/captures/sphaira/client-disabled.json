@@ -1,0 +1,93 @@
+{
+  "client": "sphaira",
+  "scenario": "client-disabled",
+  "title": "This client disabled in the shop settings",
+  "expect": "Refused before authentication: shop access from this client is disabled.",
+  "captured_at": "2026-08-15T21:51:35+00:00",
+  "shop_settings": {
+    "clients": {
+      "cyberfoil": {
+        "enabled": true,
+        "hauth": {}
+      },
+      "sphaira": {
+        "enabled": false
+      },
+      "tinfoil": {
+        "clientCertKey": "-----BEGIN PRIVATE KEY-----",
+        "clientCertPub": "-----BEGIN PUBLIC KEY-----",
+        "enabled": true,
+        "encrypt": true,
+        "hauth": {}
+      }
+    },
+    "host": "",
+    "motd": "Ownfoil capture fixture",
+    "public": false
+  },
+  "users": [
+    {
+      "user": "admin",
+      "admin_access": true,
+      "shop_access": true
+    },
+    {
+      "user": "shopper",
+      "admin_access": false,
+      "shop_access": true
+    },
+    {
+      "user": "noshop",
+      "admin_access": false,
+      "shop_access": false
+    }
+  ],
+  "exchanges": [
+    {
+      "request": {
+        "method": "GET",
+        "path": "/sphaira/",
+        "query": "",
+        "scheme": "http",
+        "remote_addr": "192.0.2.11",
+        "headers": [
+          [
+            "Host",
+            "192.0.2.11:8466"
+          ],
+          [
+            "Authorization",
+            "Basic c2hvcHBlcjpzaG9wcGFzczE="
+          ],
+          [
+            "Accept",
+            "*/*"
+          ],
+          [
+            "Accept-Encoding",
+            "deflate, gzip"
+          ]
+        ]
+      },
+      "response": {
+        "status": 200,
+        "headers": [
+          [
+            "Content-Type",
+            "text/html; charset=utf-8"
+          ],
+          [
+            "Content-Length",
+            "148"
+          ]
+        ],
+        "body": {
+          "kind": "text",
+          "text": "<!DOCTYPE html>\n<html>\n<body>\n<table>\n<a href=\"00 - ERROR\"> </a>\n<a href=\"01 - Shop access from Sphaira is disabled.\"> </a>\n</table>\n</body>\n</html>"
+        }
+      },
+      "downloads": {},
+      "duration_ms": 20.3
+    }
+  ]
+}

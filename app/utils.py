@@ -206,6 +206,15 @@ def is_network_path(path):
         return True
     return fstype in NETWORK_FSTYPES
 
+def client_address(request):
+    """The address of the client itself, seen through a reverse proxy.
+
+    remote_addr is the proxy for every request behind one, which collapses all clients into
+    a single identity - enough to make per-client throttling suppress other people's calls.
+    """
+    forwarded = request.headers.get('X-Forwarded-For', '')
+    return forwarded.split(',')[0].strip() or request.remote_addr
+
 def get_lan_ip(family=socket.AF_INET):
     """Return the IP of the interface that reaches the LAN, or None if undeterminable."""
     # Werkzeug's trick to show a usable URL when bound to 0.0.0.0: ask the kernel which

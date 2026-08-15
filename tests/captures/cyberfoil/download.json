@@ -1,0 +1,833 @@
+{
+  "client": "cyberfoil",
+  "scenario": "download",
+  "title": "Download a file",
+  "expect": "File served; download_count goes to 1. Sphaira HEADs before it GETs.",
+  "captured_at": "2026-08-15T21:32:30+00:00",
+  "shop_settings": {
+    "clients": {
+      "cyberfoil": {
+        "enabled": true,
+        "hauth": {}
+      },
+      "sphaira": {
+        "enabled": true
+      },
+      "tinfoil": {
+        "clientCertKey": "-----BEGIN PRIVATE KEY-----",
+        "clientCertPub": "-----BEGIN PUBLIC KEY-----",
+        "enabled": true,
+        "encrypt": true,
+        "hauth": {}
+      }
+    },
+    "host": "",
+    "motd": "Ownfoil capture fixture",
+    "public": false
+  },
+  "users": [
+    {
+      "user": "admin",
+      "admin_access": true,
+      "shop_access": true
+    },
+    {
+      "user": "shopper",
+      "admin_access": false,
+      "shop_access": true
+    },
+    {
+      "user": "noshop",
+      "admin_access": false,
+      "shop_access": false
+    }
+  ],
+  "exchanges": [
+    {
+      "request": {
+        "method": "GET",
+        "path": "/api/remote/sections",
+        "query": "",
+        "scheme": "http",
+        "remote_addr": "192.0.2.11",
+        "headers": [
+          [
+            "Host",
+            "192.0.2.11:8466"
+          ],
+          [
+            "Authorization",
+            "Basic c2hvcHBlcjpzaG9wcGFzczE="
+          ],
+          [
+            "User-Agent",
+            "cyberfoil"
+          ],
+          [
+            "Accept",
+            "*/*"
+          ],
+          [
+            "Theme",
+            "0000000000000000000000000000000000000000000000000000000000000000"
+          ],
+          [
+            "Uid",
+            "36EAB1BDE8B9DAB92BF1E1A08EA74D1840A7F23F4FC40DE4A7622FC1A801D971"
+          ],
+          [
+            "Version",
+            "1.4"
+          ],
+          [
+            "Revision",
+            "5"
+          ],
+          [
+            "Language",
+            "fr"
+          ],
+          [
+            "Hauth",
+            "78C768946A59DBF1ED10E1836449D891"
+          ],
+          [
+            "Uauth",
+            "121E738517943CE5B0E576BCDEF98134"
+          ]
+        ]
+      },
+      "response": {
+        "status": 200,
+        "headers": [
+          [
+            "Content-Type",
+            "application/json"
+          ],
+          [
+            "Content-Length",
+            "410"
+          ]
+        ],
+        "body": {
+          "kind": "json",
+          "json": {
+            "files": [
+              {
+                "size": 4096,
+                "url": "/api/get_game/1#Test Game [0100000000010000][v0].nsp"
+              },
+              {
+                "size": 4096,
+                "url": "/api/get_game/2#Test Game [0100000000010800][v65536].nsp"
+              },
+              {
+                "size": 4096,
+                "url": "/api/get_game/3#Test Game Extra [0100000000011001][v0].nsp"
+              },
+              {
+                "size": 4096,
+                "url": "/api/get_game/4#Multi Pack [0100000000012000].xci"
+              },
+              {
+                "size": 4096,
+                "url": "/api/get_game/5#Mystery File.nsp"
+              }
+            ],
+            "success": "Ownfoil capture fixture"
+          }
+        }
+      },
+      "downloads": {},
+      "duration_ms": 144.2
+    },
+    {
+      "request": {
+        "method": "GET",
+        "path": "/api/shop/sections",
+        "query": "",
+        "scheme": "http",
+        "remote_addr": "192.0.2.11",
+        "headers": [
+          [
+            "Host",
+            "192.0.2.11:8466"
+          ],
+          [
+            "Authorization",
+            "Basic c2hvcHBlcjpzaG9wcGFzczE="
+          ],
+          [
+            "User-Agent",
+            "cyberfoil"
+          ],
+          [
+            "Accept",
+            "*/*"
+          ],
+          [
+            "Theme",
+            "0000000000000000000000000000000000000000000000000000000000000000"
+          ],
+          [
+            "Uid",
+            "36EAB1BDE8B9DAB92BF1E1A08EA74D1840A7F23F4FC40DE4A7622FC1A801D971"
+          ],
+          [
+            "Version",
+            "1.4"
+          ],
+          [
+            "Revision",
+            "5"
+          ],
+          [
+            "Language",
+            "fr"
+          ],
+          [
+            "Hauth",
+            "78C768946A59DBF1ED10E1836449D891"
+          ],
+          [
+            "Uauth",
+            "CAA9C8E90392598CE50546E8D61B8C6E"
+          ]
+        ]
+      },
+      "response": {
+        "status": 200,
+        "headers": [
+          [
+            "Content-Type",
+            "application/json"
+          ],
+          [
+            "Content-Length",
+            "410"
+          ]
+        ],
+        "body": {
+          "kind": "json",
+          "json": {
+            "files": [
+              {
+                "size": 4096,
+                "url": "/api/get_game/1#Test Game [0100000000010000][v0].nsp"
+              },
+              {
+                "size": 4096,
+                "url": "/api/get_game/2#Test Game [0100000000010800][v65536].nsp"
+              },
+              {
+                "size": 4096,
+                "url": "/api/get_game/3#Test Game Extra [0100000000011001][v0].nsp"
+              },
+              {
+                "size": 4096,
+                "url": "/api/get_game/4#Multi Pack [0100000000012000].xci"
+              },
+              {
+                "size": 4096,
+                "url": "/api/get_game/5#Mystery File.nsp"
+              }
+            ],
+            "success": "Ownfoil capture fixture"
+          }
+        }
+      },
+      "downloads": {},
+      "duration_ms": 138.6
+    },
+    {
+      "request": {
+        "method": "GET",
+        "path": "/",
+        "query": "",
+        "scheme": "http",
+        "remote_addr": "192.0.2.11",
+        "headers": [
+          [
+            "Host",
+            "192.0.2.11:8466"
+          ],
+          [
+            "Authorization",
+            "Basic c2hvcHBlcjpzaG9wcGFzczE="
+          ],
+          [
+            "User-Agent",
+            "cyberfoil"
+          ],
+          [
+            "Accept",
+            "*/*"
+          ],
+          [
+            "Theme",
+            "0000000000000000000000000000000000000000000000000000000000000000"
+          ],
+          [
+            "Uid",
+            "36EAB1BDE8B9DAB92BF1E1A08EA74D1840A7F23F4FC40DE4A7622FC1A801D971"
+          ],
+          [
+            "Version",
+            "1.4"
+          ],
+          [
+            "Revision",
+            "5"
+          ],
+          [
+            "Language",
+            "fr"
+          ],
+          [
+            "Hauth",
+            "78C768946A59DBF1ED10E1836449D891"
+          ],
+          [
+            "Uauth",
+            "3C0AB53105D11E8E9915E571F388799E"
+          ]
+        ]
+      },
+      "response": {
+        "status": 200,
+        "headers": [
+          [
+            "Content-Type",
+            "application/json"
+          ],
+          [
+            "Content-Length",
+            "410"
+          ]
+        ],
+        "body": {
+          "kind": "json",
+          "json": {
+            "files": [
+              {
+                "size": 4096,
+                "url": "/api/get_game/1#Test Game [0100000000010000][v0].nsp"
+              },
+              {
+                "size": 4096,
+                "url": "/api/get_game/2#Test Game [0100000000010800][v65536].nsp"
+              },
+              {
+                "size": 4096,
+                "url": "/api/get_game/3#Test Game Extra [0100000000011001][v0].nsp"
+              },
+              {
+                "size": 4096,
+                "url": "/api/get_game/4#Multi Pack [0100000000012000].xci"
+              },
+              {
+                "size": 4096,
+                "url": "/api/get_game/5#Mystery File.nsp"
+              }
+            ],
+            "success": "Ownfoil capture fixture"
+          }
+        }
+      },
+      "downloads": {},
+      "duration_ms": 141.0
+    },
+    {
+      "request": {
+        "method": "GET",
+        "path": "/api/remote/icon/0100000000012000",
+        "query": "",
+        "scheme": "http",
+        "remote_addr": "192.0.2.11",
+        "headers": [
+          [
+            "Host",
+            "192.0.2.11:8466"
+          ],
+          [
+            "Authorization",
+            "Basic c2hvcHBlcjpzaG9wcGFzczE="
+          ],
+          [
+            "User-Agent",
+            "cyberfoil"
+          ],
+          [
+            "Accept",
+            "*/*"
+          ],
+          [
+            "Theme",
+            "0000000000000000000000000000000000000000000000000000000000000000"
+          ],
+          [
+            "Uid",
+            "36EAB1BDE8B9DAB92BF1E1A08EA74D1840A7F23F4FC40DE4A7622FC1A801D971"
+          ],
+          [
+            "Version",
+            "1.4"
+          ],
+          [
+            "Revision",
+            "5"
+          ],
+          [
+            "Language",
+            "fr"
+          ],
+          [
+            "Hauth",
+            "78C768946A59DBF1ED10E1836449D891"
+          ],
+          [
+            "Uauth",
+            "24C259D140D15EB8F17EC6BDFD1E6CDC"
+          ]
+        ]
+      },
+      "response": {
+        "status": 200,
+        "headers": [
+          [
+            "Content-Type",
+            "application/json"
+          ],
+          [
+            "Content-Length",
+            "410"
+          ]
+        ],
+        "body": {
+          "kind": "json",
+          "json": {
+            "files": [
+              {
+                "size": 4096,
+                "url": "/api/get_game/1#Test Game [0100000000010000][v0].nsp"
+              },
+              {
+                "size": 4096,
+                "url": "/api/get_game/2#Test Game [0100000000010800][v65536].nsp"
+              },
+              {
+                "size": 4096,
+                "url": "/api/get_game/3#Test Game Extra [0100000000011001][v0].nsp"
+              },
+              {
+                "size": 4096,
+                "url": "/api/get_game/4#Multi Pack [0100000000012000].xci"
+              },
+              {
+                "size": 4096,
+                "url": "/api/get_game/5#Mystery File.nsp"
+              }
+            ],
+            "success": "Ownfoil capture fixture"
+          }
+        }
+      },
+      "downloads": {},
+      "duration_ms": 165.3
+    },
+    {
+      "request": {
+        "method": "GET",
+        "path": "/",
+        "query": "",
+        "scheme": "http",
+        "remote_addr": "192.0.2.11",
+        "headers": [
+          [
+            "Host",
+            "192.0.2.11:8466"
+          ],
+          [
+            "Authorization",
+            "Basic c2hvcHBlcjpzaG9wcGFzczE="
+          ],
+          [
+            "User-Agent",
+            "cyberfoil"
+          ],
+          [
+            "Accept",
+            "*/*"
+          ],
+          [
+            "Theme",
+            "0000000000000000000000000000000000000000000000000000000000000000"
+          ],
+          [
+            "Uid",
+            "36EAB1BDE8B9DAB92BF1E1A08EA74D1840A7F23F4FC40DE4A7622FC1A801D971"
+          ],
+          [
+            "Version",
+            "1.4"
+          ],
+          [
+            "Revision",
+            "5"
+          ],
+          [
+            "Language",
+            "fr"
+          ],
+          [
+            "Hauth",
+            "78C768946A59DBF1ED10E1836449D891"
+          ],
+          [
+            "Uauth",
+            "3C0AB53105D11E8E9915E571F388799E"
+          ]
+        ]
+      },
+      "response": {
+        "status": 200,
+        "headers": [
+          [
+            "Content-Type",
+            "application/json"
+          ],
+          [
+            "Content-Length",
+            "410"
+          ]
+        ],
+        "body": {
+          "kind": "json",
+          "json": {
+            "files": [
+              {
+                "size": 4096,
+                "url": "/api/get_game/1#Test Game [0100000000010000][v0].nsp"
+              },
+              {
+                "size": 4096,
+                "url": "/api/get_game/2#Test Game [0100000000010800][v65536].nsp"
+              },
+              {
+                "size": 4096,
+                "url": "/api/get_game/3#Test Game Extra [0100000000011001][v0].nsp"
+              },
+              {
+                "size": 4096,
+                "url": "/api/get_game/4#Multi Pack [0100000000012000].xci"
+              },
+              {
+                "size": 4096,
+                "url": "/api/get_game/5#Mystery File.nsp"
+              }
+            ],
+            "success": "Ownfoil capture fixture"
+          }
+        }
+      },
+      "downloads": {},
+      "duration_ms": 163.9
+    },
+    {
+      "request": {
+        "method": "GET",
+        "path": "/api/get_game/1",
+        "query": "",
+        "scheme": "http",
+        "remote_addr": "192.0.2.11",
+        "headers": [
+          [
+            "Host",
+            "192.0.2.11:8466"
+          ],
+          [
+            "Authorization",
+            "Basic c2hvcHBlcjpzaG9wcGFzczE="
+          ],
+          [
+            "Range",
+            "bytes=61440-61443"
+          ],
+          [
+            "User-Agent",
+            "cyberfoil"
+          ],
+          [
+            "Accept",
+            "*/*"
+          ],
+          [
+            "Accept-Encoding",
+            "identity"
+          ],
+          [
+            "Theme",
+            "0000000000000000000000000000000000000000000000000000000000000000"
+          ],
+          [
+            "Language",
+            "fr"
+          ],
+          [
+            "Hauth",
+            "78C768946A59DBF1ED10E1836449D891"
+          ],
+          [
+            "Uid",
+            "36EAB1BDE8B9DAB92BF1E1A08EA74D1840A7F23F4FC40DE4A7622FC1A801D971"
+          ],
+          [
+            "Version",
+            "1.4"
+          ],
+          [
+            "Revision",
+            "5"
+          ],
+          [
+            "Uauth",
+            "5BAFC8C0274A24205B5F797AC7B69413"
+          ]
+        ]
+      },
+      "response": {
+        "status": 416,
+        "headers": [
+          [
+            "Content-Type",
+            "text/html; charset=utf-8"
+          ],
+          [
+            "Content-Range",
+            "bytes */4096"
+          ],
+          [
+            "Content-Length",
+            "177"
+          ]
+        ],
+        "body": {
+          "kind": "text",
+          "text": "<!doctype html>\n<html lang=en>\n<title>416 Requested Range Not Satisfiable</title>\n<h1>Requested Range Not Satisfiable</h1>\n<p>The server cannot provide the requested range.</p>\n"
+        }
+      },
+      "downloads": {
+        "Test Game [0100000000010000][v0].nsp": 1
+      },
+      "duration_ms": 149.3
+    },
+    {
+      "request": {
+        "method": "GET",
+        "path": "/api/get_game/1",
+        "query": "",
+        "scheme": "http",
+        "remote_addr": "192.0.2.11",
+        "headers": [
+          [
+            "Host",
+            "192.0.2.11:8466"
+          ],
+          [
+            "Authorization",
+            "Basic c2hvcHBlcjpzaG9wcGFzczE="
+          ],
+          [
+            "Range",
+            "bytes=0-15"
+          ],
+          [
+            "User-Agent",
+            "cyberfoil"
+          ],
+          [
+            "Accept",
+            "*/*"
+          ],
+          [
+            "Accept-Encoding",
+            "identity"
+          ],
+          [
+            "Theme",
+            "0000000000000000000000000000000000000000000000000000000000000000"
+          ],
+          [
+            "Language",
+            "fr"
+          ],
+          [
+            "Hauth",
+            "6"
+          ],
+          [
+            "Uid",
+            "36EAB1BDE8B9DAB92BF1E1A08EA74D1840A7F23F4FC40DE4A7622FC1A801D971"
+          ],
+          [
+            "Version",
+            "1.4"
+          ],
+          [
+            "Revision",
+            "5"
+          ],
+          [
+            "Uauth",
+            "5BAFC8C0274A24205B5F797AC7B69413"
+          ]
+        ]
+      },
+      "response": {
+        "status": 206,
+        "headers": [
+          [
+            "Content-Disposition",
+            "inline; filename=\"Test Game [0100000000010000][v0].nsp\""
+          ],
+          [
+            "Content-Type",
+            "application/octet-stream"
+          ],
+          [
+            "Content-Length",
+            "16"
+          ],
+          [
+            "Last-Modified",
+            "Sat, 15 Aug 2026 21:30:55 GMT"
+          ],
+          [
+            "Cache-Control",
+            "no-cache"
+          ],
+          [
+            "ETag",
+            "\"1786829455.6004887-4096-3914867662\""
+          ],
+          [
+            "Date",
+            "Sat, 15 Aug 2026 21:32:23 GMT"
+          ],
+          [
+            "Accept-Ranges",
+            "bytes"
+          ],
+          [
+            "Content-Range",
+            "bytes 0-15/4096"
+          ]
+        ],
+        "body": {
+          "kind": "file",
+          "length": "16"
+        }
+      },
+      "downloads": {},
+      "duration_ms": 134.9
+    },
+    {
+      "request": {
+        "method": "GET",
+        "path": "/api/remote/icon/0100000000012000",
+        "query": "",
+        "scheme": "http",
+        "remote_addr": "192.0.2.11",
+        "headers": [
+          [
+            "Host",
+            "192.0.2.11:8466"
+          ],
+          [
+            "Authorization",
+            "Basic c2hvcHBlcjpzaG9wcGFzczE="
+          ],
+          [
+            "User-Agent",
+            "cyberfoil"
+          ],
+          [
+            "Accept",
+            "*/*"
+          ],
+          [
+            "Theme",
+            "0000000000000000000000000000000000000000000000000000000000000000"
+          ],
+          [
+            "Uid",
+            "36EAB1BDE8B9DAB92BF1E1A08EA74D1840A7F23F4FC40DE4A7622FC1A801D971"
+          ],
+          [
+            "Version",
+            "1.4"
+          ],
+          [
+            "Revision",
+            "5"
+          ],
+          [
+            "Language",
+            "fr"
+          ],
+          [
+            "Hauth",
+            "78C768946A59DBF1ED10E1836449D891"
+          ],
+          [
+            "Uauth",
+            "24C259D140D15EB8F17EC6BDFD1E6CDC"
+          ]
+        ]
+      },
+      "response": {
+        "status": 200,
+        "headers": [
+          [
+            "Content-Type",
+            "application/json"
+          ],
+          [
+            "Content-Length",
+            "410"
+          ]
+        ],
+        "body": {
+          "kind": "json",
+          "json": {
+            "files": [
+              {
+                "size": 4096,
+                "url": "/api/get_game/1#Test Game [0100000000010000][v0].nsp"
+              },
+              {
+                "size": 4096,
+                "url": "/api/get_game/2#Test Game [0100000000010800][v65536].nsp"
+              },
+              {
+                "size": 4096,
+                "url": "/api/get_game/3#Test Game Extra [0100000000011001][v0].nsp"
+              },
+              {
+                "size": 4096,
+                "url": "/api/get_game/4#Multi Pack [0100000000012000].xci"
+              },
+              {
+                "size": 4096,
+                "url": "/api/get_game/5#Mystery File.nsp"
+              }
+            ],
+            "success": "Ownfoil capture fixture"
+          }
+        }
+      },
+      "downloads": {},
+      "duration_ms": 177.6
+    }
+  ]
+}

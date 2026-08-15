@@ -1,0 +1,275 @@
+{
+  "client": "cyberfoil",
+  "scenario": "client-disabled",
+  "title": "This client disabled in the shop settings",
+  "expect": "Refused before authentication: shop access from this client is disabled.",
+  "captured_at": "2026-08-15T21:19:04+00:00",
+  "shop_settings": {
+    "clients": {
+      "cyberfoil": {
+        "enabled": false,
+        "hauth": {}
+      },
+      "sphaira": {
+        "enabled": true
+      },
+      "tinfoil": {
+        "clientCertKey": "-----BEGIN PRIVATE KEY-----",
+        "clientCertPub": "-----BEGIN PUBLIC KEY-----",
+        "enabled": true,
+        "encrypt": true,
+        "hauth": {}
+      }
+    },
+    "host": "",
+    "motd": "Ownfoil capture fixture",
+    "public": false
+  },
+  "users": [
+    {
+      "user": "admin",
+      "admin_access": true,
+      "shop_access": true
+    },
+    {
+      "user": "shopper",
+      "admin_access": false,
+      "shop_access": true
+    },
+    {
+      "user": "noshop",
+      "admin_access": false,
+      "shop_access": false
+    }
+  ],
+  "exchanges": [
+    {
+      "request": {
+        "method": "GET",
+        "path": "/api/remote/sections",
+        "query": "",
+        "scheme": "http",
+        "remote_addr": "192.0.2.11",
+        "headers": [
+          [
+            "Host",
+            "192.0.2.11:8466"
+          ],
+          [
+            "Authorization",
+            "Basic c2hvcHBlcjpzaG9wcGFzczE="
+          ],
+          [
+            "User-Agent",
+            "cyberfoil"
+          ],
+          [
+            "Accept",
+            "*/*"
+          ],
+          [
+            "Theme",
+            "0000000000000000000000000000000000000000000000000000000000000000"
+          ],
+          [
+            "Uid",
+            "36EAB1BDE8B9DAB92BF1E1A08EA74D1840A7F23F4FC40DE4A7622FC1A801D971"
+          ],
+          [
+            "Version",
+            "1.4"
+          ],
+          [
+            "Revision",
+            "5"
+          ],
+          [
+            "Language",
+            "fr"
+          ],
+          [
+            "Hauth",
+            "78C768946A59DBF1ED10E1836449D891"
+          ],
+          [
+            "Uauth",
+            "121E738517943CE5B0E576BCDEF98134"
+          ]
+        ]
+      },
+      "response": {
+        "status": 200,
+        "headers": [
+          [
+            "Content-Type",
+            "application/json"
+          ],
+          [
+            "Content-Length",
+            "52"
+          ]
+        ],
+        "body": {
+          "kind": "json",
+          "json": {
+            "error": "Shop access from CyberFoil is disabled."
+          }
+        }
+      },
+      "downloads": {},
+      "duration_ms": 7.5
+    },
+    {
+      "request": {
+        "method": "GET",
+        "path": "/api/shop/sections",
+        "query": "",
+        "scheme": "http",
+        "remote_addr": "192.0.2.11",
+        "headers": [
+          [
+            "Host",
+            "192.0.2.11:8466"
+          ],
+          [
+            "Authorization",
+            "Basic c2hvcHBlcjpzaG9wcGFzczE="
+          ],
+          [
+            "User-Agent",
+            "cyberfoil"
+          ],
+          [
+            "Accept",
+            "*/*"
+          ],
+          [
+            "Theme",
+            "0000000000000000000000000000000000000000000000000000000000000000"
+          ],
+          [
+            "Uid",
+            "36EAB1BDE8B9DAB92BF1E1A08EA74D1840A7F23F4FC40DE4A7622FC1A801D971"
+          ],
+          [
+            "Version",
+            "1.4"
+          ],
+          [
+            "Revision",
+            "5"
+          ],
+          [
+            "Language",
+            "fr"
+          ],
+          [
+            "Hauth",
+            "78C768946A59DBF1ED10E1836449D891"
+          ],
+          [
+            "Uauth",
+            "CAA9C8E90392598CE50546E8D61B8C6E"
+          ]
+        ]
+      },
+      "response": {
+        "status": 200,
+        "headers": [
+          [
+            "Content-Type",
+            "application/json"
+          ],
+          [
+            "Content-Length",
+            "52"
+          ]
+        ],
+        "body": {
+          "kind": "json",
+          "json": {
+            "error": "Shop access from CyberFoil is disabled."
+          }
+        }
+      },
+      "downloads": {},
+      "duration_ms": 1.3
+    },
+    {
+      "request": {
+        "method": "GET",
+        "path": "/",
+        "query": "",
+        "scheme": "http",
+        "remote_addr": "192.0.2.11",
+        "headers": [
+          [
+            "Host",
+            "192.0.2.11:8466"
+          ],
+          [
+            "Authorization",
+            "Basic c2hvcHBlcjpzaG9wcGFzczE="
+          ],
+          [
+            "User-Agent",
+            "cyberfoil"
+          ],
+          [
+            "Accept",
+            "*/*"
+          ],
+          [
+            "Theme",
+            "0000000000000000000000000000000000000000000000000000000000000000"
+          ],
+          [
+            "Uid",
+            "36EAB1BDE8B9DAB92BF1E1A08EA74D1840A7F23F4FC40DE4A7622FC1A801D971"
+          ],
+          [
+            "Version",
+            "1.4"
+          ],
+          [
+            "Revision",
+            "5"
+          ],
+          [
+            "Language",
+            "fr"
+          ],
+          [
+            "Hauth",
+            "78C768946A59DBF1ED10E1836449D891"
+          ],
+          [
+            "Uauth",
+            "3C0AB53105D11E8E9915E571F388799E"
+          ]
+        ]
+      },
+      "response": {
+        "status": 200,
+        "headers": [
+          [
+            "Content-Type",
+            "application/json"
+          ],
+          [
+            "Content-Length",
+            "52"
+          ]
+        ],
+        "body": {
+          "kind": "json",
+          "json": {
+            "error": "Shop access from CyberFoil is disabled."
+          }
+        }
+      },
+      "downloads": {},
+      "duration_ms": 1.8
+    }
+  ]
+}

@@ -6,6 +6,7 @@ from flask import Request, Response, request, send_from_directory
 from .client import BaseClient
 from db import Files, Libraries, increment_download_count_throttled
 from constants import APP_TYPE_FILTERS, ALLOWED_EXTENSIONS
+from utils import client_address
 
 # Dedicated endpoint used to explicitly identify a Sphaira client, needed when
 # the request goes through a reverse proxy that alters the original headers.
@@ -192,6 +193,9 @@ class SphairaClient(BaseClient):
             return self.error_response("File not found")
 
         self.log_info(f"Serving file: {file.folder}/{filename}")
-        increment_download_count_throttled(file.filepath, request.remote_addr)
+        # Count only once the response exists: a range past the end of the file raises out
+        # of here, and a transfer that never happened is not a download.
+        response = send_from_directory(file.folder, filename)
+        increment_download_count_throttled(file.filepath, client_address(request))
 
-        return send_from_directory(file.folder, filename)
+        return response

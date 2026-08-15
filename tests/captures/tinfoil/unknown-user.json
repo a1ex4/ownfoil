@@ -1,0 +1,127 @@
+{
+  "client": "tinfoil",
+  "scenario": "unknown-user",
+  "title": "Private shop, user that does not exist",
+  "expect": "Refused: unknown user.",
+  "captured_at": "2026-08-15T20:50:26+00:00",
+  "shop_settings": {
+    "clients": {
+      "cyberfoil": {
+        "enabled": true,
+        "hauth": {}
+      },
+      "sphaira": {
+        "enabled": true
+      },
+      "tinfoil": {
+        "clientCertKey": "-----BEGIN PRIVATE KEY-----",
+        "clientCertPub": "-----BEGIN PUBLIC KEY-----",
+        "enabled": true,
+        "encrypt": true,
+        "hauth": {}
+      }
+    },
+    "host": "",
+    "motd": "Ownfoil capture fixture",
+    "public": false
+  },
+  "users": [
+    {
+      "user": "admin",
+      "admin_access": true,
+      "shop_access": true
+    },
+    {
+      "user": "shopper",
+      "admin_access": false,
+      "shop_access": true
+    },
+    {
+      "user": "noshop",
+      "admin_access": false,
+      "shop_access": false
+    }
+  ],
+  "exchanges": [
+    {
+      "request": {
+        "method": "GET",
+        "path": "/",
+        "query": "",
+        "scheme": "http",
+        "remote_addr": "192.0.2.11",
+        "headers": [
+          [
+            "Host",
+            "192.0.2.11:8466"
+          ],
+          [
+            "Authorization",
+            "Basic Z2hvc3Q6d3JvbmdwYXNzMQ=="
+          ],
+          [
+            "Accept",
+            "*/*"
+          ],
+          [
+            "Accept-Encoding",
+            "deflate, gzip"
+          ],
+          [
+            "Theme",
+            "0000000000000000000000000000000000000000000000000000000000000000"
+          ],
+          [
+            "Uid",
+            "36EAB1BDE8B9DAB92BF1E1A08EA74D1840A7F23F4FC40DE4A7622FC1A801D971"
+          ],
+          [
+            "Version",
+            "20.0"
+          ],
+          [
+            "Revision",
+            "2"
+          ],
+          [
+            "Language",
+            "en"
+          ],
+          [
+            "Stream",
+            "1"
+          ],
+          [
+            "Hauth",
+            "78C768946A59DBF1ED10E1836449D891"
+          ],
+          [
+            "Uauth",
+            "ED720E0A708C02FFACB97D228643E192"
+          ]
+        ]
+      },
+      "response": {
+        "status": 200,
+        "headers": [
+          [
+            "Content-Type",
+            "application/json"
+          ],
+          [
+            "Content-Length",
+            "63"
+          ]
+        ],
+        "body": {
+          "kind": "json",
+          "json": {
+            "error": "Shop requires authentication.\nUnknown user ghost."
+          }
+        }
+      },
+      "downloads": {},
+      "duration_ms": 34.2
+    }
+  ]
+}

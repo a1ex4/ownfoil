@@ -1,0 +1,123 @@
+{
+  "client": "tinfoil",
+  "scenario": "public-browse",
+  "title": "Public shop, no credentials",
+  "expect": "Full file listing, no authentication involved.",
+  "captured_at": "2026-08-15T20:49:23+00:00",
+  "shop_settings": {
+    "clients": {
+      "cyberfoil": {
+        "enabled": true,
+        "hauth": {}
+      },
+      "sphaira": {
+        "enabled": true
+      },
+      "tinfoil": {
+        "clientCertKey": "-----BEGIN PRIVATE KEY-----",
+        "clientCertPub": "-----BEGIN PUBLIC KEY-----",
+        "enabled": true,
+        "encrypt": true,
+        "hauth": {}
+      }
+    },
+    "host": "",
+    "motd": "Ownfoil capture fixture",
+    "public": true
+  },
+  "users": [
+    {
+      "user": "admin",
+      "admin_access": true,
+      "shop_access": true
+    },
+    {
+      "user": "shopper",
+      "admin_access": false,
+      "shop_access": true
+    },
+    {
+      "user": "noshop",
+      "admin_access": false,
+      "shop_access": false
+    }
+  ],
+  "exchanges": [
+    {
+      "request": {
+        "method": "GET",
+        "path": "/",
+        "query": "",
+        "scheme": "http",
+        "remote_addr": "192.0.2.11",
+        "headers": [
+          [
+            "Host",
+            "192.0.2.11:8466"
+          ],
+          [
+            "Accept",
+            "*/*"
+          ],
+          [
+            "Accept-Encoding",
+            "deflate, gzip"
+          ],
+          [
+            "Theme",
+            "0000000000000000000000000000000000000000000000000000000000000000"
+          ],
+          [
+            "Uid",
+            "36EAB1BDE8B9DAB92BF1E1A08EA74D1840A7F23F4FC40DE4A7622FC1A801D971"
+          ],
+          [
+            "Version",
+            "20.0"
+          ],
+          [
+            "Revision",
+            "2"
+          ],
+          [
+            "Language",
+            "en"
+          ],
+          [
+            "Stream",
+            "1"
+          ],
+          [
+            "Hauth",
+            "78C768946A59DBF1ED10E1836449D891"
+          ],
+          [
+            "Uauth",
+            "56789D16F37342ED75DB861FE8F1E847"
+          ]
+        ]
+      },
+      "response": {
+        "status": 200,
+        "headers": [
+          [
+            "Content-Type",
+            "application/octet-stream"
+          ],
+          [
+            "Content-Length",
+            "464"
+          ]
+        ],
+        "body": {
+          "kind": "binary",
+          "length": 464,
+          "sha256": "51930dd69305bbb7129427b007ace7ccca392b269591c3447489b7824e73ed84",
+          "head_hex": "54494e464f494cfd0cad38573b788465"
+        }
+      },
+      "downloads": {},
+      "duration_ms": 49.4
+    }
+  ]
+}

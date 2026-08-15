@@ -1,0 +1,437 @@
+{
+  "client": "tinfoil",
+  "scenario": "free-browsing",
+  "title": "Anything else the client does on its own",
+  "expect": "Catch-all. This is where requests nobody wrote a handler for turn up - POST, OPTIONS, repeated polling, retries after a refusal.",
+  "captured_at": "2026-08-15T20:54:59+00:00",
+  "shop_settings": {
+    "clients": {
+      "cyberfoil": {
+        "enabled": true,
+        "hauth": {}
+      },
+      "sphaira": {
+        "enabled": true
+      },
+      "tinfoil": {
+        "clientCertKey": "-----BEGIN PRIVATE KEY-----",
+        "clientCertPub": "-----BEGIN PUBLIC KEY-----",
+        "enabled": true,
+        "encrypt": true,
+        "hauth": {}
+      }
+    },
+    "host": "",
+    "motd": "Ownfoil capture fixture",
+    "public": false
+  },
+  "users": [
+    {
+      "user": "admin",
+      "admin_access": true,
+      "shop_access": true
+    },
+    {
+      "user": "shopper",
+      "admin_access": false,
+      "shop_access": true
+    },
+    {
+      "user": "noshop",
+      "admin_access": false,
+      "shop_access": false
+    }
+  ],
+  "exchanges": [
+    {
+      "request": {
+        "method": "GET",
+        "path": "/",
+        "query": "",
+        "scheme": "http",
+        "remote_addr": "192.0.2.11",
+        "headers": [
+          [
+            "Host",
+            "192.0.2.11:8466"
+          ],
+          [
+            "Authorization",
+            "Basic c2hvcHBlcjpzaG9wcGFzczE="
+          ],
+          [
+            "Accept",
+            "*/*"
+          ],
+          [
+            "Accept-Encoding",
+            "deflate, gzip"
+          ],
+          [
+            "Theme",
+            "0000000000000000000000000000000000000000000000000000000000000000"
+          ],
+          [
+            "Uid",
+            "36EAB1BDE8B9DAB92BF1E1A08EA74D1840A7F23F4FC40DE4A7622FC1A801D971"
+          ],
+          [
+            "Version",
+            "20.0"
+          ],
+          [
+            "Revision",
+            "2"
+          ],
+          [
+            "Language",
+            "en"
+          ],
+          [
+            "Stream",
+            "1"
+          ],
+          [
+            "Hauth",
+            "78C768946A59DBF1ED10E1836449D891"
+          ],
+          [
+            "Uauth",
+            "3C0AB53105D11E8E9915E571F388799E"
+          ]
+        ]
+      },
+      "response": {
+        "status": 200,
+        "headers": [
+          [
+            "Content-Type",
+            "application/octet-stream"
+          ],
+          [
+            "Content-Length",
+            "464"
+          ]
+        ],
+        "body": {
+          "kind": "binary",
+          "length": 464,
+          "sha256": "e11e1445a499ec35c71855ea13bf8ad8926b49e17eb38769ab826dd19e390521",
+          "head_hex": "54494e464f494cfd4c739ba44516dfdc"
+        }
+      },
+      "downloads": {},
+      "duration_ms": 169.3
+    },
+    {
+      "request": {
+        "method": "GET",
+        "path": "/api/get_game/3",
+        "query": "",
+        "scheme": "http",
+        "remote_addr": "192.0.2.11",
+        "headers": [
+          [
+            "Host",
+            "192.0.2.11:8466"
+          ],
+          [
+            "Authorization",
+            "Basic c2hvcHBlcjpzaG9wcGFzczE="
+          ],
+          [
+            "Range",
+            "bytes=0-1048575"
+          ],
+          [
+            "User-Agent",
+            "Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/51.0.2704.85 Safari/537.37"
+          ],
+          [
+            "Accept",
+            "*/*"
+          ]
+        ]
+      },
+      "response": {
+        "status": 206,
+        "headers": [
+          [
+            "Content-Disposition",
+            "inline; filename=\"Test Game Extra [0100000000011001][v0].nsp\""
+          ],
+          [
+            "Content-Type",
+            "application/octet-stream"
+          ],
+          [
+            "Content-Length",
+            "4096"
+          ],
+          [
+            "Last-Modified",
+            "Sat, 15 Aug 2026 20:48:53 GMT"
+          ],
+          [
+            "Cache-Control",
+            "no-cache"
+          ],
+          [
+            "ETag",
+            "\"1786826933.851682-4096-3631097332\""
+          ],
+          [
+            "Date",
+            "Sat, 15 Aug 2026 20:54:50 GMT"
+          ],
+          [
+            "Accept-Ranges",
+            "bytes"
+          ],
+          [
+            "Content-Range",
+            "bytes 0-4095/4096"
+          ]
+        ],
+        "body": {
+          "kind": "file",
+          "length": "4096"
+        }
+      },
+      "downloads": {
+        "Test Game Extra [0100000000011001][v0].nsp": 1
+      },
+      "duration_ms": 163.2
+    },
+    {
+      "request": {
+        "method": "GET",
+        "path": "/api/get_game/1",
+        "query": "",
+        "scheme": "http",
+        "remote_addr": "192.0.2.11",
+        "headers": [
+          [
+            "Host",
+            "192.0.2.11:8466"
+          ],
+          [
+            "Authorization",
+            "Basic c2hvcHBlcjpzaG9wcGFzczE="
+          ],
+          [
+            "Range",
+            "bytes=0-1048575"
+          ],
+          [
+            "User-Agent",
+            "Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/51.0.2704.85 Safari/537.37"
+          ],
+          [
+            "Accept",
+            "*/*"
+          ]
+        ]
+      },
+      "response": {
+        "status": 206,
+        "headers": [
+          [
+            "Content-Disposition",
+            "inline; filename=\"Test Game [0100000000010000][v0].nsp\""
+          ],
+          [
+            "Content-Type",
+            "application/octet-stream"
+          ],
+          [
+            "Content-Length",
+            "4096"
+          ],
+          [
+            "Last-Modified",
+            "Sat, 15 Aug 2026 20:48:53 GMT"
+          ],
+          [
+            "Cache-Control",
+            "no-cache"
+          ],
+          [
+            "ETag",
+            "\"1786826933.851682-4096-3914867662\""
+          ],
+          [
+            "Date",
+            "Sat, 15 Aug 2026 20:54:53 GMT"
+          ],
+          [
+            "Accept-Ranges",
+            "bytes"
+          ],
+          [
+            "Content-Range",
+            "bytes 0-4095/4096"
+          ]
+        ],
+        "body": {
+          "kind": "file",
+          "length": "4096"
+        }
+      },
+      "downloads": {
+        "Test Game [0100000000010000][v0].nsp": 2
+      },
+      "duration_ms": 155.9
+    },
+    {
+      "request": {
+        "method": "HEAD",
+        "path": "/api/get_game/4",
+        "query": "",
+        "scheme": "http",
+        "remote_addr": "192.0.2.11",
+        "headers": [
+          [
+            "Host",
+            "192.0.2.11:8466"
+          ],
+          [
+            "Authorization",
+            "Basic c2hvcHBlcjpzaG9wcGFzczE="
+          ],
+          [
+            "User-Agent",
+            "Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/51.0.2704.85 Safari/537.37"
+          ],
+          [
+            "Accept",
+            "*/*"
+          ]
+        ]
+      },
+      "response": {
+        "status": 200,
+        "headers": [
+          [
+            "Content-Disposition",
+            "inline; filename=\"Multi Pack [0100000000012000].xci\""
+          ],
+          [
+            "Content-Type",
+            "application/octet-stream"
+          ],
+          [
+            "Content-Length",
+            "4096"
+          ],
+          [
+            "Last-Modified",
+            "Sat, 15 Aug 2026 20:48:53 GMT"
+          ],
+          [
+            "Cache-Control",
+            "no-cache"
+          ],
+          [
+            "ETag",
+            "\"1786826933.851682-4096-1141842536\""
+          ],
+          [
+            "Date",
+            "Sat, 15 Aug 2026 20:54:54 GMT"
+          ],
+          [
+            "Accept-Ranges",
+            "bytes"
+          ]
+        ],
+        "body": {
+          "kind": "file",
+          "length": "4096"
+        }
+      },
+      "downloads": {
+        "Multi Pack [0100000000012000].xci": 1
+      },
+      "duration_ms": 180.9
+    },
+    {
+      "request": {
+        "method": "GET",
+        "path": "/api/get_game/4",
+        "query": "",
+        "scheme": "http",
+        "remote_addr": "192.0.2.11",
+        "headers": [
+          [
+            "Host",
+            "192.0.2.11:8466"
+          ],
+          [
+            "Authorization",
+            "Basic c2hvcHBlcjpzaG9wcGFzczE="
+          ],
+          [
+            "Range",
+            "bytes=0-1048575"
+          ],
+          [
+            "User-Agent",
+            "Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/51.0.2704.85 Safari/537.37"
+          ],
+          [
+            "Accept",
+            "*/*"
+          ]
+        ]
+      },
+      "response": {
+        "status": 206,
+        "headers": [
+          [
+            "Content-Disposition",
+            "inline; filename=\"Multi Pack [0100000000012000].xci\""
+          ],
+          [
+            "Content-Type",
+            "application/octet-stream"
+          ],
+          [
+            "Content-Length",
+            "4096"
+          ],
+          [
+            "Last-Modified",
+            "Sat, 15 Aug 2026 20:48:53 GMT"
+          ],
+          [
+            "Cache-Control",
+            "no-cache"
+          ],
+          [
+            "ETag",
+            "\"1786826933.851682-4096-1141842536\""
+          ],
+          [
+            "Date",
+            "Sat, 15 Aug 2026 20:54:55 GMT"
+          ],
+          [
+            "Accept-Ranges",
+            "bytes"
+          ],
+          [
+            "Content-Range",
+            "bytes 0-4095/4096"
+          ]
+        ],
+        "body": {
+          "kind": "file",
+          "length": "4096"
+        }
+      },
+      "downloads": {},
+      "duration_ms": 136.3
+    }
+  ]
+}

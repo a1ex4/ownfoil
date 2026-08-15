@@ -2,6 +2,9 @@ __pycache__
 config
 data
 
+# capture harness workdir: fixture db, settings and the pseudonym map
+tests/capture/.workdir
+
 # venv
 /bin
 /venv

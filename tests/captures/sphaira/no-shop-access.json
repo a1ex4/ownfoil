@@ -1,0 +1,93 @@
+{
+  "client": "sphaira",
+  "scenario": "no-shop-access",
+  "title": "Private shop, valid user without shop access",
+  "expect": "Refused: user has no shop access. Distinct from a bad password.",
+  "captured_at": "2026-08-15T21:47:46+00:00",
+  "shop_settings": {
+    "clients": {
+      "cyberfoil": {
+        "enabled": true,
+        "hauth": {}
+      },
+      "sphaira": {
+        "enabled": true
+      },
+      "tinfoil": {
+        "clientCertKey": "-----BEGIN PRIVATE KEY-----",
+        "clientCertPub": "-----BEGIN PUBLIC KEY-----",
+        "enabled": true,
+        "encrypt": true,
+        "hauth": {}
+      }
+    },
+    "host": "",
+    "motd": "Ownfoil capture fixture",
+    "public": false
+  },
+  "users": [
+    {
+      "user": "admin",
+      "admin_access": true,
+      "shop_access": true
+    },
+    {
+      "user": "shopper",
+      "admin_access": false,
+      "shop_access": true
+    },
+    {
+      "user": "noshop",
+      "admin_access": false,
+      "shop_access": false
+    }
+  ],
+  "exchanges": [
+    {
+      "request": {
+        "method": "GET",
+        "path": "/sphaira/",
+        "query": "",
+        "scheme": "http",
+        "remote_addr": "192.0.2.11",
+        "headers": [
+          [
+            "Host",
+            "192.0.2.11:8466"
+          ],
+          [
+            "Authorization",
+            "Basic bm9zaG9wOm5vc2hvcHBhc3Mx"
+          ],
+          [
+            "Accept",
+            "*/*"
+          ],
+          [
+            "Accept-Encoding",
+            "deflate, gzip"
+          ]
+        ]
+      },
+      "response": {
+        "status": 200,
+        "headers": [
+          [
+            "Content-Type",
+            "text/html; charset=utf-8"
+          ],
+          [
+            "Content-Length",
+            "156"
+          ]
+        ],
+        "body": {
+          "kind": "text",
+          "text": "<!DOCTYPE html>\n<html>\n<body>\n<table>\n<a href=\"00 - ERROR\"> </a>\n<a href=\"01 - User noshop does not have access to the shop.\"> </a>\n</table>\n</body>\n</html>"
+        }
+      },
+      "downloads": {},
+      "duration_ms": 179.3
+    }
+  ]
+}
