@@ -540,5 +540,8 @@ def serve_game(id):
     """Serve a game file to authenticated clients."""
     filepath = db.session.query(Files.filepath).filter_by(id=id).first()[0]
     filedir, filename = os.path.split(filepath)
-    increment_download_count_throttled(filepath, request.remote_addr)
-    return send_from_directory(filedir, filename)
+    # Count only once the response exists: clients probe files with a Range before taking
+    # them, and a range past the end of the file raises out of here without transferring.
+    response = send_from_directory(filedir, filename)
+    increment_download_count_throttled(filepath, client_address(request))
+    return response
