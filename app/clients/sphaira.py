@@ -1,6 +1,8 @@
 """
 Sphaira client implementation.
 """
+import os
+
 from flask import Request, Response, request, send_from_directory
 
 from .client import BaseClient
@@ -88,11 +90,12 @@ class SphairaClient(BaseClient):
             # Get the library path for this file
             library = Libraries.query.filter_by(id=file.library_id).first()
             
-            library_path = library.path.rstrip('/')
+            library_path = library.path.rstrip('/' + os.sep)
             file_path = file.filepath
-            
-            # Strip library path to get relative path
-            relative_path = file_path[len(library_path):].lstrip('/')
+
+            # Strip library path to get relative path, in the url form the listing is built in:
+            # filepaths come off the filesystem in its own separator.
+            relative_path = file_path[len(library_path):].lstrip('/' + os.sep).replace(os.sep, '/')
             
             # If we're in a subdirectory, filter to only show items under current path
             if path:
