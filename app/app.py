@@ -538,7 +538,9 @@ app.add_url_rule(
 @file_access
 def serve_game(id):
     """Serve a game file to authenticated clients."""
-    filepath = db.session.query(Files.filepath).filter_by(id=id).first()[0]
+    filepath = db.session.query(Files.filepath).filter_by(id=id).scalar()
+    if not filepath:
+        return jsonify({'error': f'No file with id {id}.'}), 404
     filedir, filename = os.path.split(filepath)
     # Count only once the response exists: clients probe files with a Range before taking
     # them, and a range past the end of the file raises out of here without transferring.
