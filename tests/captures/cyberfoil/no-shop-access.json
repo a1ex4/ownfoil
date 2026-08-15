@@ -1,0 +1,275 @@
+{
+  "client": "cyberfoil",
+  "scenario": "no-shop-access",
+  "title": "Private shop, valid user without shop access",
+  "expect": "Refused: user has no shop access. Distinct from a bad password.",
+  "captured_at": "2026-08-15T21:15:48+00:00",
+  "shop_settings": {
+    "clients": {
+      "cyberfoil": {
+        "enabled": true,
+        "hauth": {}
+      },
+      "sphaira": {
+        "enabled": true
+      },
+      "tinfoil": {
+        "clientCertKey": "-----BEGIN PRIVATE KEY-----",
+        "clientCertPub": "-----BEGIN PUBLIC KEY-----",
+        "enabled": true,
+        "encrypt": true,
+        "hauth": {}
+      }
+    },
+    "host": "",
+    "motd": "Ownfoil capture fixture",
+    "public": false
+  },
+  "users": [
+    {
+      "user": "admin",
+      "admin_access": true,
+      "shop_access": true
+    },
+    {
+      "user": "shopper",
+      "admin_access": false,
+      "shop_access": true
+    },
+    {
+      "user": "noshop",
+      "admin_access": false,
+      "shop_access": false
+    }
+  ],
+  "exchanges": [
+    {
+      "request": {
+        "method": "GET",
+        "path": "/api/remote/sections",
+        "query": "",
+        "scheme": "http",
+        "remote_addr": "192.0.2.11",
+        "headers": [
+          [
+            "Host",
+            "192.0.2.11:8466"
+          ],
+          [
+            "Authorization",
+            "Basic bm9zaG9wOm5vc2hvcHBhc3Mx"
+          ],
+          [
+            "User-Agent",
+            "cyberfoil"
+          ],
+          [
+            "Accept",
+            "*/*"
+          ],
+          [
+            "Theme",
+            "0000000000000000000000000000000000000000000000000000000000000000"
+          ],
+          [
+            "Uid",
+            "36EAB1BDE8B9DAB92BF1E1A08EA74D1840A7F23F4FC40DE4A7622FC1A801D971"
+          ],
+          [
+            "Version",
+            "1.4"
+          ],
+          [
+            "Revision",
+            "5"
+          ],
+          [
+            "Language",
+            "fr"
+          ],
+          [
+            "Hauth",
+            "78C768946A59DBF1ED10E1836449D891"
+          ],
+          [
+            "Uauth",
+            "89688401F2BC8EB3EDC4962264EEDEAF"
+          ]
+        ]
+      },
+      "response": {
+        "status": 200,
+        "headers": [
+          [
+            "Content-Type",
+            "application/json"
+          ],
+          [
+            "Content-Length",
+            "58"
+          ]
+        ],
+        "body": {
+          "kind": "json",
+          "json": {
+            "error": "User noshop does not have access to the shop."
+          }
+        }
+      },
+      "downloads": {},
+      "duration_ms": 183.7
+    },
+    {
+      "request": {
+        "method": "GET",
+        "path": "/api/shop/sections",
+        "query": "",
+        "scheme": "http",
+        "remote_addr": "192.0.2.11",
+        "headers": [
+          [
+            "Host",
+            "192.0.2.11:8466"
+          ],
+          [
+            "Authorization",
+            "Basic bm9zaG9wOm5vc2hvcHBhc3Mx"
+          ],
+          [
+            "User-Agent",
+            "cyberfoil"
+          ],
+          [
+            "Accept",
+            "*/*"
+          ],
+          [
+            "Theme",
+            "0000000000000000000000000000000000000000000000000000000000000000"
+          ],
+          [
+            "Uid",
+            "36EAB1BDE8B9DAB92BF1E1A08EA74D1840A7F23F4FC40DE4A7622FC1A801D971"
+          ],
+          [
+            "Version",
+            "1.4"
+          ],
+          [
+            "Revision",
+            "5"
+          ],
+          [
+            "Language",
+            "fr"
+          ],
+          [
+            "Hauth",
+            "78C768946A59DBF1ED10E1836449D891"
+          ],
+          [
+            "Uauth",
+            "20ED42540463884B2CD4717A1716A3CC"
+          ]
+        ]
+      },
+      "response": {
+        "status": 200,
+        "headers": [
+          [
+            "Content-Type",
+            "application/json"
+          ],
+          [
+            "Content-Length",
+            "58"
+          ]
+        ],
+        "body": {
+          "kind": "json",
+          "json": {
+            "error": "User noshop does not have access to the shop."
+          }
+        }
+      },
+      "downloads": {},
+      "duration_ms": 138.2
+    },
+    {
+      "request": {
+        "method": "GET",
+        "path": "/",
+        "query": "",
+        "scheme": "http",
+        "remote_addr": "192.0.2.11",
+        "headers": [
+          [
+            "Host",
+            "192.0.2.11:8466"
+          ],
+          [
+            "Authorization",
+            "Basic bm9zaG9wOm5vc2hvcHBhc3Mx"
+          ],
+          [
+            "User-Agent",
+            "cyberfoil"
+          ],
+          [
+            "Accept",
+            "*/*"
+          ],
+          [
+            "Theme",
+            "0000000000000000000000000000000000000000000000000000000000000000"
+          ],
+          [
+            "Uid",
+            "36EAB1BDE8B9DAB92BF1E1A08EA74D1840A7F23F4FC40DE4A7622FC1A801D971"
+          ],
+          [
+            "Version",
+            "1.4"
+          ],
+          [
+            "Revision",
+            "5"
+          ],
+          [
+            "Language",
+            "fr"
+          ],
+          [
+            "Hauth",
+            "78C768946A59DBF1ED10E1836449D891"
+          ],
+          [
+            "Uauth",
+            "DD6F196D418684DA9452D1D31C00FB8D"
+          ]
+        ]
+      },
+      "response": {
+        "status": 200,
+        "headers": [
+          [
+            "Content-Type",
+            "application/json"
+          ],
+          [
+            "Content-Length",
+            "58"
+          ]
+        ],
+        "body": {
+          "kind": "json",
+          "json": {
+            "error": "User noshop does not have access to the shop."
+          }
+        }
+      },
+      "downloads": {},
+      "duration_ms": 140.5
+    }
+  ]
+}

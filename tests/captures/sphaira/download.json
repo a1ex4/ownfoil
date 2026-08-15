@@ -1,0 +1,281 @@
+{
+  "client": "sphaira",
+  "scenario": "download",
+  "title": "Download a file",
+  "expect": "File served; download_count goes to 1. Sphaira HEADs before it GETs.",
+  "captured_at": "2026-08-15T21:51:16+00:00",
+  "shop_settings": {
+    "clients": {
+      "cyberfoil": {
+        "enabled": true,
+        "hauth": {}
+      },
+      "sphaira": {
+        "enabled": true
+      },
+      "tinfoil": {
+        "clientCertKey": "-----BEGIN PRIVATE KEY-----",
+        "clientCertPub": "-----BEGIN PUBLIC KEY-----",
+        "enabled": true,
+        "encrypt": true,
+        "hauth": {}
+      }
+    },
+    "host": "",
+    "motd": "Ownfoil capture fixture",
+    "public": false
+  },
+  "users": [
+    {
+      "user": "admin",
+      "admin_access": true,
+      "shop_access": true
+    },
+    {
+      "user": "shopper",
+      "admin_access": false,
+      "shop_access": true
+    },
+    {
+      "user": "noshop",
+      "admin_access": false,
+      "shop_access": false
+    }
+  ],
+  "exchanges": [
+    {
+      "request": {
+        "method": "GET",
+        "path": "/sphaira/",
+        "query": "",
+        "scheme": "http",
+        "remote_addr": "192.0.2.11",
+        "headers": [
+          [
+            "Host",
+            "192.0.2.11:8466"
+          ],
+          [
+            "Authorization",
+            "Basic c2hvcHBlcjpzaG9wcGFzczE="
+          ],
+          [
+            "Accept",
+            "*/*"
+          ],
+          [
+            "Accept-Encoding",
+            "deflate, gzip"
+          ]
+        ]
+      },
+      "response": {
+        "status": 200,
+        "headers": [
+          [
+            "Content-Type",
+            "text/html; charset=utf-8"
+          ],
+          [
+            "Content-Length",
+            "140"
+          ]
+        ],
+        "body": {
+          "kind": "text",
+          "text": "<!DOCTYPE html>\n<html>\n<body>\n<table>\n<a href=\"Bundles/\"> </a>\n<a href=\"Test Game/\"> </a>\n<a href=\"Unsorted/\"> </a>\n</table>\n</body>\n</html>"
+        }
+      },
+      "downloads": {},
+      "duration_ms": 167.2
+    },
+    {
+      "request": {
+        "method": "GET",
+        "path": "/sphaira/Test Game/",
+        "query": "",
+        "scheme": "http",
+        "remote_addr": "192.0.2.11",
+        "headers": [
+          [
+            "Host",
+            "192.0.2.11:8466"
+          ],
+          [
+            "Authorization",
+            "Basic c2hvcHBlcjpzaG9wcGFzczE="
+          ],
+          [
+            "Accept",
+            "*/*"
+          ],
+          [
+            "Accept-Encoding",
+            "deflate, gzip"
+          ]
+        ]
+      },
+      "response": {
+        "status": 200,
+        "headers": [
+          [
+            "Content-Type",
+            "text/html; charset=utf-8"
+          ],
+          [
+            "Content-Length",
+            "231"
+          ]
+        ],
+        "body": {
+          "kind": "text",
+          "text": "<!DOCTYPE html>\n<html>\n<body>\n<table>\n<a href=\"Test Game [0100000000010000][v0].nsp\"> </a>\n<a href=\"Test Game [0100000000010800][v65536].nsp\"> </a>\n<a href=\"Test Game Extra [0100000000011001][v0].nsp\"> </a>\n</table>\n</body>\n</html>"
+        }
+      },
+      "downloads": {},
+      "duration_ms": 159.6
+    },
+    {
+      "request": {
+        "method": "HEAD",
+        "path": "/sphaira/Test Game/Test Game [0100000000010000][v0].nsp",
+        "query": "",
+        "scheme": "http",
+        "remote_addr": "192.0.2.11",
+        "headers": [
+          [
+            "Host",
+            "192.0.2.11:8466"
+          ],
+          [
+            "Authorization",
+            "Basic c2hvcHBlcjpzaG9wcGFzczE="
+          ],
+          [
+            "Accept",
+            "*/*"
+          ],
+          [
+            "Accept-Encoding",
+            "deflate, gzip"
+          ]
+        ]
+      },
+      "response": {
+        "status": 200,
+        "headers": [
+          [
+            "Content-Disposition",
+            "inline; filename=\"Test Game [0100000000010000][v0].nsp\""
+          ],
+          [
+            "Content-Type",
+            "application/octet-stream"
+          ],
+          [
+            "Content-Length",
+            "4096"
+          ],
+          [
+            "Last-Modified",
+            "Sat, 15 Aug 2026 21:41:09 GMT"
+          ],
+          [
+            "Cache-Control",
+            "no-cache"
+          ],
+          [
+            "ETag",
+            "\"1786830069.4895992-4096-3914867662\""
+          ],
+          [
+            "Date",
+            "Sat, 15 Aug 2026 21:51:12 GMT"
+          ],
+          [
+            "Accept-Ranges",
+            "bytes"
+          ]
+        ],
+        "body": {
+          "kind": "file",
+          "length": "4096"
+        }
+      },
+      "downloads": {
+        "Test Game [0100000000010000][v0].nsp": 1
+      },
+      "duration_ms": 211.1
+    },
+    {
+      "request": {
+        "method": "GET",
+        "path": "/sphaira/Test Game/Test Game [0100000000010000][v0].nsp",
+        "query": "",
+        "scheme": "http",
+        "remote_addr": "192.0.2.11",
+        "headers": [
+          [
+            "Host",
+            "192.0.2.11:8466"
+          ],
+          [
+            "Authorization",
+            "Basic c2hvcHBlcjpzaG9wcGFzczE="
+          ],
+          [
+            "Accept",
+            "*/*"
+          ],
+          [
+            "Accept-Encoding",
+            "deflate, gzip"
+          ]
+        ]
+      },
+      "response": {
+        "status": 200,
+        "headers": [
+          [
+            "Content-Disposition",
+            "inline; filename=\"Test Game [0100000000010000][v0].nsp\""
+          ],
+          [
+            "Content-Type",
+            "application/octet-stream"
+          ],
+          [
+            "Content-Length",
+            "4096"
+          ],
+          [
+            "Last-Modified",
+            "Sat, 15 Aug 2026 21:41:09 GMT"
+          ],
+          [
+            "Cache-Control",
+            "no-cache"
+          ],
+          [
+            "ETag",
+            "\"1786830069.4895992-4096-3914867662\""
+          ],
+          [
+            "Date",
+            "Sat, 15 Aug 2026 21:51:12 GMT"
+          ],
+          [
+            "Accept-Ranges",
+            "bytes"
+          ]
+        ],
+        "body": {
+          "kind": "file",
+          "length": "4096"
+        }
+      },
+      "downloads": {},
+      "duration_ms": 163.5
+    }
+  ]
+}

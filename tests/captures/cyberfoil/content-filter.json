@@ -1,0 +1,375 @@
+{
+  "client": "cyberfoil",
+  "scenario": "content-filter",
+  "title": "Base games only",
+  "expect": "Only identified base games; the update, DLC, multi and unidentified files drop out.",
+  "captured_at": "2026-08-15T21:17:50+00:00",
+  "shop_settings": {
+    "clients": {
+      "cyberfoil": {
+        "enabled": true,
+        "hauth": {}
+      },
+      "sphaira": {
+        "enabled": true
+      },
+      "tinfoil": {
+        "clientCertKey": "-----BEGIN PRIVATE KEY-----",
+        "clientCertPub": "-----BEGIN PUBLIC KEY-----",
+        "enabled": true,
+        "encrypt": true,
+        "hauth": {}
+      }
+    },
+    "host": "",
+    "motd": "Ownfoil capture fixture",
+    "public": false
+  },
+  "users": [
+    {
+      "user": "admin",
+      "admin_access": true,
+      "shop_access": true
+    },
+    {
+      "user": "shopper",
+      "admin_access": false,
+      "shop_access": true
+    },
+    {
+      "user": "noshop",
+      "admin_access": false,
+      "shop_access": false
+    }
+  ],
+  "exchanges": [
+    {
+      "request": {
+        "method": "GET",
+        "path": "/base/api/remote/sections",
+        "query": "",
+        "scheme": "http",
+        "remote_addr": "192.0.2.11",
+        "headers": [
+          [
+            "Host",
+            "192.0.2.11:8466"
+          ],
+          [
+            "Authorization",
+            "Basic c2hvcHBlcjpzaG9wcGFzczE="
+          ],
+          [
+            "User-Agent",
+            "cyberfoil"
+          ],
+          [
+            "Accept",
+            "*/*"
+          ],
+          [
+            "Theme",
+            "0000000000000000000000000000000000000000000000000000000000000000"
+          ],
+          [
+            "Uid",
+            "36EAB1BDE8B9DAB92BF1E1A08EA74D1840A7F23F4FC40DE4A7622FC1A801D971"
+          ],
+          [
+            "Version",
+            "1.4"
+          ],
+          [
+            "Revision",
+            "5"
+          ],
+          [
+            "Language",
+            "fr"
+          ],
+          [
+            "Hauth",
+            "78C768946A59DBF1ED10E1836449D891"
+          ],
+          [
+            "Uauth",
+            "AD5B4E95CD6CDC41975C3AC5070FA468"
+          ]
+        ]
+      },
+      "response": {
+        "status": 200,
+        "headers": [
+          [
+            "Content-Type",
+            "application/json"
+          ],
+          [
+            "Content-Length",
+            "123"
+          ]
+        ],
+        "body": {
+          "kind": "json",
+          "json": {
+            "files": [
+              {
+                "size": 4096,
+                "url": "/api/get_game/1#Test Game [0100000000010000][v0].nsp"
+              }
+            ],
+            "success": "Ownfoil capture fixture"
+          }
+        }
+      },
+      "downloads": {},
+      "duration_ms": 167.5
+    },
+    {
+      "request": {
+        "method": "GET",
+        "path": "/base/api/shop/sections",
+        "query": "",
+        "scheme": "http",
+        "remote_addr": "192.0.2.11",
+        "headers": [
+          [
+            "Host",
+            "192.0.2.11:8466"
+          ],
+          [
+            "Authorization",
+            "Basic c2hvcHBlcjpzaG9wcGFzczE="
+          ],
+          [
+            "User-Agent",
+            "cyberfoil"
+          ],
+          [
+            "Accept",
+            "*/*"
+          ],
+          [
+            "Theme",
+            "0000000000000000000000000000000000000000000000000000000000000000"
+          ],
+          [
+            "Uid",
+            "36EAB1BDE8B9DAB92BF1E1A08EA74D1840A7F23F4FC40DE4A7622FC1A801D971"
+          ],
+          [
+            "Version",
+            "1.4"
+          ],
+          [
+            "Revision",
+            "5"
+          ],
+          [
+            "Language",
+            "fr"
+          ],
+          [
+            "Hauth",
+            "78C768946A59DBF1ED10E1836449D891"
+          ],
+          [
+            "Uauth",
+            "48C7FB7D05C95A44D896B6345062709F"
+          ]
+        ]
+      },
+      "response": {
+        "status": 200,
+        "headers": [
+          [
+            "Content-Type",
+            "application/json"
+          ],
+          [
+            "Content-Length",
+            "123"
+          ]
+        ],
+        "body": {
+          "kind": "json",
+          "json": {
+            "files": [
+              {
+                "size": 4096,
+                "url": "/api/get_game/1#Test Game [0100000000010000][v0].nsp"
+              }
+            ],
+            "success": "Ownfoil capture fixture"
+          }
+        }
+      },
+      "downloads": {},
+      "duration_ms": 136.3
+    },
+    {
+      "request": {
+        "method": "GET",
+        "path": "/base",
+        "query": "",
+        "scheme": "http",
+        "remote_addr": "192.0.2.11",
+        "headers": [
+          [
+            "Host",
+            "192.0.2.11:8466"
+          ],
+          [
+            "Authorization",
+            "Basic c2hvcHBlcjpzaG9wcGFzczE="
+          ],
+          [
+            "User-Agent",
+            "cyberfoil"
+          ],
+          [
+            "Accept",
+            "*/*"
+          ],
+          [
+            "Theme",
+            "0000000000000000000000000000000000000000000000000000000000000000"
+          ],
+          [
+            "Uid",
+            "36EAB1BDE8B9DAB92BF1E1A08EA74D1840A7F23F4FC40DE4A7622FC1A801D971"
+          ],
+          [
+            "Version",
+            "1.4"
+          ],
+          [
+            "Revision",
+            "5"
+          ],
+          [
+            "Language",
+            "fr"
+          ],
+          [
+            "Hauth",
+            "78C768946A59DBF1ED10E1836449D891"
+          ],
+          [
+            "Uauth",
+            "5078F3BECC5ECE571CCCACE1411C3A77"
+          ]
+        ]
+      },
+      "response": {
+        "status": 200,
+        "headers": [
+          [
+            "Content-Type",
+            "application/json"
+          ],
+          [
+            "Content-Length",
+            "123"
+          ]
+        ],
+        "body": {
+          "kind": "json",
+          "json": {
+            "files": [
+              {
+                "size": 4096,
+                "url": "/api/get_game/1#Test Game [0100000000010000][v0].nsp"
+              }
+            ],
+            "success": "Ownfoil capture fixture"
+          }
+        }
+      },
+      "downloads": {},
+      "duration_ms": 135.9
+    },
+    {
+      "request": {
+        "method": "GET",
+        "path": "/base",
+        "query": "",
+        "scheme": "http",
+        "remote_addr": "192.0.2.11",
+        "headers": [
+          [
+            "Host",
+            "192.0.2.11:8466"
+          ],
+          [
+            "Authorization",
+            "Basic c2hvcHBlcjpzaG9wcGFzczE="
+          ],
+          [
+            "User-Agent",
+            "cyberfoil"
+          ],
+          [
+            "Accept",
+            "*/*"
+          ],
+          [
+            "Theme",
+            "0000000000000000000000000000000000000000000000000000000000000000"
+          ],
+          [
+            "Uid",
+            "36EAB1BDE8B9DAB92BF1E1A08EA74D1840A7F23F4FC40DE4A7622FC1A801D971"
+          ],
+          [
+            "Version",
+            "1.4"
+          ],
+          [
+            "Revision",
+            "5"
+          ],
+          [
+            "Language",
+            "fr"
+          ],
+          [
+            "Hauth",
+            "78C768946A59DBF1ED10E1836449D891"
+          ],
+          [
+            "Uauth",
+            "5078F3BECC5ECE571CCCACE1411C3A77"
+          ]
+        ]
+      },
+      "response": {
+        "status": 200,
+        "headers": [
+          [
+            "Content-Type",
+            "application/json"
+          ],
+          [
+            "Content-Length",
+            "123"
+          ]
+        ],
+        "body": {
+          "kind": "json",
+          "json": {
+            "files": [
+              {
+                "size": 4096,
+                "url": "/api/get_game/1#Test Game [0100000000010000][v0].nsp"
+              }
+            ],
+            "success": "Ownfoil capture fixture"
+          }
+        }
+      },
+      "downloads": {},
+      "duration_ms": 161.3
+    }
+  ]
+}
