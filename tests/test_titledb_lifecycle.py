@@ -199,6 +199,23 @@ def test_numeric_json_fields_survive_the_round_trip(install, title_type, app_id,
     assert titles_lib.identify_appId(app_id) == expected
 
 
+@pytest.mark.parametrize("missing", ["titles.US.en.json", "cnmts.json", "versions.json"])
+def test_a_missing_source_file_is_an_error(install, missing):
+    """Returning quietly here would let a partial download look like a completed update.
+
+    update_titledb only advances its stored commit once the import returns, so a silent
+    no-op would mark a half-downloaded revision as current and never retry it.
+    """
+    init_db(install.app)
+    for name in ["titles.US.en.json", "cnmts.json", "versions.json"]:
+        if name != missing:
+            (install.titledb_dir / name).write_text("{}")
+
+    with install.app.app_context():
+        with pytest.raises(FileNotFoundError, match=missing):
+            titledb.store.import_from_json(str(install.titledb_dir / "titles.US.en.json"), "US.en")
+
+
 # ------------- source merging -------------
 
 # (case, overrides to set, expected fields of the merged record, expected `sources`)

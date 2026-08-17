@@ -4,13 +4,18 @@ import os
 import re
 
 import requests
-import unzip_http
+import zstandard
 
-from constants import APP_DIR, TITLEDB_ARTEFACTS_URL, TITLEDB_DEFAULT_FILES, TITLEDB_DIR
+from constants import APP_DIR, TITLEDB_DEFAULT_FILES, TITLEDB_DIR, TITLEDB_RELEASE_URL
 from titledb import store
 
 # Retrieve main logger
 logger = logging.getLogger('main')
+
+MARKER_FILE = '.latest'
+REMOTE_MARKER = 'latest'
+REGION_FILE_RE = re.compile(r"titles\.[A-Z]{2}\.[a-z]{2}\.json$")
+TIMEOUT = (10, 60)
 
 
 def get_region_titles_file(app_settings):
@@ -21,73 +26,63 @@ def get_locale(app_settings):
     return f"{app_settings['titles']['region']}.{app_settings['titles']['language']}"
 
 
-def download_from_remote_zip(rzf, path, store_path):
-    with rzf.open(path) as fpin:
-        with open(store_path, mode='wb') as fpout:
-            while True:
-                r = fpin.read(65536)
-                if not r:
-                    break
-                fpout.write(r)
+def get_remote_commit():
+    """Read the release marker, which the build writes only once every asset is in place."""
+    r = requests.get(f'{TITLEDB_RELEASE_URL}/{REMOTE_MARKER}', timeout=TIMEOUT,
+                     headers={'Cache-Control': 'no-cache'})
+    r.raise_for_status()
+    return r.text.strip()
 
 
-def is_titledb_update_available(rzf):
-    update_available = False
-    local_commit_file = os.path.join(TITLEDB_DIR, '.latest')
-    remote_latest_commit_file = [ f.filename for f in rzf.infolist() if 'latest_' in f.filename ][0]
-    latest_remote_commit = remote_latest_commit_file.split('_')[-1]
-
-    if not os.path.isfile(local_commit_file):
-        logger.info('Retrieving titledb for the first time...')
-        update_available = True
-    else:
-        with open(local_commit_file, 'r') as f:
-            current_commit = f.read()
-
-        if current_commit == latest_remote_commit:
-            logger.info(f'Titledb already up to date, commit: {current_commit}')
-            update_available = False
-        else:
-            logger.info(f'Titledb update available, current commit: {current_commit}, latest commit: {latest_remote_commit}')
-            update_available = True
-
-    if update_available:
-        with open(local_commit_file, 'w') as f:
-            f.write(latest_remote_commit)
-
-    return update_available
+def get_local_commit():
+    marker = os.path.join(TITLEDB_DIR, MARKER_FILE)
+    if not os.path.isfile(marker):
+        return None
+    with open(marker, 'r') as f:
+        return f.read().strip()
 
 
-def download_titledb_files(rzf, files):
-    for file in files:
-        store_path = os.path.join(TITLEDB_DIR, file)
-        rel_store_path = os.path.relpath(store_path, start=APP_DIR)
-        logger.info(f'Downloading {file} from remote titledb to {rel_store_path}')
-        download_from_remote_zip(rzf, file, store_path)
+def download_file(file):
+    """Stream one compressed asset, decompress it, and swap it in atomically."""
+    store_path = os.path.join(TITLEDB_DIR, file)
+    logger.info(f'Downloading {file} from remote titledb to {os.path.relpath(store_path, start=APP_DIR)}')
+    decompressor = zstandard.ZstdDecompressor().decompressobj()
+    with requests.get(f'{TITLEDB_RELEASE_URL}/{file}.zst', stream=True, timeout=TIMEOUT) as r:
+        r.raise_for_status()
+        with open(store_path + '.tmp', 'wb') as fpout:
+            for chunk in r.iter_content(65536):
+                fpout.write(decompressor.decompress(chunk))
+    # A cut-off transfer still decompresses cleanly up to the break, so the frame end is what
+    # tells us the file is whole. Without this the partial file would be swapped in as good.
+    if not decompressor.eof:
+        raise IOError(f'Truncated download for {file}')
+    os.replace(store_path + '.tmp', store_path)
 
 
 def update_titledb_files(app_settings):
-    """Download changed titledb files. Returns the list of files written."""
+    """Download changed titledb files. Returns (files written, remote commit)."""
     files_to_update = []
-
     region_titles_file = get_region_titles_file(app_settings)
-    region_titles_file_present = region_titles_file in os.listdir(TITLEDB_DIR)
+    remote_commit = get_remote_commit()
+    current_commit = get_local_commit()
 
-    r = requests.get(TITLEDB_ARTEFACTS_URL, allow_redirects = False)
-    direct_url = r.next.url
-    rzf = unzip_http.RemoteZipFile(direct_url)
+    if current_commit is None:
+        logger.info('Retrieving titledb for the first time...')
+    elif current_commit != remote_commit:
+        logger.info(f'Titledb update available, current commit: {current_commit}, latest commit: {remote_commit}')
+    else:
+        logger.info(f'Titledb already up to date, commit: {current_commit}')
 
-    if is_titledb_update_available(rzf):
+    if current_commit != remote_commit:
         files_to_update = TITLEDB_DEFAULT_FILES + [region_titles_file]
-        old_region_titles_files = [f for f in os.listdir(TITLEDB_DIR) if re.match(r"titles\.[A-Z]{2}\.[a-z]{2}\.json", f) and f not in files_to_update]
-        files_to_update += old_region_titles_files
-
-    elif not region_titles_file_present:
+        files_to_update += [f for f in os.listdir(TITLEDB_DIR)
+                            if REGION_FILE_RE.match(f) and f not in files_to_update]
+    elif region_titles_file not in os.listdir(TITLEDB_DIR):
         files_to_update.append(region_titles_file)
 
-    if len(files_to_update):
-        download_titledb_files(rzf, files_to_update)
-    return files_to_update
+    for file in files_to_update:
+        download_file(file)
+    return files_to_update, remote_commit
 
 
 def update_titledb(app_settings):
@@ -96,7 +91,7 @@ def update_titledb(app_settings):
     if not os.path.isdir(TITLEDB_DIR):
         os.makedirs(TITLEDB_DIR, exist_ok=True)
 
-    downloaded = update_titledb_files(app_settings)
+    downloaded, remote_commit = update_titledb_files(app_settings)
     locale = get_locale(app_settings)
     locale_changed = store.get_imported_locale() != locale
     if downloaded or locale_changed:
@@ -104,4 +99,8 @@ def update_titledb(app_settings):
         if locale_changed:
             from db import reset_files_organized
             reset_files_organized()
+
+    # Written only once the files are on disk and imported, so a failure retries the same revision
+    with open(os.path.join(TITLEDB_DIR, MARKER_FILE), 'w') as f:
+        f.write(remote_commit)
     logger.info('titledb update done.')

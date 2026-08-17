@@ -8,6 +8,11 @@ on:
     - cron: '0 */4 * * *'
   # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
+    inputs:
+      force:
+        description: 'Rebuild even if blawar/titledb has not moved'
+        type: boolean
+        default: false
 
 # A workflow run is made up of one or more jobs that can run sequentially or in parallel
 jobs:
@@ -16,8 +21,29 @@ jobs:
     # The type of runner that the job will run on
     runs-on: ubuntu-latest
 
+    permissions:
+      contents: write
+      actions: write
+
     # Steps represent a sequence of tasks that will be executed as part of the job
     steps:
+      # A no-op run must not conclude as a success: nightly.link serves the latest *successful*
+      # run's artifact to pre-release Ownfoil versions, so it has to keep pointing at a run that
+      # actually uploaded one. Cancelling leaves that resolution untouched.
+      - name: Skip when blawar/titledb has not moved
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          remote=$(git ls-remote https://github.com/blawar/titledb.git HEAD | cut -f1)
+          published=$(curl -sfL "https://github.com/${{ github.repository }}/releases/download/titledb/latest" || true)
+          echo "upstream=${remote} published=${published:-<none>}"
+          if [ "$remote" = "$published" ] && [ "${{ inputs.force }}" != "true" ]; then
+            echo "titledb unchanged, cancelling this run"
+            gh run cancel "${{ github.run_id }}"
+            sleep 60
+          fi
+
       # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
@@ -35,7 +61,11 @@ jobs:
           git clone --depth=1 https://github.com/blawar/titledb
           titledb_commit=$(git -C titledb rev-parse --short HEAD)
           echo "formatted_date=$(date +"%Y-%m-%d_%H%M%S")" >> $GITHUB_ENV
+          # Short hash inside the artefact: consumed by Ownfoil < 2.4 through nightly.link
           touch "build_artefacts/latest_${titledb_commit}"
+          # Full hash outside the artefact: the release marker, and what the skip check compares.
+          # Both come from the clone, never from ls-remote, which can race ahead of it.
+          git -C titledb rev-parse HEAD > latest
 
       - uses: jannekem/run-python-script-action@v1
         name: Generate region titles
@@ -64,10 +94,37 @@ jobs:
               'versions.txt',
             ]:
               os.rename(f'titledb/{f}', f'build_artefacts/{f}')
-            
 
+
+      # Must stay ahead of the compression step: pre-release versions read the uncompressed
+      # JSON straight out of this zip.
       - uses: actions/upload-artifact@v7
         with:
           name: titledb
           path: nut/build_artefacts/*
           compression-level: 9
+
+      - name: Compress artefacts
+        run: zstd -12 -T0 --rm -q nut/build_artefacts/*.json nut/build_artefacts/versions.txt
+
+      - name: Publish to the titledb release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release view titledb >/dev/null 2>&1 || \
+            gh release create titledb --prerelease --latest=false --title 'titledb data' \
+              --notes 'Rolling titledb dataset consumed by Ownfoil. Assets are replaced in place; `latest` holds the blawar/titledb commit they were built from and is always written last.'
+          uploaded=false
+          for attempt in 1 2 3; do
+            if gh release upload titledb nut/build_artefacts/*.zst --clobber; then
+              uploaded=true
+              break
+            fi
+            echo "upload attempt ${attempt} failed, retrying"
+            sleep 30
+          done
+          # Guards the invariant below: never publish the marker over a half-uploaded dataset
+          [ "$uploaded" = true ]
+          # Written last, alone: a client that sees a new hash knows every asset is already in place
+          gh release upload titledb nut/latest --clobber

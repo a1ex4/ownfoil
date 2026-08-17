@@ -196,8 +196,7 @@ def import_from_json(region_file, locale):
 
     for path in (region_file, cnmts_file, versions_file):
         if not os.path.isfile(path):
-            logger.warning(f'Cannot build titles.db, missing file: {path}')
-            return
+            raise FileNotFoundError(f'Cannot build titles.db, missing file: {path}')
 
     new_path = TITLES_DB_FILE + '.new'
     if os.path.exists(new_path):

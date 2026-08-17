@@ -31,6 +31,9 @@ from library import (
 
 logger = logging.getLogger('main')
 
+# How long to wait before retrying a titledb update that failed to reach the release
+TITLEDB_RETRY_DELAY = datetime.timedelta(hours=1)
+
 # --- Task Registry ---
 TASK_REGISTRY = {}
 TASK_CONTINUATIONS = {}
@@ -582,22 +585,32 @@ def startup_task(**kwargs):
     # Enqueued here rather than only from update_titledb_task, whose network fetch can fail:
     # recovery of an interrupted pipeline must not wait for the next scheduled titledb run.
     enqueue_task('process_library')
-    update_titledb_task()
+    try:
+        update_titledb_task()
+    except Exception:
+        # A retry is already scheduled; scanning must not be held hostage to the network
+        logger.exception('titledb update failed at startup')
     scan_libraries_task()
 
 # --- Periodic tasks ---
 @register_task('update_titledb')
 def update_titledb_task(**kwargs):
     settings = get_settings()
-    titledb.update_titledb(settings)
-    enqueue_task('process_library')
-    add_missing_apps_to_db()
-    update_titles()
+    try:
+        titledb.update_titledb(settings)
+        enqueue_task('process_library')
+        add_missing_apps_to_db()
+        update_titles()
+    except Exception:
+        # Without this the chain simply stops: nothing re-enqueues a failed task, so a single
+        # network blip would leave titledb frozen until the next restart.
+        update_scheduled_task('update_titledb', datetime.datetime.utcnow() + TITLEDB_RETRY_DELAY)
+        raise
     # Re-enqueue for next scheduled run
     interval_str = settings.get('scheduler', {}).get('titledb_update_interval', '12h')
     delta = interval_string_to_timedelta(interval_str)
     if delta:
-        enqueue_task('update_titledb', run_after=datetime.datetime.utcnow() + delta)
+        update_scheduled_task('update_titledb', datetime.datetime.utcnow() + delta)
 
 
 # --- Scan pipeline ---
