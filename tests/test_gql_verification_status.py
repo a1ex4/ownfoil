@@ -66,6 +66,9 @@ def library(tmp_path, monkeypatch):
 
     region_file = titledb_dir / "titles.US.en.json"
     region_file.write_text(json.dumps(TITLEDB_JSON))
+    # import_from_json finds these two beside the region file and requires both.
+    (titledb_dir / "cnmts.json").write_text("{}")
+    (titledb_dir / "versions.json").write_text("{}")
     with app.app_context():
         titledb.store.import_from_json(str(region_file), "US.en")
 

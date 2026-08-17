@@ -6,7 +6,7 @@ import re
 import requests
 import zstandard
 
-from constants import APP_DIR, TITLEDB_DEFAULT_FILES, TITLEDB_DIR, TITLEDB_RELEASE_URL
+from constants import TITLEDB_DEFAULT_FILES, TITLEDB_DIR, TITLEDB_RELEASE_URL
 from titledb import store
 
 # Retrieve main logger
@@ -45,7 +45,7 @@ def get_local_commit():
 def download_file(file):
     """Stream one compressed asset, decompress it, and swap it in atomically."""
     store_path = os.path.join(TITLEDB_DIR, file)
-    logger.info(f'Downloading {file} from remote titledb to {os.path.relpath(store_path, start=APP_DIR)}')
+    logger.info(f'Downloading {file} from remote titledb to {store_path}')
     decompressor = zstandard.ZstdDecompressor().decompressobj()
     with requests.get(f'{TITLEDB_RELEASE_URL}/{file}.zst', stream=True, timeout=TIMEOUT) as r:
         r.raise_for_status()
