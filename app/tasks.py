@@ -762,6 +762,8 @@ def _needs_organize(file, mgmt):
 
 def _organize(file, mgmt):
     """Place one file under the organizer templates, holding the path claim across the move."""
+    if not mgmt['organizer']['enabled']:
+        return
     claimed = file.filepath
     if not claim_temp_file(claimed):
         return
@@ -878,7 +880,10 @@ def verify_file_task(file_id, **kwargs):
         return
     if not os.path.exists(file_obj.filepath):
         return
-    depth = get_settings()['library']['management']['verification']['depth']
+    opts = get_settings()['library']['management']['verification']
+    if not opts['enabled']:
+        return
+    depth = opts['depth']
     logger.info(f'Verifying file ({depth}): {file_obj.filename}')
     signature_valid, hash_valid, hash_modified, error = verification_lib.verify(
         file_obj.filepath, depth, progress=_task_progress(_current_task_id))
@@ -950,6 +955,8 @@ def compress_file_task(file_id, **kwargs):
         return
     logger.info(f'Compressing file: {file_obj.filename}')
     opts = get_settings()['library']['management']['compression']
+    if not opts['enabled']:
+        return
     progress = _task_progress(_current_task_id)
     if _convert_file(file_obj,
                      lambda source, out_dir: compression.compress_to(source, out_dir, opts, progress=progress),
