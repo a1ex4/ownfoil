@@ -33,6 +33,8 @@ jobs:
       - name: Skip when blawar/titledb has not moved
         env:
           GH_TOKEN: ${{ github.token }}
+          # This step runs before the checkout, so gh has no local repo to infer from
+          GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
           remote=$(git ls-remote https://github.com/blawar/titledb.git HEAD | cut -f1)
