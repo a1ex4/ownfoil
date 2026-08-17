@@ -7,9 +7,9 @@ Once Ownfoil is running, the Shop Web UI is accessible with your computer/server
 1. Open the Web UI.
 2. Go to the `Settings` and __create an admin user__. Until you do, authentication is disabled and anyone who can reach the Web UI can change the configuration of your shop.
 3. Upload your [console keys](#console-keys) under `Titles`, so your files can be identified whatever their name.
-4. Add the directories containing your games under `Library` → `Paths`. Ownfoil scans a path as soon as you add it.
-5. Configure the [workers](#workers) to optimize identification for large libraries.
-6. Open the `Setup` page and configure your client on your Nintendo with the values it shows you.
+4. Configure the [workers](#workers) to optimize identification for large libraries.
+5. Add the directories containing your games under `Library` → `Paths`. Ownfoil scans a path as soon as you add it.
+6. Open the `Setup` page and configure your client on your Nintendo Switch with the values it shows you.
 
 By default the organizer, compression and verification features are all disabled until you turn them on.
 
@@ -17,7 +17,7 @@ By default the organizer, compression and verification features are all disabled
 
 Console keys are the keys dumped from your own Nintendo Switch. Ownfoil uses them to decrypt the metadata inside your files, which is how it identifies a game regardless of what the file is called.
 
-Upload your `prod.keys` (or any `.keys` / `.txt` file with the same content) in the `Settings` under `Titles`, then hit `Submit`. Ownfoil checks every master key revision it contains and tells you if one is missing or wrong - a missing revision means the games released after it cannot be decrypted, so they will not be identified.
+Upload your `prod.keys` (or any `.keys` / `.txt` file with the same content) in the `Settings` under `Titles`, then hit `Submit`. Ownfoil checks every master key revision it contains and tells you if one is missing or wrong. A missing revision means the games released after it cannot be decrypted, so they will not be identified.
 
 Without keys, Ownfoil falls back to reading the filename, and every file __must contain `[TITLEID][vVERSION]`__ or it won't be recognized.
 
@@ -39,22 +39,19 @@ You can filter by type (base game or DLC), by ownership, by whether an update is
 
 ## Setup page
 
-This is the page to send yourself to when configuring a client. It prints the configuration tables for Tinfoil, Sphaira and CyberFoil, already filled in with your own address and port, and the exact menu path to follow in each app.
+This is the page to use when configuring a client on your Nintendo Switch. It prints the configuration tables for Tinfoil, Sphaira and CyberFoil, already filled in with your own address and port, and the exact menu path to follow in each app.
 
 It has two tabs. `Local Access` is for when your Switch and your Ownfoil server are on the same network, and uses your server's LAN IP. `Remote Access` is for reaching your shop over the internet, and uses the `Shop URL` you configured in the [Shop](#shop) settings.
 
 ## Tasks page
 
-Everything Ownfoil does in the background is a task, and this page shows them live: what is queued, what is running with its progress, what is scheduled to run later, and what failed. Failed tasks stay until you dismiss them, so you can see what went wrong hours later.
+Everything Ownfoil does in the background is a task, and this page shows them live: what is queued, what is running with its progress, what is scheduled to run later, and what failed. Failed tasks stay until you dismiss them, so you can see what went wrong earlier.
 
-The worker cards at the top show what each worker process is doing right now. How many there are is configured in [Workers](#workers), you can use it to see if the backlog of tasks can be optimized.
+The worker section shows what each worker process is doing right now. How many there are is configured in [Workers](#workers), you can use it to see if the backlog of tasks can be optimized.
 
 ## Settings page
 
 Admin only, and a single scrolling page.
-
-> [!TIP]
-> Each section saves on its own - there is no global save button. Changing the organizer templates and hitting `Submit` under `Management` will not save your shop MOTD.
 
 # Clients
 
@@ -78,7 +75,7 @@ Ownfoil supports multiple clients to install content on your Nintendo Switch. Th
 - [Content filtering](#content-filters) (games, updates, DLC, multi-content) based on URL
 - Compressed content (NSZ and XCZ) support
 
-Sphaira browses your shop as a folder tree rather than a shop listing, so what you see is the layout of your library on disk. Opening a file shows a preview of its content - to actually install it, press `Options` → `Install`.
+Sphaira browses your shop as a folder tree rather than a shop listing, so what you see is the layout of your library on disk. Opening a file shows a preview of its content, to actually install it press `Options` → `Install`.
 
 Sphaira identifies itself in its requests since version `1.0.6`, which Ownfoil needs to serve the shop. Be sure to use an up to date version if encountering issues.
 
@@ -107,7 +104,7 @@ Adding a path to the shop URL configured in your client filters what it serves:
 
 This is how you get several shops out of one Ownfoil: add one entry per filter in your client and you can browse your updates without scrolling past every game you own.
 
-Note that only the unfiltered shop shows unidentified files. As soon as you use a filter, Ownfoil has to know what a file contains to decide whether it belongs, so anything it failed to identify disappears. If a file shows up in the root shop but in none of the filters, it was not identified.
+Note that only the unfiltered shop shows unidentified files. If a file shows up in the root shop but in none of the filters, it was not identified.
 
 # Settings reference
 
@@ -135,9 +132,9 @@ Every file goes through the same pipeline, in order: it is __identified__ (what 
 
 ### Paths
 
-Add the directories containing your content here. The path has to already exist on the machine running Ownfoil - in Docker that means the path *inside* the container, so `/games`, not the path on your NAS.
+Add the directories containing your content here. The path has to already exist on the machine running Ownfoil: with Docker that means the path *inside* the container, so `/games`, not the path on your NAS.
 
-Ownfoil scans a path as soon as you add it, looking for `nsp`, `nsz`, `xci` and `xcz` files. The arrows button on a row rescans that one path, and `Scan library` rescans all of them. You rarely need either - the file watcher below picks up changes on its own.
+Ownfoil scans a path as soon as you add it, looking for `nsp`, `nsz`, `xci` and `xcz` files. The arrows button on a row rescans that one path, and `Scan library` rescans all of them. If enabled, the file watcher below detects changes automatically.
 
 ### File watcher
 
@@ -148,7 +145,7 @@ Ownfoil scans a path as soon as you add it, looking for `nsp`, `nsz`, `xci` and 
 
 Files moved, renamed, added or removed are reflected directly in your library, without a scan.
 
-Local directories are watched through the operating system, which notifies Ownfoil the moment something changes and costs nothing while idle - the polling interval is not used for them at all. Network filesystems (NFS, SMB, a mapped Windows drive) cannot do that, so they are checked at the interval you set instead, which is why a change on a NAS takes up to one interval to show up. Lower it if you want your library to react faster, at the cost of walking the whole tree more often.
+Local directories are watched through the operating system, which notifies Ownfoil the moment something changes and costs nothing while idle, the polling interval is not used for them at all. Network filesystems (NFS, SMB, a mapped Windows drive) cannot do that, so they are checked at the interval you set instead, which is why a change on a NAS takes up to one interval to show up. Lower it if you want your library to react faster, at the cost of walking the whole tree more often.
 
 ### Management
 
@@ -193,12 +190,17 @@ The compressed file is written next to the original, then every piece of content
 | `Verify files` | enabled | Check that your files are original and intact. |
 | Depth | `Full hash` | `Signature only` or `Full hash`. |
 
-A truncated download, a dying disk or a repack all look fine until your Switch cannot install it. Verification is what tells them apart, ahead of time.
+One aspect of library curation is to know whether or not the files in your collection are valid. This means different things for different users: some want to ensure every file is original and intact, while for others a modified but working file is enough. File verification is a tedious chore, but a mandatory one to make sure your backups will install and work, or if they need to be replaced.
 
 `Signature only` checks that the file decrypts and that every content header is signed by Nintendo. It is near instant, and it catches a file that isn't what it claims to be. `Full hash` also reads every byte and compares it against the hash the file itself declares, which is the only way to catch actual corruption.
 
-> [!TIP]
-> A file whose signature fails is usually not damaged. Any repacked file is re-signed, and re-signing invalidates Nintendo's signature while leaving the content perfectly intact - this is the common case in a normal library, not a warning. `Full hash` is what separates a harmless repack from a genuinely corrupt file.
+After files have been been successfully decrypted and identified, automatic verification will run in a background task. Using `signature` and content `hash` validation, each file will be classified as either:
+- `valid`: original content from Nintendo, intact.
+- `repack`: content has been modified, but metadata has been updated to allow integrity verification and it matches.
+- `modified`: content has been modified but integrity metadata has not been updated.
+- `corrupt`: the integrity of the content cannot be verified.
+
+A `corrupt` file should be deleted or replaced, as installation will fail, but anything else should be fine to keep.
 
 Verification is disabled entirely, with the controls greyed out, when no valid [console keys](#console-keys) are loaded.
 
@@ -210,9 +212,9 @@ Verification is disabled entirely, with the controls greyed out, when no valid [
 | `Remove empty folders` | disabled | Remove folders left empty after files are moved out of them. |
 | `Windows compatible filenames` | disabled | Use filenames a Windows system can read. |
 
-Once a file is identified, the organizer renders the matching template, and moves the file there if it isn't already. Paths are relative to the library path the file is in, and the extension is added for you.
+Once a file is identified, the organizer renders the matching template, and moves the file there if it isn't already. Paths are relative to the library path the file is in, and the extension is added automatically.
 
-Game names contain characters a filesystem won't accept like `:` in `Danganronpa: Trigger Happy Havoc`, `/`, `?`. Rather than dropping them and mangling the name, Ownfoil replaces them with their full-width look-alikes, so `Danganronpa： Trigger Happy Havoc` still reads correctly. Which characters are replaced depends on the system running Ownfoil, which is what the `Windows compatible filenames` option is for: turn it on when your library is served to Windows machines over SMB or NFS, and Ownfoil will use the Windows rules even though it runs on Linux, and keep paths under the 259 character limit Windows enforces - truncating folder and file names with a `…` if it has to.
+By default, file names are sanitized based on the system running Ownfoil, for compatible characters. If Ownfoil is running on a Linux server but you are accessing your library on Windows (with an SMB or NFS mount), you can force the organizer to comply with file names that will render correctly in Windows.
 
 ##### Templates
 
@@ -250,7 +252,7 @@ Available in the base, update and DLC templates:
 | `Library Region` | `US` | Region used to get games informations. |
 | `Library Language` | `en` | Language used to get games informations. |
 
-This is the region and language of your shop, and for now it is the same for all users. It decides the names, descriptions and artwork you see - the same game can be `Zelda: Breath of the Wild` in one region and something else in another. Changing it re-downloads titledb and, if the organizer is on, renames your files to match the new names.
+This is the region and language of your shop, and for now it is the same for all users. It matches the names, descriptions and artwork for identified files. Changing it re-downloads titledb and, if the organizer is on, renames your files to match the new names.
 
 The available languages depend on the region you pick.
 
@@ -268,10 +270,7 @@ The MOTD is shown by Tinfoil and CyberFoil. Sphaira browses files and does not d
 
 Setting `Shop URL` lets Ownfoil tell the client which address the shop is supposed to be served from, and the client refuses to load it from anywhere else. That is what stops someone who got hold of your URL and credentials from rebroadcasting your shop as their own.
 
-It only works on secure requests - if your reverse proxy still answers on plain `http`, or doesn't send `X-Forwarded-Proto`, none of this applies and your shop is unprotected. See [Remote access and HTTPS](./Install.md#remote-access-and-https).
-
-> [!CAUTION]
-> Leave `Shop URL` empty and host verification is disabled, which the `Settings` page warns you about. It costs nothing to set and it is the only thing preventing someone else from stealing your shop.
+It only works on secure requests: if your reverse proxy still answers on plain `http`, or doesn't send `X-Forwarded-Proto`, none of this applies and your shop is unprotected. See [Remote access and HTTPS](./Install.md#remote-access-and-https).
 
 ### Client access
 
@@ -282,9 +281,9 @@ It only works on secure requests - if your reverse proxy still answers on plain 
 | `Sphaira` → `Enabled` | enabled | Allow Sphaira to access the shop. |
 | `CyberFoil` → `Enabled` | enabled | Allow CyberFoil to access the shop. |
 
-Disabling a client makes Ownfoil refuse it with a message rather than silently ignoring it, so you can tell the difference between a disabled client and a broken setup.
+Disabling a client makes Ownfoil refuse it with a message.
 
-`Encrypt shop` compresses and encrypts the shop listing in a way only a real Tinfoil build can read - open the URL in a browser and you get binary garbage instead of the list of every file you own. It is strongly suggested to leave it enabled.
+`Encrypt shop` compresses and encrypts the shop listing in a way only a real Tinfoil build can read, so only a Tinfoil client will be able to inspect the shop's content. Note that if a client other than Tinfoil is enabled (and not encryption is available), the shop content will be served in clear through their headers, rendering encryption useless.
 
 ## Scheduler
 
@@ -303,9 +302,9 @@ This is a safety net rather than the main mechanism - the file watcher already p
 | `Worker count` | `2` | Number of worker processes. |
 | `Max concurrent I/O tasks` | `1` | How many disk-heavy tasks run at once. |
 
-Workers are the processes that run everything in the background. More of them means more tasks in parallel - identifying, scanning, compressing.
+Workers are the processes that run everything in the background. More of them means more tasks in parallel like identifying, scanning, compressing.
 
-The second setting is separate on purpose. Compression, decompression and verification read and write multi-GB files, and running several of them at once against the same disk makes the heads seek back and forth and can collapse throughput to a fraction of what one task alone would get. So this limit caps them independently of the worker count, while light tasks keep flowing. Pick it based on where your library lives:
+The second setting ensures CPU/disk heavy tasks do not loose the benefit of parallelism. Compression, decompression and verification read and write multi-GB files, and running several of them at once can be detrimental. If the files are on the same hard drive, parallel tasks will make the heads seek back and forth and will make processing time significantly longer.  So this limit caps them independently of the worker count, while light tasks keep flowing. Pick it based on where your library lives:
 
 * __Network share or a single hard drive: `1`__ - avoids seek thrashing, the safe default.
 * __SATA SSD: `2` to `3`__ - no seek penalty, so you are limited by CPU.

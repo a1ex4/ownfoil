@@ -7,14 +7,14 @@
 ![Image archs](https://img.shields.io/badge/platforms-amd64%20%7C%20%20arm64%2Fv8%20%7C%20arm%2Fv7%20%7C%20arm%2Fv6-8A2BE2)  
 [![Tinfoil Version](https://img.shields.io/badge/Tinfoil-v20.0-da1c5c)](https://tinfoil.io/Download)
 [![Sphaira Version](https://img.shields.io/badge/Sphaira-v1.0.6-%233cd57a)](https://github.com/NaGaa95/sphaira)
-[![CyberFoil Version](https://img.shields.io/badge/CyberFoil-v1.4.1-firebrick)](https://github.com/luketanti/CyberFoil)
+[![CyberFoil Version](https://img.shields.io/badge/CyberFoil-v1.4.5-firebrick)](https://github.com/luketanti/CyberFoil)
 
 
 Ownfoil is a Nintendo Switch library manager, that will also turn your library into a fully customizable and self-hosted Shop, supporting multiple clients. The goal of this project is to manage your library, identify any missing content (DLCs or updates) and provide a user friendly way to browse and install your content. Some of the features include:
 - multi user authentication
 - web interface for configuration and browsing the library
 - content identification using content decryption or filename
-- automatic library organization
+- automatic library organization, verification and compression
 - console keys management
 - multiple clients support
 - shop customization
@@ -35,11 +35,11 @@ Head over to [Install.md](./Install.md) for the full instructions:
 
 # Usage
 
-Configuring your shop, your clients and every setting available is documented in [Usage.md](./Usage.md) - start with [First steps](./Usage.md#first-steps), or jump straight to the [settings reference](./Usage.md#settings-reference).
+Configuring your shop, your clients and every setting available is documented in [Usage.md](./Usage.md). Start with [First steps](./Usage.md#first-steps), or jump straight to the [settings reference](./Usage.md#settings-reference).
 
 # Credits
 
-Thanks to the following projects and maintainers for making Ownfoil possible:
-- @blawar for Tinfoil, Fs, TitleDB
-- @nicoboss for [nsz](https://github.com/nicoboss/nsz)
-- @seiya-dev for [NSTools](https://github.com/seiya-dev/NSTools)
+Thanks to the following projects and their maintainers for making Ownfoil possible:
+- [@blawar](https://github.com/blawar) for Tinfoil, Fs, the nsz format, TitleDB
+- [@nicoboss](https://github.com/nicoboss) for [nsz](https://github.com/nicoboss/nsz)
+- [@seiya-dev](https://github.com/seiya-dev) for [NSTools](https://github.com/seiya-dev/NSTools)
