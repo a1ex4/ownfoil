@@ -7,6 +7,7 @@ Ownfoil is a web server listening on port `8465`, so anything that can run a Doc
 - [Using Unraid](#using-unraid)
 - [Using Proxmox LXC](#using-proxmox-lxc)
 - [Using the Helm chart](#using-the-helm-chart)
+- [Available versions](#available-versions)
 
 > [!CAUTION]
 > There is __no website associated with this project__, only this GitHub repo.  
@@ -163,3 +164,45 @@ Updating is just replacing the version you run.
 * uv tool: `uv tool upgrade ownfoil`
 * uvx: nothing to do, it fetches the latest version every time
 * Helm: bump `image.tag` and run the `helm upgrade` command again
+
+# Available versions
+
+Whichever way you install it, you run one of these:
+
+| Version | What you get |
+| --- | --- |
+| `latest` | The most recent release - the exact same thing as the highest released version, and what you get when you don't select a version in particular. |
+| `2.3.0` | That exact release, and the way to stay on a known version. |
+| `develop` | The development branch - the next release as it is being written, with new features first and the occasional breakage. |
+
+Versions are `major.minor.patch`, and each part can be used on its own:
+
+* `2` is the major version, unlikely to change. Using it means the latest release of that major version.
+* `2.3` is the minor version, bumped when new features are introduced. Using it means the latest patch of that minor version, so including bug fixes but no new features.
+* `2.3.0` is the patch version, bumped for a release that only fixes bugs in the latest minor version.
+
+Releases and what changed in them are on the [releases page](https://github.com/a1ex4/ownfoil/releases).
+
+## Docker
+
+The version is the image tag, `latest` when you don't set one:
+
+    docker run ... a1ex4/ownfoil:2.3
+
+In the compose file it is the `image` line:
+
+    image: a1ex4/ownfoil:develop
+
+Every branch of this repository is published under its own name too, i.e. `a1ex4/ownfoil:fix-something`, to test a fix before it is released.
+
+## uv
+
+Ownfoil is published on PyPI from `2.4.0` onwards, so a version is pinned like for any Python package:
+
+    uvx ownfoil@2.4.0
+    uv tool install ownfoil==2.4.0
+
+`develop` is not published there, install it from git instead:
+
+    uvx --from git+https://github.com/a1ex4/ownfoil@develop ownfoil
+    uv tool install git+https://github.com/a1ex4/ownfoil@develop
