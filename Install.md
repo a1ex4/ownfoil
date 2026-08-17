@@ -107,6 +107,7 @@ By default, `config/` and `data/` are created in the current directory. Pass a d
 ownfoil /path/to/persist
 uvx ownfoil /path/to/persist
 ```
+
 > [!TIP]
 > On Windows, the first run also creates an `ownfoil.bat` next to `config/` and `data/`, so you can start Ownfoil again by double-clicking it instead of reopening a terminal.
 
@@ -171,15 +172,15 @@ Whichever way you install it, you run one of these:
 
 | Version | What you get |
 | --- | --- |
-| `latest` | The most recent release - the exact same thing as the highest released version, and what you get when you don't select a version in particular. |
+| `latest` | The most recent release, default when you don't select a version in particular. |
+| `develop` | The development branch - the next release as it is being written, with new features first and you contribute to testing the next version. |
 | A version number | That exact release, and the way to stay on a known version. |
-| `develop` | The development branch - the next release as it is being written, with new features first and the occasional breakage. |
 
-Versions are `major.minor.patch`, and each part can be used on its own - the badges are the current release, so they are what you would type today:
+Versions are `major.minor.patch`, and each part can be used on its own to pin a specific "release channel" when upgrading:
 
-* [![major version](https://img.shields.io/badge/dynamic/regex?url=https%3A%2F%2Fapi.github.com%2Frepos%2Fa1ex4%2Fownfoil%2Freleases%2Flatest&search=%22tag_name%22%3A%5Cs%2A%22%28%5B0-9%5D%2B%29&replace=%241&label=)](https://github.com/a1ex4/ownfoil/releases/latest) is the major version, unlikely to change. Using it means the latest release of that major version.
-* [![minor version](https://img.shields.io/badge/dynamic/regex?url=https%3A%2F%2Fapi.github.com%2Frepos%2Fa1ex4%2Fownfoil%2Freleases%2Flatest&search=%22tag_name%22%3A%5Cs%2A%22%28%5B0-9%5D%2B%5C.%5B0-9%5D%2B%29&replace=%241&label=)](https://github.com/a1ex4/ownfoil/releases/latest) is the minor version, bumped when new features are introduced. Using it means the latest patch of that minor version, so including bug fixes but no new features.
-* [![patch version](https://img.shields.io/badge/dynamic/regex?url=https%3A%2F%2Fapi.github.com%2Frepos%2Fa1ex4%2Fownfoil%2Freleases%2Flatest&search=%22tag_name%22%3A%5Cs%2A%22%28%5B0-9%5D%2B%5C.%5B0-9%5D%2B%5C.%5B0-9%5D%2B%29&replace=%241&label=)](https://github.com/a1ex4/ownfoil/releases/latest) is the patch version, bumped for a release that only fixes bugs in the latest minor version.
+* [![major version](https://img.shields.io/badge/dynamic/regex?url=https%3A%2F%2Fapi.github.com%2Frepos%2Fa1ex4%2Fownfoil%2Freleases%2Flatest&search=%22tag_name%22%3A%5Cs%2A%22%28%5B0-9%5D%2B%29&replace=%241&label=)](https://github.com/a1ex4/ownfoil/releases/latest) is the `major` version, unlikely to change. Using it means the latest release of that major version.
+* [![minor version](https://img.shields.io/badge/dynamic/regex?url=https%3A%2F%2Fapi.github.com%2Frepos%2Fa1ex4%2Fownfoil%2Freleases%2Flatest&search=%22tag_name%22%3A%5Cs%2A%22%28%5B0-9%5D%2B%5C.%5B0-9%5D%2B%29&replace=%241&label=)](https://github.com/a1ex4/ownfoil/releases/latest) is the `minor` version, bumped when new features are introduced. Using it means the latest patch of that minor version, so including bug fixes but no new features.
+* [![patch version](https://img.shields.io/badge/dynamic/regex?url=https%3A%2F%2Fapi.github.com%2Frepos%2Fa1ex4%2Fownfoil%2Freleases%2Flatest&search=%22tag_name%22%3A%5Cs%2A%22%28%5B0-9%5D%2B%5C.%5B0-9%5D%2B%5C.%5B0-9%5D%2B%29&replace=%241&label=)](https://github.com/a1ex4/ownfoil/releases/latest) is the `patch` version, increased for a release that only fixes bugs in the latest minor version.
 
 Releases and what changed in them are on the [releases page](https://github.com/a1ex4/ownfoil/releases).
 
