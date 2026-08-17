@@ -436,20 +436,20 @@ def set_library_management_settings_api():
 def set_scheduler_settings_api():
     from utils import interval_string_to_timedelta
     data = request.json
-    scan_interval_str = data.get('scan_interval')
+    titledb_update_interval_str = data.get('titledb_update_interval')
 
-    if scan_interval_str is not None:
-        is_valid, error_msg = validate_interval_string(scan_interval_str)
+    if titledb_update_interval_str is not None:
+        is_valid, error_msg = validate_interval_string(titledb_update_interval_str)
         if not is_valid:
             return jsonify({
                 'success': False,
-                'errors': [{'path': 'scheduler/scan_interval', 'error': error_msg}]
+                'errors': [{'path': 'scheduler/titledb_update_interval', 'error': error_msg}]
             })
 
     set_scheduler_settings(data)
 
-    if scan_interval_str is not None:
-        delta = interval_string_to_timedelta(scan_interval_str)
+    if titledb_update_interval_str is not None:
+        delta = interval_string_to_timedelta(titledb_update_interval_str)
         run_after = datetime.datetime.utcnow() + delta if delta else None
         tasks_mod.update_scheduled_task('update_titledb', run_after)
 

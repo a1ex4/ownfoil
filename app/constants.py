@@ -78,7 +78,7 @@ DEFAULT_SETTINGS = {
         }
     },
     "scheduler": {
-        "scan_interval": "12h",
+        "titledb_update_interval": "12h",
     },
     "worker": {
         "count": 2,

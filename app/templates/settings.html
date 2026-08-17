@@ -510,10 +510,10 @@
                 <p>Configure the periodic jobs. Interval format is <code>number + unit</code>  (e.g., <code>2h</code>, <code>30m</code>, <code>1d</code>), with units: <code>s</code> (seconds), <code>m</code> (minutes), <code>h</code> (hours), <code>d</code> (days). Set to <code>0</code> to disable.</p>
                 <div class="row mb-3">
                     <div class="col-6">
-                        <label for="scanIntervalInput" class="form-label">Scan interval:</label>
-                        <input type="text" class="form-control" id="scanIntervalInput" aria-describedby="scanIntervalHelp" placeholder="2h">
-                        <div id="scanIntervalFeedback"></div>
-                        <div id="scanIntervalHelp" class="form-text">How often to automatically update TitleDB, scan and regenerate the library.</div>
+                        <label for="titledbUpdateIntervalInput" class="form-label">TitleDB update interval:</label>
+                        <input type="text" class="form-control" id="titledbUpdateIntervalInput" aria-describedby="titledbUpdateIntervalHelp" placeholder="2h">
+                        <div id="titledbUpdateIntervalFeedback"></div>
+                        <div id="titledbUpdateIntervalHelp" class="form-text">How often to automatically refresh TitleDB and re-process the library.</div>
                     </div>
                 </div>
 
@@ -1261,7 +1261,7 @@
     function submitSchedulerSettings() {
         $('#submitSchedulerSettingsBtn').prop('disabled', true);
         data = {
-            scan_interval: getInputVal("scanIntervalInput").trim()
+            titledb_update_interval: getInputVal("titledbUpdateIntervalInput").trim()
         }
 
         $.ajax({
@@ -1274,11 +1274,11 @@
                     console.log('Not Success!');
                     if (result['errors']) {
                         result['errors'].forEach(error => {
-                            if (error['path'] === 'scheduler/scan_interval') {
-                                $('#scanIntervalFeedback').text(error['error']);
-                                $('#scanIntervalFeedback').addClass('invalid-feedback d-block');
-                                $("#scanIntervalInput").removeClass('is-valid');
-                                $("#scanIntervalInput").addClass('is-invalid');
+                            if (error['path'] === 'scheduler/titledb_update_interval') {
+                                $('#titledbUpdateIntervalFeedback').text(error['error']);
+                                $('#titledbUpdateIntervalFeedback').addClass('invalid-feedback d-block');
+                                $("#titledbUpdateIntervalInput").removeClass('is-valid');
+                                $("#titledbUpdateIntervalInput").addClass('is-invalid');
                             }
                             console.log('Path:', error['path']);
                             console.log('Error:', error['error']);
@@ -1286,10 +1286,10 @@
                     }
                 } else {
                     console.log('Scheduler settings updated successfully!');
-                    $('#scanIntervalFeedback').text('');
-                    $('#scanIntervalFeedback').removeClass('invalid-feedback d-block');
-                    $("#scanIntervalInput").removeClass('is-invalid');
-                    $("#scanIntervalInput").addClass('is-valid');
+                    $('#titledbUpdateIntervalFeedback').text('');
+                    $('#titledbUpdateIntervalFeedback').removeClass('invalid-feedback d-block');
+                    $("#titledbUpdateIntervalInput").removeClass('is-invalid');
+                    $("#titledbUpdateIntervalInput").addClass('is-valid');
                 }
                 $('#submitSchedulerSettingsBtn').prop('disabled', false);
             }
@@ -1416,8 +1416,8 @@
 
             // Scheduler settings
             schedulerSettings = result['scheduler'];
-            if (schedulerSettings && schedulerSettings['scan_interval'] !== undefined) {
-                setInputVal("scanIntervalInput", schedulerSettings['scan_interval']);
+            if (schedulerSettings && schedulerSettings['titledb_update_interval'] !== undefined) {
+                setInputVal("titledbUpdateIntervalInput", schedulerSettings['titledb_update_interval']);
             }
 
             // Worker settings

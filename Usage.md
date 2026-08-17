@@ -289,11 +289,11 @@ Disabling a client makes Ownfoil refuse it with a message.
 
 | Setting | Default | Description |
 | --- | --- | --- |
-| `Scan interval` | `12h` | How often to automatically update titledb, scan and regenerate the library. |
+| `TitleDB update interval` | `12h` | How often to refresh titledb and re-process your library. |
 
 The interval is a number followed by a unit: `s`, `m`, `h` or `d`, so `30m`, `2h` and `1d` are all valid. Set it to `0` to disable the periodic run entirely.
 
-This is a safety net rather than the main mechanism - the file watcher already picks up changes as they happen. What the scheduled run adds is a fresh titledb, which is how newly released updates and DLC appear as missing in your library.
+TitleDB is updated upstream once per day, this scheduled task will sync your local reference and add the new titles, updates and DLCs. Libraries will be re-processed after the update, for example to identify files to titles that were not available before.
 
 ## Workers
 

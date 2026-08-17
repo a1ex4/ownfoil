@@ -594,7 +594,7 @@ def update_titledb_task(**kwargs):
     add_missing_apps_to_db()
     update_titles()
     # Re-enqueue for next scheduled run
-    interval_str = settings.get('scheduler', {}).get('scan_interval', '12h')
+    interval_str = settings.get('scheduler', {}).get('titledb_update_interval', '12h')
     delta = interval_string_to_timedelta(interval_str)
     if delta:
         enqueue_task('update_titledb', run_after=datetime.datetime.utcnow() + delta)
