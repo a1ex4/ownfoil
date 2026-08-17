@@ -13,7 +13,6 @@ flask.cli.show_server_banner = lambda *args: None
 from constants import *
 from settings import *
 from db import *
-from shop import *
 from auth import *
 from utils import *
 from library import *
