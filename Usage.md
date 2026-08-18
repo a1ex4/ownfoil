@@ -5,13 +5,13 @@ Once Ownfoil is running, the Shop Web UI is accessible with your computer/server
 # First steps
 
 1. Open the Web UI.
-2. Go to the `Settings` and __create an admin user__. Until you do, authentication is disabled and anyone who can reach the Web UI can change the configuration of your shop.
+2. Go to `Admin` → `Settings` and __create an admin user__. Until you do, authentication is disabled and anyone who can reach the Web UI can change the configuration of your shop.
 3. Upload your [console keys](#console-keys) under `Titles`, so your files can be identified whatever their name.
 4. Configure the [workers](#workers) to optimize identification for large libraries.
 5. Add the directories containing your games under `Library` → `Paths`. Ownfoil scans a path as soon as you add it.
 6. Open the `Setup` page and configure your client on your Nintendo Switch with the values it shows you.
 
-By default the organizer, compression and verification features are all disabled until you turn them on.
+By default the organizer and compression features are disabled until you turn them on, so your library isn't modified unexpectedly.
 
 # Console keys
 
