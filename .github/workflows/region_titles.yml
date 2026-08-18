@@ -40,6 +40,7 @@ jobs:
           remote=$(git ls-remote https://github.com/blawar/titledb.git HEAD | cut -f1)
           published=$(curl -sfL "https://github.com/${{ github.repository }}/releases/download/titledb/latest" || true)
           echo "upstream=${remote} published=${published:-<none>}"
+          echo "titledb_sha=${remote}" >> "$GITHUB_ENV"
           if [ "$remote" = "$published" ] && [ "${{ inputs.force }}" != "true" ]; then
             echo "titledb unchanged, cancelling this run"
             gh run cancel "${{ github.run_id }}"
@@ -55,19 +56,22 @@ jobs:
       # Runs a set of commands using the runners shell
       - name: Setup folders
         run: |
+          set -euo pipefail
           sudo apt update && sudo apt install -y libcurl4-openssl-dev libssl-dev
           git clone https://github.com/blawar/nut
           cd nut
           pip install -r requirements.txt
-          mkdir build_artefacts
-          git clone --depth=1 https://github.com/blawar/titledb
-          titledb_commit=$(git -C titledb rev-parse --short HEAD)
+          mkdir build_artefacts titledb
+          curl -fsSL --retry 3 "https://github.com/blawar/titledb/archive/${titledb_sha}.tar.gz" \
+            | tar -xz --strip-components=1 -C titledb \
+                  --exclude=ncas.json --exclude=cheats.json
           echo "formatted_date=$(date +"%Y-%m-%d_%H%M%S")" >> $GITHUB_ENV
-          # Short hash inside the artefact: consumed by Ownfoil < 2.4 through nightly.link
-          touch "build_artefacts/latest_${titledb_commit}"
+          # Short hash inside the artefact: consumed by Ownfoil < 2.4 through nightly.link.
+          # Explicitly 7 chars, matching what --short gave on the old shallow clone.
+          touch "build_artefacts/latest_${titledb_sha:0:7}"
           # Full hash outside the artefact: the release marker, and what the skip check compares.
-          # Both come from the clone, never from ls-remote, which can race ahead of it.
-          git -C titledb rev-parse HEAD > latest
+          # Both are now the sha the tarball was pinned to, so they agree by construction.
+          echo "$titledb_sha" > latest
 
       - uses: jannekem/run-python-script-action@v1
         name: Generate region titles
