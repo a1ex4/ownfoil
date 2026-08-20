@@ -766,6 +766,7 @@ def _needs_extract(file, mgmt):
 
 def _extract(file, mgmt):
     """Read one file's own metadata and file it as the 'extract' source."""
+    logger.info(f'Extracting metadata: {file.filename}')
     locale = get_settings()['titles']
     language = nacp.language_for_locale(locale['region'], locale['language'])
     try:
@@ -1101,6 +1102,7 @@ def handle_file_added_task(library_path, filepath, **kwargs):
     file.organized = False
     reset_file_identification(file)
     reset_file_verification(file)
+    file.metadata_extracted = False
     db.session.commit()
     enqueue_task('process_file', {'file_id': file.id})
 

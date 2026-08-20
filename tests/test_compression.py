@@ -37,7 +37,8 @@ def _settings(compress_files=True, organizer=False, delete_older=False, group_li
         "verification": {"enabled": verify, "depth": depth},
         "delete_older_updates": delete_older,
         "organizer": {"enabled": organizer, "remove_empty_folders": False},
-    }}}
+    }},
+        "titles": {"language": "en", "region": "US"}}
     if group_limits is not None:
         s["worker"] = {"group_limits": group_limits}
     return s
