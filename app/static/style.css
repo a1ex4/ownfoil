@@ -1029,6 +1029,20 @@ p.game-description {
     }
 }
 
+/* Portrait phones: side by side, the icon and the name are fighting over 350px. The
+   name gets the full width underneath it instead. */
+@media (max-width: 575.98px) {
+    .title-head {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: .9rem;
+    }
+
+    .title-name {
+        font-size: 1.6rem;
+    }
+}
+
 /* The whole card is the link to its title's page; a DLC card opens the game it
    belongs to, not a page of its own. */
 .game-link {
