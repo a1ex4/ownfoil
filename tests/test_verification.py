@@ -421,6 +421,21 @@ def test_content_change_clears_the_verdicts(env):
     assert f.verification_error is None and f.verified_at is None
 
 
+def test_content_change_clears_the_extracted_metadata(env):
+    """Extraction read those same bytes: the name, publisher and icon it filed describe
+    a payload that is no longer there, so the file has to be read again."""
+    env.monkeypatch.setattr(tasks, "enqueue_task", lambda *a, **k: None)
+    f = env.seed(metadata_extracted=True)
+    fid, path = f.id, f.filepath
+    with open(path, "wb") as fh:
+        fh.write(b"DIFFERENT PAYLOAD")
+
+    tasks.handle_file_added_task(library_path=str(env.lib_dir), filepath=path)
+
+    f = db.session.get(Files, fid)
+    assert f.metadata_extracted is False
+
+
 def test_compression_preserves_the_verdicts(env):
     """nsz round-trip-verifies NCA content hashes itself, so an NSP that verified good is
     still good as an NSZ - re-reading every byte again would buy nothing."""
