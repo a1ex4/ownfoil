@@ -535,9 +535,20 @@ p.game-description {
 }
 
 /* The screenshots are a column of this grid, not a box nested in the description, so
-   they get a share of the panel width instead of its leftovers. */
+   their size is set here rather than left over from whatever the description takes.
+   640px is 360px tall at 16:9, which is what the frame below holds them to. */
 .title-grid.has-shots {
-    grid-template-columns: 276px minmax(0, 1fr) minmax(0, 1.15fr);
+    grid-template-columns: 276px minmax(0, 78ch) minmax(640px, 1fr);
+}
+
+/* The description stops at its own reading width, so on a wide screen the slack all
+   piles up between it and the screenshots. Give that slack to the screenshots' track
+   and sit them in the middle of it instead of pinned to the far edge. */
+.title-grid.has-shots .title-shots {
+    justify-self: center;
+    /* Centring makes the item shrink to fit, and the frame's layers are absolute - so
+       without this it collapses to the width of the dots. */
+    width: 640px;
 }
 
 .title-facts {
@@ -977,6 +988,19 @@ p.game-description {
     border: 1.5px solid currentColor;
 }
 
+/* Three columns stop paying once 640px of screenshot leaves the description a ribbon:
+   below that the screenshots drop under it, still 640 wide and so still 360 tall. */
+@media (max-width: 1399.98px) {
+    .title-grid.has-shots {
+        grid-template-columns: 276px minmax(0, 1fr);
+    }
+
+    .title-grid.has-shots .title-shots {
+        grid-column: 2;
+        justify-self: start;
+    }
+}
+
 @media (max-width: 991.98px) {
     .title-grid,
     .title-grid.has-shots {
@@ -986,6 +1010,8 @@ p.game-description {
 
     .title-grid.has-shots .title-shots {
         grid-column: auto;
+        justify-self: stretch;
+        width: auto;
     }
 
     .title-panel {

@@ -222,8 +222,10 @@
         desc.style.webkitLineClamp = '';
         toggle.hidden = false;
         // Stacked on a narrow screen the column stands alone, so there is no neighbour
-        // height to match and the stylesheet's clamp is the answer.
-        const siblings = Array.from(grid.children).filter(child => child !== column);
+        // height to match and the stylesheet's clamp is the answer. Only what shares the
+        // row counts: at middle widths the screenshots sit on their own row below.
+        const siblings = Array.from(grid.children).filter(child =>
+            child !== column && Math.abs(child.offsetTop - column.offsetTop) < 4);
         const stacked = column.offsetWidth > grid.offsetWidth - 1;
         const lineHeight = parseFloat(getComputedStyle(desc).lineHeight);
         if (!stacked) {
