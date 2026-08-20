@@ -17,7 +17,7 @@ from db import verification_status
 
 from .docs import arg, desc, described, described_field
 from .filters import (
-    AppFilter, AppType, FileFilter, VerificationStatus, match_app, match_file,
+    AppFilter, AppType, FileFilter, TitleSource, VerificationStatus, match_app, match_file,
 )
 from .scalars import BigInt
 
@@ -441,9 +441,10 @@ class Title:
     titledb, merged across its sources at import time; ownership lives on
     `ownership` and `apps`."""
     title_id: strawberry.ID = desc("The 16-hex-digit title id, uppercase.")
-    source: str = desc(
-        "Which metadata source won for this title: `titledb` for the downloaded "
-        "catalogue, `custom` when a local override supplies the values.")
+    source: TitleSource = desc(
+        "The highest-priority source that contributed a field to this title. Lower "
+        "sources still fill in what it left unset, so this names the winner rather "
+        "than the only contributor - `TitleSource` gives what each one means.")
     name: Optional[str] = desc("The game's name. Null for a title no source names.",
                                default=None)
     banner_url: Optional[str] = desc("URL of the wide banner artwork.", default=None)

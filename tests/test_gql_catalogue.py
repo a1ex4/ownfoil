@@ -158,3 +158,31 @@ def test_not_asking_costs_nothing(catalogue):
     data = query(catalogue, 'query { title(titleId: "%s") { name } }' % UNOWNED)
 
     assert data["title"] == {"name": "Beta Game"}
+
+
+def _own_a_title_titledb_never_heard_of(catalogue, title_id):
+    with catalogue.app.app_context():
+        title = Titles(title_id=title_id, have_base=True)
+        db.session.add(title)
+        db.session.flush()
+        db.session.add(Apps(title_id=title.id, app_id=title_id, app_version="0",
+                            app_type=APP_TYPE_BASE, owned=True))
+        db.session.commit()
+
+
+def test_source_is_reported_and_filtered_as_an_enum(catalogue):
+    """`source` is a closed set on the wire, so it reads back by member name - and
+    UNRECOGNIZED, which is a missing row rather than a stored value, filters like the
+    real sources do."""
+    unknown = "0100000000CCCC00"
+    _own_a_title_titledb_never_heard_of(catalogue, unknown)
+
+    data = query(catalogue, """
+        query { titles(owned: true, page: 1, pageSize: 50) { items { titleId source } } }""")
+    assert {t["titleId"]: t["source"] for t in data["titles"]["items"]} == {
+        OWNED: "TITLEDB", unknown: "UNRECOGNIZED"}
+
+    data = query(catalogue, """
+        query { titles(owned: true, filter: {source: UNRECOGNIZED}, page: 1, pageSize: 50)
+            { items { titleId } } }""")
+    assert [t["titleId"] for t in data["titles"]["items"]] == [unknown]

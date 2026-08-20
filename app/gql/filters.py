@@ -16,6 +16,7 @@ from containers.verification import (
     STATUS_SIGNATURE_FAILED, STATUS_SIGNATURE_OK, STATUS_UNVERIFIED, STATUS_VALID,
 )
 from db import verification_status
+from titledb.schema import SOURCE_CUSTOM, SOURCE_EXTRACT, SOURCE_TITLEDB
 
 from .docs import desc, described
 from .scalars import BigInt
@@ -69,6 +70,33 @@ class BigIntFilter:
         name="in", default=None)
 
 
+@described(strawberry.enum)
+class TitleSource(Enum):
+    """Where a title's metadata came from. An enum rather than a string so the value
+    space is closed and documented: the members are generated from the same
+    `SOURCE_PRIORITY` the merge is, so a new source that nobody wired up here fails
+    loudly instead of surfacing as an undocumented string. Unlike `AppType` the member
+    names are not the stored values - the column holds them lowercase."""
+    CUSTOM = strawberry.enum_value(
+        SOURCE_CUSTOM,
+        description="A local override supplies the values. Highest priority: it wins "
+                    "field by field over everything below it.")
+    TITLEDB = strawberry.enum_value(
+        SOURCE_TITLEDB,
+        description="The downloaded eShop catalogue, which is where all but a handful "
+                    "of titles get their metadata.")
+    EXTRACT = strawberry.enum_value(
+        SOURCE_EXTRACT,
+        description="Read out of the library's own files. Lowest priority, so seeing "
+                    "it means titledb has no row for this title at all - which is the "
+                    "case it exists for, a release the catalogue has not caught up to.")
+    UNRECOGNIZED = strawberry.enum_value(
+        "unrecognized",
+        description="Not a source: the sentinel for an owned title no source describes. "
+                    "Only queries driven by ownership can return it, since a title with "
+                    "no metadata row is one nothing but the library knows about.")
+
+
 @described(strawberry.input)
 class TitleFilter:
     """Predicates on a title. Every populated field ANDs with the others."""
@@ -97,8 +125,10 @@ class TitleFilter:
     parent_id: Optional[StringFilter] = desc(
         "Title id this entry belongs under, for regional variants.", default=None)
     nsu_id: Optional[StringFilter] = desc("Nintendo eShop identifier.", default=None)
-    source: Optional[StringFilter] = desc(
-        "Which metadata source won: `titledb` or `custom`.", default=None)
+    source: Optional[TitleSource] = desc(
+        "Exactly this metadata source. Bare rather than an operator object, like "
+        "`appType`: the set is closed, so equality is the only predicate worth having.",
+        default=None)
     have_base: Optional[bool] = desc(
         "Whether the base game is in the library. A title the library has never seen "
         "counts as false, not unknown.", default=None)
@@ -396,7 +426,9 @@ TITLE_FIELDS = [
     ("release_date", "td.release_date",  "string"),
     ("parent_id",    "td.parent_id",     "string"),
     ("nsu_id",       "td.nsu_id",        "string"),
-    ("source",       "td.source",        "string"),
+    # COALESCEd exactly as `_title_cols` projects it, so `UNRECOGNIZED` filters for the
+    # same titles it is reported on - an owned title with no metadata row has a NULL here.
+    ("source",       "COALESCE(td.source, 'unrecognized')", "enum"),
     # main.titles is LEFT JOINed, so a catalogue-only title has no ownership row at
     # all. Compared bare, `NULL = 0` is NULL rather than true, so both polarities
     # matched nothing and the filter could not discriminate. A title the library has

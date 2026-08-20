@@ -26,7 +26,8 @@ import titles as titles_lib
 from app import create_app
 from constants import APP_TYPE_BASE, APP_TYPE_DLC, APP_TYPE_UPD
 from db import init_db
-from titledb.schema import SOURCE_CUSTOM, SOURCE_EXTRACT, SOURCE_TITLEDB
+from titledb.schema import (SOURCE_CUSTOM, SOURCE_EXTRACT, SOURCE_PRIORITY,
+                            SOURCE_TITLEDB)
 
 
 TABLES = ['titles', 'title_overrides', 'cnmts', 'versions', 'meta']
@@ -91,9 +92,23 @@ def _import(install, titles=None, cnmts=None):
         titledb.store.import_from_json(str(region_file), "US.en")
 
 
-def _sources_of(install, title_id):
+def _contributors(install, title_id):
+    """The sources with a row for this title, highest priority first.
+
+    A title nobody overrode has no rows at all - `_recompute_title` deletes them, and the
+    snapshot only exists to restore what an override covered - so `[]` here is normal and
+    says nothing about which source the merged row came from. `_winner` answers that.
+    """
     with contextlib.closing(sqlite3.connect(install.titles_db)) as conn:
-        row = conn.execute('SELECT sources FROM titles WHERE id = ?', (title_id,)).fetchone()
+        rows = conn.execute('SELECT source FROM title_overrides WHERE id = ?',
+                            (title_id,)).fetchall()
+    return sorted((r[0] for r in rows), key=SOURCE_PRIORITY.index)
+
+
+def _winner(install, title_id):
+    """The source titles.source credits, i.e. what GraphQL reports as `Title.source`."""
+    with contextlib.closing(sqlite3.connect(install.titles_db)) as conn:
+        row = conn.execute('SELECT source FROM titles WHERE id = ?', (title_id,)).fetchone()
         return row[0] if row else None
 
 
@@ -272,27 +287,28 @@ def test_a_missing_source_file_is_an_error(install, missing):
 
 # ------------- source merging -------------
 
-# (case, overrides to set, expected fields of the merged record, expected `sources`)
+# (case, overrides to set, expected fields of the merged record, the sources holding a row,
+#  the source credited for the merged row)
 MERGE_CASES = [
     (
         "custom sets one field only",
         {SOURCE_CUSTOM: {"name": "My Name"}},
         {"name": "My Name", "publisher": "Nintendo", "bannerUrl": "https://img/banner.jpg"},
-        "custom,titledb",
+        ["custom", "titledb"], "custom",
     ),
     (
         # extract is the fallback for what the download never knew, not a correction of it
         "titledb wins over extract",
         {SOURCE_EXTRACT: {"name": "Extracted", "publisher": "Extracted Inc"}},
         {"name": "Some Game", "publisher": "Nintendo", "bannerUrl": "https://img/banner.jpg"},
-        "titledb,extract",
+        ["titledb", "extract"], "titledb",
     ),
     (
         "extract fills only what titledb has no value for",
         {SOURCE_EXTRACT: {"name": "Extracted", "iconUrl": "/api/media/icons/X.jpg"}},
         {"name": "Some Game", "iconUrl": "/api/media/icons/X.jpg",
          "bannerUrl": "https://img/banner.jpg"},
-        "titledb,extract",
+        ["titledb", "extract"], "titledb",
     ),
     (
         "custom wins over both, field by field",
@@ -300,20 +316,22 @@ MERGE_CASES = [
          SOURCE_CUSTOM: {"name": "My Name"}},
         {"name": "My Name", "publisher": "Nintendo", "iconUrl": "/api/media/icons/X.jpg",
          "bannerUrl": "https://img/banner.jpg"},
-        "custom,titledb,extract",
+        ["custom", "titledb", "extract"], "custom",
     ),
     (
+        # Nothing overrode it, so there is nothing to snapshot and no override row exists.
         "titledb alone",
         {},
         {"name": "Some Game", "publisher": "Nintendo", "bannerUrl": "https://img/banner.jpg"},
-        "titledb",
+        [], "titledb",
     ),
 ]
 MERGE_IDS = [c[0] for c in MERGE_CASES]
 
 
-@pytest.mark.parametrize("case,overrides,expected,sources", MERGE_CASES, ids=MERGE_IDS)
-def test_sources_merge_field_by_field(install, case, overrides, expected, sources):
+@pytest.mark.parametrize("case,overrides,expected,contributors,winner", MERGE_CASES,
+                         ids=MERGE_IDS)
+def test_sources_merge_field_by_field(install, case, overrides, expected, contributors, winner):
     """A source that sets some fields must not blank out the ones only a lower one has."""
     init_db(install.app)
     _import(install)
@@ -323,11 +341,13 @@ def test_sources_merge_field_by_field(install, case, overrides, expected, source
     record = titledb.store.get_title_record(TITLE_ID)
     assert {k: record[k] for k in expected} == expected
     assert record["category"] == ["Action"]  # json columns survive the merge
-    assert _sources_of(install, TITLE_ID) == sources
+    assert _contributors(install, TITLE_ID) == contributors
+    assert _winner(install, TITLE_ID) == winner
 
 
-@pytest.mark.parametrize("case,overrides,expected,sources", MERGE_CASES, ids=MERGE_IDS)
-def test_overrides_survive_a_rebuild(install, case, overrides, expected, sources):
+@pytest.mark.parametrize("case,overrides,expected,contributors,winner", MERGE_CASES,
+                         ids=MERGE_IDS)
+def test_overrides_survive_a_rebuild(install, case, overrides, expected, contributors, winner):
     """The overrides are durable in ownfoil.db; the rebuild has to project them back in."""
     init_db(install.app)
     _import(install)
@@ -337,7 +357,8 @@ def test_overrides_survive_a_rebuild(install, case, overrides, expected, sources
 
     record = titledb.store.get_title_record(TITLE_ID)
     assert {k: record[k] for k in expected} == expected
-    assert _sources_of(install, TITLE_ID) == sources
+    assert _contributors(install, TITLE_ID) == contributors
+    assert _winner(install, TITLE_ID) == winner
 
 
 def test_override_only_title_is_queryable(install):
@@ -351,7 +372,8 @@ def test_override_only_title_is_queryable(install):
     record = titledb.store.get_title_record(unknown)
     assert record["name"] == "Homebrew"
     assert record["publisher"] is None
-    assert _sources_of(install, unknown) == "custom"
+    assert _contributors(install, unknown) == ["custom"]  # no titledb row to snapshot
+    assert _winner(install, unknown) == "custom"
 
 
 def test_deleting_an_override_restores_the_titledb_values(install):
@@ -367,7 +389,8 @@ def test_deleting_an_override_restores_the_titledb_values(install):
     record = titledb.store.get_title_record(TITLE_ID)
     assert record["name"] == "Some Game"
     assert record["publisher"] == "Nintendo"
-    assert _sources_of(install, TITLE_ID) == "titledb"
+    assert _contributors(install, TITLE_ID) == []  # the snapshot goes with the override
+    assert _winner(install, TITLE_ID) == "titledb"
 
 
 def test_editing_an_override_keeps_the_titledb_baseline(install):
@@ -408,4 +431,5 @@ def test_deleting_one_source_leaves_the_others(install):
     record = titledb.store.get_title_record(TITLE_ID)
     assert record["name"] == "Some Game"  # custom gone, titledb underneath it restored
     assert record["iconUrl"] == "/api/media/icons/X.jpg"  # the other source is untouched
-    assert _sources_of(install, TITLE_ID) == "titledb,extract"
+    assert _contributors(install, TITLE_ID) == ["titledb", "extract"]
+    assert _winner(install, TITLE_ID) == "titledb"
