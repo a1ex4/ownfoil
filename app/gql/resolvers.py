@@ -256,7 +256,8 @@ def _load_apps_for_titles(
     sql = f"""
     SELECT a.id AS id, a.app_id AS app_id, a.app_version AS app_version,
            a.app_type AS app_type, a.owned AS owned,
-           a.release_date AS release_date, ot.title_id AS tuc
+           a.release_date AS release_date, a.display_version AS display_version,
+           ot.title_id AS tuc
     FROM apps a JOIN main.titles ot ON ot.id = a.title_id
     WHERE ot.title_id IN ({placeholders}){extra_sql}
     ORDER BY a.app_id, CAST(a.app_version AS INTEGER), a.id
@@ -275,6 +276,7 @@ def _load_apps_for_titles(
             app_type=r.app_type,
             owned=bool(r.owned),
             release_date=r.release_date,
+            display_version=r.display_version,
             files_loaded=[] if with_files else None,
         )
         out.setdefault(r.tuc, []).append(a)
@@ -337,7 +339,8 @@ def _hydrate_file_apps(
     SELECT af.file_id AS pk,
            a.id AS id, a.app_id AS app_id, a.app_version AS app_version,
            a.app_type AS app_type, a.owned AS owned,
-           a.release_date AS release_date, ot.title_id AS title_id
+           a.release_date AS release_date, a.display_version AS display_version,
+           ot.title_id AS title_id
     FROM app_files af JOIN apps a ON a.id = af.app_id
     JOIN main.titles ot ON ot.id = a.title_id
     WHERE af.file_id IN ({placeholders})
@@ -357,6 +360,7 @@ def _hydrate_file_apps(
             app_type=r.app_type,
             owned=bool(r.owned),
             release_date=r.release_date,
+            display_version=r.display_version,
             files_loaded=None,  # don't recursively load files for back-linked apps
         )
         f.apps_loaded.append(a)
@@ -795,7 +799,8 @@ def resolve_apps(*, owned: Optional[bool], app_type: Optional[List[AppType]],
     SELECT a.id AS id, a.app_id AS app_id,
            MAX(CAST(a.app_version AS INTEGER)) AS app_version,
            a.app_type AS app_type, (SUM(a.owned) > 0) AS owned,
-           a.release_date AS release_date, ot.title_id AS title_id
+           a.release_date AS release_date, a.display_version AS display_version,
+           ot.title_id AS title_id
     {from_sql}
     {where_sql}{group_sql}{having_sql}
     ORDER BY {order_by_sql}
@@ -803,7 +808,8 @@ def resolve_apps(*, owned: Optional[bool], app_type: Optional[List[AppType]],
     """ if group_by_app_id else f"""
     SELECT a.id AS id, a.app_id AS app_id, a.app_version AS app_version,
            a.app_type AS app_type, a.owned AS owned,
-           a.release_date AS release_date, ot.title_id AS title_id
+           a.release_date AS release_date, a.display_version AS display_version,
+           ot.title_id AS title_id
     {from_sql}
     {where_sql}
     ORDER BY {order_by_sql}
@@ -823,6 +829,7 @@ def resolve_apps(*, owned: Optional[bool], app_type: Optional[List[AppType]],
             app_type=r.app_type,
             owned=bool(r.owned),
             release_date=r.release_date,
+            display_version=r.display_version,
             files_loaded=[] if want_files else None,
         )
         items.append(a)

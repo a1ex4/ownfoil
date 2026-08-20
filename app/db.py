@@ -143,6 +143,7 @@ class Files(db.Model):
     identification_attempts = db.Column(db.Integer, default=0)
     last_attempt = db.Column(db.DateTime, default=datetime.datetime.now())
     organized = db.Column(db.Boolean, default=False)
+    metadata_extracted = db.Column(db.Boolean, default=False)
     signature_valid = db.Column(db.Boolean)
     hash_valid = db.Column(db.Boolean)
     hash_modified = db.Column(db.Boolean)
@@ -155,8 +156,8 @@ class Files(db.Model):
 
     library = db.relationship('Libraries', backref=db.backref('files', lazy=True, cascade="all, delete-orphan"))
 
-# Durable home of the title metadata that isn't downloaded: user-authored ('custom') and,
-# later, extracted from the files themselves ('extract'). Sparse - a row only sets the
+# Durable home of the title metadata that isn't downloaded: user-authored ('custom') and
+# extracted from the files themselves ('extract'). Sparse - a row only sets the
 # fields that source knows about. titles.db is disposable and gets these projected into it
 # on every rebuild, which is why they live here instead. Core table, not a model: it has
 # no ORM relationships and its columns come from the titledb schema.
@@ -213,6 +214,7 @@ class Apps(db.Model):
     app_type = db.Column(db.String)
     owned = db.Column(db.Boolean, default=False)
     release_date = db.Column(db.String)
+    display_version = db.Column(db.String)
 
     title = db.relationship('Titles', backref=db.backref('apps', lazy=True, cascade="all, delete-orphan"))
     files = db.relationship('Files', secondary=app_files, backref=db.backref('apps', lazy='select'))
@@ -688,4 +690,10 @@ def increment_download_count_throttled(filepath, host):
 def reset_files_organized():
     """Reset the organized flag on all files so the organizer re-evaluates them."""
     Files.query.update({Files.organized: False})
+    db.session.commit()
+
+
+def reset_files_metadata_extracted():
+    """Reset the extraction flag on all files so their metadata is read again."""
+    Files.query.update({Files.metadata_extracted: False})
     db.session.commit()

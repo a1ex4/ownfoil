@@ -14,7 +14,9 @@ metadata = sa.MetaData()
 # has a value for it. 'titledb' is the downloaded eShop dump, 'custom' is user-authored,
 # 'extract' is read out of the files themselves. Everything that merges sources is
 # generated from this tuple, so a new source is an entry here plus a producer.
-SOURCE_PRIORITY = ('custom', 'extract', 'titledb')
+# 'extract' sits last on purpose: it is the fallback for what titledb never knew, not a
+# correction of what it does know - the eShop record is the richer of the two.
+SOURCE_PRIORITY = ('custom', 'titledb', 'extract')
 SOURCE_TITLEDB = 'titledb'
 SOURCE_CUSTOM = 'custom'
 SOURCE_EXTRACT = 'extract'

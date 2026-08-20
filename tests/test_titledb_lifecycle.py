@@ -281,17 +281,26 @@ MERGE_CASES = [
         "custom,titledb",
     ),
     (
-        "extract wins over titledb",
+        # extract is the fallback for what the download never knew, not a correction of it
+        "titledb wins over extract",
         {SOURCE_EXTRACT: {"name": "Extracted", "publisher": "Extracted Inc"}},
-        {"name": "Extracted", "publisher": "Extracted Inc", "bannerUrl": "https://img/banner.jpg"},
-        "extract,titledb",
+        {"name": "Some Game", "publisher": "Nintendo", "bannerUrl": "https://img/banner.jpg"},
+        "titledb,extract",
     ),
     (
-        "custom wins over extract, field by field",
-        {SOURCE_EXTRACT: {"name": "Extracted", "publisher": "Extracted Inc"},
+        "extract fills only what titledb has no value for",
+        {SOURCE_EXTRACT: {"name": "Extracted", "iconUrl": "/api/media/icons/X.jpg"}},
+        {"name": "Some Game", "iconUrl": "/api/media/icons/X.jpg",
+         "bannerUrl": "https://img/banner.jpg"},
+        "titledb,extract",
+    ),
+    (
+        "custom wins over both, field by field",
+        {SOURCE_EXTRACT: {"name": "Extracted", "iconUrl": "/api/media/icons/X.jpg"},
          SOURCE_CUSTOM: {"name": "My Name"}},
-        {"name": "My Name", "publisher": "Extracted Inc", "bannerUrl": "https://img/banner.jpg"},
-        "custom,extract,titledb",
+        {"name": "My Name", "publisher": "Nintendo", "iconUrl": "/api/media/icons/X.jpg",
+         "bannerUrl": "https://img/banner.jpg"},
+        "custom,titledb,extract",
     ),
     (
         "titledb alone",
@@ -390,13 +399,13 @@ def test_deleting_the_override_of_an_unknown_title_drops_it(install):
 def test_deleting_one_source_leaves_the_others(install):
     init_db(install.app)
     _import(install)
-    _set_overrides(install, {SOURCE_EXTRACT: {"name": "Extracted", "publisher": "Extracted Inc"},
+    _set_overrides(install, {SOURCE_EXTRACT: {"iconUrl": "/api/media/icons/X.jpg"},
                              SOURCE_CUSTOM: {"name": "My Name"}})
 
     with install.app.app_context():
         titledb.store.delete_override(TITLE_ID, SOURCE_CUSTOM)
 
     record = titledb.store.get_title_record(TITLE_ID)
-    assert record["name"] == "Extracted"
-    assert record["publisher"] == "Extracted Inc"
-    assert _sources_of(install, TITLE_ID) == "extract,titledb"
+    assert record["name"] == "Some Game"  # custom gone, titledb underneath it restored
+    assert record["iconUrl"] == "/api/media/icons/X.jpg"  # the other source is untouched
+    assert _sources_of(install, TITLE_ID) == "titledb,extract"

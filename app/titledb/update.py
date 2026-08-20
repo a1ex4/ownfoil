@@ -97,8 +97,11 @@ def update_titledb(app_settings):
     if downloaded or locale_changed:
         store.import_from_json(os.path.join(TITLEDB_DIR, get_region_titles_file(app_settings)), locale)
         if locale_changed:
-            from db import reset_files_organized
+            from db import reset_files_metadata_extracted, reset_files_organized
             reset_files_organized()
+            # Names and icons are per language, so a new locale invalidates what was read
+            # out of the files just as surely as it invalidates the download.
+            reset_files_metadata_extracted()
 
     # Written only once the files are on disk and imported, so a failure retries the same revision
     with open(os.path.join(TITLEDB_DIR, MARKER_FILE), 'w') as f:
