@@ -120,19 +120,15 @@ def _merge_sql(single_id):
     aliases = [_alias(s) for s in SOURCE_PRIORITY]
     cols = ', '.join(f'COALESCE({", ".join(f"{a}.{c}" for a in aliases)}) AS {c}'
                      for c in _META_COLUMNS)
-    # Highest-priority source that has a row, and the full list, both in priority order.
+    # Highest-priority source that has a row, in priority order.
     source = 'COALESCE(' + ', '.join(
         f"CASE WHEN {_alias(s)}.id IS NOT NULL THEN '{s}' END" for s in SOURCE_PRIORITY) + ')'
-    # Each present source contributes ',<source>'; substr drops the leading separator.
-    sources = 'substr(' + ' || '.join(
-        f"CASE WHEN {_alias(s)}.id IS NOT NULL THEN ',{s}' ELSE '' END"
-        for s in SOURCE_PRIORITY) + ', 2)'
     joins = '\n'.join(
         f"LEFT JOIN title_overrides {_alias(s)} ON {_alias(s)}.id = ids.id "
         f"AND {_alias(s)}.source = '{s}'" for s in SOURCE_PRIORITY)
     return f'''
-        INSERT OR REPLACE INTO titles (id, source, sources, {", ".join(_META_COLUMNS)})
-        SELECT ids.id, {source} AS source, {sources} AS sources, {cols}
+        INSERT OR REPLACE INTO titles (id, source, {", ".join(_META_COLUMNS)})
+        SELECT ids.id, {source} AS source, {cols}
         FROM (SELECT DISTINCT id FROM title_overrides{" WHERE id = :id" if single_id else ""}) ids
         {joins}
     '''
@@ -250,7 +246,7 @@ def _copy_into_titles_db(new_path):
 
 
 def _import_titles(conn, path):
-    cols = ['"id"', 'source', 'sources'] + [f'"{c}"' for _, c, _ in _TITLES_COLUMNS if c != 'id']
+    cols = ['"id"', 'source'] + [f'"{c}"' for _, c, _ in _TITLES_COLUMNS if c != 'id']
     placeholders = ','.join('?' * len(cols))
     sql = f'INSERT OR IGNORE INTO titles ({",".join(cols)}) VALUES ({placeholders})'
 
@@ -266,10 +262,10 @@ def _import_titles(conn, path):
         row = _encode_row(record, _TITLES_COLUMNS)
         if row[id_col_index] is None:
             continue
-        # Column order: id, source, sources, then the remaining titles columns
+        # Column order: id, source, then the remaining titles columns
         # (in _TITLES_COLUMNS order minus id)
         rest = [v for i, v in enumerate(row) if i != id_col_index]
-        batch.append([row[id_col_index], SOURCE_TITLEDB, SOURCE_TITLEDB] + rest)
+        batch.append([row[id_col_index], SOURCE_TITLEDB] + rest)
         if len(batch) >= 5000:
             conn.executemany(sql, batch)
             count += len(batch)

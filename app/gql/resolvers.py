@@ -11,7 +11,7 @@ from db import db
 
 from .context import GraphQLContext
 from .filters import (
-    AppFilter, AppType, FileFilter, OrderBy, TitleFilter, VerificationStatus,
+    AppFilter, AppType, FileFilter, OrderBy, TitleFilter, TitleSource, VerificationStatus,
     APP_FIELDS, APP_FIELDS_EXCEPT_OWNED, APP_ORDER, APP_ORDER_GROUPED,
     FILE_FIELDS, FILE_ORDER, TITLE_FIELDS, TITLE_ORDER,
     build_clauses, order_sql,
@@ -168,7 +168,7 @@ def _build_title(row, *, with_apps: bool, with_files: bool) -> Title:
         )
     return Title(
         title_id=strawberry.ID((m.get('title_id') or "").upper()),
-        source=m.get('source') or "titledb",
+        source=TitleSource(m['source']),
         name=m.get('name'),
         banner_url=m.get('banner_url'),
         icon_url=m.get('icon_url'),

@@ -166,7 +166,7 @@ def test_a_title_override_changes_what_the_query_side_reads(library):
             { titleId name source } }""" % ALPHA)
 
     assert data["setTitleOverride"]["name"] == "Renamed"
-    assert data["setTitleOverride"]["source"] == "custom"
+    assert data["setTitleOverride"]["source"] == "CUSTOM"
 
     resp = library.client.get("/api/graphql", query_string={"query": """
         query { title(titleId: "%s") { name } }""" % ALPHA})

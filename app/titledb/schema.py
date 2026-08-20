@@ -76,12 +76,12 @@ def column_map(table):
 
 # One row per title id, holding the values already merged across the sources: the read path
 # joins this directly, with no dedup predicate. `source` is the highest-priority source that
-# contributed a field (what the GraphQL Title.source exposes), `sources` lists them all.
+# contributed a field (what the GraphQL Title.source exposes); which others also contributed
+# is not denormalized here - `title_overrides` holds one row per source and is the answer.
 titles = sa.Table(
     'titles', metadata,
     _col('id', 'id', primary_key=True),
     sa.Column('source', sa.Text, nullable=False, server_default=sa.text(f"'{SOURCE_TITLEDB}'")),
-    sa.Column('sources', sa.Text),
     *metadata_columns(),
 )
 
