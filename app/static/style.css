@@ -412,7 +412,8 @@ p.game-description {
 
 /* ---------- title details page ---------- */
 
-/* The banner is the page background: fixed, full bleed, and the panel scrolls over it.
+/* The banner is the page background: full bleed behind everything, drifting up at half
+   the scroll speed while the panel slides over it.
    The navbar rides on top of the artwork rather than boxing it in. */
 .title-nav {
     position: absolute;
@@ -430,12 +431,15 @@ p.game-description {
     background-color: var(--bs-body-bg);
     background-size: cover;
     background-position: center 26%;
+    will-change: transform;
 }
 
-.title-banner::after {
-    content: "";
-    position: absolute;
+/* Its own layer rather than a child of the banner: the darkening is there to keep the
+   navbar and the panel edge legible, which it can only do by staying where they are. */
+.title-scrim {
+    position: fixed;
     inset: 0;
+    z-index: -1;
     background: linear-gradient(180deg, rgba(18, 20, 23, .3) 0%, rgba(18, 20, 23, .1) 40%, rgba(18, 20, 23, .5) 100%);
 }
 
@@ -453,8 +457,8 @@ p.game-description {
     position: relative;
     min-height: 25vh;
     padding: 1rem 1.75rem 2.75rem;
-    /* Translucent, so the artwork stays present behind the panel - but the banner is
-       fixed, so a scrolled panel sits over the brightest part of it and .93 was enough
+    /* Translucent, so the artwork stays present behind the panel - but what sits behind
+       a scrolled panel is whatever the drift has brought under it, and .93 was enough
        bleed-through to fight the text. */
     background: rgba(33, 37, 41, .97);
     backdrop-filter: blur(18px);

@@ -5,6 +5,7 @@
     {% with transparent_nav=True %}{% include 'nav.html' %}{% endwith %}
 
     <div class="title-banner" id="titleBanner"></div>
+    <div class="title-scrim"></div>
     <div class="title-hero"></div>
 
     <div class="title-panel">
@@ -479,6 +480,29 @@
         if (!descExpanded) fitDescription();
     });
 
+    /** Parallax: the artwork drifts up at half the scroll speed rather than standing
+     *  still, so the panel reads as sliding over the banner instead of wiping it away.
+     *  The scrim is a layer of its own precisely so it does not travel with it. */
+    function trackBanner() {
+        if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+        const banner = document.getElementById('titleBanner');
+        const hero = document.querySelector('.title-hero');
+        let pending = false;
+        const update = () => {
+            pending = false;
+            // Past the hero the banner is behind the panel, and there is nothing to move.
+            const drift = Math.min(window.scrollY, hero.offsetHeight) * .5;
+            banner.style.transform = `translate3d(0, ${-drift}px, 0)`;
+        };
+        window.addEventListener('scroll', () => {
+            if (pending) return;
+            pending = true;
+            requestAnimationFrame(update);
+        }, {passive: true});
+        update();
+    }
+
+    trackBanner();
     loadTitle();
 </script>
 
