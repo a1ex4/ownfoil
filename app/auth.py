@@ -91,7 +91,8 @@ def unauthorized_json():
     }
     return jsonify(resp)
 
-def access_required(access: str):
+def access_required(*accesses):
+    """Gate a view on any one of the given accesses."""
     def _access_required(f):
         @wraps(f)
         def decorated_view(*args, **kwargs):
@@ -103,7 +104,7 @@ def access_required(access: str):
                 # return unauthorized_json()
                 return login_manager.unauthorized()
 
-            if not current_user.has_access(access):
+            if not any(current_user.has_access(access) for access in accesses):
                 return 'Forbidden', 403
             return f(*args, **kwargs)
         return decorated_view

@@ -6,9 +6,11 @@ import logging
 import os
 from collections import namedtuple
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+import media
 import titles as titles_lib
 import titledb
 from containers import compression
+from containers import nacp
 from containers import verification as verification_lib
 from constants import COMPRESS_EXT, DECOMPRESS_EXT
 from db import (
@@ -22,6 +24,7 @@ from db import (
     verification_status,
 )
 from settings import get_settings
+from titledb.schema import SOURCE_EXTRACT
 from utils import interval_string_to_timedelta, delete_empty_folders, human_size
 from library import (
     add_missing_apps_for_title, update_title_flags,
@@ -757,6 +760,36 @@ def _identify(file, mgmt):
         enqueue_task('add_missing_apps_for_title', {'title_id': title_id})
 
 
+def _needs_extract(file, mgmt):
+    return bool(titles_lib.Keys.keys_loaded) and file.identified and not file.metadata_extracted
+
+
+def _extract(file, mgmt):
+    """Read one file's own metadata and file it as the 'extract' source."""
+    locale = get_settings()['titles']
+    language = nacp.language_for_locale(locale['region'], locale['language'])
+    try:
+        contents = nacp.extract_metadata(file.filepath, language)
+    except Exception as e:
+        logger.warning(f'Could not extract metadata from {file.filename}: {e}')
+        contents = []
+
+    for content in contents:
+        Apps.query.filter_by(app_id=content['app_id'],
+                             app_version=str(content['version'])).update(
+            {'display_version': content['display_version']})
+        record = {'id': content['title_id'], 'name': content['name'],
+                  'publisher': content['publisher']}
+        if content['icon']:
+            record['iconUrl'] = media.save_icon(content['title_id'], content['icon'])
+        titledb.store.set_override(content['title_id'], record, source=SOURCE_EXTRACT)
+
+    # Set even when nothing came back: a DLC ships no Control NCA and never will, so
+    # retrying it on every pass would re-read the container forever.
+    file.metadata_extracted = True
+    db.session.commit()
+
+
 def _needs_verify(file, mgmt):
     verification = mgmt['verification']
     if not verification['enabled'] or file.extension not in verification_lib.VERIFY_EXT:
@@ -799,8 +832,12 @@ def _needs_compress(file, mgmt):
     return Files.query.filter(Files.filepath == target, Files.id != file.id).first() is None
 
 
+# `extract` runs before `organize` on purpose: the organizer resolves {titleName} through
+# titles.db, so a title titledb never heard of is only filed under its real name if its own
+# metadata has been read first.
 STAGES = [
     Stage('identify', _needs_identify, _identify, None),
+    Stage('extract', _needs_extract, _extract, None),
     Stage('organize', _needs_organize, _organize, None),
     Stage('verify', _needs_verify, None, 'verify_file'),
     Stage('compress', _needs_compress, None, 'compress_file'),

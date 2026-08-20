@@ -530,6 +530,12 @@ app.add_url_rule(
     methods=['GET', 'POST'],
 )
 
+@app.route('/api/media/icons/<path:name>')
+@access_required('shop', 'admin')
+def serve_icon(name):
+    """Serve an icon extracted from a library file. Same audience as the catalogue itself."""
+    return send_from_directory(ICONS_DIR, name, max_age=31536000)
+
 @app.route('/api/get_game/<int:id>')
 @file_access
 def serve_game(id):
