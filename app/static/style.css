@@ -409,3 +409,609 @@ p.game-description {
     background: none;
     box-shadow: none;
 }
+
+/* ---------- title details page ---------- */
+
+/* The banner is the page background: fixed, full bleed, and the panel scrolls over it.
+   The navbar rides on top of the artwork rather than boxing it in. */
+.title-nav {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 3;
+    background: linear-gradient(180deg, rgba(16, 18, 20, .78), rgba(16, 18, 20, 0));
+}
+
+.title-banner {
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    background-color: var(--bs-body-bg);
+    background-size: cover;
+    background-position: center 26%;
+}
+
+.title-banner::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(180deg, rgba(18, 20, 23, .3) 0%, rgba(18, 20, 23, .1) 40%, rgba(18, 20, 23, .5) 100%);
+}
+
+/* Half the viewport of artwork before the panel takes over. A title with no banner has
+   nothing to show there, so the gap shrinks to what the icon needs. */
+.title-hero {
+    height: 75vh;
+}
+
+.title-page--nobanner .title-hero {
+    height: 20vh;
+}
+
+.title-panel {
+    position: relative;
+    min-height: 25vh;
+    padding: 1rem 1.75rem 2.75rem;
+    /* Translucent, so the artwork stays present behind the panel - but the banner is
+       fixed, so a scrolled panel sits over the brightest part of it and .93 was enough
+       bleed-through to fight the text. */
+    background: rgba(33, 37, 41, .97);
+    backdrop-filter: blur(18px);
+    border-top: 1px solid rgba(255, 255, 255, .16);
+}
+
+/* The panel's sections are rendered into one container, so the spacing between them
+   belongs here - on their own parent - rather than on the panel. */
+.title-body {
+    display: flex;
+    flex-direction: column;
+    gap: 1.6rem;
+}
+
+/* Only the icon straddles the panel's edge - the name and byline stay below it. */
+.title-head {
+    display: flex;
+    align-items: center;
+    gap: 1.6rem;
+}
+
+.title-icon {
+    width: 256px;
+    height: 256px;
+    flex: 0 0 auto;
+    align-self: flex-start;
+    margin-top: calc(-128px - 1rem);
+    border-radius: 28px;
+    border: 2px solid rgba(255, 255, 255, .24);
+    box-shadow: 0 .75rem 1.9rem rgba(0, 0, 0, .6);
+    object-fit: cover;
+    background-color: var(--bs-secondary-bg);
+}
+
+.title-icon--empty {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 3rem;
+    color: var(--bs-secondary-color);
+}
+
+.title-head-text {
+    display: flex;
+    flex-direction: column;
+    gap: .25rem;
+    min-width: 0;
+}
+
+.title-name {
+    font-size: 2.4rem;
+    font-weight: 600;
+    letter-spacing: -.01em;
+    text-wrap: balance;
+}
+
+.title-byline {
+    margin: 0;
+    color: var(--bs-secondary-color);
+    font-size: .9rem;
+}
+
+.title-mono {
+    font-family: var(--bs-font-monospace);
+    font-size: .82rem;
+}
+
+/* Metadata beside the description; the content table below spans the whole panel. */
+.title-grid {
+    display: grid;
+    grid-template-columns: 276px minmax(0, 1fr);
+    gap: 2.1rem;
+    align-items: start;
+}
+
+/* The screenshots are a column of this grid, not a box nested in the description, so
+   they get a share of the panel width instead of its leftovers. */
+.title-grid.has-shots {
+    grid-template-columns: 276px minmax(0, 1fr) minmax(0, 1.15fr);
+}
+
+.title-facts {
+    background-color: var(--bs-tertiary-bg);
+    border: 1px solid var(--bs-border-color-translucent);
+    border-radius: .55rem;
+    padding: .25rem .9rem;
+}
+
+.title-fact {
+    display: flex;
+    justify-content: space-between;
+    gap: .9rem;
+    padding: .45rem 0;
+    border-bottom: 1px solid var(--bs-border-color-translucent);
+    font-size: .86rem;
+}
+
+.title-fact:last-child {
+    border-bottom: 0;
+}
+
+.title-fact-key {
+    color: var(--bs-secondary-color);
+    white-space: nowrap;
+}
+
+.title-fact-value {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+.title-about {
+    display: flex;
+    flex-direction: column;
+    gap: .75rem;
+    min-width: 0;
+    max-width: 78ch;
+}
+
+.title-intro {
+    margin: 0;
+    font-size: 1.05rem;
+    font-style: italic;
+}
+
+.title-desc {
+    margin: 0;
+    color: var(--bs-secondary-color);
+    white-space: pre-line;
+}
+
+/* Store descriptions run to several paragraphs; the page opens on the first few lines. */
+.title-desc.is-clamped {
+    display: -webkit-box;
+    -webkit-line-clamp: 5;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.title-more {
+    align-self: flex-start;
+    background: none;
+    border: 0;
+    padding: 0;
+    color: var(--bs-info);
+    font-size: .86rem;
+}
+
+/* One screenshot at a time, at the width of its column: six thumbnails were too small
+   to read, and the store art is half of what a title page is for. */
+.title-shots {
+    min-width: 0;
+}
+
+.title-slideshow {
+    position: relative;
+    min-width: 0;
+    /* The frame keeps the height, so the layers inside it can be stacked and swapped
+       without the column reflowing between two screenshots. */
+    aspect-ratio: 16 / 9;
+    /* Contain, not cover: the list mixes in the odd portrait promo image, and cropping
+       the middle out of one is worse than letterboxing it. */
+    background-color: rgba(0, 0, 0, .35);
+    border: 1px solid var(--bs-border-color-translucent);
+    border-radius: .45rem;
+    overflow: hidden;
+    cursor: zoom-in;
+}
+
+.title-slide {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    opacity: 0;
+    transition: opacity .45s ease;
+}
+
+.title-slide.is-current {
+    opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .title-slide {
+        transition: none;
+    }
+}
+
+.title-slide-nav {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    background-color: rgba(18, 20, 23, .55);
+    color: rgba(255, 255, 255, .75);
+    font-size: 1.1rem;
+    line-height: 1;
+    opacity: 0;
+    transition: opacity .15s ease;
+}
+
+.title-slideshow:hover .title-slide-nav,
+.title-slide-nav:focus-visible {
+    opacity: 1;
+}
+
+.title-slide-nav--prev { left: .5rem; }
+.title-slide-nav--next { right: .5rem; }
+
+.title-slide-nav:hover {
+    background-color: rgba(18, 20, 23, .8);
+    color: #fff;
+}
+
+.title-slide-dots {
+    display: flex;
+    justify-content: center;
+    gap: .4rem;
+    margin-top: .6rem;
+}
+
+.title-slide-dot {
+    width: 7px;
+    height: 7px;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    background-color: var(--bs-border-color);
+}
+
+.title-slide-dot.is-current {
+    background-color: var(--bs-secondary-color);
+}
+
+/* Full-size viewer: bare arrows either side, muted until you reach for them. */
+.title-lightbox {
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+    width: 100%;
+}
+
+/* Shrinkable, so the arrows stay inside the dialog rather than either side of it, and
+   a tall screenshot cannot outgrow the window. */
+.title-lightbox img {
+    min-width: 0;
+    max-height: 80vh;
+    object-fit: contain;
+}
+
+.title-shot-nav {
+    flex: 0 0 auto;
+    background: none;
+    border: 0;
+    padding: .25rem .5rem;
+    font-size: 2rem;
+    line-height: 1;
+    color: var(--bs-secondary-color);
+}
+
+.title-shot-nav:hover {
+    color: #fff;
+}
+
+.title-shot-count {
+    margin: .5rem 0 0;
+    text-align: center;
+    color: var(--bs-secondary-color);
+    font-size: .85rem;
+    font-variant-numeric: tabular-nums;
+}
+
+.title-section-head {
+    display: flex;
+    align-items: baseline;
+    gap: .75rem;
+    border-bottom: 1px solid var(--bs-border-color-translucent);
+    padding-bottom: .5rem;
+}
+
+.title-section-head h2 {
+    font-size: .8rem;
+    letter-spacing: .13em;
+    text-transform: uppercase;
+    color: var(--bs-secondary-color);
+    font-weight: 600;
+}
+
+.title-section-count {
+    margin-left: auto;
+    color: var(--bs-secondary-color);
+    font-size: .82rem;
+}
+
+.title-content {
+    display: flex;
+    flex-direction: column;
+    gap: .75rem;
+}
+
+.title-table-wrap {
+    overflow-x: auto;
+}
+
+.title-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: .9rem;
+}
+
+.title-table th {
+    text-align: left;
+    padding: 0 .6rem .5rem;
+    font-size: .7rem;
+    letter-spacing: .09em;
+    text-transform: uppercase;
+    font-weight: 600;
+    color: var(--bs-secondary-color);
+    white-space: nowrap;
+    cursor: pointer;
+    user-select: none;
+}
+
+.title-table th:hover {
+    color: var(--bs-body-color);
+}
+
+.title-table th.is-sorted {
+    color: var(--bs-body-color);
+}
+
+.title-arrow {
+    font-size: .62rem;
+    opacity: .45;
+}
+
+.title-table th.is-sorted .title-arrow {
+    opacity: 1;
+    color: var(--bs-info);
+}
+
+.title-table td:first-child {
+    white-space: nowrap;
+}
+
+.title-table td {
+    padding: .55rem .6rem;
+    border-top: 1px solid var(--bs-border-color-translucent);
+    vertical-align: middle;
+}
+
+.title-app.is-expandable {
+    cursor: pointer;
+}
+
+.title-app.is-expandable:hover td {
+    background-color: rgba(255, 255, 255, .035);
+}
+
+.title-app.is-open td {
+    background-color: rgba(13, 110, 253, .07);
+}
+
+.title-caret {
+    display: inline-block;
+    width: .8rem;
+    color: var(--bs-secondary-color);
+    transition: transform .12s ease;
+}
+
+.title-app.is-open .title-caret {
+    transform: rotate(90deg);
+    color: var(--bs-body-color);
+}
+
+/* Type reads at a glance in a list dominated by DLC rows. */
+.title-type {
+    font-size: .68rem;
+    letter-spacing: .07em;
+    font-weight: 600;
+    border-radius: .25rem;
+    padding: .1rem .4rem;
+    border: 1px solid var(--bs-border-color);
+    color: var(--bs-secondary-color);
+}
+
+.title-type[data-type="BASE"] {
+    color: #7fdcf2;
+    border-color: rgba(13, 202, 240, .45);
+}
+
+.title-type[data-type="UPDATE"] {
+    color: #b9a6f5;
+    border-color: rgba(146, 120, 235, .45);
+}
+
+.title-type[data-type="DLC"] {
+    color: #f0b78a;
+    border-color: rgba(233, 143, 77, .45);
+}
+
+.title-num {
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.title-name-cell {
+    min-width: 190px;
+}
+
+.title-appid {
+    display: block;
+    font-family: var(--bs-font-monospace);
+    font-size: .7rem;
+    color: var(--bs-secondary-color);
+}
+
+.title-detail > td {
+    padding: .2rem .6rem .6rem 2.6rem;
+    border-top: 0;
+    background-color: rgba(0, 0, 0, .16);
+    box-shadow: inset 2px 0 0 var(--bs-border-color);
+}
+
+.title-version {
+    display: grid;
+    grid-template-columns: 6.5rem 6.5rem 7.5rem minmax(0, 1fr);
+    gap: .6rem;
+    align-items: center;
+    padding: .45rem .5rem;
+    border-bottom: 1px solid rgba(255, 255, 255, .05);
+    font-size: .85rem;
+}
+
+.title-version:last-child {
+    border-bottom: 0;
+}
+
+.title-version.is-missing {
+    color: var(--bs-secondary-color);
+}
+
+.title-file {
+    display: flex;
+    align-items: center;
+    gap: .6rem;
+    flex-wrap: wrap;
+    padding: .35rem 0;
+    font-size: .82rem;
+}
+
+.title-file-meta {
+    color: var(--bs-secondary-color);
+}
+
+.title-files {
+    padding: .25rem .5rem;
+}
+
+.title-missing {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: .75rem;
+}
+
+/* Ownership reads as a state, not a number: a filled dot for what is there, a hollow
+   one for what is not. */
+.title-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: .35rem;
+    border-radius: 50rem;
+    padding: .1rem .65rem;
+    font-size: .76rem;
+    font-weight: 500;
+    border: 1px solid transparent;
+    white-space: nowrap;
+}
+
+.title-pill--ok {
+    background-color: rgba(25, 135, 84, .18);
+    color: #75d1a3;
+    border-color: rgba(25, 135, 84, .5);
+}
+
+.title-pill--warn {
+    background-color: rgba(255, 193, 7, .14);
+    color: #ffd968;
+    border-color: rgba(255, 193, 7, .45);
+}
+
+.title-pill--off {
+    background-color: rgba(154, 163, 171, .12);
+    color: var(--bs-secondary-color);
+    border-color: var(--bs-border-color);
+}
+
+.title-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background-color: currentColor;
+}
+
+.title-dot--hollow {
+    background-color: transparent;
+    border: 1.5px solid currentColor;
+}
+
+@media (max-width: 991.98px) {
+    .title-grid,
+    .title-grid.has-shots {
+        grid-template-columns: 1fr;
+        gap: 1.4rem;
+    }
+
+    .title-grid.has-shots .title-shots {
+        grid-column: auto;
+    }
+
+    .title-panel {
+        padding: 1rem 1rem 2rem;
+    }
+
+    .title-icon {
+        width: 150px;
+        height: 150px;
+        margin-top: calc(-75px - 1rem);
+    }
+
+    .title-name {
+        font-size: 1.9rem;
+    }
+}
+
+/* The whole card is the link to its title's page; a DLC card opens the game it
+   belongs to, not a page of its own. */
+.game-link {
+    display: block;
+    color: inherit;
+    text-decoration: none;
+}
+
+.game-icon-link {
+    display: inline-block;
+}
+
+.game-icon-link .game-icon {
+    display: block;
+    width: 100%;
+}

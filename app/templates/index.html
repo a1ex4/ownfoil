@@ -208,7 +208,7 @@
                  appType: $appType, search: $search, owned: $owned,
                  upToDate: $upToDate, complete: $complete) {
                 total
-                items { appId titledb { icon { url } } }
+                items { appId titledb { icon { url } } title { titleId } }
             }
         }`;
 
@@ -342,6 +342,7 @@
         if (isBase) {
             return {
                 id: recognized ? title.titleId : title.titleId + ' not found in titledb',
+                title_id: title.titleId,
                 title_id_name: title.name || 'Unrecognized',
                 name: title.name || 'Unrecognized',
                 bannerUrl: (meta.banner || {}).url || PLACEHOLDER_BANNER,
@@ -358,6 +359,7 @@
         const highest = versions.length ? Math.max(...versions.map(v => v.version)) : 0;
         return {
             id: recognized ? app.appId : app.appId + ' not found in titledb',
+            title_id: title.titleId,
             title_id_name: title.name || 'Unrecognized',
             name: meta.name || 'Unrecognized',
             bannerUrl: (meta.banner || {}).url || PLACEHOLDER_BANNER,
@@ -376,6 +378,7 @@
         games.forEach(function (game) {
             const gameCol = $('<div class="col game-col"></div>').addClass(cardColumnClasses());
 
+            const link = $('<a class="game-link"></a>').attr('href', `/title/${game.title_id}`);
             const card = $('<div class="card text-bg-dark game-card"></div>');
 
             const img = $('<img class="card-img"></img>').attr('src', game.bannerUrl);
@@ -415,6 +418,7 @@
                         placement: 'top',
                     });
                     versionBadge.css('cursor', 'pointer');
+                    versionBadge.on('click', e => e.preventDefault());
                 } else {
                     // version tooltip on hover
                     versionBadge.attr("data-bs-toggle", "tooltip")
@@ -431,7 +435,8 @@
 
             cardOverlay.append(tagsContainer);
             card.append(cardOverlay);
-            gameCol.append(card);
+            link.append(card);
+            gameCol.append(link);
             gameGrid.append(gameCol);
         });
     }
@@ -442,7 +447,9 @@
 
         apps.forEach(app => {
             const icon = $('<img class="game-icon">').attr('src', ((app.titledb || {}).icon || {}).url || '');
-            gameGrid.append(icon);
+            const link = $('<a class="game-icon-link"></a>')
+                .attr('href', `/title/${(app.title || {}).titleId}`).append(icon);
+            gameGrid.append(link);
         });
 
         // Adjust icon sizes based on the slider value
@@ -543,8 +550,9 @@
         // Calculate the size of the icons based on the slider value
         const iconSize = 100 / (cardSize + 3); // Assuming 100 is the maximum size
 
-        // Update the CSS of the game icons
-        $('.game-icon').css('width', `${iconSize}%`);
+        // Update the CSS of the game icons - the link is what carries the width now,
+        // since the icon fills it.
+        $('.game-icon-link').css('width', `${iconSize}%`);
     }
 
     function saveFiltersToStorage() {
