@@ -245,6 +245,24 @@ def index(path=None):
         return access_shop_auth()
     return access_shop()
 
+def title_details(title_id):
+    return render_template('title.html', title='Library', title_id=title_id.upper(),
+                           admin_account_created=admin_account_created())
+
+@access_required('shop')
+def title_details_auth(title_id):
+    return title_details(title_id)
+
+@app.route('/title/<title_id>')
+def title_page(title_id):
+    """One title in full: its metadata, every app known for it and the files behind them.
+
+    Gated like the shop landing page, and rendered as a shell - a title id nothing
+    matches comes back null from the query rather than 404ing here."""
+    if not get_settings()['shop']['public']:
+        return title_details_auth(title_id)
+    return title_details(title_id)
+
 @app.route('/admin')
 @access_required('admin')
 def admin_page():
