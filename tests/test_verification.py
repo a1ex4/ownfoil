@@ -281,12 +281,48 @@ def test_verify_runs_after_organize_and_before_compress(env):
     env.monkeypatch.setattr(tasks, "organize_file", lambda *a, **k: True)
     env.monkeypatch.setattr(tasks, "enqueue_task",
                             lambda name, data=None, **k: enqueued.append(name))
-    f = env.seed()
+    f = env.seed(metadata_extracted=True)   # extract is delegated; it would park the driver
 
     tasks.process_file_task(file_id=f.id)
 
     assert db.session.get(Files, f.id).organized is True
     assert enqueued == ["library_maintenance", "verify_file"]
+
+
+def test_extract_is_delegated_and_still_precedes_organize(env):
+    """Reading a container is a whole-file read, so it gets its own capped task - but the
+    driver parks on it, because the organizer resolves {titleName} through what it files."""
+    enqueued = []
+    env.monkeypatch.setattr(tasks, "get_settings", lambda: _settings(organizer=True))
+    env.monkeypatch.setattr(tasks, "organize_file", lambda *a, **k: True)
+    env.monkeypatch.setattr(tasks, "enqueue_task",
+                            lambda name, data=None, **k: enqueued.append(name))
+    f = env.seed()
+
+    tasks.process_file_task(file_id=f.id)
+
+    assert enqueued == ["extract_metadata"]
+    assert db.session.get(Files, f.id).organized is False
+
+
+def test_extract_metadata_task_re_drives_the_pipeline(env):
+    """Nothing else would: a delegated stage returns, so the chain only continues if the
+    task it handed off to asks for the next one."""
+    enqueued = []
+    env.monkeypatch.setattr(tasks, "get_settings", lambda: _settings())
+    env.monkeypatch.setattr(tasks, "enqueue_task",
+                            lambda name, data=None, **k: enqueued.append(name))
+    f = env.seed()
+
+    tasks.extract_metadata_task(file_id=f.id)
+
+    assert db.session.get(Files, f.id).metadata_extracted is True
+    assert enqueued == ["process_file"]
+
+
+def test_extract_metadata_registered_in_io_group():
+    """The whole point of delegating it: nacp opens the container without `meta_only`."""
+    assert tasks.TASK_GROUPS.get("extract_metadata") == "io"
 
 
 # (filename, verdict columns, the status they derive to). One file per status a real

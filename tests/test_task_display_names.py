@@ -15,6 +15,7 @@ INPUTS = {
     'library_maintenance': {'library_path': '/games'},
     'add_missing_apps_for_title': {'title_id': '0100000000AAAAA0'},
     'update_titles_for_title': {'title_id': '0100000000AAAAA0'},
+    'extract_metadata': {'file_id': 1, 'filepath': '/games/Game.nsp'},
     'verify_file': {'file_id': 1, 'filepath': '/games/Game.nsp'},
     'compress_file': {'file_id': 1, 'filepath': '/games/Game.nsp'},
     'decompress_file': {'file_id': 1, 'filepath': '/games/Game.nsz'},

@@ -540,9 +540,10 @@
                         <input type="number" class="form-control" id="ioLimitInput" min="1" step="1">
                         <div id="ioLimitFeedback"></div>
                         <div id="ioLimitHelp" class="form-text">
-                            How many disk-heavy tasks (compression, decompression) run at once, independent of
-                            worker count. Compressing several multi-GB files in parallel from one disk makes the
-                            heads seek back and forth and can collapse throughput, so more is not always faster.
+                            How many disk-heavy tasks (compression, decompression, verification, metadata
+                            extraction) run at once, independent of worker count. Reading several multi-GB files
+                            in parallel from one disk makes the heads seek back and forth and can collapse
+                            throughput, so more is not always faster.
                             Pick based on where your library lives:
                             <ul class="mb-0">
                                 <li><strong>Network share or a single hard drive (HDD): 1</strong> — avoids seek
