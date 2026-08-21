@@ -412,8 +412,8 @@ p.game-description {
 
 /* ---------- title details page ---------- */
 
-/* The banner is the page background: full bleed behind everything, drifting up at half
-   the scroll speed while the panel slides over it.
+/* The banner is the page background: full bleed and fixed behind everything, so the
+   panel slides over stationary artwork.
    The navbar rides on top of the artwork rather than boxing it in. */
 .title-nav {
     position: absolute;
@@ -431,7 +431,6 @@ p.game-description {
     background-color: var(--bs-body-bg);
     background-size: cover;
     background-position: center 26%;
-    will-change: transform;
 }
 
 /* Its own layer rather than a child of the banner: the darkening is there to keep the
@@ -457,10 +456,9 @@ p.game-description {
     position: relative;
     min-height: 25vh;
     padding: 1rem 1.75rem 2.75rem;
-    /* Translucent, so the artwork stays present behind the panel - but what sits behind
-       a scrolled panel is whatever the drift has brought under it, and .93 was enough
-       bleed-through to fight the text. */
-    background: rgba(33, 37, 41, .97);
+    /* Translucent, so the artwork stays present behind the panel. The blur is what
+       carries the legibility at this alpha - without it the text fights the artwork. */
+    background: rgba(33, 37, 41, .72);
     backdrop-filter: blur(18px);
     border-top: 1px solid rgba(255, 255, 255, .16);
 }
@@ -750,193 +748,6 @@ p.game-description {
     font-variant-numeric: tabular-nums;
 }
 
-.title-section-head {
-    display: flex;
-    align-items: baseline;
-    gap: .75rem;
-    border-bottom: 1px solid var(--bs-border-color-translucent);
-    padding-bottom: .5rem;
-}
-
-.title-section-head h2 {
-    font-size: .8rem;
-    letter-spacing: .13em;
-    text-transform: uppercase;
-    color: var(--bs-secondary-color);
-    font-weight: 600;
-}
-
-.title-section-count {
-    margin-left: auto;
-    color: var(--bs-secondary-color);
-    font-size: .82rem;
-}
-
-.title-content {
-    display: flex;
-    flex-direction: column;
-    gap: .75rem;
-}
-
-.title-table-wrap {
-    overflow-x: auto;
-}
-
-.title-table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: .9rem;
-}
-
-.title-table th {
-    text-align: left;
-    padding: 0 .6rem .5rem;
-    font-size: .7rem;
-    letter-spacing: .09em;
-    text-transform: uppercase;
-    font-weight: 600;
-    color: var(--bs-secondary-color);
-    white-space: nowrap;
-    cursor: pointer;
-    user-select: none;
-}
-
-.title-table th:hover {
-    color: var(--bs-body-color);
-}
-
-.title-table th.is-sorted {
-    color: var(--bs-body-color);
-}
-
-.title-arrow {
-    font-size: .62rem;
-    opacity: .45;
-}
-
-.title-table th.is-sorted .title-arrow {
-    opacity: 1;
-    color: var(--bs-info);
-}
-
-.title-table td:first-child {
-    white-space: nowrap;
-}
-
-.title-table td {
-    padding: .55rem .6rem;
-    border-top: 1px solid var(--bs-border-color-translucent);
-    vertical-align: middle;
-}
-
-.title-app.is-expandable {
-    cursor: pointer;
-}
-
-.title-app.is-expandable:hover td {
-    background-color: rgba(255, 255, 255, .035);
-}
-
-.title-app.is-open td {
-    background-color: rgba(13, 110, 253, .07);
-}
-
-.title-caret {
-    display: inline-block;
-    width: .8rem;
-    color: var(--bs-secondary-color);
-    transition: transform .12s ease;
-}
-
-.title-app.is-open .title-caret {
-    transform: rotate(90deg);
-    color: var(--bs-body-color);
-}
-
-/* Type reads at a glance in a list dominated by DLC rows. */
-.title-type {
-    font-size: .68rem;
-    letter-spacing: .07em;
-    font-weight: 600;
-    border-radius: .25rem;
-    padding: .1rem .4rem;
-    border: 1px solid var(--bs-border-color);
-    color: var(--bs-secondary-color);
-}
-
-.title-type[data-type="BASE"] {
-    color: #7fdcf2;
-    border-color: rgba(13, 202, 240, .45);
-}
-
-.title-type[data-type="UPDATE"] {
-    color: #b9a6f5;
-    border-color: rgba(146, 120, 235, .45);
-}
-
-.title-type[data-type="DLC"] {
-    color: #f0b78a;
-    border-color: rgba(233, 143, 77, .45);
-}
-
-.title-num {
-    font-variant-numeric: tabular-nums;
-    white-space: nowrap;
-}
-
-.title-name-cell {
-    min-width: 190px;
-}
-
-.title-appid {
-    display: block;
-    font-family: var(--bs-font-monospace);
-    font-size: .7rem;
-    color: var(--bs-secondary-color);
-}
-
-.title-detail > td {
-    padding: .2rem .6rem .6rem 2.6rem;
-    border-top: 0;
-    background-color: rgba(0, 0, 0, .16);
-    box-shadow: inset 2px 0 0 var(--bs-border-color);
-}
-
-.title-version {
-    display: grid;
-    grid-template-columns: 6.5rem 6.5rem 7.5rem minmax(0, 1fr);
-    gap: .6rem;
-    align-items: center;
-    padding: .45rem .5rem;
-    border-bottom: 1px solid rgba(255, 255, 255, .05);
-    font-size: .85rem;
-}
-
-.title-version:last-child {
-    border-bottom: 0;
-}
-
-.title-version.is-missing {
-    color: var(--bs-secondary-color);
-}
-
-.title-file {
-    display: flex;
-    align-items: center;
-    gap: .6rem;
-    flex-wrap: wrap;
-    padding: .35rem 0;
-    font-size: .82rem;
-}
-
-.title-file-meta {
-    color: var(--bs-secondary-color);
-}
-
-.title-files {
-    padding: .25rem .5rem;
-}
-
 .title-missing {
     display: flex;
     flex-direction: column;
@@ -944,48 +755,70 @@ p.game-description {
     gap: .75rem;
 }
 
-/* Ownership reads as a state, not a number: a filled dot for what is there, a hollow
-   one for what is not. */
-.title-pill {
-    display: inline-flex;
+/* The content list reads over the artwork, so Bootstrap's opaque accordion paint comes
+   off and the rows are separated by rules alone. */
+.title-content .accordion,
+.title-content .accordion-item,
+.title-content .accordion-button,
+.title-content .accordion-body {
+    background: transparent;
+    color: inherit;
+}
+
+.title-content .accordion-item {
+    border: 0;
+}
+
+.title-content .accordion-button {
+    padding: .6rem .25rem;
+    font-weight: 600;
+    box-shadow: none;
+    border-top: 1px solid var(--bs-border-color-translucent);
+}
+
+/* The caret is a background image, so it is inverted rather than recoloured. */
+.title-content .accordion-button::after {
+    margin-left: 0;
+    filter: invert(1) grayscale(1) opacity(.6);
+}
+
+.title-content .accordion-body {
+    padding: 0 0 .5rem;
+}
+
+.title-row {
+    display: flex;
     align-items: center;
-    gap: .35rem;
-    border-radius: 50rem;
-    padding: .1rem .65rem;
-    font-size: .76rem;
-    font-weight: 500;
-    border: 1px solid transparent;
+    gap: .75rem;
+    padding: .6rem .25rem;
+    border-top: 1px solid var(--bs-border-color-translucent);
+}
+
+.title-row--sub {
+    padding-left: 1.25rem;
+}
+
+/* A long DLC name gives way to the badges rather than wrapping the row open. */
+.title-row-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
     white-space: nowrap;
 }
 
-.title-pill--ok {
-    background-color: rgba(25, 135, 84, .18);
-    color: #75d1a3;
-    border-color: rgba(25, 135, 84, .5);
-}
-
-.title-pill--warn {
-    background-color: rgba(255, 193, 7, .14);
-    color: #ffd968;
-    border-color: rgba(255, 193, 7, .45);
-}
-
-.title-pill--off {
-    background-color: rgba(154, 163, 171, .12);
+.title-row-note {
+    margin-left: .6rem;
     color: var(--bs-secondary-color);
-    border-color: var(--bs-border-color);
+    font-size: .85rem;
+    font-variant-numeric: tabular-nums;
 }
 
-.title-dot {
-    width: 7px;
-    height: 7px;
-    border-radius: 50%;
-    background-color: currentColor;
-}
-
-.title-dot--hollow {
-    background-color: transparent;
-    border: 1.5px solid currentColor;
+.title-row-meta {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+    white-space: nowrap;
 }
 
 /* Three columns stop paying once 640px of screenshot leaves the description a ribbon:
