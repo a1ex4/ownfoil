@@ -133,6 +133,7 @@ TASK_DISPLAY = {
     'add_missing_apps_for_title': lambda title_id, **kw: f'Add missing content for {title_id}',
     'update_titles_for_title': lambda title_id, **kw: f'Update title {title_id}',
     'remove_outdated_updates': lambda **kw: 'Remove outdated updates',
+    'extract_metadata': lambda **kw: f'Extract metadata from {_file_label(**kw)}',
     'verify_file': lambda **kw: f'Verify {_file_label(**kw)}',
     'compress_file': lambda **kw: f'Compress {_file_label(**kw)}',
     'decompress_file': lambda **kw: f'Decompress {_file_label(**kw)}',
@@ -764,33 +765,6 @@ def _needs_extract(file, mgmt):
     return bool(titles_lib.Keys.keys_loaded) and file.identified and not file.metadata_extracted
 
 
-def _extract(file, mgmt):
-    """Read one file's own metadata and file it as the 'extract' source."""
-    logger.info(f'Extracting metadata: {file.filename}')
-    locale = get_settings()['titles']
-    language = nacp.language_for_locale(locale['region'], locale['language'])
-    try:
-        contents = nacp.extract_metadata(file.filepath, language)
-    except Exception as e:
-        logger.warning(f'Could not extract metadata from {file.filename}: {e}')
-        contents = []
-
-    for content in contents:
-        Apps.query.filter_by(app_id=content['app_id'],
-                             app_version=str(content['version'])).update(
-            {'display_version': content['display_version']})
-        record = {'id': content['title_id'], 'name': content['name'],
-                  'publisher': content['publisher']}
-        if content['icon']:
-            record['iconUrl'] = media.save_icon(content['title_id'], content['icon'])
-        titledb.store.set_override(content['title_id'], record, source=SOURCE_EXTRACT)
-
-    # Set even when nothing came back: a DLC ships no Control NCA and never will, so
-    # retrying it on every pass would re-read the container forever.
-    file.metadata_extracted = True
-    db.session.commit()
-
-
 def _needs_verify(file, mgmt):
     verification = mgmt['verification']
     if not verification['enabled'] or file.extension not in verification_lib.VERIFY_EXT:
@@ -835,10 +809,11 @@ def _needs_compress(file, mgmt):
 
 # `extract` runs before `organize` on purpose: the organizer resolves {titleName} through
 # titles.db, so a title titledb never heard of is only filed under its real name if its own
-# metadata has been read first.
+# metadata has been read first. Delegated rather than inline because it reads the whole
+# container - `organize` waits for it, but every other file's light work does not.
 STAGES = [
     Stage('identify', _needs_identify, _identify, None),
-    Stage('extract', _needs_extract, _extract, None),
+    Stage('extract', _needs_extract, None, 'extract_metadata'),
     Stage('organize', _needs_organize, _organize, None),
     Stage('verify', _needs_verify, None, 'verify_file'),
     Stage('compress', _needs_compress, None, 'compress_file'),
@@ -920,6 +895,44 @@ def remove_outdated_updates_task(**kwargs):
     """Remove outdated update files."""
     remove_outdated_update_files()
     enqueue_task('update_titles')
+
+
+# --- Metadata extraction ---
+@register_task('extract_metadata', group='io')
+def extract_metadata_task(file_id, **kwargs):
+    """Read one file's own metadata and file it as the 'extract' source.
+
+    In the 'io' group with verification and compression: nacp has to open the container
+    without `meta_only`, which walks every partition, so an uncapped one of these per
+    worker is the seek thrashing that limit exists to prevent.
+    """
+    file = db.session.get(Files, file_id)
+    if file is None:
+        return
+    logger.info(f'Extracting metadata: {file.filename}')
+    locale = get_settings()['titles']
+    language = nacp.language_for_locale(locale['region'], locale['language'])
+    try:
+        contents = nacp.extract_metadata(file.filepath, language)
+    except Exception as e:
+        logger.warning(f'Could not extract metadata from {file.filename}: {e}')
+        contents = []
+
+    for content in contents:
+        Apps.query.filter_by(app_id=content['app_id'],
+                             app_version=str(content['version'])).update(
+            {'display_version': content['display_version']})
+        record = {'id': content['title_id'], 'name': content['name'],
+                  'publisher': content['publisher']}
+        if content['icon']:
+            record['iconUrl'] = media.save_icon(content['title_id'], content['icon'])
+        titledb.store.set_override(content['title_id'], record, source=SOURCE_EXTRACT)
+
+    # Set even when nothing came back: a DLC ships no Control NCA and never will, so
+    # retrying it on every pass would re-read the container forever.
+    file.metadata_extracted = True
+    db.session.commit()
+    enqueue_task('process_file', {'file_id': file_id})
 
 
 # --- Verification ---
