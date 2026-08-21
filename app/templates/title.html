@@ -17,9 +17,10 @@
 
 <script src="{{ url_for('static', filename='js/format.js') }}"></script>
 <script>
-    // The whole page is one GraphQL call: the title's metadata, every app ownfoil knows
-    // for it - owned or missing, since add_missing_apps_for_title expands the catalogue
-    // into app rows - and the files behind them, which only an admin gets back.
+    // The whole page is one GraphQL call: the title's metadata, and every app ownfoil
+    // knows for it - owned or missing, since add_missing_apps_for_title expands the
+    // catalogue into app rows, which is what makes the list answer "what am I missing".
+    // `files` is admin only and carries the sizes; a shopper gets null and no size badge.
     const TITLE_ID = {{ title_id|tojson }};
 
     const TITLE_QUERY = `
@@ -29,20 +30,14 @@
                 developer publisher releaseDate category numberOfPlayers
                 rating ratingContent size nsuId screenshots
                 apps {
-                    id appId appType appVersion owned releaseDate
+                    appId appType appVersion owned releaseDate displayVersion
                     titledb { name }
-                    files {
-                        id filename folder size verificationStatus addedAt downloadCount
-                    }
+                    files { size }
                 }
             }
         }`;
 
-    const TYPE_ORDER = {BASE: 0, UPDATE: 1, DLC: 2};
-
     let title = null;
-    let sortKey = 'type';
-    let sortDir = 1;
     let shotIndex = 0;
     let slideTimer = null;
     let descExpanded = false;
@@ -79,43 +74,6 @@
     // so every interpolation below goes through this.
     const esc = s => String(s === null || s === undefined ? '' : s)
         .replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
-
-    /** One row per app id, not per version: a title carries every update under a single
-     *  update app id, and a flat list would be dozens of rows of history. */
-    function groupApps(apps) {
-        const byId = new Map();
-        for (const app of apps) {
-            if (!byId.has(app.appId)) {
-                byId.set(app.appId, {appId: app.appId, appType: app.appType, versions: []});
-            }
-            byId.get(app.appId).versions.push(app);
-        }
-        return [...byId.values()].map(group => {
-            group.versions.sort((a, b) => b.appVersion - a.appVersion);
-            const latest = group.versions[0];
-            const owned = group.versions.filter(v => v.owned);
-            group.latest = latest;
-            group.name = (latest.titledb && latest.titledb.name)
-                || (group.appType === 'UPDATE' ? 'Update' : 'Unrecognized');
-            group.releaseDate = latest.releaseDate;
-            group.ownedCount = owned.length;
-            group.files = group.versions.flatMap(v => v.files || []);
-            group.size = group.files.reduce((sum, f) => sum + Number(f.size || 0), 0);
-            group.state = !owned.length ? 'missing' : (latest.owned ? 'current' : 'outdated');
-            return group;
-        });
-    }
-
-    function pill(kind, label) {
-        return `<span class="title-pill title-pill--${kind}"><i class="title-dot${
-            kind === 'off' ? ' title-dot--hollow' : ''}"></i>${label}</span>`;
-    }
-
-    function statusPill(group) {
-        if (group.state === 'missing') return pill('off', 'Missing');
-        if (group.state === 'outdated') return pill('warn', 'Update available');
-        return pill('ok', group.appType === 'UPDATE' ? 'Up to date' : 'Owned');
-    }
 
     /** Label/value pairs for the rail, in titledb's own vocabulary. Anything the
      *  catalogue leaves empty is dropped rather than shown as a blank row. */
@@ -276,109 +234,96 @@
         }, 5000);
     }
 
-    function fileLine(file) {
-        const status = (file.verificationStatus || 'UNVERIFIED').replace(/_/g, ' ').toLowerCase();
-        return `<div class="title-file">
-            <span class="title-mono">${esc(file.filename)}</span>
-            <span class="title-file-meta">${formatBytes(file.size)}</span>
-            <span class="title-pill title-pill--off">${esc(status.charAt(0).toUpperCase() + status.slice(1))}</span>
-            <span class="title-file-meta">${esc(file.folder || '')}</span>
-            <span class="title-file-meta">added ${formatDate(file.addedAt)}</span>
+    /** One entry per app id, not per version: a title carries every update under a
+     *  single update app id, and a flat list would be dozens of rows of history. */
+    function groupApps(apps) {
+        const byId = new Map();
+        for (const app of apps) {
+            if (!byId.has(app.appId)) byId.set(app.appId, []);
+            byId.get(app.appId).push(app);
+        }
+        return [...byId.values()].map(versions => {
+            versions.sort((a, b) => b.appVersion - a.appVersion);
+            const latest = versions[0];
+            return {
+                appId: latest.appId,
+                appType: latest.appType,
+                name: (latest.titledb && latest.titledb.name) || null,
+                displayVersion: latest.displayVersion,
+                versions,
+                owned: versions.some(v => v.owned),
+                // Null for anyone but an admin, so the size badge simply does not appear.
+                files: versions.flatMap(v => v.files || []),
+            };
+        });
+    }
+
+    /** The dim trailing text on a row. `displayVersion` is the string the game shows
+     *  about itself, read out of an owned file's Control NCA - so a missing version has
+     *  none, and no DLC ever does. Whatever is absent just drops out. */
+    function rowNote(...parts) {
+        const shown = parts.filter(Boolean).map(esc);
+        return shown.length ? `<span class="title-row-note">${shown.join(' · ')}</span>` : '';
+    }
+
+    function badges(owned, files) {
+        const size = (files || []).reduce((sum, f) => sum + Number(f.size || 0), 0);
+        return (owned ? '<span class="badge text-bg-success">Owned</span>'
+                      : '<span class="badge border text-secondary">Missing</span>')
+            + (size ? `<span class="badge text-bg-secondary">${formatBytes(size)}</span>` : '');
+    }
+
+    function contentRow(nameHtml, owned, files, sub) {
+        return `<div class="title-row${sub ? ' title-row--sub' : ''}">
+            <span class="title-row-name">${nameHtml}</span>
+            <span class="title-row-meta">${badges(owned, files)}</span>
         </div>`;
     }
 
-    /** The expanded row: files alone when an app id has one version, the whole version
-     *  history when it has several - which is every update line. */
-    function detailFragment(group, columns) {
-        let inner;
-        if (group.versions.length === 1) {
-            inner = `<div class="title-files">${group.files.map(fileLine).join('')
-                || '<span class="text-secondary">No file in the library.</span>'}</div>`;
-        } else {
-            inner = `<div class="title-versions">${group.versions.map(version => `
-                <div class="title-version${version.owned ? '' : ' is-missing'}">
-                    <span class="title-num">v${version.appVersion}</span>
-                    <span class="title-num">${formatDate(version.releaseDate)}</span>
-                    <span>${version.owned ? pill('ok', 'Owned') : pill('off', 'Missing')}</span>
-                    <span>${(version.files || []).map(fileLine).join('')
-                        || '<span class="text-secondary">—</span>'}</span>
-                </div>`).join('')}</div>`;
-        }
-        return `<tr class="title-detail" hidden><td colspan="${columns}">${inner}</td></tr>`;
-    }
-
-    function sortValue(key) {
-        return {
-            type: g => TYPE_ORDER[g.appType],
-            name: g => g.name.toLowerCase(),
-            version: g => g.latest.appVersion,
-            released: g => g.releaseDate || '',
-            status: g => ['current', 'outdated', 'missing'].indexOf(g.state),
-            files: g => g.files.length,
-        }[key];
-    }
-
-    function contentFragment(t, withFiles) {
-        const columns = [
-            ['type', 'Type'], ['name', 'Name'], ['version', 'Version'],
-            ['released', 'Released'], ['status', 'Status'],
-        ];
-        if (withFiles) columns.push(['files', 'Files']);
-
-        const value = sortValue(sortKey);
-        const groups = groupApps(t.apps || []).sort((a, b) => {
-            const x = value(a), y = value(b);
-            if (x < y) return -sortDir;
-            if (x > y) return sortDir;
-            return TYPE_ORDER[a.appType] - TYPE_ORDER[b.appType] || a.appId.localeCompare(b.appId);
-        });
-
-        const header = columns.map(([key, label]) => {
-            const on = key === sortKey;
-            return `<th data-sort="${key}"${on ? ' class="is-sorted"' : ''}>${label}
-                <span class="title-arrow">${on && sortDir === -1 ? '▼' : '▲'}</span></th>`;
-        }).join('');
-
-        const body = groups.map(group => {
-            const filesCell = !withFiles ? '' : `<td class="title-num text-secondary">${
-                group.files.length
-                    ? `${group.files.length} file${group.files.length > 1 ? 's' : ''} · ${formatBytes(group.size)}`
-                    : '—'}${group.versions.length > 1
-                    ? `<span class="title-appid">${group.ownedCount} of ${group.versions.length} versions</span>`
-                    : ''}</td>`;
-            return `<tr class="title-app${withFiles ? ' is-expandable' : ''}">
-                <td><span class="title-caret">${withFiles ? '▸' : ''}</span>
-                    <span class="title-type" data-type="${group.appType}">${group.appType}</span></td>
-                <td class="title-name-cell">${esc(group.name)}
-                    <span class="title-appid">${esc(group.appId)}</span></td>
-                <td class="title-num">v${group.latest.appVersion}</td>
-                <td class="title-num">${formatDate(group.releaseDate)}</td>
-                <td>${statusPill(group)}</td>
-                ${filesCell}
-            </tr>
-            ${withFiles ? detailFragment(group, columns.length) : ''}`;
-        }).join('');
-
-        const versions = (t.apps || []).length;
-        return `<section class="title-content">
-            <div class="title-section-head">
-                <h2>Content</h2>
-                <span class="title-section-count">${groups.length} items · ${versions} known versions</span>
+    /** A counted group that opens. No `data-bs-parent`, so updates and DLC are
+     *  independent - opening one must not shut the other. */
+    function contentGroup(id, label, count, rowsHtml) {
+        if (!count) return '';
+        return `<div class="accordion-item">
+            <h2 class="accordion-header">
+                <button class="accordion-button collapsed" type="button"
+                        data-bs-toggle="collapse" data-bs-target="#${id}">
+                    ${label}
+                    <span class="badge text-bg-secondary ms-auto me-2">${count}</span>
+                </button>
+            </h2>
+            <div id="${id}" class="accordion-collapse collapse">
+                <div class="accordion-body">${rowsHtml}</div>
             </div>
-            <div class="title-table-wrap">
-                <table class="title-table">
-                    <thead><tr>${header}</tr></thead>
-                    <tbody>${body}</tbody>
-                </table>
+        </div>`;
+    }
+
+    /** The base game as one row, then updates and DLC as groups - the split the page
+     *  is actually read in, rather than a sortable table of every app row. */
+    function contentFragment(t) {
+        const groups = groupApps(t.apps || []);
+        const base = groups.find(group => group.appType === 'BASE');
+        const updates = groups.filter(group => group.appType === 'UPDATE')
+            .flatMap(group => group.versions)
+            .sort((a, b) => b.appVersion - a.appVersion);
+        const dlc = groups.filter(group => group.appType === 'DLC')
+            .sort((a, b) => (a.name || a.appId).localeCompare(b.name || b.appId));
+
+        const updateRows = updates.map(version => contentRow(
+            `v${version.appVersion}` + rowNote(version.displayVersion,
+                                               formatDate(version.releaseDate)),
+            version.owned, version.files, true)).join('');
+        const dlcRows = dlc.map(group => contentRow(
+            esc(group.name || group.appId), group.owned, group.files, true)).join('');
+
+        return `<section class="title-content">
+            ${base ? contentRow('Base Game' + rowNote(base.displayVersion),
+                                base.owned, base.files) : ''}
+            <div class="accordion accordion-flush">
+                ${contentGroup('contentUpdates', 'Updates', updates.length, updateRows)}
+                ${contentGroup('contentDlc', 'DLC', dlc.length, dlcRows)}
             </div>
         </section>`;
-    }
-
-    function renderTable() {
-        // Files come back null for anyone but an admin, and there is nothing to expand
-        // without them - so the column and the carets go away rather than reading "—".
-        const withFiles = (title.apps || []).some(app => Array.isArray(app.files));
-        document.getElementById('titleContent').innerHTML = contentFragment(title, withFiles);
     }
 
     function render() {
@@ -406,8 +351,7 @@
         body.innerHTML = headFragment(title)
             + `<div class="title-grid${hasShots ? ' has-shots' : ''}">${factsFragment(title)}
                 ${aboutFragment(title)}${shotsFragment(title)}</div>`
-            + `<div id="titleContent"></div>`;
-        renderTable();
+            + contentFragment(title);
         showShot(0);
         startSlideshow();
         fitDescription();
@@ -449,23 +393,6 @@
             toggle.textContent = clamped ? 'Show more' : 'Show less';
             descExpanded = !clamped;
             if (clamped) fitDescription();
-            return;
-        }
-
-        const header = event.target.closest('th[data-sort]');
-        if (header) {
-            const key = header.dataset.sort;
-            sortDir = sortKey === key ? -sortDir : 1;
-            sortKey = key;
-            renderTable();
-            return;
-        }
-
-        const row = event.target.closest('tr.is-expandable');
-        if (row) {
-            row.classList.toggle('is-open');
-            const detail = row.nextElementSibling;
-            detail.hidden = !detail.hidden;
         }
     });
 
@@ -482,29 +409,6 @@
         if (!descExpanded) fitDescription();
     });
 
-    /** Parallax: the artwork drifts up at half the scroll speed rather than standing
-     *  still, so the panel reads as sliding over the banner instead of wiping it away.
-     *  The scrim is a layer of its own precisely so it does not travel with it. */
-    function trackBanner() {
-        if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-        const banner = document.getElementById('titleBanner');
-        const hero = document.querySelector('.title-hero');
-        let pending = false;
-        const update = () => {
-            pending = false;
-            // Past the hero the banner is behind the panel, and there is nothing to move.
-            const drift = Math.min(window.scrollY, hero.offsetHeight) * .5;
-            banner.style.transform = `translate3d(0, ${-drift}px, 0)`;
-        };
-        window.addEventListener('scroll', () => {
-            if (pending) return;
-            pending = true;
-            requestAnimationFrame(update);
-        }, {passive: true});
-        update();
-    }
-
-    trackBanner();
     loadTitle();
 </script>
 
