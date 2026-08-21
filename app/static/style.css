@@ -786,39 +786,63 @@ p.game-description {
     padding: 0 0 .5rem;
 }
 
+/* One template on the section, inherited by the header and every row, so the columns
+   line up across the base row and both accordion bodies. */
+.title-content {
+    --title-columns: minmax(0, 1fr) 6rem 7rem 7rem 6rem;
+}
+
 .title-row {
-    display: flex;
+    display: grid;
+    grid-template-columns: var(--title-columns);
     align-items: center;
     gap: .75rem;
     padding: .6rem .25rem;
     border-top: 1px solid var(--bs-border-color-translucent);
 }
 
-.title-row--sub {
-    padding-left: 1.25rem;
+.title-row--head {
+    border-top: 0;
+    padding-bottom: .35rem;
+    font-size: .7rem;
+    letter-spacing: .09em;
+    text-transform: uppercase;
+    font-weight: 600;
+    color: var(--bs-secondary-color);
 }
 
-/* A long DLC name gives way to the badges rather than wrapping the row open. */
-.title-row-name {
+/* A long DLC name gives way to the other columns rather than wrapping the row open. */
+.title-col--name {
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
 
-.title-row-note {
-    margin-left: .6rem;
+.title-col--version,
+.title-col--released,
+.title-col--size {
     color: var(--bs-secondary-color);
     font-size: .85rem;
     font-variant-numeric: tabular-nums;
+    white-space: nowrap;
 }
 
-.title-row-meta {
-    margin-left: auto;
-    display: flex;
-    align-items: center;
-    gap: .5rem;
-    white-space: nowrap;
+.title-col--size {
+    text-align: right;
+}
+
+/* Version and release date are secondary once the row has to fit a phone; ownership
+   and size are not, so those two stay. */
+@media (max-width: 767.98px) {
+    .title-content {
+        --title-columns: minmax(0, 1fr) 7rem 5.5rem;
+    }
+
+    .title-col--version,
+    .title-col--released {
+        display: none;
+    }
 }
 
 /* Three columns stop paying once 640px of screenshot leaves the description a ribbon:

@@ -31,7 +31,7 @@
                 rating ratingContent size nsuId screenshots
                 apps {
                     appId appType appVersion owned releaseDate displayVersion
-                    titledb { name }
+                    titledb { name releaseDate }
                     files { size }
                 }
             }
@@ -250,33 +250,43 @@
                 appType: latest.appType,
                 name: (latest.titledb && latest.titledb.name) || null,
                 displayVersion: latest.displayVersion,
+                // BASE and DLC carry no release date of their own - theirs lives on the
+                // titledb row keyed by the app id. Only UPDATE rows date themselves.
+                releaseDate: (latest.titledb && latest.titledb.releaseDate)
+                    || latest.releaseDate,
                 versions,
                 owned: versions.some(v => v.owned),
-                // Null for anyone but an admin, so the size badge simply does not appear.
+                // Null for anyone but an admin, so the size column stays empty.
                 files: versions.flatMap(v => v.files || []),
             };
         });
     }
 
-    /** The dim trailing text on a row. `displayVersion` is the string the game shows
-     *  about itself, read out of an owned file's Control NCA - so a missing version has
-     *  none, and no DLC ever does. Whatever is absent just drops out. */
-    function rowNote(...parts) {
-        const shown = parts.filter(Boolean).map(esc);
-        return shown.length ? `<span class="title-row-note">${shown.join(' · ')}</span>` : '';
+    // One template drives the header and every row, so the columns line up across the
+    // base row and both groups even though they sit in different containers.
+    const CONTENT_COLUMNS = [
+        ['name', 'Content'], ['version', 'Version'], ['released', 'Released'],
+        ['status', 'Status'], ['size', 'Size'],
+    ];
+
+    function contentHeader() {
+        return `<div class="title-row title-row--head">${CONTENT_COLUMNS.map(
+            ([key, label]) => `<span class="title-col--${key}">${label}</span>`).join('')}</div>`;
     }
 
-    function badges(owned, files) {
+    /** `displayVersion` is the string the game shows about itself, read out of an owned
+     *  file's Control NCA - so a missing version has none, and no DLC ever does. An
+     *  empty cell is the honest answer rather than a dash. */
+    function contentRow({name, version, released, owned, files}) {
         const size = (files || []).reduce((sum, f) => sum + Number(f.size || 0), 0);
-        return (owned ? '<span class="badge text-bg-success">Owned</span>'
-                      : '<span class="badge border text-secondary">Missing</span>')
-            + (size ? `<span class="badge text-bg-secondary">${formatBytes(size)}</span>` : '');
-    }
-
-    function contentRow(nameHtml, owned, files, sub) {
-        return `<div class="title-row${sub ? ' title-row--sub' : ''}">
-            <span class="title-row-name">${nameHtml}</span>
-            <span class="title-row-meta">${badges(owned, files)}</span>
+        return `<div class="title-row">
+            <span class="title-col--name">${name}</span>
+            <span class="title-col--version">${esc(version || '')}</span>
+            <span class="title-col--released">${formatDate(released)}</span>
+            <span class="title-col--status">${owned
+                ? '<span class="badge text-bg-success">Owned</span>'
+                : '<span class="badge border text-secondary">Missing</span>'}</span>
+            <span class="title-col--size">${size ? formatBytes(size) : ''}</span>
         </div>`;
     }
 
@@ -309,16 +319,22 @@
         const dlc = groups.filter(group => group.appType === 'DLC')
             .sort((a, b) => (a.name || a.appId).localeCompare(b.name || b.appId));
 
-        const updateRows = updates.map(version => contentRow(
-            `v${version.appVersion}` + rowNote(version.displayVersion,
-                                               formatDate(version.releaseDate)),
-            version.owned, version.files, true)).join('');
-        const dlcRows = dlc.map(group => contentRow(
-            esc(group.name || group.appId), group.owned, group.files, true)).join('');
+        const updateRows = updates.map(version => contentRow({
+            name: `v${version.appVersion}`, version: version.displayVersion,
+            released: version.releaseDate, owned: version.owned, files: version.files,
+        })).join('');
+        const dlcRows = dlc.map(group => contentRow({
+            name: esc(group.name || group.appId), version: group.displayVersion,
+            released: group.releaseDate, owned: group.owned, files: group.files,
+        })).join('');
 
         return `<section class="title-content">
-            ${base ? contentRow('Base Game' + rowNote(base.displayVersion),
-                                base.owned, base.files) : ''}
+            ${contentHeader()}
+            ${base ? contentRow({
+                name: 'Base Game', version: base.displayVersion,
+                released: base.releaseDate || t.releaseDate,
+                owned: base.owned, files: base.files,
+            }) : ''}
             <div class="accordion accordion-flush">
                 ${contentGroup('contentUpdates', 'Updates', updates.length, updateRows)}
                 ${contentGroup('contentDlc', 'DLC', dlc.length, dlcRows)}
