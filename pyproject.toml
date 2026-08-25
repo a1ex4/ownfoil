@@ -22,7 +22,7 @@ dependencies = [
     "flask-migrate==4.1.0",
     "flask-sock==0.7.0",
     "flask-sqlalchemy==3.1.1",
-    "gunicorn==26.0.0 ; sys_platform != 'win32'",
+    "gunicorn==26.1.0 ; sys_platform != 'win32'",
     "nstools==2.0.0b7",
     "nsz==5.0.0",
     "pyyaml==6.0.3",
