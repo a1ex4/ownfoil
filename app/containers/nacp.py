@@ -11,9 +11,9 @@ import logging
 import struct
 from enum import IntEnum
 
-from nsz.Fs import Nca, Type, Xci
+from nsz.Fs import Nca, Type
 
-from .container import open_container
+from .container import nca_holder, open_container, open_nca
 
 logger = logging.getLogger('main')
 
@@ -170,10 +170,9 @@ def _read_control(rom, wanted):
     }
 
 
-def _ncas(container):
-    """The NCAs of an opened container, wherever that container keeps them."""
-    entries = container.hfs0['secure'] if isinstance(container, Xci.Xci) else container
-    return [f for f in entries if isinstance(f, Nca.Nca)]
+def _ncas(holder):
+    """The NCAs a container's own open created - under `meta_only`, just the cnmt ones."""
+    return [f for f in holder if isinstance(f, Nca.Nca)]
 
 
 def _romfs_of(nca):
@@ -209,18 +208,18 @@ def extract_metadata(filepath, language=DEFAULT_LANGUAGE):
     One dict per content that has one - a DLC ships no Control NCA and yields nothing.
     `title_id` is what the Control NCA header declares, the base title even for an update, so
     it keys title metadata directly; `app_id` and `version` name the content itself.
+
+    Opened `meta_only`, so only the cnmts are read; the Control NCA each one names is then
+    opened on its own and the Program NCAs are never touched, which is most of the cost.
     """
     contents = []
-    with open_container(filepath) as container:
-        ncas = _ncas(container)
-        owners = _control_owners(ncas)
-        for nca in ncas:
-            if nca.header.contentType != Type.Content.CONTROL:
-                continue
-            owner = owners.get(nca._path.split('.')[0])
-            rom = _romfs_of(nca)
-            if owner is None or rom is None:
-                logger.warning(f'Skipping unusable Control NCA {nca._path} in {filepath}.')
+    with open_container(filepath, meta_only=True) as container:
+        holder = nca_holder(container)
+        for nca_id, owner in _control_owners(_ncas(holder)).items():
+            nca = open_nca(holder, nca_id)
+            rom = _romfs_of(nca) if nca is not None else None
+            if rom is None:
+                logger.warning(f'Skipping unusable Control NCA {nca_id} in {filepath}.')
                 continue
             content = _read_control(rom, language)
             content['app_id'], content['version'] = owner
