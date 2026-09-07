@@ -3,6 +3,7 @@ from flask_login import login_user, login_required, logout_user, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
 from functools import wraps
 from db import *
+from settings import get_settings
 from flask_login import LoginManager
 
 import logging
@@ -152,6 +153,20 @@ def basic_auth(request):
         error = f'Incorrect password for user {username}.'
 
     return success, error, user
+
+def check_shop_access(request, auth=None):
+    """Anyone on a public shop, else a user with shop access. `auth` reuses a basic_auth result."""
+    success, error, user = auth if auth is not None else basic_auth(request)
+    user = user if success else None
+
+    if get_settings()['shop']['public']:
+        return True, None, user
+
+    if not success:
+        return False, 'Shop requires authentication.\n' + error, None
+    if not user.has_shop_access():
+        return False, f'User {user.user} does not have access to the shop.', user
+    return True, None, user
 
 auth_blueprint = Blueprint('auth', __name__)
 

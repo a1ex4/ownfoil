@@ -475,6 +475,13 @@
                 <hr class="hr-settings">
                 <h2 class="pb-2">Shop</h2>
                 <p>Shop configuration and customization.</p>
+                <!-- Shop name -->
+                <div class="mb-3">
+                    <label for="shopNameInput" class="form-label">Shop name:</label>
+                    <input class="form-control" id="shopNameInput" aria-describedby="shopNameHelp"
+                        placeholder="Ownfoil">
+                    <div id="shopNameHelp" class="form-text">Name displayed by clients for your shop.</div>
+                </div>
                 <!-- Shop URL -->
                 <div class="mb-3">
                     <label for="shopHostInput" class="form-label">Shop URL:</label>
@@ -1267,6 +1274,7 @@
     function submitShopSettings() {
         $('#submitShopSettingsBtn').prop('disabled', true);
         data = {
+            name: $('#shopNameInput').val(),
             host: $('#shopHostInput').val(),
             public: getCheckboxStatus("publicShopCheck"),
             motd: $('#shopMotdTextArea').val(),
@@ -1546,6 +1554,7 @@
 
             // Shop settings
             shopSettings = result['shop'];
+            setInputVal("shopNameInput", shopSettings['name']);
             setInputVal("shopHostInput", shopSettings['host']);
             $("#publicShopCheck").prop("checked", shopSettings['public']);
             setInputVal("shopMotdTextArea", shopSettings['motd']);

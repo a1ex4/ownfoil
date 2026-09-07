@@ -1,5 +1,10 @@
 import os
 
+# Read by pyproject.toml at build time.
+APP_VERSION = "2.5.0.dev0"
+# Ownfoil API contract version.
+API_PROTOCOL_VERSION = 1
+
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.environ.get('OWNFOIL_DATA_DIR') or os.path.join(APP_DIR, 'data')
 CONFIG_DIR = os.environ.get('OWNFOIL_CONFIG_DIR') or os.path.join(APP_DIR, 'config')
@@ -61,6 +66,7 @@ DEFAULT_SETTINGS = {
         "enabled": True,
     },
     "shop": {
+        "name": "Ownfoil",
         "host": "",
         "public": False,
         "motd": "Welcome to your own shop!",

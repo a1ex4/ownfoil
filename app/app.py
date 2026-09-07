@@ -218,10 +218,42 @@ def access_shop():
 def access_shop_auth():
     return access_shop()
 
-@app.route('/', defaults={'path': ''})
+def shop_handshake():
+    """Server identity and per-caller capabilities: the OPTIONS handshake of the Ownfoil API."""
+    success, error, user = check_shop_access(request)
+    if not success:
+        # 403 once we know who is asking, 401 while we do not.
+        status = 403 if user else 401
+        response = jsonify({'error': error})
+        if status == 401:
+            response.headers['WWW-Authenticate'] = 'Basic realm="Ownfoil"'
+        return response, status
+
+    settings = get_settings()
+    return jsonify({
+        'name': settings['shop']['name'],
+        'version': APP_VERSION,
+        'protocol_version': API_PROTOCOL_VERSION,
+        'motd': settings['shop']['motd'],
+        'public': settings['shop']['public'],
+        'features': {
+            # Reached only past the shop access gate above, and downloads support Range.
+            'shop': True,
+            'resumable_download': True,
+            'dumps_upload': False,      # needs the dumps_access permission and upload_library_id
+            'save_backup': False,       # becomes user.has_backup_access() once saves are served
+            'resumable_upload': False,  # becomes True with the tus upload endpoints
+        },
+    })
+
+@app.route('/', defaults={'path': ''}, methods=['GET', 'OPTIONS'])
 @app.route('/<path:path>')
 def index(path=None):
     """Main shop endpoint routing to either client-specific shop or web browser UI."""
+    # The handshake answers for itself, before any client identification happens.
+    if request.method == 'OPTIONS':
+        return shop_handshake()
+
     # Check if this is a client request
     client = get_client_for_request(request)
 

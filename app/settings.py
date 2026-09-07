@@ -327,7 +327,7 @@ def set_shop_settings(data):
         if 'host' in data and '://' in data['host']:
             data['host'] = data['host'].split('://')[-1]
         # Update shop-level settings
-        for key in ['host', 'motd', 'public']:
+        for key in ['name', 'host', 'motd', 'public']:
             if key in data:
                 settings['shop'][key] = data[key]
         # Update client-specific settings
