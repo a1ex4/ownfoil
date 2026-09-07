@@ -11,6 +11,7 @@ import struct
 import pytest
 
 import media
+from containers.container import partition_entries
 from containers.nacp import (DEFAULT_LANGUAGE, NacpLanguage, language_for_locale,
                              nacp_display_version, nacp_title, read_romfs_files)
 
@@ -139,6 +140,66 @@ def test_romfs_files_are_found_at_their_own_offsets():
 def test_romfs_of_an_empty_section_is_empty():
     rom = FakeRom(build_romfs({}), level_offset=0x1000)
     assert read_romfs_files(rom) == {}
+
+
+# --- partition table ---
+ENTRY_SIZE = {b"PFS0": 0x18, b"HFS0": 0x40}
+
+
+def build_partition_table(magic, files):
+    """A PFS0 or HFS0 holding {name: content}, laid out as the real thing is."""
+    entry_size = ENTRY_SIZE[magic]
+    names = b"\0".join(name.encode() for name in files) + b"\0"
+
+    entries, data, name_offset = b"", b"", 0
+    for name, content in files.items():
+        entries += struct.pack("<QQI", len(data), len(content), name_offset).ljust(
+            entry_size, b"\0")
+        name_offset += len(name.encode()) + 1
+        data += content
+
+    header = magic + struct.pack("<III", len(files), len(names), 0)
+    return header + entries + names + data
+
+
+class FakeHolder:
+    """The seek/read surface `partition_entries` uses, over a whole partition."""
+
+    def __init__(self, blob):
+        self.blob = blob
+        self.pos = 0
+
+    def seek(self, pos):
+        self.pos = pos
+
+    def read(self, size):
+        chunk = self.blob[self.pos:self.pos + size]
+        self.pos += size
+        return chunk
+
+    def _readInt(self, size):
+        return int.from_bytes(self.read(size), "little")
+
+    def readInt32(self):
+        return self._readInt(4)
+
+    def readInt64(self):
+        return self._readInt(8)
+
+
+# NSP files are PFS0; an XCI's secure partition is HFS0, whose entries are 0x40 not 0x18.
+@pytest.mark.parametrize("magic", [b"PFS0", b"HFS0"], ids=["pfs0", "hfs0"])
+def test_partition_entries_locate_every_file(magic):
+    contents = {"aaaa.cnmt.nca": b"META", "bbbb.nca": b"CONTROL" * 3, "cccc.nca": b"PROGRAM"}
+    holder = FakeHolder(build_partition_table(magic, contents))
+
+    entries = partition_entries(holder)
+
+    assert set(entries) == set(contents)
+    for name, expected in contents.items():
+        offset, size = entries[name]
+        holder.seek(offset)
+        assert holder.read(size) == expected
 
 
 # --- language fallback, over a whole control section ---

@@ -281,7 +281,7 @@ def test_verify_runs_after_organize_and_before_compress(env):
     env.monkeypatch.setattr(tasks, "organize_file", lambda *a, **k: True)
     env.monkeypatch.setattr(tasks, "enqueue_task",
                             lambda name, data=None, **k: enqueued.append(name))
-    f = env.seed(metadata_extracted=True)   # extract is delegated; it would park the driver
+    f = env.seed(metadata_extracted=True)   # already extracted, so the driver starts at organize
 
     tasks.process_file_task(file_id=f.id)
 
@@ -289,40 +289,30 @@ def test_verify_runs_after_organize_and_before_compress(env):
     assert enqueued == ["library_maintenance", "verify_file"]
 
 
-def test_extract_is_delegated_and_still_precedes_organize(env):
-    """Reading a container is a whole-file read, so it gets its own capped task - but the
-    driver parks on it, because the organizer resolves {titleName} through what it files."""
-    enqueued = []
+def test_extract_runs_before_organize_in_the_same_pass(env):
+    """The organizer resolves {titleName} through what extraction files, so a single
+    process_file has to do both, in that order."""
+    order = []
     env.monkeypatch.setattr(tasks, "get_settings", lambda: _settings(organizer=True))
-    env.monkeypatch.setattr(tasks, "organize_file", lambda *a, **k: True)
-    env.monkeypatch.setattr(tasks, "enqueue_task",
-                            lambda name, data=None, **k: enqueued.append(name))
+    env.monkeypatch.setattr(tasks.nacp, "extract_metadata",
+                            lambda *a, **k: order.append("extract") or [])
+    env.monkeypatch.setattr(tasks, "organize_file",
+                            lambda *a, **k: order.append("organize") or True)
+    env.monkeypatch.setattr(tasks, "enqueue_task", lambda name, data=None, **k: None)
     f = env.seed()
 
     tasks.process_file_task(file_id=f.id)
 
-    assert enqueued == ["extract_metadata"]
-    assert db.session.get(Files, f.id).organized is False
+    assert order == ["extract", "organize"]
+    f = db.session.get(Files, f.id)
+    assert (f.metadata_extracted, f.organized) == (True, True)
 
 
-def test_extract_metadata_task_re_drives_the_pipeline(env):
-    """Nothing else would: a delegated stage returns, so the chain only continues if the
-    task it handed off to asks for the next one."""
-    enqueued = []
-    env.monkeypatch.setattr(tasks, "get_settings", lambda: _settings())
-    env.monkeypatch.setattr(tasks, "enqueue_task",
-                            lambda name, data=None, **k: enqueued.append(name))
-    f = env.seed()
-
-    tasks.extract_metadata_task(file_id=f.id)
-
-    assert db.session.get(Files, f.id).metadata_extracted is True
-    assert enqueued == ["process_file"]
-
-
-def test_extract_metadata_registered_in_io_group():
-    """The whole point of delegating it: nacp opens the container without `meta_only`."""
-    assert tasks.TASK_GROUPS.get("extract_metadata") == "io"
+def test_extract_is_not_capped_with_the_disk_heavy_tasks(env):
+    """It opens the container `meta_only` and reads one Control NCA; capping it only
+    serialises the pipeline onto one worker."""
+    assert "extract_metadata" not in tasks.TASK_GROUPS
+    assert "extract_metadata" not in tasks.TASK_REGISTRY
 
 
 # (filename, verdict columns, the status they derive to). One file per status a real
