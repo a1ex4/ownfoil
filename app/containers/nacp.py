@@ -1,21 +1,15 @@
-"""Title metadata read out of a container's Control NCA: name, publisher, icon, version.
+"""Title metadata held in a Control NCA: name, publisher, icon, display version.
 
 The workaround for a titledb that never heard of a title - everything shown about a game is
 also inside the game. `control.nacp` holds a name and publisher per language plus the human
 display version, and the same RomFS holds one JPEG icon per language.
 
-The NACP is parsed here rather than through `nsz.Fs.Nacp`, whose language table stops one
-slot short of BrazilianPortuguese and whose accessors want a File wrapper around the blob.
+Parsing only: `container` reaches the Control NCA and hands the section over. The NACP is
+read here rather than through `nsz.Fs.Nacp`, whose language table stops one slot short of
+BrazilianPortuguese and whose accessors want a File wrapper around the blob.
 """
-import logging
 import struct
 from enum import IntEnum
-
-from nsz.Fs import Nca, Type
-
-from .container import nca_holder, open_container, open_nca
-
-logger = logging.getLogger('main')
 
 
 class NacpLanguage(IntEnum):
@@ -130,7 +124,7 @@ def read_romfs_files(rom):
     return files
 
 
-# --- Extraction ---
+# --- Control NCA ---
 def _icon_name(language):
     return f'icon_{language.name}.dat'
 
@@ -149,7 +143,7 @@ def _read(rom, offset, size):
     return rom.read(size)
 
 
-def _read_control(rom, wanted):
+def read_control(rom, wanted):
     """Name, publisher and icon of one Control NCA, in the best language it offers."""
     files = read_romfs_files(rom)
     blob = _read(rom, *files[_CONTROL_NACP])
@@ -168,61 +162,3 @@ def _read_control(rom, wanted):
         'language': name_lang,
         'icon_language': icon_lang,
     }
-
-
-def _ncas(holder):
-    """The NCAs a container's own open created - under `meta_only`, just the cnmt ones."""
-    return [f for f in holder if isinstance(f, Nca.Nca)]
-
-
-def _romfs_of(nca):
-    return next((fs for fs in nca if fs.fsType == Type.Fs.ROMFS), None)
-
-
-# A CNMT content entry is typed by its own enum, not the NCA header's `Type.Content`: the two
-# are shifted by one (Meta=0, Program=1, Data=2, Control=3), so `Type.Content.CONTROL` matches
-# a Data entry here.
-_CNMT_CONTROL = 3
-
-
-def _control_owners(ncas):
-    """{control nca id: (app id, version)}, read from every CNMT in the container.
-
-    The only thing that can tell apart the contents of a bundle, and the only place the
-    content's own app id appears: an update's Control NCA header names the *base* title.
-    """
-    owners = {}
-    for nca in ncas:
-        if nca.header.contentType != Type.Content.META:
-            continue
-        for section in nca:
-            cnmt = section.getCnmt()
-            owners.update({e.ncaId: (cnmt.titleId.upper(), cnmt.version)
-                           for e in cnmt.contentEntries if e.type == _CNMT_CONTROL})
-    return owners
-
-
-def extract_metadata(filepath, language=DEFAULT_LANGUAGE):
-    """Per-content metadata read from a container's Control NCAs.
-
-    One dict per content that has one - a DLC ships no Control NCA and yields nothing.
-    `title_id` is what the Control NCA header declares, the base title even for an update, so
-    it keys title metadata directly; `app_id` and `version` name the content itself.
-
-    Opened `meta_only`, so only the cnmts are read; the Control NCA each one names is then
-    opened on its own and the Program NCAs are never touched, which is most of the cost.
-    """
-    contents = []
-    with open_container(filepath, meta_only=True) as container:
-        holder = nca_holder(container)
-        for nca_id, owner in _control_owners(_ncas(holder)).items():
-            nca = open_nca(holder, nca_id)
-            rom = _romfs_of(nca) if nca is not None else None
-            if rom is None:
-                logger.warning(f'Skipping unusable Control NCA {nca_id} in {filepath}.')
-                continue
-            content = _read_control(rom, language)
-            content['app_id'], content['version'] = owner
-            content['title_id'] = nca.header.titleId.upper()
-            contents.append(content)
-    return contents
