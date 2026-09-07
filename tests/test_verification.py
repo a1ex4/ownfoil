@@ -10,6 +10,7 @@ from contextlib import contextmanager
 
 import pytest
 
+from containers import container as container_mod
 from containers import verification
 import tasks
 from db import db, Files, Libraries, reset_file_verification, verification_status
@@ -37,9 +38,10 @@ def env(tmp_path, monkeypatch):
     def seed(name="Game.nsp", **columns):
         path = lib_dir / name
         path.write_bytes(b"RAWDATA")
+        columns.setdefault("identified", True)
         f = Files(filepath=str(path), library_id=library.id, folder=str(lib_dir),
                   filename=name, extension=name.rsplit(".", 1)[-1], size=7,
-                  mtime=os.path.getmtime(path), identified=True, **columns)
+                  mtime=os.path.getmtime(path), **columns)
         db.session.add(f)
         db.session.commit()
         return f
@@ -70,6 +72,15 @@ def _stub_phases(monkeypatch, *, decrypt=True, signature=True, hashed=True, mess
     monkeypatch.setattr(verification.Verify, "verify_hash",
                         lambda c, h, m: (ran.append("hash"), (hashed, msgs))[1])
     return ran
+
+
+def _recording_container(opens):
+    """An `open_container` that records what it was asked to open and reads nothing."""
+    @contextmanager
+    def _open(filepath, meta_only=False):
+        opens.append(filepath)
+        yield types.SimpleNamespace()
+    return _open
 
 
 @pytest.fixture(autouse=True)
@@ -289,13 +300,13 @@ def test_verify_runs_after_organize_and_before_compress(env):
     assert enqueued == ["library_maintenance", "verify_file"]
 
 
-def test_extract_runs_before_organize_in_the_same_pass(env):
+def test_read_runs_before_organize_in_the_same_pass(env):
     """The organizer resolves {titleName} through what extraction files, so a single
     process_file has to do both, in that order."""
     order = []
     env.monkeypatch.setattr(tasks, "get_settings", lambda: _settings(organizer=True))
-    env.monkeypatch.setattr(tasks.nacp, "extract_metadata",
-                            lambda *a, **k: order.append("extract") or [])
+    env.monkeypatch.setattr(tasks.container, "read_file",
+                            lambda *a, **k: (order.append("read"), ([], []))[1])
     env.monkeypatch.setattr(tasks, "organize_file",
                             lambda *a, **k: order.append("organize") or True)
     env.monkeypatch.setattr(tasks, "enqueue_task", lambda name, data=None, **k: None)
@@ -303,16 +314,67 @@ def test_extract_runs_before_organize_in_the_same_pass(env):
 
     tasks.process_file_task(file_id=f.id)
 
-    assert order == ["extract", "organize"]
+    assert order == ["read", "organize"]
     f = db.session.get(Files, f.id)
     assert (f.metadata_extracted, f.organized) == (True, True)
 
 
-def test_extract_is_not_capped_with_the_disk_heavy_tasks(env):
-    """It opens the container `meta_only` and reads one Control NCA; capping it only
-    serialises the pipeline onto one worker."""
+def test_read_is_not_capped_with_the_disk_heavy_tasks(env):
+    """It opens the container `meta_only` and reads the Control NCAs its cnmts name; capping
+    it only serialises the pipeline onto one worker."""
     assert "extract_metadata" not in tasks.TASK_GROUPS
     assert "extract_metadata" not in tasks.TASK_REGISTRY
+
+
+def test_identification_and_extraction_share_one_container_open(env):
+    """The cnmt walk that finds the Control NCAs is the same walk that identifies the file,
+    so a fresh file is opened once, not once per stage."""
+    opens = []
+    env.monkeypatch.setattr(tasks, "get_settings", lambda: _settings())
+    env.monkeypatch.setattr(container_mod, "open_container", _recording_container(opens))
+    env.monkeypatch.setattr(container_mod, "read_cnmts",
+                            lambda holder: ([("BASE", "0100AAA000000000", 0)], {}))
+    env.monkeypatch.setattr(tasks, "enqueue_task", lambda name, data=None, **k: None)
+    f = env.seed(identified=False)
+
+    tasks.process_file_task(file_id=f.id)
+
+    f = db.session.get(Files, f.id)
+    assert (f.identified, f.metadata_extracted) == (True, True)
+    assert len(opens) == 1
+
+
+def test_locale_reset_re_extracts_without_re_identifying(env):
+    """A locale change clears only the extraction flag; re-picking the name in the new
+    language must not churn the identification counters."""
+    env.monkeypatch.setattr(tasks, "get_settings", lambda: _settings())
+    env.monkeypatch.setattr(tasks.container, "read_file", lambda *a, **k: ([], []))
+    env.monkeypatch.setattr(tasks, "enqueue_task", lambda name, data=None, **k: None)
+    f = env.seed(identified=True, identification_type="cnmt", identification_attempts=3,
+                 metadata_extracted=False)
+    before = f.last_attempt
+
+    tasks._read(f, _settings()["library"]["management"])
+
+    f = db.session.get(Files, f.id)
+    assert f.metadata_extracted is True
+    assert (f.identification_attempts, f.last_attempt) == (3, before)
+
+
+def test_read_falls_back_to_the_filename_without_keys(env):
+    """Nothing in the container can be read without keys, so the stage must not open one."""
+    opens = []
+    env.monkeypatch.setattr(tasks.titles_lib.Keys, "keys_loaded", False, raising=False)
+    env.monkeypatch.setattr(tasks, "get_settings", lambda: _settings())
+    env.monkeypatch.setattr(container_mod, "open_container", _recording_container(opens))
+    env.monkeypatch.setattr(tasks, "enqueue_task", lambda name, data=None, **k: None)
+    f = env.seed("Game [0100AAA000000000][v0].nsp", identified=False)
+
+    tasks._read(f, _settings()["library"]["management"])
+
+    f = db.session.get(Files, f.id)
+    assert (f.identified, f.identification_type) == (True, "filename")
+    assert opens == []
 
 
 # (filename, verdict columns, the status they derive to). One file per status a real

@@ -10,6 +10,7 @@ import media
 import titles as titles_lib
 import titledb
 from containers import compression
+from containers import container
 from containers import nacp
 from containers import verification as verification_lib
 from constants import COMPRESS_EXT, DECOMPRESS_EXT
@@ -706,14 +707,11 @@ def _needs_identify(file, mgmt):
     return bool(titles_lib.Keys.keys_loaded) and file.identification_type == 'filename'
 
 
-def _identify(file, mgmt):
-    """Identify one file and upsert its Apps/Titles."""
+def _store_identification(file, identification, file_contents, error):
+    """Record what a file was identified as and upsert its Apps/Titles."""
     identified_title_ids = []
-    filepath = file.filepath
-    logger.info(f'Identifying file: {file.filename}')
-    identification, success, file_contents, error = titles_lib.identify_file(filepath)
 
-    if success and file_contents and not error:
+    if file_contents and not error:
         title_ids = list(dict.fromkeys([c['title_id'] for c in file_contents]))
         for title_id in title_ids:
             add_title_id_in_db(title_id)
@@ -764,17 +762,8 @@ def _needs_extract(file, mgmt):
     return bool(titles_lib.Keys.keys_loaded) and file.identified and not file.metadata_extracted
 
 
-def _extract(file, mgmt):
-    """Read one file's own metadata and file it as the 'extract' source."""
-    logger.info(f'Extracting metadata: {file.filename}')
-    locale = get_settings()['titles']
-    language = nacp.language_for_locale(locale['region'], locale['language'])
-    try:
-        contents = nacp.extract_metadata(file.filepath, language)
-    except Exception as e:
-        logger.warning(f'Could not extract metadata from {file.filename}: {e}')
-        contents = []
-
+def _store_metadata(file, contents):
+    """File a container's own metadata as the 'extract' source."""
     for content in contents:
         Apps.query.filter_by(app_id=content['app_id'],
                              app_version=str(content['version'])).update(
@@ -789,6 +778,41 @@ def _extract(file, mgmt):
     # retrying it on every pass would re-read the container forever.
     file.metadata_extracted = True
     db.session.commit()
+
+
+def _needs_read(file, mgmt):
+    return _needs_identify(file, mgmt) or _needs_extract(file, mgmt)
+
+
+def _read(file, mgmt):
+    """Identify one file and read its own metadata, both off a single container open.
+
+    Whichever half is pending is what gets written: a locale change resets only the extraction
+    flag, so re-reading a name in the new language costs no re-identification.
+    """
+    logger.info(f'Reading file: {file.filename}')
+    identify = _needs_identify(file, mgmt)
+
+    if not titles_lib.Keys.keys_loaded:
+        # Without keys nothing in the container can be read, so extraction never applies here.
+        contents, error = titles_lib.identify_from_filename(file.filename)
+        _store_identification(file, 'filename', contents, error)
+        return
+
+    locale = get_settings()['titles']
+    language = nacp.language_for_locale(locale['region'], locale['language'])
+    try:
+        cnmt_contents, metadata = container.read_file(file.filepath, language)
+        error = ''
+    except Exception as e:
+        logger.error(f'Could not read file {file.filepath}: {e}')
+        cnmt_contents, metadata, error = [], [], str(e)
+
+    if identify:
+        _store_identification(file, 'cnmt', titles_lib.resolve_cnmt_contents(cnmt_contents), error)
+    # Read back off the file: a file identified just now was not identified when the stage began.
+    if file.identified and not file.metadata_extracted:
+        _store_metadata(file, metadata)
 
 
 def _needs_verify(file, mgmt):
@@ -833,13 +857,12 @@ def _needs_compress(file, mgmt):
     return Files.query.filter(Files.filepath == target, Files.id != file.id).first() is None
 
 
-# `extract` runs before `organize` on purpose: the organizer resolves {titleName} through
+# `read` runs before `organize` on purpose: the organizer resolves {titleName} through
 # titles.db, so a title titledb never heard of is only filed under its real name if its own
-# metadata has been read first. Inline: it opens the container `meta_only` and reads one
-# Control NCA, which costs about what identifying the file did.
+# metadata has been read first. Inline: it opens the container `meta_only` once and reads the
+# Control NCAs its cnmts name, which costs about what identifying the file alone used to.
 STAGES = [
-    Stage('identify', _needs_identify, _identify, None),
-    Stage('extract', _needs_extract, _extract, None),
+    Stage('read', _needs_read, _read, None),
     Stage('organize', _needs_organize, _organize, None),
     Stage('verify', _needs_verify, None, 'verify_file'),
     Stage('compress', _needs_compress, None, 'compress_file'),

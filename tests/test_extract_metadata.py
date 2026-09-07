@@ -7,11 +7,13 @@ caller gets back - which language a title ends up shown in, and which files were
 never how the bytes were walked.
 """
 import struct
+import types
 
 import pytest
+from nsz.Fs import Nca, Pfs0, Type
 
 import media
-from containers.container import partition_entries
+from containers.container import partition_entries, read_cnmts
 from containers.nacp import (DEFAULT_LANGUAGE, NacpLanguage, language_for_locale,
                              nacp_display_version, nacp_title, read_romfs_files)
 
@@ -224,14 +226,14 @@ FALLBACK_CASES = [
                          ids=[c[0] for c in FALLBACK_CASES])
 def test_language_falls_back_to_what_the_title_actually_carries(
         case, named, drawn, wanted, name_lang, icon_lang):
-    from containers.nacp import _read_control
+    from containers.nacp import read_control
 
     files = {"control.nacp": build_nacp({lang: (f"Name {lang.name}", f"Pub {lang.name}")
                                          for lang in named})}
     files.update({f"icon_{lang.name}.dat": f"icon {lang.name}".encode() for lang in drawn})
     rom = FakeRom(build_romfs(files, level_offset=0x800), level_offset=0x800)
 
-    content = _read_control(rom, wanted)
+    content = read_control(rom, wanted)
 
     assert content["name"] == f"Name {name_lang.name}"
     assert content["publisher"] == f"Pub {name_lang.name}"
@@ -261,3 +263,63 @@ def test_icon_url_points_at_the_route_that_serves_it(tmp_path, monkeypatch):
     monkeypatch.setattr(media, "ICONS_DIR", str(tmp_path / "icons"))
     url = media.save_icon("0100000000010000", b"x")
     assert url.startswith("/api/media/icons/0100000000010000.jpg?")
+
+
+# --- cnmt walk ---
+#
+# The real classes are subclassed rather than mocked because `read_cnmts` picks what to walk
+# with isinstance - which is how it stays indifferent to NSP vs XCI.
+CONTROL_ENTRY = 3
+
+
+class FakeCnmtSection(Pfs0.Pfs0):
+    def __init__(self, cnmt):
+        super().__init__(None)
+        self._cnmt = cnmt
+
+    def getCnmt(self):
+        return self._cnmt
+
+
+class FakeNca(Nca.Nca):
+    def __init__(self, content_type, sections=()):
+        super().__init__()
+        self.header = types.SimpleNamespace(contentType=content_type)
+        self._sections = list(sections)
+
+    def __iter__(self):
+        return iter(self._sections)
+
+
+def build_cnmt_nca(title_id, version, title_type, control_ids=()):
+    entries = [types.SimpleNamespace(ncaId=i, type=CONTROL_ENTRY) for i in control_ids]
+    cnmt = types.SimpleNamespace(titleId=title_id, version=version, titleType=title_type,
+                                 contentEntries=entries)
+    return FakeNca(Type.Content.META, [FakeCnmtSection(cnmt)])
+
+
+def test_every_cnmt_is_walked_not_just_the_first():
+    """`Nsp.cnmt()` stops at the first one, so a bundle used to identify as a single content."""
+    holder = [build_cnmt_nca("0100aaa000000000", 0, 128, ["ctrl-base"]),
+              build_cnmt_nca("0100aaa000000800", 65536, 129, ["ctrl-upd"]),
+              FakeNca(Type.Content.PROGRAM)]
+
+    contents, owners = read_cnmts(holder)
+
+    assert contents == [("BASE", "0100AAA000000000", 0), ("UPDATE", "0100AAA000000800", 65536)]
+    assert owners == {"ctrl-base": ("0100AAA000000000", 0),
+                      "ctrl-upd": ("0100AAA000000800", 65536)}
+
+
+def test_a_content_without_a_control_nca_still_identifies():
+    """A DLC ships no Control NCA; it must still be found, just with nothing to extract."""
+    contents, owners = read_cnmts([build_cnmt_nca("0100aaa000001000", 0, 130)])
+
+    assert contents == [("DLC", "0100AAA000001000", 0)]
+    assert owners == {}
+
+
+def test_a_container_with_no_cnmt_is_an_error():
+    """There is no identification without a cnmt, so the caller has to hear about it."""
+    with pytest.raises(ValueError):
+        read_cnmts([FakeNca(Type.Content.PROGRAM)])

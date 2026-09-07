@@ -7,9 +7,7 @@ from utils import *
 from settings import *
 import logging
 
-from nsz.nut import Keys
-
-from containers.cnmt import identify_file_from_cnmt
+from nsz.nut import Keys  # noqa: F401 - re-exported as titles_lib.Keys, which gates every stage
 
 # Retrieve main logger
 logger = logging.getLogger('main')
@@ -130,44 +128,27 @@ def identify_file_from_filename(filename):
     error = ' '.join(errors)
     return app_id, title_id, app_type, version, error
 
-def identify_file(filepath):
-    filename = os.path.split(filepath)[-1]
+def resolve_cnmt_contents(cnmt_contents):
+    """Turn what the cnmts declare into the title id, type, app id and version of each content."""
     contents = []
-    success = True
-    error = ''
-    if Keys.keys_loaded:
-        identification = 'cnmt'
-        try:
-            cnmt_contents = identify_file_from_cnmt(filepath)
-            for content in cnmt_contents:
-                app_type, app_id, version = content
-                if app_type != APP_TYPE_BASE:
-                    # need to get the title ID from cnmts
-                    title_id, app_type = identify_appId(app_id)
-                else:
-                    title_id = app_id
-                contents.append((title_id, app_type, app_id, version))
-        except Exception as e:
-            logger.error(f'Could not identify file {filepath} from metadata: {e}')
-            error = str(e)
-            success = False
-
-    else:
-        identification = 'filename'
-        app_id, title_id, app_type, version, error = identify_file_from_filename(filename)
-        if not error:
-            contents.append((title_id, app_type, app_id, version))
+    for app_type, app_id, version in cnmt_contents:
+        if app_type != APP_TYPE_BASE:
+            # need to get the title ID from cnmts
+            title_id, app_type = identify_appId(app_id)
         else:
-            success = False
+            title_id = app_id
+        contents.append({'title_id': title_id, 'app_id': app_id, 'type': app_type,
+                         'version': version})
+    return contents
 
-    if contents:
-        contents = [{
-            'title_id': c[0],
-            'app_id': c[2],
-            'type': c[1],
-            'version': c[3],
-            } for c in contents]
-    return identification, success, contents, error
+
+def identify_from_filename(filename):
+    """The keyless fallback, in the same shape as resolve_cnmt_contents."""
+    app_id, title_id, app_type, version, error = identify_file_from_filename(filename)
+    if error:
+        return [], error
+    return [{'title_id': title_id, 'app_id': app_id, 'type': app_type,
+             'version': version}], error
 
 
 def get_update_number(version):

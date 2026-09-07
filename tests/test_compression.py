@@ -708,14 +708,19 @@ def test_process_library_skips_a_settled_library(env):
 
 # --- process_file driver -------------------------------------------------------------------
 
+def _stub_read(env, contents=(("BASE", "0100AAA000000000", 0),), metadata=()):
+    """Give the fused read stage a container to have read, without one on disk."""
+    env.monkeypatch.setattr(tasks.titles_lib.Keys, "keys_loaded", True, raising=False)
+    env.monkeypatch.setattr(tasks.container, "read_file",
+                            lambda fp, lang=None: (list(contents), list(metadata)))
+
+
 def test_process_file_runs_inline_stages_then_delegates(env):
     """One call identifies, organizes, and hands compression off to its own task — in that
     order, and without a hop through the queue between the inline stages."""
     enqueued = []
     env.monkeypatch.setattr(tasks, "get_settings", lambda: _settings(organizer=True))
-    env.monkeypatch.setattr(tasks.titles_lib, "identify_file", lambda fp: (
-        "cnmt", True, [{"title_id": "0100AAA000000000", "app_id": "0100AAA000000000",
-                        "type": "BASE", "version": "0"}], ""))
+    _stub_read(env)
     env.monkeypatch.setattr(tasks, "organize_file", lambda *a, **k: True)
     env.monkeypatch.setattr(tasks, "enqueue_task",
                             lambda name, data=None, **k: enqueued.append((name, data)))
@@ -765,14 +770,13 @@ def test_identify_stage_enqueues_title_expansion_top_level(env):
     """The driver stays a leaf: per-title expansion is enqueued top-level, never as a child,
     so a scan is not held open by it and cancelling one does not cancel the other."""
     enqueued, children = [], []
-    env.monkeypatch.setattr(tasks.titles_lib, "identify_file", lambda fp: (
-        "cnmt", True, [{"title_id": "0100AAA000000000", "app_id": "0100AAA000000000",
-                        "type": "BASE", "version": "0"}], ""))
+    env.monkeypatch.setattr(tasks, "get_settings", lambda: _settings())
+    _stub_read(env)
     env.monkeypatch.setattr(tasks, "enqueue_task", lambda name, data=None, **k: enqueued.append(name))
     env.monkeypatch.setattr(tasks, "enqueue_or_child", lambda *a, **k: children.append(a))
     f = env.seed("Game.nsp", identified=False)
 
-    tasks._identify(f, _settings()["library"]["management"])
+    tasks._read(f, _settings()["library"]["management"])
 
     assert db.session.get(Files, f.id).identified is True
     assert enqueued == ["add_missing_apps_for_title"]
