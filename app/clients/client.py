@@ -7,7 +7,7 @@ from flask import Request, Response
 from typing import Tuple, Optional, Dict, Any
 from functools import wraps
 from db import get_filtered_files
-from auth import basic_auth
+from auth import basic_auth, check_shop_access
 import logging
 
 logger = logging.getLogger('main')
@@ -76,13 +76,11 @@ class BaseClient(ABC):
         """Decorator that enforces authenticated access to the shop."""
         @wraps(handler)
         def wrapper(self, request: Request) -> Response:
-            # Check if shop requires authentication
-            if not self.app_settings['shop']['public']:
-                if not request.basic_auth_success:
-                    return self.error_response("Shop requires authentication.\n" + (request.basic_auth_error))
-                # Check if user has shop access
-                if request.user and not request.user.has_shop_access():
-                    return self.error_response(f'User {request.user.user} does not have access to the shop.')
+            # Reuse the credentials the authenticate decorator already resolved.
+            auth = (request.basic_auth_success, request.basic_auth_error, request.user)
+            success, error, _ = check_shop_access(request, auth=auth)
+            if not success:
+                return self.error_response(error)
 
             # Call the actual handler
             return handler(self, request)
