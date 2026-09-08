@@ -227,12 +227,7 @@ def shop_handshake():
     """Server identity and per-caller capabilities: the OPTIONS handshake of the Ownfoil API."""
     success, error, user = check_shop_access(request)
     if not success:
-        # 403 once we know who is asking, 401 while we do not.
-        status = 403 if user else 401
-        response = jsonify({'error': error})
-        if status == 401:
-            response.headers['WWW-Authenticate'] = 'Basic realm="Ownfoil"'
-        return response, status
+        return shop_access_denied(error, user)
 
     settings = get_settings()
     return jsonify({
@@ -622,7 +617,6 @@ app.add_url_rule(
 )
 
 @app.route('/api/media/<title_id>/<kind>/<int:position>/<size>/<path:name>')
-@access_required('shop', 'admin')
 def serve_media(title_id, kind, position, size, name):
     """Serve a local copy of title artwork. Same audience as the catalogue itself.
 
@@ -630,11 +624,21 @@ def serve_media(title_id, kind, position, size, name):
     kind/size/filename alone, so this stays a static send with no database read. Filenames
     are content hashes, which is what makes the year of cache safe.
     """
+    success, error, user = resolve_shop_caller(request)
+    if not success:
+        return shop_access_denied(error, user)
+
     try:
         directory = media.media_dir(kind, size)
     except ValueError:
         abort(404)
-    return send_from_directory(directory, name, max_age=31536000)
+    response = send_from_directory(directory, name, max_age=31536000)
+    if not get_settings()['shop']['public']:
+        # Keep a private shop's artwork out of shared caches.
+        response.cache_control.public = False
+        response.cache_control.private = True
+        response.headers['Vary'] = 'Authorization, Cookie'
+    return response
 
 @app.route('/api/get_game/<int:id>')
 @file_access

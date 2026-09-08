@@ -20,6 +20,11 @@ PASSWORDS = {u["user"]: u["password"] for u in USERS}
 UNKNOWN_USER = "ghost"        # never seeded - what the unknown-user scenario types
 WRONG_PASSWORD = "wrongpass1"
 
+# An admin who was never given the shop permission. Not seeded with the others - the shop
+# clients have no use for it; it exists for the tests that check the admin pages still
+# reach the API, which is the one thing shop access alone would not cover.
+ADMIN_NO_SHOP = ("solo", "solopass1")
+
 DUMMY_SIZE = 4096
 
 # The file the clients are asked to download. Dummy bytes like the rest of the library: what
@@ -103,3 +108,13 @@ def seed_users():
         create_or_update_user(spec["user"], spec["password"],
                               admin_access=spec["admin_access"],
                               shop_access=spec["shop_access"])
+
+
+def seed_admin_without_shop_access(app):
+    """Add the ADMIN_NO_SHOP account to a seeded shop. Returns its credentials."""
+    from auth import create_or_update_user
+
+    user, password = ADMIN_NO_SHOP
+    with app.app_context():
+        create_or_update_user(user, password, admin_access=True, shop_access=False)
+    return user, password

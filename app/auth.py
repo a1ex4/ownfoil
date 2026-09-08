@@ -168,6 +168,26 @@ def check_shop_access(request, auth=None):
         return False, f'User {user.user} does not have access to the shop.', user
     return True, None, user
 
+def resolve_shop_caller(request):
+    """Shop gate by session cookie or Basic Auth; an admin passes without shop access."""
+    if not admin_account_created():
+        return True, None, None
+    auth = ((True, None, current_user._get_current_object())
+            if current_user.is_authenticated else basic_auth(request))
+
+    success, error, user = check_shop_access(request, auth=auth)
+    if not success and user is not None and user.has_admin_access():
+        return True, None, user
+    return success, error, user
+
+def shop_access_denied(error, user):
+    """403 for a known caller, 401 with a Basic Auth challenge otherwise."""
+    status = 403 if user else 401
+    response = jsonify({'error': error})
+    if status == 401:
+        response.headers['WWW-Authenticate'] = 'Basic realm="Ownfoil"'
+    return response, status
+
 auth_blueprint = Blueprint('auth', __name__)
 
 login_manager = LoginManager()
