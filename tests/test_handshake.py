@@ -8,7 +8,8 @@ import base64
 import pytest
 
 from constants import API_PROTOCOL_VERSION, APP_VERSION
-from settings import set_shop_settings
+from discovery import discovery_payload
+from settings import get_server_uid, set_shop_settings
 
 # What a caller reaching the handshake can do today: browse, and resume its downloads. The
 # rest stay false until the dump upload, save backup and tus endpoints exist.
@@ -66,6 +67,7 @@ def test_identity_comes_from_settings(shop_app):
     set_shop_settings({"public": True, "name": "My Public Shop", "motd": "Welcome!"})
 
     assert handshake(shop_app).json == {
+        "uid": get_server_uid(),
         "name": "My Public Shop",
         "version": APP_VERSION,
         "protocol_version": API_PROTOCOL_VERSION,
@@ -73,6 +75,13 @@ def test_identity_comes_from_settings(shop_app):
         "public": True,
         "features": FEATURES,
     }
+
+
+def test_uid_is_the_one_discovery_answers_with(shop_app):
+    """Reached by either route, a client must learn the same id or it saves the shop twice."""
+    set_shop_settings({"public": True})
+
+    assert handshake(shop_app).json["uid"] == discovery_payload()["uid"]
 
 
 def test_refusal_without_credentials_challenges(shop_app):
