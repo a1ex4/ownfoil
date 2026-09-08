@@ -1,6 +1,6 @@
 [project]
 name = "ownfoil"
-version = "2.4.0"
+version = "2.4.1.dev0"
 description = "Self-hosted Nintendo Switch library manager, with automated management tasks, multi user authentication, serving your library to multiple supported clients on your Switch."
 readme = "README.md"
 requires-python = ">=3.11"
