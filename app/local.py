@@ -9,10 +9,12 @@ import webbrowser
 
 from werkzeug.serving import make_server
 
+from constants import HTTP_PORT
+
 logger = logging.getLogger('main')
 
 HOST = '0.0.0.0'
-PORT = 8465
+PORT = HTTP_PORT
 
 
 def _ui_url():
@@ -64,7 +66,9 @@ def main(open_browser=False):
     finally:
         # make_server exits the process on a bind failure, so guard the cleanup below.
         from realtime import stop as stop_realtime
+        from discovery import stop as stop_discovery
         stop_realtime()
+        stop_discovery()
         if server is not None:
             server.server_close()
         app_mod.pool.shutdown()

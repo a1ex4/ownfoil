@@ -1,0 +1,56 @@
+{% extends "settings_layout.html" %}
+{% block panel %}
+            <div class="settings-container container mt-3">
+
+                <h2 class="pb-2">Discovery</h2>
+                <p>Let clients find this shop on the local network by themselves, instead of having its
+                    address typed in on the console.</p>
+                <div class="mb-3 form-check">
+                    <input type="checkbox" class="form-check-input" id="discoveryEnabledCheck"
+                        aria-describedby="discoveryEnabledCheckHelp">
+                    <label class="form-check-label" for="discoveryEnabledCheck">Enabled</label>
+                    <div id="discoveryEnabledCheckHelp" class="form-text">Ownfoil answers discovery requests
+                        broadcast on UDP port <code>{{ discovery_port }}</code> with the shop name, the Ownfoil
+                        version, the address of this server on the local network, the shop URL, and whether the
+                        shop is public.
+                    </div>
+                </div>
+
+                <div class="mb-3">
+                    <button type="button" id="submitServicesSettingsBtn" class="btn btn-primary"
+                        onClick='submitServicesSettings()'>Submit</button>
+                </div>
+
+            </div>
+{% endblock %}
+
+{% block panel_scripts %}
+<script>
+
+    function submitServicesSettings() {
+        $('#submitServicesSettingsBtn').prop('disabled', true);
+        data = {
+            discovery: {
+                enabled: $('#discoveryEnabledCheck').is(":checked"),
+            }
+        }
+
+        $.ajax({
+            url: "/api/settings/services",
+            type: 'POST',
+            data: JSON.stringify(data),
+            contentType: "application/json",
+            complete: function () {
+                $('#submitServicesSettingsBtn').prop('disabled', false);
+            }
+        });
+    }
+
+    $(document).ready(function () {
+        $.getJSON("/api/settings", function (result) {
+            $('#discoveryEnabledCheck').prop('checked', result['services']['discovery']['enabled']);
+        });
+    });
+
+</script>
+{% endblock %}
