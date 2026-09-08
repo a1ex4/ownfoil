@@ -38,8 +38,8 @@ class UnknownTaskName(Exception):
 # title in the page.
 _TITLE_COL_MAP = {
     'name':            'td.name AS name',
-    'bannerUrl':       'td.banner_url AS banner_url',
-    'iconUrl':         'td.icon_url AS icon_url',
+    'banner':          'td.banner_url AS banner_url',
+    'icon':            'td.icon_url AS icon_url',
     'frontBoxArt':     'td.front_box_art AS front_box_art',
     'description':     'td.description AS description',
     'intro':           'td.intro AS intro',
@@ -170,9 +170,9 @@ def _build_title(row, *, with_apps: bool, with_files: bool) -> Title:
         title_id=strawberry.ID((m.get('title_id') or "").upper()),
         source=TitleSource(m['source']),
         name=m.get('name'),
-        banner_url=m.get('banner_url'),
-        icon_url=m.get('icon_url'),
-        front_box_art=m.get('front_box_art'),
+        banner_url_raw=m.get('banner_url'),
+        icon_url_raw=m.get('icon_url'),
+        front_box_art_raw=m.get('front_box_art'),
         description=m.get('description'),
         intro=m.get('intro'),
         developer=m.get('developer'),
@@ -191,7 +191,7 @@ def _build_title(row, *, with_apps: bool, with_files: bool) -> Title:
         languages=decode_json_list(m.get('languages')),
         language=m.get('language'),
         rights_id=m.get('rights_id'),
-        screenshots=decode_json_list(m.get('screenshots')),
+        screenshots_raw=decode_json_list(m.get('screenshots')),
         size=m.get('size'),
         version=m.get('version'),
         nca_key=m.get('nca_key'),
@@ -394,8 +394,38 @@ def _hydrate_apps_titledb(apps: List[App], sel: "Selection") -> None:
         by_id[(r.title_id or "").upper()] = _build_title(
             r, with_apps=False, with_files=False
         )
+    _hydrate_title_media(list(by_id.values()), sel)
     for a in apps:
         a.titledb_loaded = by_id.get(a.app_id)
+
+
+# The Title fields backed by the media store. Any of them selected is reason to hydrate.
+_MEDIA_FIELDS = ('icon', 'banner', 'frontBoxArt', 'screenshots')
+
+
+def _hydrate_title_media(titles: List[Title], sel: "Selection") -> None:
+    """Attach the local copies of each title's artwork, one batched SELECT.
+
+    A title with no row is not an error: the Image fields fall back to the catalogue's
+    own URL, so this substitutes local copies where they exist rather than being the
+    source of the field."""
+    if not any(sel.has(f) for f in _MEDIA_FIELDS):
+        return
+    ids = list({t.title_id for t in titles if t.title_id})
+    if not ids:
+        return
+    params = {f"m_{i}": x for i, x in enumerate(ids)}
+    placeholders = ",".join(f":m_{i}" for i in range(len(ids)))
+    rows = db.session.execute(text(f"""
+    SELECT title_id, kind, position, filename, width, height, client_width, client_height
+    FROM main.media
+    WHERE title_id IN ({placeholders})
+    """), params).all()
+    by_id: Dict[str, dict] = {}
+    for r in rows:
+        by_id.setdefault(r.title_id, {})[(r.kind, r.position)] = r
+    for t in titles:
+        t.media_loaded = by_id.get(t.title_id)
 
 
 # titledb stores a title's release date as YYYYMMDD; the versions table already holds
@@ -461,13 +491,18 @@ def _hydrate_titledb_dlc(titles: List[Title], sel: "Selection") -> None:
     """), params).all()
     want_titledb = sel.has("titledb")
     by_id: Dict[str, List[TitledbDlc]] = {}
+    dlc_titles: List[Title] = []
     for r in rows:
+        dlc_title = (_build_title(r, with_apps=False, with_files=False)
+                     if want_titledb and r._mapping.get('title_id') else None)
+        if dlc_title is not None:
+            dlc_titles.append(dlc_title)
         by_id.setdefault((r.key or "").upper(), []).append(TitledbDlc(
             app_id=r.dlc_app_id,
             version=int(r.version) if r.version is not None else None,
-            titledb=_build_title(r, with_apps=False, with_files=False)
-                    if want_titledb and r._mapping.get('title_id') else None,
+            titledb=dlc_title,
         ))
+    _hydrate_title_media(dlc_titles, titledb_sel)
     for t in titles:
         t.available_dlc_loaded = by_id.get(t.title_id, [])
 
@@ -490,6 +525,7 @@ def _hydrate_apps_title(apps: List[App], sel: "Selection") -> None:
     rows = db.session.execute(text(sql), params).all()
     by_id = {(r.title_id or "").upper(): _build_title(r, with_apps=False, with_files=False)
              for r in rows}
+    _hydrate_title_media(list(by_id.values()), sel)
     for a in apps:
         a.title = by_id.get((a.title_id or "").upper())
 
@@ -583,6 +619,7 @@ def resolve_title(title_id: str, ctx: GraphQLContext, info) -> Optional[Title]:
     if not row:
         return None
     title = _build_title(row, with_apps=want_apps, with_files=want_apps_files)
+    _hydrate_title_media([title], sel)
     if want_apps:
         apps_map = _load_apps_for_titles(
             [tid], None,
@@ -679,6 +716,7 @@ def resolve_titles(*, owned: Optional[bool], filter: Optional[TitleFilter],
     titles = [_build_title(r, with_apps=want_apps, with_files=want_apps_files)
               for r in rows]
     title_ids_uc = [(r.title_id or "").upper() for r in rows]
+    _hydrate_title_media(titles, items_sel)
 
     if want_apps and title_ids_uc:
         apps_map = _load_apps_for_titles(

@@ -197,6 +197,88 @@ class Titles(db.Model):
     up_to_date = db.Column(db.Boolean, default=False)
     complete = db.Column(db.Boolean, default=False)
 
+
+# One row per artwork slot a title has a local copy of. The file itself is content-addressed
+# and shared, so this is what says which title the bytes belong to - and the only record of
+# it, since nothing about the on-disk layout names a title.
+class Media(db.Model):
+    __tablename__ = 'media'
+
+    id = db.Column(db.Integer, primary_key=True)
+    title_id = db.Column(db.String, nullable=False, index=True)
+    kind = db.Column(db.String, nullable=False)
+    # 0 for the slots a title has one of; the array index for screenshots.
+    position = db.Column(db.Integer, nullable=False, default=0)
+    source = db.Column(db.String, nullable=False)
+    source_url = db.Column(db.String)
+    filename = db.Column(db.String, nullable=False)
+    width = db.Column(db.Integer)
+    height = db.Column(db.Integer)
+    client_width = db.Column(db.Integer)
+    client_height = db.Column(db.Integer)
+    downloaded_at = db.Column(db.DateTime, default=datetime.datetime.utcnow)
+
+    __table_args__ = (db.UniqueConstraint('title_id', 'kind', 'position',
+                                          name='uq_media_slot'),)
+
+
+def upsert_media(title_id, kind, position, *, source, source_url, filename, size, client_size):
+    """Record the local copy filling one artwork slot, replacing whatever filled it before."""
+    values = {
+        'source': source, 'source_url': source_url, 'filename': filename,
+        'width': size[0], 'height': size[1],
+        'client_width': client_size[0], 'client_height': client_size[1],
+        'downloaded_at': datetime.datetime.utcnow(),
+    }
+    stmt = insert(Media.__table__).values(
+        title_id=title_id.upper(), kind=kind, position=position, **values)
+    db.session.execute(stmt.on_conflict_do_update(
+        index_elements=['title_id', 'kind', 'position'], set_=values))
+    db.session.commit()
+
+
+def get_title_media(title_ids):
+    """{(title_id, kind, position): row} for the given titles, in one query."""
+    ids = [t.upper() for t in title_ids]
+    if not ids:
+        return {}
+    rows = db.session.execute(
+        Media.__table__.select().where(Media.__table__.c.title_id.in_(ids))).all()
+    return {(r.title_id, r.kind, r.position): r for r in rows}
+
+
+def delete_media_slots(title_id, keep):
+    """Drop this title's slots that are no longer filled, e.g. a screenshot list that shrank."""
+    table = Media.__table__
+    clause = table.c.title_id == title_id.upper()
+    for kind, position in keep:
+        clause &= ~((table.c.kind == kind) & (table.c.position == position))
+    db.session.execute(table.delete().where(clause))
+    db.session.commit()
+
+
+def get_media_title_ids():
+    """Every id the media table holds rows for."""
+    rows = db.session.execute(db.select(Media.title_id).distinct()).all()
+    return [r[0] for r in rows]
+
+
+def get_media_files():
+    """Every (kind, filename) a row names, which is what keeps a stored file alive."""
+    rows = db.session.execute(db.select(Media.kind, Media.filename).distinct()).all()
+    return {(r[0], r[1]) for r in rows}
+
+
+def delete_media_for_titles(title_ids):
+    """Drop every artwork row of these ids. Returns the number of rows deleted."""
+    ids = [t.upper() for t in title_ids]
+    if not ids:
+        return 0
+    result = db.session.execute(
+        Media.__table__.delete().where(Media.__table__.c.title_id.in_(ids)))
+    db.session.commit()
+    return result.rowcount
+
 # Association table for many-to-many relationship between Apps and Files.
 # The composite PK indexes (app_id, file_id) left-to-right, so the explicit
 # index on file_id is what makes back-link queries (WHERE file_id IN ...) fast.

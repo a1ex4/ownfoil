@@ -12,7 +12,6 @@ import types
 import pytest
 from nsz.Fs import Nca, Pfs0, Type
 
-import media
 from containers.container import partition_entries, read_cnmts
 from containers.nacp import (DEFAULT_LANGUAGE, NacpLanguage, language_for_locale,
                              nacp_display_version, nacp_title, read_romfs_files)
@@ -241,28 +240,6 @@ def test_language_falls_back_to_what_the_title_actually_carries(
     assert content["icon_language"] == icon_lang
     # `is not None`, not truthiness: AmericanEnglish is slot 0 and so is falsy.
     assert content["icon"] == (f"icon {icon_lang.name}".encode() if icon_lang is not None else None)
-
-
-# --- icon storage ---
-def test_saved_icon_is_readable_and_its_url_tracks_the_bytes(tmp_path, monkeypatch):
-    monkeypatch.setattr(media, "ICONS_DIR", str(tmp_path / "icons"))
-    title_id = "0100000000010000"
-
-    first = media.save_icon(title_id, b"\xff\xd8\xffONE")
-    same = media.save_icon(title_id, b"\xff\xd8\xffONE")
-    changed = media.save_icon(title_id, b"\xff\xd8\xffTWO")
-
-    assert (tmp_path / "icons" / f"{title_id}.jpg").read_bytes() == b"\xff\xd8\xffTWO"
-    assert first == same
-    # Same path, new bytes: only the query string can stop a browser serving the old icon.
-    assert changed.split("?")[0] == first.split("?")[0]
-    assert changed != first
-
-
-def test_icon_url_points_at_the_route_that_serves_it(tmp_path, monkeypatch):
-    monkeypatch.setattr(media, "ICONS_DIR", str(tmp_path / "icons"))
-    url = media.save_icon("0100000000010000", b"x")
-    assert url.startswith("/api/media/icons/0100000000010000.jpg?")
 
 
 # --- cnmt walk ---

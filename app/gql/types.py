@@ -13,11 +13,13 @@ from strawberry import Private
 from typing import List, Optional
 from typing_extensions import Annotated
 
+import media
 from db import verification_status
 
 from .docs import arg, desc, described, described_field
 from .filters import (
-    AppFilter, AppType, FileFilter, TitleSource, VerificationStatus, match_app, match_file,
+    AppFilter, AppType, FileFilter, ImageSize, TitleSource, VerificationStatus,
+    match_app, match_file,
 )
 from .scalars import BigInt
 
@@ -46,6 +48,48 @@ def decode_json_list(value) -> Optional[List[str]]:
     if isinstance(decoded, list):
         return [str(x) for x in decoded]
     return None
+
+
+ImageSizeArg = Annotated[ImageSize, arg(
+    "Which rendition to link to. Defaults to `CLIENT`, the size meant for display.")]
+
+
+@described(strawberry.type)
+class Image:
+    """One piece of title artwork. `url` points at ownfoil's own media endpoint once a
+    local copy has been stored, and at the catalogue's URL until then - which is what
+    `local` distinguishes, since the two are otherwise indistinguishable to a client."""
+    url: str = desc("Where to load the image from. Local URLs are immutable and safe to "
+                    "cache indefinitely; upstream ones are not ownfoil's to promise.")
+    size: ImageSize = desc("The rendition this URL resolves to. An upstream URL is always "
+                           "`ORIGINAL`, whatever was asked for.")
+    local: bool = desc("True when ownfoil serves the bytes itself. False means no local "
+                       "copy exists yet and the client is being pointed at the catalogue.")
+    width: Optional[int] = desc(
+        "Pixel width of this rendition, so a layout can reserve the box before the image "
+        "loads. Null for an upstream URL, whose dimensions ownfoil has not measured.",
+        default=None)
+    height: Optional[int] = desc(
+        "Pixel height of this rendition. Null for an upstream URL, for the same reason "
+        "as `width`.", default=None)
+
+
+def _remote_image(url: Optional[str]) -> Optional[Image]:
+    """Fall back to the catalogue's own URL, so a title renders before its download runs."""
+    if not url:
+        return None
+    return Image(url=url, size=ImageSize.ORIGINAL, local=False)
+
+
+def _local_image(row, size: ImageSize) -> Image:
+    filename = row.filename
+    if size is ImageSize.CLIENT:
+        width, height = row.client_width, row.client_height
+    else:
+        width, height = row.width, row.height
+    return Image(
+        url=media.url_for(row.title_id, row.kind, row.position, size.value, filename),
+        size=size, local=True, width=width, height=height)
 
 
 @described(strawberry.type)
@@ -447,9 +491,9 @@ class Title:
         "than the only contributor - `TitleSource` gives what each one means.")
     name: Optional[str] = desc("The game's name. Null for a title no source names.",
                                default=None)
-    banner_url: Optional[str] = desc("URL of the wide banner artwork.", default=None)
-    icon_url: Optional[str] = desc("URL of the square icon artwork.", default=None)
-    front_box_art: Optional[str] = desc("URL of the box art.", default=None)
+    banner_url_raw: Private[Optional[str]] = None
+    icon_url_raw: Private[Optional[str]] = None
+    front_box_art_raw: Private[Optional[str]] = None
     description: Optional[str] = desc("Long-form store description.", default=None)
     intro: Optional[str] = desc("Short tagline, where the store has one.", default=None)
     developer: Optional[str] = desc("Studio that made the game.", default=None)
@@ -485,7 +529,7 @@ class Title:
                                    default=None)
     rights_id: Optional[str] = desc("Rights id, as used by the content's DRM.",
                                     default=None)
-    screenshots: Optional[List[str]] = desc("URLs of store screenshots.", default=None)
+    screenshots_raw: Private[Optional[List[str]]] = None
     size: Optional[str] = desc(
         "Install size as titledb reports it - a string, unlike `File.size`, because "
         "the catalogue value is not reliably numeric. Sorting by SIZE casts it.",
@@ -507,6 +551,38 @@ class Title:
     apps_loaded: Private[Optional[List[App]]] = None
     available_versions_loaded: Private[Optional[List[TitledbVersion]]] = None
     available_dlc_loaded: Private[Optional[List[TitledbDlc]]] = None
+    # {(kind, position): media row} for the local copies of this title's artwork.
+    media_loaded: Private[Optional[dict]] = None
+
+    def _image(self, kind, position, url, size):
+        row = (self.media_loaded or {}).get((kind, position))
+        return _local_image(row, size) if row is not None else _remote_image(url)
+
+    @described_field
+    def icon(self, size: ImageSizeArg = ImageSize.CLIENT) -> Optional[Image]:
+        """The square icon artwork. Null when no source has one for this title."""
+        return self._image(media.ICON, 0, self.icon_url_raw, size)
+
+    @described_field
+    def banner(self, size: ImageSizeArg = ImageSize.CLIENT) -> Optional[Image]:
+        """The wide banner artwork, which is what a card view shows. Null when no source
+        has one - most catalogue entries have a banner and nothing else."""
+        return self._image(media.BANNER, 0, self.banner_url_raw, size)
+
+    @described_field
+    def front_box_art(self, size: ImageSizeArg = ImageSize.CLIENT) -> Optional[Image]:
+        """The box art. Null for very nearly every title: the catalogue carries the field
+        but almost never fills it."""
+        return self._image(media.BOXART, 0, self.front_box_art_raw, size)
+
+    @described_field
+    def screenshots(self, size: ImageSizeArg = ImageSize.CLIENT) -> Optional[List[Image]]:
+        """Store screenshots, in the catalogue's own order. Null when the title has none;
+        individual entries are never null, so the list index is the position."""
+        urls = self.screenshots_raw
+        if urls is None:
+            return None
+        return [self._image(media.SCREENSHOT, i, url, size) for i, url in enumerate(urls)]
 
     @described_field
     def available_versions(self) -> Optional[List[TitledbVersion]]:
