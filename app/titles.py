@@ -25,21 +25,21 @@ get_all_app_existing_versions = titledb.store.get_all_app_existing_versions
 get_all_existing_dlc = titledb.store.get_all_existing_dlc
 get_all_dlc_versions = titledb.store.get_all_dlc_versions
 
-def getDirsAndFiles(path):
+def get_dirs_and_files(path):
     entries = os.listdir(path)
-    allFiles = []
-    allDirs = []
+    all_files = []
+    all_dirs = []
 
     for entry in entries:
-        fullPath = os.path.join(path, entry)
-        if os.path.isdir(fullPath):
-            allDirs.append(fullPath)
-            dirs, files = getDirsAndFiles(fullPath)
-            allDirs += dirs
-            allFiles += files
-        elif fullPath.split('.')[-1] in ALLOWED_EXTENSIONS:
-            allFiles.append(fullPath)
-    return allDirs, allFiles
+        full_path = os.path.join(path, entry)
+        if os.path.isdir(full_path):
+            all_dirs.append(full_path)
+            dirs, files = get_dirs_and_files(full_path)
+            all_dirs += dirs
+            all_files += files
+        elif is_library_file(entry):
+            all_files.append(full_path)
+    return all_dirs, all_files
 
 def get_app_id_from_filename(filename):
     app_id_match = re.search(app_id_regex, filename)

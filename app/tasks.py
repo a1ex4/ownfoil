@@ -634,7 +634,7 @@ def scan_library_task(library_path, **kwargs):
         return
 
     logger.info(f'Scanning library path {library_path} ...')
-    _, files = titles_lib.getDirsAndFiles(library_path)
+    _, files = titles_lib.get_dirs_and_files(library_path)
     skip = set(get_library_file_paths(library_id)) | get_temp_file_paths()
     new_files = [f for f in files if f not in skip]
 
