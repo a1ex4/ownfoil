@@ -21,14 +21,21 @@
     // knows for it - owned or missing, since add_missing_apps_for_title expands the
     // catalogue into app rows, which is what makes the list answer "what am I missing".
     // `files` is admin only and carries the sizes; a shopper gets null and no size badge.
+    // The icon and the slideshow take the CLIENT rendition, whose 256px and 640px are
+    // exactly the boxes they render into; the full-bleed banner and the lightbox, which
+    // both scale past that, take the original.
     const TITLE_ID = {{ title_id|tojson }};
 
     const TITLE_QUERY = `
         query TitleDetails($titleId: ID!) {
             title(titleId: $titleId) {
-                titleId name bannerUrl iconUrl intro description
+                titleId name intro description
                 developer publisher releaseDate category numberOfPlayers
-                rating ratingContent size nsuId screenshots
+                rating ratingContent size nsuId
+                icon(size: ORIGINAL) { url }
+                banner(size: ORIGINAL) { url }
+                screenshots { url }
+                screenshotsFull: screenshots(size: ORIGINAL) { url }
                 apps {
                     appId appType appVersion owned releaseDate displayVersion
                     titledb { name releaseDate }
@@ -95,8 +102,8 @@
 
     function headFragment(t) {
         const byline = [formatDate(t.releaseDate), t.publisher].filter(Boolean).map(esc);
-        const icon = t.iconUrl
-            ? `<img class="title-icon" src="${esc(t.iconUrl)}" alt="">`
+        const icon = t.icon
+            ? `<img class="title-icon" src="${esc(t.icon.url)}" alt="">`
             : `<div class="title-icon title-icon--empty"><i class="bi bi-controller"></i></div>`;
         return `<div class="title-head">
             ${icon}
@@ -129,7 +136,7 @@
         // shared position through the list.
         const shots = t.screenshots || [];
         if (!shots.length) return '';
-        const dots = shots.map((url, index) =>
+        const dots = shots.map((shot, index) =>
             `<button type="button" class="title-slide-dot" data-dot="${index}"
                      aria-label="Screenshot ${index + 1}"></button>`).join('');
         return `<div class="title-shots">
@@ -151,12 +158,13 @@
         if (!shots.length) return;
         shotIndex = (index + shots.length) % shots.length;
 
-        crossfade(shots[shotIndex]);
+        crossfade(shots[shotIndex].url);
         document.querySelectorAll('[data-dot]').forEach(dot => {
             dot.classList.toggle('is-current', Number(dot.dataset.dot) === shotIndex);
         });
         // Loading it into the viewer as we go doubles as the preload for opening it.
-        document.getElementById('shotImage').src = shots[shotIndex];
+        const full = title.screenshotsFull || shots;
+        document.getElementById('shotImage').src = full[shotIndex].url;
         document.getElementById('shotCount').textContent = `${shotIndex + 1} / ${shots.length}`;
         document.querySelectorAll('.title-shot-nav, .title-slide-nav').forEach(button => {
             button.hidden = shots.length < 2;
@@ -208,7 +216,8 @@
         if (!layers.length) return;
         const front = document.querySelector('.title-slide.is-current');
         const back = layers[0] === front ? layers[1] : layers[0];
-        if (front && front.src === url) return;
+        // A stored image's url is page-relative, and `src` reads back absolute.
+        if (front && front.src === new URL(url, location.href).href) return;
 
         const token = ++slideToken;
         const bringForward = () => {
@@ -356,8 +365,8 @@
         }
 
         document.title = `Ownfoil | ${title.name || title.titleId}`;
-        if (title.bannerUrl) {
-            document.getElementById('titleBanner').style.backgroundImage = `url('${title.bannerUrl}')`;
+        if (title.banner) {
+            document.getElementById('titleBanner').style.backgroundImage = `url('${title.banner.url}')`;
         } else {
             document.querySelector('.title-page').classList.add('title-page--nobanner');
         }

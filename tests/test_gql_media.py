@@ -129,6 +129,19 @@ def test_screenshots_keep_their_order_and_carry_their_position(catalogue):
     ]
 
 
+def test_the_same_field_can_be_aliased_at_two_sizes(catalogue):
+    """The title page asks for both renditions at once: the 640px slideshow and the
+    lightbox behind it. Column selection and media hydration key off the field name, so
+    an alias has to reach them as `screenshots`."""
+    shots = _title(catalogue, LOCAL,
+                   "screenshots { url } full: screenshots(size: ORIGINAL) { url }")
+
+    assert [s["url"] for s in shots["screenshots"]] == [
+        f"/api/media/{LOCAL}/screenshot/{i}/client/shot{i}.jpg" for i in range(2)]
+    assert [s["url"] for s in shots["full"]] == [
+        f"/api/media/{LOCAL}/screenshot/{i}/original/shot{i}.jpg" for i in range(2)]
+
+
 def test_a_slot_no_source_fills_is_null(catalogue):
     assert _title(catalogue, LOCAL, "frontBoxArt { url }")["frontBoxArt"] is None
     assert _title(catalogue, REMOTE, "screenshots { url }")["screenshots"] is None
