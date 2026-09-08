@@ -1,28 +1,38 @@
-"""Basic Auth on /api/graphql (API spec section 2).
+"""Auth on /api/graphql (API spec sections 2 and 4).
 
 The endpoint used to take a session cookie only, while every shop endpoint authenticates
-per request with Basic Auth. Both now work, and these tests pin the property that makes
-that safe: the answer a caller gets depends on their permissions, never on how they
-proved who they are - including the ETag that decides whether they get a cached one.
+per request with Basic Auth. Both now work, and browsing follows the shop's own
+public/private setting like the rest of the catalogue does. These tests pin the property
+that makes all of that safe: the answer a caller gets depends on their permissions, never
+on how they proved who they are - including the ETag that decides whether they get a
+cached one.
+
+The fixture shop is private unless a test says otherwise, so every case below that does
+not set `public` is a private-shop case.
 """
 import base64
 
 import pytest
 
-from capture.fixture import PASSWORDS, UNKNOWN_USER, WRONG_PASSWORD
+from capture.fixture import (PASSWORDS, UNKNOWN_USER, WRONG_PASSWORD,
+                             seed_admin_without_shop_access)
+from settings import set_shop_settings
 
 # Asks for one figure every caller may see and one only admins may: the same document
 # tells the two roles apart.
 QUERY = "query Stats { stats { totalApps totalFiles } }"
 
-# label, user, password (None: the account's own), expected status
+# label, public shop, user, password (None: the account's own), expected status
 ACCESS = [
-    ("no credentials", None, None, 401),
-    ("unknown user", UNKNOWN_USER, "ghostpass1", 401),
-    ("wrong password", "shopper", WRONG_PASSWORD, 401),
-    ("no shop access", "noshop", None, 403),
-    ("shop access", "shopper", None, 200),
-    ("admin", "admin", None, 200),
+    ("private, no credentials", False, None, None, 401),
+    ("private, unknown user", False, UNKNOWN_USER, "ghostpass1", 401),
+    ("private, wrong password", False, "shopper", WRONG_PASSWORD, 401),
+    ("private, no shop access", False, "noshop", None, 403),
+    ("private, shop access", False, "shopper", None, 200),
+    ("private, admin", False, "admin", None, 200),
+    ("public, no credentials", True, None, None, 200),
+    ("public, no shop access", True, "noshop", None, 200),
+    ("public, shop access", True, "shopper", None, 200),
 ]
 
 
@@ -42,10 +52,11 @@ def logged_in_client(shop, user):
     return client
 
 
-@pytest.mark.parametrize("user, password, status",
+@pytest.mark.parametrize("public, user, password, status",
                          [case[1:] for case in ACCESS], ids=[case[0] for case in ACCESS])
-def test_basic_auth_gating(shop_app, user, password, status):
-    """Basic Auth is a way in, gated exactly like the cookie path was: shop or admin access."""
+def test_shop_access_gating(shop_app, public, user, password, status):
+    """Browsing follows the shop's own public/private setting, like every other entrypoint."""
+    set_shop_settings({"public": public})
     response = query(shop_app.client, basic(user, password) if user else None)
 
     assert response.status_code == status
@@ -69,6 +80,29 @@ def test_admin_only_fields_stay_admin_only(shop_app):
     assert as_admin["totalApps"] == as_shopper["totalApps"]
     assert as_admin["totalFiles"] > 0
     assert as_shopper["totalFiles"] == 0
+
+
+def test_an_admin_without_shop_access_still_gets_in(shop_app):
+    """The admin pages read the library through this endpoint, shop permission or not:
+    gating it on shop access alone would take Tasks, Stats and Settings away from them."""
+    user, password = seed_admin_without_shop_access(shop_app.app)
+
+    response = query(shop_app.app.test_client(), basic(user, password))
+
+    assert response.status_code == 200
+
+
+def test_a_public_shop_serves_the_catalogue_anonymously(shop_app):
+    """What a public shop opens up is browsing, not the admin figures behind it."""
+    set_shop_settings({"public": True})
+
+    anonymous = query(shop_app.app.test_client()).json["data"]["stats"]
+    noshop = query(shop_app.app.test_client(), basic("noshop")).json["data"]["stats"]
+
+    assert anonymous["totalApps"] > 0
+    assert anonymous["totalFiles"] == 0
+    # An account without shop access is served no less than a passer-by would be.
+    assert noshop == anonymous
 
 
 def test_cached_responses_do_not_cross_roles(shop_app):

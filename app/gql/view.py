@@ -72,20 +72,13 @@ def is_mutation(query: str, operation_name=None) -> bool:
 
 def graphql_dispatch():
     """Dispatch /api/graphql with auth gating, ETag handling, and a 304 fast path."""
-    from auth import admin_account_created, basic_auth
-    from flask_login import current_user
+    from auth import resolve_shop_caller
 
-    user = None
-    if admin_account_created():
-        if current_user.is_authenticated:
-            user = current_user
-        else:
-            # No session cookie: Basic Auth.
-            success, _error, user = basic_auth(request)
-            if not success:
-                return Response("Unauthorized", status=401)
-        if not (user.has_shop_access() or user.has_admin_access()):
-            return Response("Forbidden", status=403)
+    # No WWW-Authenticate challenge: it would pop a credential dialog over the playground.
+    success, _error, user = resolve_shop_caller(request)
+    if not success:
+        return Response("Forbidden" if user else "Unauthorized",
+                        status=403 if user else 401)
 
     ctx = build_context(user)
     g.graphql_context = ctx

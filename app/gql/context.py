@@ -2,9 +2,8 @@
 from dataclasses import dataclass
 from typing import Optional
 
-from flask_login import current_user
-
 from auth import admin_account_created
+from settings import get_settings
 
 
 @dataclass
@@ -15,25 +14,16 @@ class GraphQLContext:
 
 
 def build_context(user=None) -> GraphQLContext:
-    """Build the GraphQL context from the current Flask request.
-
-    `user` is the caller an alternate auth path already resolved (Basic Auth); without
-    one the Flask-Login session user is used. Permissions are read off the user object
-    either way, so the two paths cannot drift.
-
-    When no admin user has been provisioned (initial setup) auth is disabled;
-    callers are treated as admin/shop to mirror the rest of the API.
-    """
+    """Build the GraphQL context for the caller the endpoint's gate resolved (None if anonymous)."""
     if not admin_account_created():
         return GraphQLContext(user=None, can_admin=True, can_shop=True)
-    if user is None and current_user.is_authenticated:
-        user = current_user
+    public = get_settings()['shop']['public']
     if user is None:
-        return GraphQLContext(user=None, can_admin=False, can_shop=False)
+        return GraphQLContext(user=None, can_admin=False, can_shop=public)
     return GraphQLContext(
         user=user,
         can_admin=bool(user.has_admin_access()),
-        can_shop=bool(user.has_shop_access()),
+        can_shop=bool(user.has_shop_access()) or public,
     )
 
 
