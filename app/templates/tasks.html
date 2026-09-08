@@ -180,9 +180,18 @@
         return delta <= 0 ? 'due now' : `in ${humanizeDuration(delta)}`;
     }
 
+    // A finished task usually reaches us as a `remove`, since a completed task is deleted
+    // rather than kept in a terminal state — but a child is held until its whole parent
+    // finishes, so it sits here as `completed` for as long as its siblings run. Without
+    // this it falls through every branch below to "still running", and a parent fanning out
+    // slow children shows a stack of spinners that look like they beat the concurrency cap.
+    function isFinished(task) {
+        return task.done || task.status === 'completed';
+    }
+
     function taskMeta(task) {
         if (task.cancelled) return 'cancelled';
-        if (task.done) return 'finished';
+        if (isFinished(task)) return 'finished';
         if (task.status === 'failed') return task.errorMessage || 'failed';
         if (task.runAfter) {
             return `${new Date(task.runAfter).toLocaleString()} — ${relativeTime(task.runAfter)}`;
@@ -209,7 +218,7 @@
 
     function statusIconKey(task) {
         if (task.cancelled) return 'cancelled';
-        if (task.done) return 'done';
+        if (isFinished(task)) return 'done';
         if (task.status === 'failed') return 'failed';
         if (task.status === 'pending') return 'pending';
         return 'running';
@@ -280,7 +289,7 @@
 
         // Only a live row carries a bar: a queued one has nothing to report yet, and a
         // finished, cancelled or failed one says so in its icon and meta text already.
-        const inFlight = !task.done && task.status !== 'pending' && task.status !== 'failed';
+        const inFlight = !isFinished(task) && task.status !== 'pending' && task.status !== 'failed';
         own('.task-progress').classList.toggle('d-none', !inFlight);
         if (inFlight) {
             // A task with no reported percentage should not look stalled at 0%: only the
@@ -291,11 +300,12 @@
             bar.className = 'progress-bar progress-bar-striped progress-bar-animated';
         }
 
-        // `done` covers both finished and cancelled rows: the task is already gone
-        // server-side, so the button has nothing to act on and is taken away. On a
-        // failed row it stays, as the only way to clear a failure.
+        // Finished and cancelled rows lose the button: there is nothing left to act on,
+        // and a completed child is still a real row, so cancelling it would delete work
+        // its parent is counting. On a failed row it stays, as the only way to clear a
+        // failure.
         const cancel = own('.task-head > .task-cancel');
-        cancel.classList.toggle('d-none', !!task.done);
+        cancel.classList.toggle('d-none', isFinished(task));
         cancel.title = task.status === 'failed' ? 'Dismiss' : 'Cancel';
     }
 

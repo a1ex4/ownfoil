@@ -466,7 +466,12 @@ def get_title_record(title_id):
         return None
     try:
         row = conn.execute('SELECT * FROM titles WHERE "id" = ?', (title_id,)).fetchone()
-        return _decode_row(row, _TITLES_COLUMNS)
+        record = _decode_row(row, _TITLES_COLUMNS)
+        if record is not None:
+            # Not one of the JSON-fed columns, so _decode_row skips it - but callers storing
+            # something derived from this record need to know which source it came from.
+            record['source'] = row['source']
+        return record
     finally:
         conn.close()
 
@@ -598,6 +603,30 @@ def get_all_dlc_versions(title_id):
         conn.close()
 
 
+def filter_with_artwork(title_ids):
+    """Those ids that have some artwork to fetch, uppercased and deduplicated, in order.
+
+    An UPDATE app does have a titles row - cnmts puts one there - but every image column on
+    it is null, so existence alone is not the question worth asking.
+    """
+    conn = _connect_ro()
+    if conn is None:
+        return []
+    try:
+        ids = list(dict.fromkeys(t.upper() for t in title_ids if t))
+        if not ids:
+            return []
+        placeholders = ','.join('?' * len(ids))
+        rows = conn.execute(
+            f'SELECT id FROM titles WHERE id IN ({placeholders}) AND ('
+            'icon_url IS NOT NULL OR banner_url IS NOT NULL OR front_box_art IS NOT NULL '
+            "OR (screenshots IS NOT NULL AND screenshots != '[]'))", ids)
+        found = {r['id'] for r in rows}
+        return [i for i in ids if i in found]
+    finally:
+        conn.close()
+
+
 def get_all_existing_dlc(title_id):
     conn = _connect_ro()
     if conn is None:
@@ -608,5 +637,29 @@ def get_all_existing_dlc(title_id):
             (title_id.lower(),),
         ).fetchall()
         return [r['app_id'].upper() for r in rows]
+    finally:
+        conn.close()
+
+
+def get_dlc_base_titles(app_ids):
+    """{dlc id: the base title cnmts links it to}, for those of these ids that are DLC.
+
+    None, not an empty mapping, when titles.db cannot be read: it is rebuilt from scratch
+    whenever its schema fingerprint changes, and in that window every DLC looks unknown.
+    """
+    conn = _connect_ro()
+    if conn is None:
+        return None
+    try:
+        ids = [a.lower() for a in app_ids if a]
+        if not ids:
+            return {}
+        placeholders = ','.join('?' * len(ids))
+        rows = conn.execute(
+            f'SELECT app_id, other_application_id FROM cnmts WHERE app_id IN ({placeholders}) '
+            'AND title_type = 130 AND other_application_id IS NOT NULL', ids)
+        return {r['app_id'].upper(): r['other_application_id'].upper() for r in rows}
+    except sqlite3.Error:
+        return None
     finally:
         conn.close()

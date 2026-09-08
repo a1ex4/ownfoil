@@ -9,7 +9,7 @@ KEYS_FILE = os.path.join(CONFIG_DIR, 'keys.txt')
 ALEMBIC_DIR = os.path.join(APP_DIR, 'migrations')
 ALEMBIC_CONF = os.path.join(ALEMBIC_DIR, 'alembic.ini')
 TITLEDB_DIR = os.path.join(DATA_DIR, 'titledb')
-ICONS_DIR = os.path.join(DATA_DIR, 'media', 'icons')
+MEDIA_DIR = os.path.join(DATA_DIR, 'media')
 TITLEDB_RELEASE_URL = 'https://github.com/a1ex4/ownfoil/releases/download/titledb'
 TITLEDB_DEFAULT_FILES = [
     'cnmts.json',
@@ -83,6 +83,7 @@ DEFAULT_SETTINGS = {
         "count": 2,
         "group_limits": {
             "io": 1,
+            "net": 1,
         },
     }
 }

@@ -5,11 +5,14 @@ from constants import *
 from db import *
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+import media
 import titles as titles_lib
 import sys
 from pathlib import Path
 from utils import *
 from db import update_file_path
+import titledb.store
+from titledb.schema import OVERRIDE_SOURCES, SOURCE_EXTRACT
 
 def prepare_template_names(format_data, windows_compatible):
     """Sanitize the names before formatting, so they cannot introduce path separators, and cap their length."""
@@ -370,11 +373,65 @@ def update_title_flags(title_id):
         connection.close()
 
 
+def _media_files_in_use():
+    """(kind, filename) of every stored file something still names.
+
+    The artwork rows are not the whole answer: an extracted icon the titledb dump outranks
+    loses its row but stays in the override that named it, and is served again the day the
+    dump stops describing that title.
+    """
+    keep = get_media_files()
+    for source in OVERRIDE_SOURCES:
+        for row in list_title_overrides(source):
+            for value in row.values():
+                keep |= media.slots_in(value)
+    return keep
+
+
+def remove_orphan_media():
+    """Drop the artwork and extracted metadata of ids the library no longer covers.
+
+    A sweep rather than a hook on the title delete: media is keyed by the Switch id and a DLC
+    is not a row in `titles` at all, so there is no cascade to hang one off - and a pass over
+    the whole table also collects what a path that forgot to clean up left behind.
+    """
+    stored = {t.upper() for t in get_media_title_ids()}
+    overrides = {r['id'] for r in list_title_overrides(SOURCE_EXTRACT)}
+    covered = {t.title_id.upper() for t in get_all_titles() if t.title_id}
+    covered |= {a.app_id.upper() for a in Apps.query.with_entities(Apps.app_id) if a.app_id}
+
+    orphans = (stored | {o.upper() for o in overrides}) - covered
+    if orphans:
+        # A DLC is not a title, and only an owned one is an app of one, so cnmts is the only
+        # thing that tells the artwork of an unowned DLC from a leftover.
+        parents = titledb.store.get_dlc_base_titles(orphans)
+        # None, not empty: titles.db unreadable means every DLC looks unclaimed.
+        orphans = set() if parents is None else orphans - {
+            dlc for dlc, base in parents.items() if base in covered}
+
+    if orphans:
+        rows = delete_media_for_titles(orphans)
+        for title_id in overrides:
+            if title_id.upper() in orphans:
+                titledb.store.delete_override(title_id, SOURCE_EXTRACT)
+        logger.info(
+            f"Removed {rows} artwork row(s) of {len(orphans)} id(s) no longer in the library.")
+
+    # One file backs every title using that image, so it is the whole table that retires one -
+    # the same sweep, not a step of the deletion above. Runs even when no id was orphaned: a
+    # slot that changed filename drops its old file without any title having gone anywhere.
+    files = media.collect(_media_files_in_use())
+    if files:
+        logger.info(f"Removed {files} artwork file(s) nothing names any more.")
+    return len(orphans)
+
+
 def update_titles():
-    """Batch: recompute all titles. Also removes titles with no owned apps."""
+    """Batch: recompute all titles. Also removes titles with no owned apps, and their artwork."""
     titles_removed = remove_titles_without_owned_apps()
     if titles_removed > 0:
         logger.info(f"Removed {titles_removed} titles with no owned apps.")
+    remove_orphan_media()
 
     for title in get_all_titles():
         update_title_flags(title.title_id)

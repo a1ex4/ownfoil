@@ -1,5 +1,5 @@
 import datetime
-from flask import Flask, render_template, request, redirect, url_for, jsonify, send_from_directory, Response
+from flask import Flask, render_template, request, redirect, url_for, jsonify, send_from_directory, Response, abort
 from flask_login import LoginManager
 from flask_sock import Sock
 from functools import wraps
@@ -17,6 +17,7 @@ from auth import *
 from utils import *
 from library import *
 import json
+import media
 import tasks as tasks_mod
 import realtime
 import titledb
@@ -530,11 +531,20 @@ app.add_url_rule(
     methods=['GET', 'POST'],
 )
 
-@app.route('/api/media/icons/<path:name>')
+@app.route('/api/media/<title_id>/<kind>/<int:position>/<size>/<path:name>')
 @access_required('shop', 'admin')
-def serve_icon(name):
-    """Serve an icon extracted from a library file. Same audience as the catalogue itself."""
-    return send_from_directory(ICONS_DIR, name, max_age=31536000)
+def serve_media(title_id, kind, position, size, name):
+    """Serve a local copy of title artwork. Same audience as the catalogue itself.
+
+    The title and slot are in the path to keep the URL readable; the file is found by
+    kind/size/filename alone, so this stays a static send with no database read. Filenames
+    are content hashes, which is what makes the year of cache safe.
+    """
+    try:
+        directory = media.media_dir(kind, size)
+    except ValueError:
+        abort(404)
+    return send_from_directory(directory, name, max_age=31536000)
 
 @app.route('/api/get_game/<int:id>')
 @file_access

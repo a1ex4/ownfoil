@@ -104,6 +104,10 @@ session via SQLite `ATTACH`, managed by engine listeners in `app/db.py`:
   `td.source` names the highest-priority source that contributed a field and
   `td.sources` lists every source that did.
 
+`main.media` sits alongside them: one row per artwork slot ownfoil holds a local copy
+of, keyed `(title_id, kind, position)`. It is a substitution layer rather than a source —
+the URL still comes from `titledb.titles`, and a slot with no row falls back to it.
+
 The ATTACH is automatic, so resolvers just write `JOIN titledb.titles td ON ...`
 or `FROM main.titles ot ...` and SQLAlchemy/SQLite handle the rest. The attach
 also re-fires when titles.db is replaced atomically by another process — see the
@@ -168,13 +172,13 @@ Resolvers use it in two places:
 2. **Project only requested columns.** `_TITLE_COL_MAP` maps each Title field's
    GraphQL camelCase name to its SQL fragment. `_title_cols(driver, sel)` emits
    only the columns the client selected, plus the always-needed `title_id` and
-   `source`. A `{titleId, name, bannerUrl, iconUrl}` query SELECTs ~4 columns
+   `source`. A `{titleId, name, banner, icon}` query SELECTs ~4 columns
    instead of all ~30 — meaningful because some of the unselected ones
    (`description`, `intro`, `screenshots`, `ratingContent`) are large
    text/JSON blobs.
 
 Field names in selection paths are **GraphQL camelCase** (`availableVersions`,
-`bannerUrl`, `releaseDate`) — not Python snake_case.
+`frontBoxArt`, `releaseDate`) — not Python snake_case.
 
 `_build_title` reads row columns via `row._mapping.get(...)`, so unselected
 columns map cleanly to `None` instead of raising `AttributeError`.
@@ -285,6 +289,25 @@ the row rather than adding a terminal state, which is why there is no
 a task should not change the published schema) but is checked against
 `TASK_REGISTRY`, so an unregistered name raises instead of returning `[]`.
 
+## Artwork
+
+`Title.icon` / `banner` / `frontBoxArt` / `screenshots` return an `Image`, not a URL
+string, and each takes `size: ImageSize` (`ORIGINAL` / `CLIENT`, defaulting to `CLIENT`).
+`Image` carries `url`, `size`, `local` and the rendition's `width`/`height`.
+
+`_hydrate_title_media` batch-loads `main.media` for the page and stuffs it into the
+`media_loaded` private slot; the field resolvers read that, and fall back to the titledb URL
+with `local: false` when the slot has no row. That fallback is what lets a title render
+before the `download_media` task has reached it, and it is why the hydrator is a plain
+substitution rather than a gate — skipping it degrades the answer, it does not break it.
+
+Because a `Title` is built on five paths (`titles`, `title`, `App.titledb`, `App.title`,
+`Title.availableDlc { titledb }`), the hydrator is called from all five. Miss one and its
+artwork silently reverts to hotlinks.
+
+Stored files are content-addressed and shared between titles, so the media table is the only
+record of which title a file belongs to — see `app/media.py`.
+
 ## Filtering
 
 Implicit AND across populated fields. v1 has no OR / NOT combinators.
@@ -378,6 +401,7 @@ which a re-organize or a copy rewrites, so it cannot answer "recently added".
   - `files` — count, `MAX(id)`, `SUM(organized)`, `SUM(identified)`,
     `SUM(identification_attempts)`, `SUM(download_count)`
   - `tasks` — count, `MAX(id)`, `SUM(completion_pct)`
+  - `media` — count, `MAX(id)`
 - `role` is `admin` / `shop` / `anon` — different roles see different
   field-level gates so they can't share cache entries.
 - Headers: `Cache-Control: private, must-revalidate; Vary: Authorization,

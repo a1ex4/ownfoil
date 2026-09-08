@@ -97,6 +97,20 @@ class TitleSource(Enum):
                     "no metadata row is one nothing but the library knows about.")
 
 
+@described(strawberry.enum)
+class ImageSize(Enum):
+    """Which rendition of a piece of artwork to link to. Both always exist for an image
+    ownfoil holds locally, so asking for either is a choice about transfer size rather
+    than about availability."""
+    ORIGINAL = strawberry.enum_value(
+        "original", description="The image as its source published it, untouched.")
+    CLIENT = strawberry.enum_value(
+        "client",
+        description="Fitted to a display box - 256x256 for icons, 640x360 for banners, "
+                    "screenshots and box art - preserving the aspect ratio and never "
+                    "enlarging, so a smaller original is served unchanged.")
+
+
 @described(strawberry.input)
 class TitleFilter:
     """Predicates on a title. Every populated field ANDs with the others."""

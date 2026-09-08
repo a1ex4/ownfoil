@@ -39,7 +39,8 @@ SELECT * FROM
   (SELECT COUNT(*), COALESCE(MAX(id), 0), COALESCE(SUM(completion_pct), 0),
           COALESCE(SUM(worker_id), 0),
           SUM(CASE WHEN status = 'running' THEN 1 ELSE 0 END)
-     FROM tasks)
+     FROM tasks),
+  (SELECT COUNT(*), COALESCE(MAX(id), 0) FROM media)
 """
 
 

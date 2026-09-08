@@ -15,7 +15,7 @@ from containers import nacp
 from containers import verification as verification_lib
 from constants import COMPRESS_EXT, DECOMPRESS_EXT
 from db import (
-    db, Task, Files, Apps, Libraries, get_library_id, get_library_path, get_library_file_paths,
+    db, Task, Files, Apps, Libraries, Titles, get_library_id, get_library_path, get_library_file_paths,
     get_libraries, add_title_id_in_db, get_title_id_db_id, add_file_to_app,
     file_exists_in_db, update_file_path, delete_file_by_filepath,
     delete_files_under_dir, add_ignored_event, pop_ignored_event,
@@ -23,6 +23,7 @@ from db import (
     set_library_scan_time, remove_missing_files_from_db,
     remove_file_from_apps, reset_file_identification, reset_file_verification, create_file,
     verification_status,
+    upsert_media, get_title_media, delete_media_slots,
 )
 from settings import get_settings
 from titledb.schema import SOURCE_EXTRACT
@@ -140,6 +141,8 @@ TASK_DISPLAY = {
     'add_missing_apps': lambda **kw: 'Add missing content',
     'remove_missing_files': lambda **kw: 'Remove missing files',
     'update_titles': lambda **kw: 'Update titles',
+    'download_media': lambda **kw: 'Download title artwork',
+    'download_title_media': lambda title_id, **kw: f'Download artwork for {title_id}',
     'remove_library': lambda library_path, **kw: f'Remove library {library_path}',
     'handle_file_added': lambda filepath, **kw: f'New file {os.path.basename(filepath)}',
     'handle_file_moved': lambda src_path, dest_path, **kw: (
@@ -605,6 +608,9 @@ def update_titledb_task(**kwargs):
         enqueue_task('process_library')
         add_missing_apps_to_db()
         update_titles()
+        # Artwork URLs are per region/language, so this is the one place that runs after a
+        # locale-driven rebuild as well as after a plain refresh.
+        enqueue_task('download_media')
     except Exception:
         # Without this the chain simply stops: nothing re-enqueues a failed task, so a single
         # network blip would leave titledb frozen until the next restart.
@@ -771,7 +777,8 @@ def _store_metadata(file, contents):
         record = {'id': content['title_id'], 'name': content['name'],
                   'publisher': content['publisher']}
         if content['icon']:
-            record['iconUrl'] = media.save_icon(content['title_id'], content['icon'])
+            record['iconUrl'] = media.store_extracted(
+                content['title_id'], media.ICON, content['icon'])
         titledb.store.set_override(content['title_id'], record, source=SOURCE_EXTRACT)
 
     # Set even when nothing came back: a DLC ships no Control NCA and never will, so
@@ -927,9 +934,18 @@ def library_maintenance_task(library_path=None, **kwargs):
 
 @register_task('add_missing_apps_for_title')
 def add_missing_apps_for_title_task(title_id, **kwargs):
-    """Per-title: expand missing base/update/DLC apps for one title, then enqueue update_titles_for_title."""
+    """Per-title: expand a title's apps, recompute its flags and fetch its artwork.
+
+    This is the only chain a newly identified title goes down, so artwork hangs off it
+    rather than off the file pipeline: a title is what has artwork, and one file can carry
+    several of them while an UPDATE app is not a title at all. `update_titledb` covers the
+    other direction, a locale change rewriting the URLs of titles already known.
+    """
     add_missing_apps_for_title(title_id)
     enqueue_or_child('update_titles_for_title', {'title_id': title_id})
+    # Cheap when nothing changed - a few stat calls - so re-identifying a file costs nothing.
+    for media_id in media_title_ids(title_id):
+        enqueue_or_child('download_title_media', {'title_id': media_id})
     set_waiting_for_children()
 
 
@@ -1089,6 +1105,106 @@ def remove_missing_files_task(**kwargs):
 def update_titles_task(**kwargs):
     """Batch: recompute flags for every title. Used post-titledb-update."""
     update_titles()
+
+
+# --- Artwork ---
+#
+# The slots a title can have artwork for, as (kind, titledb key). Screenshots are a list and
+# fill one slot per entry, so they are handled apart from these.
+MEDIA_SLOTS = ((media.ICON, 'iconUrl'), (media.BANNER, 'bannerUrl'),
+               (media.BOXART, 'frontBoxArt'))
+
+# A slot that failed is retried on its own schedule, doubling each time, rather than waiting
+# on the next titledb refresh - twelve hours out by default, which is a long time to hotlink.
+MEDIA_RETRY_DELAY = datetime.timedelta(minutes=15)
+MEDIA_RETRY_LIMIT = 3
+
+
+def media_title_ids(title_id):
+    """Every id the API can serve artwork for under one title: the title, its apps, its DLC.
+
+    DLC carry their own banners and screenshots but are not rows in `titles`, so covering
+    that table alone leaves them hotlinked. Both routes to one are needed: an owned DLC
+    reaches the client as `App.titledb`, an unowned one only through `Title.availableDlc`,
+    and cnmts does not always link an owned DLC back to its base title. Ids with no artwork
+    to fetch are dropped rather than enqueued - every UPDATE app is one of those.
+    """
+    apps = Apps.query.join(Titles, Apps.title_id == Titles.id).filter(
+        Titles.title_id == title_id).with_entities(Apps.app_id).all()
+    ids = [title_id] + [a.app_id for a in apps] + titledb.store.get_all_existing_dlc(title_id)
+    return titledb.store.filter_with_artwork(ids)
+
+
+@register_task('download_media')
+def download_media_task(**kwargs):
+    """Fetch artwork for every title in the library, one child task per title and DLC."""
+    title_ids = [t.title_id for t in Titles.query.all() if t.title_id]
+    for title_id in title_ids:
+        for media_id in media_title_ids(title_id):
+            enqueue_or_child('download_title_media', {'title_id': media_id})
+    if title_ids:
+        set_waiting_for_children()
+
+
+@register_task('download_title_media', group='net')
+def download_title_media_task(title_id, attempt=0, **kwargs):
+    """Store local copies of one title's artwork.
+
+    Reads the merged titledb record, so which source a given image comes from has already
+    been decided by SOURCE_PRIORITY and this never re-implements it.
+    """
+    record = titledb.store.get_title_record(title_id)
+    if record is None:
+        # No record means "cannot say", not "has no artwork" - titles.db is rebuilt from
+        # scratch whenever its schema fingerprint changes, and a scan landing in that window
+        # would otherwise take the deletion below as licence to empty the title's store.
+        return
+    wanted = [(kind, 0, record.get(key)) for kind, key in MEDIA_SLOTS]
+    wanted += [(media.SCREENSHOT, i, url)
+               for i, url in enumerate(record.get('screenshots') or [])]
+
+    existing = get_title_media([title_id])
+    filled = []
+    failed = False
+    for kind, position, url in wanted:
+        if not url:
+            continue
+        if media.is_local(url):
+            # Already in the store - an extracted icon files itself at extraction time.
+            filled.append((kind, position))
+            continue
+        filename = media.filename_from_url(url)
+        row = existing.get((title_id.upper(), kind, position))
+        if row is not None and row.filename == filename and media.have(kind, filename):
+            filled.append((kind, position))
+            continue
+        try:
+            if media.have(kind, filename):
+                # The bytes are stored already, so a row that went missing or names an older
+                # file is rebuilt from them rather than paid for again over the network.
+                size, client_size = media.dimensions(kind, filename)
+            else:
+                filename, size, client_size = media.store_bytes(
+                    kind, media.fetch(url), filename)
+        except Exception as e:
+            # One dead URL must not fail the task: the slot stays hotlinked, and a red task
+            # per unreachable image would bury the real failures.
+            logger.warning(f'Could not store {kind} for {title_id} from {url}: {e}')
+            failed = True
+            continue
+        upsert_media(title_id, kind, position, source=record['source'], source_url=url,
+                     filename=filename, size=size, client_size=client_size)
+        filled.append((kind, position))
+
+    delete_media_slots(title_id, filled)
+
+    if failed and attempt < MEDIA_RETRY_LIMIT:
+        # Enqueued rather than made a child: the retry is minutes away, and a parent must not
+        # sit in waiting_for_children for that. Backs off, so a CDN outage is not hammered,
+        # and gives up to the next titledb refresh after that.
+        delay = MEDIA_RETRY_DELAY * 2 ** attempt
+        enqueue_task('download_title_media', {'title_id': title_id, 'attempt': attempt + 1},
+                     run_after=datetime.datetime.utcnow() + delay)
 
 
 # --- Library lifecycle ---

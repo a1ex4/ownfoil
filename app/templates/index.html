@@ -194,7 +194,7 @@
                     appId
                     appType
                     owned
-                    titledb { name bannerUrl iconUrl }
+                    titledb { name banner(size: ORIGINAL) { url } icon(size: ORIGINAL) { url } }
                     title { titleId name ownership { haveBase upToDate complete } }
                     versions { version owned releaseDate }
                 }
@@ -208,7 +208,7 @@
                  appType: $appType, search: $search, owned: $owned,
                  upToDate: $upToDate, complete: $complete) {
                 total
-                items { appId titledb { iconUrl } }
+                items { appId titledb { icon { url } } }
             }
         }`;
 
@@ -344,8 +344,8 @@
                 id: recognized ? title.titleId : title.titleId + ' not found in titledb',
                 title_id_name: title.name || 'Unrecognized',
                 name: title.name || 'Unrecognized',
-                bannerUrl: meta.bannerUrl || PLACEHOLDER_BANNER,
-                iconUrl: meta.iconUrl || '',
+                bannerUrl: (meta.banner || {}).url || PLACEHOLDER_BANNER,
+                iconUrl: (meta.icon || {}).url || '',
                 app_type: 'BASE',
                 owned: ownership.haveBase,
                 has_latest_version: ownership.haveBase && ownership.upToDate,
@@ -360,8 +360,8 @@
             id: recognized ? app.appId : app.appId + ' not found in titledb',
             title_id_name: title.name || 'Unrecognized',
             name: meta.name || 'Unrecognized',
-            bannerUrl: meta.bannerUrl || PLACEHOLDER_BANNER,
-            iconUrl: meta.iconUrl || '',
+            bannerUrl: (meta.banner || {}).url || PLACEHOLDER_BANNER,
+            iconUrl: (meta.icon || {}).url || '',
             app_type: app.appType,
             owned: app.owned,
             has_latest_version: ownedVersions.length > 0 && Math.max(...ownedVersions) >= highest,
@@ -441,7 +441,7 @@
         gameGrid.empty(); // Clear existing games
 
         apps.forEach(app => {
-            const icon = $('<img class="game-icon">').attr('src', (app.titledb || {}).iconUrl || '');
+            const icon = $('<img class="game-icon">').attr('src', ((app.titledb || {}).icon || {}).url || '');
             gameGrid.append(icon);
         });
 
