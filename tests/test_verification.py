@@ -143,12 +143,23 @@ def test_a_resigned_header_alone_is_not_a_modified_verdict(monkeypatch, tmp_path
 
 def test_unreadable_file_is_not_vouched_for(monkeypatch, tmp_path):
     """A phase that raises is a failure, not an absent result: we cannot vouch for a file
-    we could not read, and leaving the verdict null would retry it on every sweep."""
+    we could not read, and leaving any verdict column null would retry it on every sweep.
+    hash_modified included - a failed hash with a null hash_modified is the pre-migration
+    shape the verify stage re-checks (issue #357)."""
     _stub_phases(monkeypatch)
     monkeypatch.setattr(verification.Verify, "verify_sig",
                         lambda c, m: (_ for _ in ()).throw(OSError("master_key_0a missing")))
     assert verification.verify(str(tmp_path / "Game.nsp"), verification.DEPTH_HASH) == (
-        False, False, None, "master_key_0a missing")
+        False, False, False, "master_key_0a missing")
+
+
+def test_unopenable_file_at_hash_depth_gets_a_full_verdict(monkeypatch, tmp_path):
+    """The shape of issue #357: a file nstools cannot even open (a macOS `._` AppleDouble,
+    an XCI layout it does not support). Every column must land so the stage converges."""
+    monkeypatch.setattr(verification, "open_container",
+                        _fake_container(raises=ValueError("Not a valid PFS0 partition")))
+    assert verification.verify(str(tmp_path / "._Game.nsp"), verification.DEPTH_HASH) == (
+        False, False, False, "Not a valid PFS0 partition")
 
 
 def test_unopenable_file_reports_without_raising(monkeypatch, tmp_path):
@@ -233,8 +244,9 @@ def test_nstools_chatter_is_silenced():
     ("hash", {"signature_valid": True}, True),             # deeper level not yet attempted
     ("hash", {"hash_valid": False, "hash_modified": False}, False),
     ("hash", {"hash_valid": True}, False),
-    # A failure with no hash_modified came from a phase that raised - an unreadable file
-    # rather than a verdict - so it is re-checked. A pass has nothing left to learn.
+    # A failure with no hash_modified is a row verified before that column existed, so it
+    # is re-checked once to learn its kind. verify() never writes this shape itself: a
+    # raised phase fills both hash columns, otherwise this re-check would never end.
     ("hash", {"hash_valid": False}, True),
 ])
 def test_needs_verify_tracks_the_configured_depth(env, depth, columns, expected):
@@ -363,6 +375,33 @@ def test_verify_stage_converges(env):
     f = db.session.get(Files, fid)
     mgmt = _settings(verify=True, depth="hash")["library"]["management"]
     assert tasks._needs_verify(f, mgmt) is False
+
+
+def test_verify_stage_converges_when_nstools_raises(env):
+    """Regression for issue #357: an unopenable file must not be re-verified forever.
+
+    Drive the real verify() through the task with the container refusing to open, then ask
+    the stage whether it wants another pass. Before the fix the raise left hash_modified
+    null, which the stage read as the pre-migration shape and re-queued indefinitely."""
+    redriven = []
+    env.monkeypatch.setattr(tasks, "enqueue_task",
+                            lambda name, *a, **k: redriven.append(name))
+    env.monkeypatch.setattr(tasks.verification_lib, "open_container",
+                            _fake_container(raises=ValueError("Not a valid PFS0 partition")))
+    env.monkeypatch.setattr(tasks, "get_settings",
+                            lambda: _settings(verify=True, depth="hash"))
+    f = env.seed("._Game.nsp")
+    fid = f.id
+
+    tasks.verify_file_task(file_id=fid)
+
+    f = db.session.get(Files, fid)
+    assert (f.signature_valid, f.hash_valid, f.hash_modified) == (False, False, False)
+    assert f.verification_error == "Not a valid PFS0 partition"
+    assert verification_status(f) == verification.STATUS_CORRUPT
+    mgmt = _settings(verify=True, depth="hash")["library"]["management"]
+    assert tasks._needs_verify(f, mgmt) is False
+    assert redriven == ["process_file"]
 
 
 # --- invalidation ----------------------------------------------------------------------------

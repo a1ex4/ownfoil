@@ -615,7 +615,7 @@ def test_scan_and_watcher_skip_in_progress(env):
 
     from db import get_temp_file_paths, is_temp_file
     # Scanner: in-progress path is excluded from the scan's new-file set.
-    _, files = __import__("titles").getDirsAndFiles(str(env.lib_dir))
+    _, files = __import__("titles").get_dirs_and_files(str(env.lib_dir))
     skip = get_temp_file_paths()
     assert target in files and target not in [f for f in files if f not in skip]
     # Watcher gate.

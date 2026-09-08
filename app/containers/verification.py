@@ -151,6 +151,11 @@ def verify(filepath, depth, progress=None):
                 hash_modified = _modified_from(messages)
     except Exception as e:
         logger.warning(f'Verification of {os.path.basename(filepath)} failed: {e}')
-        return False, (False if depth == DEPTH_HASH else None), None, str(e)
+        # A raised phase is a verdict, not an absent result. At hash depth both hash columns
+        # have to be written: a null hash_modified next to a failed hash is how the verify
+        # stage recognises a row from before that column existed and schedules a re-check,
+        # so leaving it null here would re-verify an unreadable file on every sweep.
+        failed = False if depth == DEPTH_HASH else None
+        return False, failed, failed, str(e)
 
     return signature_valid, hash_valid, hash_modified, _error_from(messages)

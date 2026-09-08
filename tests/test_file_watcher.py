@@ -156,6 +156,12 @@ def _non_allowed_extension(c):
     (c.watched / "readme.txt").write_text("data")
 
 
+def _apple_double_twin(c):
+    # macOS writes `._Game.nsp` beside every file it copies onto a network share: right
+    # extension, Finder metadata inside. It must never reach the library (issue #357).
+    (c.watched / "._a.nsp").write_text("\x00\x05\x16\x07 AppleDouble")
+
+
 def _dir_moved_in_atomic(c):
     game = c.outside / "Game"
     game.mkdir()
@@ -200,6 +206,8 @@ CASES = [
     ("file_moved_in",              _file_moved_in,            [("created", "a.nsp")],        []),
     ("non_allowed_extension",      _non_allowed_extension,    [],
         [("created", "readme.txt"), ("modified", "readme.txt")]),
+    ("apple_double_twin",          _apple_double_twin,        [],
+        [("created", "._a.nsp"), ("modified", "._a.nsp")]),
     ("dir_moved_in_atomic",        _dir_moved_in_atomic,      [("created", "g.nsp")],        []),
     ("dir_created_then_populated", _dir_created_then_populated, [("created", "g.nsp")],      []),
     ("dir_moved_out",              _dir_moved_out,            [("dir_deleted", "Game")],     []),

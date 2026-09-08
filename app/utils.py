@@ -9,9 +9,20 @@ from datetime import timedelta
 from functools import wraps
 from pathlib import Path
 from typing import Optional, Tuple
-import json
 import os
 from constants import *
+
+def is_library_file(name):
+    """Whether a file name is one the library should index.
+
+    Matches on extension, and rejects dotfiles: macOS leaves an AppleDouble `._Game.nsp`
+    next to every file it copies onto a network share, which carries the extension but
+    holds Finder metadata rather than a container.
+    """
+    name = os.path.basename(name)
+    if name.startswith('.'):
+        return False
+    return any(name.endswith(f'.{ext}') for ext in ALLOWED_EXTENSIONS)
 
 # Shared log format used by the app, workers and the Gunicorn logger
 LOG_FORMAT = '[%(asctime)s.%(msecs)03d] %(levelname)s (%(module)s) %(message)s'
@@ -35,9 +46,9 @@ class ColoredFormatter(logging.Formatter):
         levelname = record.levelname
         if levelname in self.COLORS:
             record.levelname = f"{self.COLORS[levelname]}{levelname}{self.RESET}"
-        
+
         return super().format(record)
-    
+
 # Filter to remove date from http access logs
 class FilterRemoveDateFromWerkzeugLogs(logging.Filter):
     # '192.168.0.102 - - [30/Jun/2024 01:14:03] "%s" %s %s' -> '192.168.0.102 - "%s" %s %s'
@@ -57,7 +68,7 @@ def debounce(wait, key=None):
     """Thread-safe decorator that postpones a function's execution until after `wait` seconds
     have elapsed since the last time it was invoked. Only allows one execution at a time.
     Uses a global registry to ensure state is shared across all imports and decorator instances.
-    
+
     Args:
         wait: Number of seconds to wait before executing
         key: Optional string key to identify this function across different imports.
@@ -66,7 +77,7 @@ def debounce(wait, key=None):
     def decorator(fn):
         # Use provided key or fall back to qualname
         func_key = key if key is not None else fn.__qualname__
-        
+
         # Initialize state in global registry if not already present
         with _debounce_registry_lock:
             if func_key not in _debounce_registry:
@@ -75,26 +86,26 @@ def debounce(wait, key=None):
                     'lock': threading.Lock(),
                     'execution_lock': threading.Lock()
                 }
-        
+
         @wraps(fn)
         def debounced(*args, **kwargs):
             state = _debounce_registry[func_key]
-            
+
             def call_it():
                 # Acquire execution lock to ensure only one instance runs at a time
                 with state['execution_lock']:
                     fn(*args, **kwargs)
-            
+
             # Acquire lock to safely cancel old timer and start new one
             with state['lock']:
                 # Cancel existing timer if any
                 if state['timer'] is not None:
                     state['timer'].cancel()
-                
+
                 # Create and start new timer
                 state['timer'] = threading.Timer(wait, call_it)
                 state['timer'].start()
-        
+
         return debounced
     return decorator
 
@@ -304,7 +315,7 @@ def delete_empty_folders(path):
                     deleted_any_in_pass = True
                 except OSError as e:
                     logging.getLogger('main').error(f"Error deleting directory {dirpath}: {e}")
-        
+
         # After a full pass, check if the root path itself is now empty and can be deleted
         # This handles cases where the initial 'path' becomes empty after its children are removed
         if not os.listdir(path) and os.path.isdir(path):

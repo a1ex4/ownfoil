@@ -213,7 +213,7 @@ class Handler(FileSystemEventHandler):
         tracked = 0
         for root, _, files in os.walk(dirpath):
             for name in files:
-                if not any(name.endswith(ext) for ext in ALLOWED_EXTENSIONS):
+                if not is_library_file(name):
                     continue
                 path = os.path.join(root, name)
                 if os.path.exists(path):
@@ -278,8 +278,7 @@ class Handler(FileSystemEventHandler):
         if source_event.event_type not in ('created', 'modified', 'moved', 'deleted'):
             return
 
-        is_media = any(source_event.src_path.endswith(ext) or source_event.dest_path.endswith(ext)
-                       for ext in ALLOWED_EXTENSIONS)
+        is_media = is_library_file(source_event.src_path) or is_library_file(source_event.dest_path)
 
         # ReadDirectoryChangesW reports a removed entry as FILE_ACTION_REMOVED with no type, and
         # watchdog turns that into a FileDeletedEvent even for a folder (the entry is gone, so
@@ -303,7 +302,7 @@ class Handler(FileSystemEventHandler):
             dest_path=source_event.dest_path,
         )
 
-        if library_event.type == 'moved' and not any(library_event.dest_path.endswith(ext) for ext in ALLOWED_EXTENSIONS):
+        if library_event.type == 'moved' and not is_library_file(library_event.dest_path):
             library_event.type = 'deleted'
 
         if library_event.type == 'deleted':
