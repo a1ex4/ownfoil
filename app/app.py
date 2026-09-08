@@ -236,6 +236,7 @@ def shop_handshake():
 
     settings = get_settings()
     return jsonify({
+        'uid': get_server_uid(),
         'name': settings['shop']['name'],
         'version': APP_VERSION,
         'protocol_version': API_PROTOCOL_VERSION,
