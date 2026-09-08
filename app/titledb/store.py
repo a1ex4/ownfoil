@@ -12,7 +12,6 @@ import json
 import logging
 import os
 import sqlite3
-import time
 
 from sqlalchemy import create_engine
 from sqlalchemy.engine import URL
@@ -228,20 +227,26 @@ def import_from_json(region_file, locale):
 def _replace_titles_db(new_path):
     """Move the freshly built DB into place, atomically for readers.
 
-    Windows refuses to replace a file that other open handles still hold, and every pooled
-    main connection keeps titles.db ATTACHed, so drop those handles and retry there. That
-    retry needs a Flask app context, which callers have via the worker's task loop.
+    Windows refuses to replace a file other processes still hold open, and every worker
+    process keeps titles.db ATTACHed - handles this one cannot close, so there the content
+    is copied into the file they are already holding instead.
     """
-    for attempt in range(3):
-        try:
-            os.replace(new_path, TITLES_DB_FILE)
-            return
-        except PermissionError:
-            if attempt == 2:
-                raise
-            from db import db
-            db.engine.dispose()  # closes idle pooled connections; in-flight ones on return
-            time.sleep(1)
+    try:
+        os.replace(new_path, TITLES_DB_FILE)
+    except PermissionError:
+        _copy_into_titles_db(new_path)
+
+
+def _copy_into_titles_db(new_path):
+    """Overwrite titles.db in place with the freshly built DB, leaving the file itself alone.
+
+    Not atomic like the rename, but SQLite serializes it against the readers holding the
+    file: they block for the copy rather than seeing a half-written database.
+    """
+    with contextlib.closing(sqlite3.connect(new_path)) as source, \
+            contextlib.closing(sqlite3.connect(TITLES_DB_FILE, timeout=60)) as destination:
+        source.backup(destination)
+    os.remove(new_path)
 
 
 def _import_titles(conn, path):

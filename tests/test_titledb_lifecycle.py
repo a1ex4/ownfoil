@@ -175,6 +175,60 @@ def test_rebuilt_db_keeps_the_schema_and_fingerprint(install):
     assert not os.path.exists(install.titles_db + '-wal')
 
 
+@pytest.fixture
+def other_worker(monkeypatch):
+    """Open titles.db the way another worker process does, with Windows' locking semantics.
+
+    On Windows the open handle really does deny os.replace; everywhere else that denial is
+    emulated, so the same test reproduces the issue on any OS.
+    """
+    held = []
+    real_replace = os.replace
+
+    def replace(src, dst):
+        if os.path.realpath(dst) in held:
+            raise PermissionError(5, 'Access is denied', src, 5, dst)
+        return real_replace(src, dst)
+
+    if os.name != 'nt':
+        monkeypatch.setattr(os, 'replace', replace)
+
+    connections = []
+
+    def open_db(path):
+        held.append(os.path.realpath(path))
+        conn = sqlite3.connect(path)
+        conn.execute('SELECT COUNT(*) FROM titles').fetchone()  # as a live worker would
+        connections.append(conn)
+        return conn
+
+    yield open_db
+    for conn in connections:
+        conn.close()
+
+
+LATER_ID = "0100000000012000"
+
+
+def test_import_while_another_worker_holds_the_db_open(install, other_worker):
+    """Every worker process keeps titles.db ATTACHed, and Windows denies replacing a file
+    they still hold open - handles the importing process cannot close. The import has to
+    land anyway, and land where those handles are already looking.
+    """
+    init_db(install.app)
+    _import(install)
+    reader = other_worker(install.titles_db)
+
+    _import(install, titles={LATER_ID: dict(TITLEDB_RECORD, id=LATER_ID, name="Later Game")})
+
+    assert titledb.store.get_title_record(LATER_ID)["name"] == "Later Game"
+    assert _meta(install.titles_db, 'schema_version') == titledb.schema.fingerprint()
+    assert not os.path.exists(install.titles_db + '.new')
+    # The handle predates the import: the new data has to be in the file it still holds.
+    row = reader.execute('SELECT name FROM titles WHERE id = ?', (LATER_ID,)).fetchone()
+    assert row is not None and row[0] == "Later Game"
+
+
 # (titleType, the app id carrying it, what identify_appId must return for it)
 CNMT_CASES = [
     (128, TITLE_ID,             (TITLE_ID, APP_TYPE_BASE)),

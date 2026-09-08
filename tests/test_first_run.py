@@ -109,29 +109,26 @@ def test_first_import_supersedes_the_empty_db(first_run):
     assert data["titles"]["items"][0]["name"] == "Some Game"
 
 
-def test_import_retries_the_replace_when_the_old_db_is_still_held(first_run, monkeypatch):
+def test_import_lands_when_the_replace_is_denied(first_run, monkeypatch):
     """Windows refuses to replace a file open elsewhere, and the ATTACH keeps it open.
 
-    Simulated, so the dispose-and-retry path is covered off Windows too — everywhere else
-    os.replace just succeeds and the branch never runs.
+    Simulated, so the fallback is covered off Windows too — everywhere else os.replace
+    just succeeds and the branch never runs.
     """
     _query(first_run.client, QUERIES["owned"])
     _titledb_json(first_run.titledb_dir, "Some Game")
 
-    real_replace, attempts = os.replace, []
+    real_replace = os.replace
 
-    def flaky_replace(src, dst, *args, **kwargs):
+    def denied_replace(src, dst, *args, **kwargs):
         if str(dst) == titledb.store.TITLES_DB_FILE:
-            attempts.append(dst)
-            if len(attempts) == 1:
-                raise PermissionError(32, "The process cannot access the file")
+            raise PermissionError(32, "The process cannot access the file")
         return real_replace(src, dst, *args, **kwargs)
 
-    monkeypatch.setattr(os, "replace", flaky_replace)
+    monkeypatch.setattr(os, "replace", denied_replace)
 
     with first_run.app.app_context():
         titledb.store.import_from_json(str(first_run.titledb_dir / "titles.US.en.json"), "US.en")
 
-    assert len(attempts) == 2  # failed once, retried after disposing the pool
     data = _query(first_run.client, QUERIES["owned"])
     assert data["titles"]["items"][0]["name"] == "Some Game"
