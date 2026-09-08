@@ -3,7 +3,9 @@ from utils import *
 import yaml
 import copy
 import os, sys, tempfile
+import copy
 import threading
+import uuid
 import hashlib
 from contextlib import contextmanager
 
@@ -212,6 +214,10 @@ def load_settings():
             settings = copy.deepcopy(DEFAULT_SETTINGS)
             settings_updated = True
 
+        if not settings['server']['uid']:
+            settings['server']['uid'] = uuid.uuid4().hex
+            settings_updated = True
+
         if settings_updated:
             _dump_settings(settings)
 
@@ -334,6 +340,16 @@ def set_shop_settings(data):
         if 'clients' in data:
             for client_name, client_data in data['clients'].items():
                 settings['shop']['clients'][client_name].update(client_data)
+
+def get_server_uid():
+    """This install's identity as clients know it, minted when settings are first written."""
+    return get_settings()['server']['uid']
+
+def set_services_settings(data):
+    with settings_transaction() as settings:
+        for service, config in data.items():
+            if service in settings['services']:
+                settings['services'][service].update(config)
 
 def set_scheduler_settings(data):
     with settings_transaction() as settings:

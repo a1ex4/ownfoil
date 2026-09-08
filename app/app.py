@@ -19,6 +19,7 @@ from library import *
 import json
 import media
 import tasks as tasks_mod
+import discovery
 import realtime
 import titledb
 import os
@@ -34,6 +35,9 @@ def init():
     watcher_thread = threading.Thread(target=watcher.run)
     watcher_thread.daemon = True
     watcher_thread.start()
+
+    # Start UDP discovery for clients on the LAN
+    discovery.reconcile()
 
     # init libraries
     library_paths = get_library_paths()
@@ -84,6 +88,7 @@ def on_settings_change():
         if desired != pool.count:
             logger.info(f'Settings changed: scaling workers from {pool.count} to {desired}')
             pool.scale(desired)
+    discovery.reconcile()
     if watcher is not None:
         # Reconcile off this thread: this callback runs inside the native observer's dispatch,
         # which holds the observer lock that schedule/unschedule also need.
@@ -312,6 +317,13 @@ def settings_page():
         languages_from_titledb=languages,
         admin_account_created=admin_account_created())
 
+@app.route('/admin/services')
+@access_required('admin')
+def services_page():
+    return render_template('services.html', title='Services',
+                           discovery_port=DISCOVERY_PORT,
+                           admin_account_created=admin_account_created())
+
 @app.route('/admin/tasks')
 @access_required('admin')
 def tasks_page():
@@ -447,6 +459,13 @@ def set_shop_settings_api():
         'errors': []
     } 
     return jsonify(resp)
+
+@app.post('/api/settings/services')
+@access_required('admin')
+def set_services_settings_api():
+    set_services_settings(request.json)
+    discovery.reconcile()
+    return jsonify({'success': True, 'errors': []})
 
 @app.route('/api/settings/library/paths', methods=['GET', 'POST', 'DELETE'])
 @access_required('admin')

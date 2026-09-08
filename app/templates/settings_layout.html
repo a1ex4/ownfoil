@@ -12,6 +12,11 @@
                     </a>
                 </li>
                 <li class="nav-item">
+                    <a class="nav-link{% if request.path.startswith('/admin/services') %} active{% endif %}" href="/admin/services">
+                        Services
+                    </a>
+                </li>
+                <li class="nav-item">
                     <a class="nav-link{% if request.path.startswith('/admin/tasks') %} active{% endif %}" href="/admin/tasks">
                         Tasks
                     </a>
