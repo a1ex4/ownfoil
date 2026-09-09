@@ -1,6 +1,7 @@
 from constants import *
 from utils import *
 import yaml
+import copy
 import os, sys, tempfile
 import threading
 import hashlib
@@ -208,7 +209,7 @@ def load_settings():
                 settings_updated = True
 
         else:
-            settings = DEFAULT_SETTINGS
+            settings = copy.deepcopy(DEFAULT_SETTINGS)
             settings_updated = True
 
         if settings_updated:
