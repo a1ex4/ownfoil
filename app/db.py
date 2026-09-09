@@ -161,11 +161,15 @@ class Files(db.Model):
 # fields that source knows about. titles.db is disposable and gets these projected into it
 # on every rebuild, which is why they live here instead. Core table, not a model: it has
 # no ORM relationships and its columns come from the titledb schema.
+# The extract source alone carries the content version its record was read from: a title's
+# files each hold their own Control NCA and the newest one describes the title best. It is
+# not a metadata column, so it stays out of the titledb schema and out of every projection.
 title_overrides = db.Table(
     'title_overrides', db.metadata,
     db.Column('id', db.String, primary_key=True),
     db.Column('source', db.String, primary_key=True),
     *titledb.schema.metadata_columns(),
+    db.Column('extract_version', db.Integer),
 )
 
 
@@ -173,6 +177,15 @@ def list_title_overrides(source):
     rows = db.session.execute(
         title_overrides.select().where(title_overrides.c.source == source)).all()
     return [dict(row._mapping) for row in rows]
+
+
+def get_extract_version(title_id):
+    """Content version the extract override of a title was read from, None if unknown."""
+    return db.session.execute(
+        db.select(title_overrides.c.extract_version).where(
+            (title_overrides.c.id == title_id)
+            & (title_overrides.c.source == titledb.schema.SOURCE_EXTRACT))
+    ).scalar()
 
 
 def upsert_title_override(title_id, source, values):

@@ -6,11 +6,15 @@ plus a file table, both small enough to construct exactly. What is asserted is w
 caller gets back - which language a title ends up shown in, and which files were found -
 never how the bytes were walked.
 """
+import io
+import itertools
+import os
 import struct
 import types
 
 import pytest
 from nsz.Fs import Nca, Pfs0, Type
+from PIL import Image
 
 from containers.container import partition_entries, read_cnmts
 from containers.nacp import (DEFAULT_LANGUAGE, NacpLanguage, language_for_locale,
@@ -300,3 +304,130 @@ def test_a_container_with_no_cnmt_is_an_error():
     """There is no identification without a cnmt, so the caller has to hear about it."""
     with pytest.raises(ValueError):
         read_cnmts([FakeNca(Type.Content.PROGRAM)])
+
+
+# --- which file of a title supplies its record ---
+#
+# A base and its updates all carry a Control NCA naming the same title, and an update can
+# change any of what it says - No Man's Sky ships one icon in 5.7.5 and another in 6.24.0.
+# The newest update is the answer, whatever order the files were read in.
+
+TITLE_ID = "0100853015E86000"
+UPDATE_ID = "0100853015E86800"
+
+
+def _jpeg(color):
+    """An icon-shaped image, one flat colour per variant so the wrong one is visible."""
+    buffer = io.BytesIO()
+    Image.new("RGB", (256, 256), color).save(buffer, format="JPEG")
+    return buffer.getvalue()
+
+
+def _content(app_id, version, display_version, color):
+    """One Control NCA's worth of metadata, as `container.read_file` returns it."""
+    return {"app_id": app_id, "version": version, "title_id": TITLE_ID,
+            "name": f"No Man's Sky {display_version}",
+            "publisher": f"Hello Games {display_version}",
+            "display_version": display_version, "icon": _jpeg(color)}
+
+
+BASE = _content(TITLE_ID, 0, "1.0.0", "blue")
+OLD_UPDATE = _content(UPDATE_ID, 4063232, "5.7.5", "red")
+NEW_UPDATE = _content(UPDATE_ID, 4718592, "6.24.0", "green")
+
+
+@pytest.fixture
+def install(tmp_path, monkeypatch):
+    """An app with an empty library database and an empty media store."""
+    import db as db_mod
+    import media
+    import settings as settings_mod
+    import titledb
+    from app import create_app
+    from db import db, init_db
+
+    config = tmp_path / "config"
+    config.mkdir()
+    monkeypatch.setattr(db_mod, "DB_FILE", str(config / "ownfoil.db"))
+    monkeypatch.setattr(titledb.store, "DB_FILE", str(config / "ownfoil.db"))
+    # Never created, so the projection into titles.db is a no-op: what is asserted here is
+    # the durable override in ownfoil.db, which is what a rebuild projects from.
+    monkeypatch.setattr(titledb.store, "TITLES_DB_FILE", str(config / "titles.db"))
+    monkeypatch.setattr(media, "MEDIA_DIR", str(tmp_path / "media"))
+    monkeypatch.setattr(settings_mod, "CONFIG_FILE", str(config / "settings.yaml"))
+    monkeypatch.setattr(settings_mod, "KEYS_FILE", str(config / "keys.txt"))
+    monkeypatch.setattr(settings_mod, "_cached_settings", None)
+
+    app = create_app(f"sqlite:///{config / 'ownfoil.db'}")
+    with app.app_context():
+        init_db(app)
+        db.session.add(db_mod.Libraries(path="/library"))
+        db.session.commit()
+    return app
+
+
+def _extract(app, *contents):
+    """Read one file's worth of metadata, as the pipeline's extract stage does."""
+    import tasks as tasks_mod
+    from db import Files, db
+
+    with app.app_context():
+        first = contents[0] if contents else {"app_id": "dlc", "version": 0}
+        name = f"{first['app_id']}[v{first['version']}].nsp"
+        file = Files(library_id=1, filepath=f"/library/{name}", filename=name, identified=True)
+        db.session.add(file)
+        db.session.commit()
+        tasks_mod._store_metadata(file, list(contents))
+
+
+def _stored(app, content):
+    """(the title's record, the icon filling its slot) against what `content` would store."""
+    import media
+    from db import Media, list_title_overrides
+    from titledb.schema import SOURCE_EXTRACT
+
+    with app.app_context():
+        row = next(r for r in list_title_overrides(SOURCE_EXTRACT) if r["id"] == TITLE_ID)
+        record = {k: row[k] for k in ("name", "publisher", "icon_url", "extract_version")}
+        # Content-addressed, so re-storing the bytes yields the URL they were filed under.
+        expected = {"name": content["name"], "publisher": content["publisher"],
+                    "icon_url": media.store_extracted(TITLE_ID, media.ICON, content["icon"]),
+                    "extract_version": content["version"]}
+        slot = Media.query.filter_by(title_id=TITLE_ID, kind=media.ICON, position=0).one()
+        return (record, os.path.basename(row["icon_url"] or "")), (expected, slot.filename)
+
+
+ORDERS = list(itertools.permutations([BASE, OLD_UPDATE, NEW_UPDATE]))
+
+
+@pytest.mark.parametrize("order", ORDERS,
+                         ids=["-".join(c["display_version"] for c in o) for o in ORDERS])
+def test_the_newest_update_supplies_the_record_whatever_order_the_files_are_read_in(
+        install, order):
+    for content in order:
+        _extract(install, content)
+
+    stored, expected = _stored(install, NEW_UPDATE)
+    assert stored == expected
+
+
+@pytest.mark.parametrize("order", ORDERS,
+                         ids=["-".join(c["display_version"] for c in o) for o in ORDERS])
+def test_a_container_holding_several_contents_picks_the_newest_of_them(install, order):
+    """A multi-content NSP is the same contest, decided inside a single file."""
+    _extract(install, *order)
+
+    stored, expected = _stored(install, NEW_UPDATE)
+    assert stored == expected
+
+
+def test_a_dlc_stores_nothing(install):
+    """A DLC ships no Control NCA, so there is no record - but the file is still done."""
+    from db import Files, list_title_overrides
+    from titledb.schema import SOURCE_EXTRACT
+
+    _extract(install)
+
+    with install.app_context():
+        assert list_title_overrides(SOURCE_EXTRACT) == []
+        assert Files.query.one().metadata_extracted

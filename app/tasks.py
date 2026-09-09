@@ -23,10 +23,9 @@ from db import (
     set_library_scan_time, remove_missing_files_from_db,
     remove_file_from_apps, reset_file_identification, reset_file_verification, create_file,
     verification_status,
-    upsert_media, get_title_media, delete_media_slots,
+    upsert_media, get_title_media, delete_media_slots, get_extract_version,
 )
 from settings import get_settings, local_media_enabled
-from titledb.schema import SOURCE_EXTRACT
 from utils import interval_string_to_timedelta, delete_empty_folders, human_size
 from library import (
     add_missing_apps_for_title, update_title_flags,
@@ -774,12 +773,15 @@ def _store_metadata(file, contents):
         Apps.query.filter_by(app_id=content['app_id'],
                              app_version=str(content['version'])).update(
             {'display_version': content['display_version']})
+        stored_version = get_extract_version(content['title_id'])
+        if stored_version is not None and content['version'] < stored_version:
+            continue
         record = {'id': content['title_id'], 'name': content['name'],
                   'publisher': content['publisher']}
         if content['icon']:
             record['iconUrl'] = media.store_extracted(
                 content['title_id'], media.ICON, content['icon'])
-        titledb.store.set_override(content['title_id'], record, source=SOURCE_EXTRACT)
+        titledb.store.set_extract_override(content['title_id'], record, content['version'])
 
     # Set even when nothing came back: a DLC ships no Control NCA and never will, so
     # retrying it on every pass would re-read the container forever.
