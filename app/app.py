@@ -391,6 +391,20 @@ def set_titles_settings_api():
     } 
     return jsonify(resp)
 
+@app.get('/api/settings/local_media/usage')
+@access_required('admin')
+def local_media_usage_api():
+    return jsonify(media.usage())
+
+@app.post('/api/settings/local_media')
+@access_required('admin')
+def set_local_media_settings_api():
+    was_enabled = local_media_enabled()
+    set_local_media_settings(request.json)
+    if local_media_enabled() and not was_enabled:
+        tasks_mod.enqueue_task('download_media')
+    return jsonify({'success': True, 'errors': []})
+
 @app.post('/api/settings/shop')
 @access_required('admin')
 def set_shop_settings_api():

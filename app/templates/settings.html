@@ -437,6 +437,42 @@
                 </form>
                 <hr class="hr-settings">
 
+                <h2 class="pb-2">Local artworks</h2>
+                <p>For your shop to be fully self-hosted and not rely on external sources, Ownfoil can download
+                    all artworks locally and serve them to clients. Instead of providing direct eShop links,
+                    your Switch will retrieve them from your server and never connect to Nintendo's servers.</p>
+                <div class="mb-3 form-check form-switch">
+                    <input type="checkbox" class="form-check-input" id="localMediaEnabledCheck">
+                    <label class="form-check-label" for="localMediaEnabledCheck">Download artwork locally</label>
+                </div>
+                <div class="mb-3">
+                    <a class="link-secondary" data-bs-toggle="collapse" href="#mediaUsage" role="button"
+                        aria-expanded="false" aria-controls="mediaUsage">Disk usage</a>
+                </div>
+                <div class="collapse" id="mediaUsage">
+                    <div class="table-responsive">
+                        <table class="table table-hover caption-top" id="mediaUsageTable">
+                            <caption id="mediaUsageCaption"></caption>
+                            <thead>
+                                <tr>
+                                    <th scope="col">Type</th>
+                                    <th scope="col">Original</th>
+                                    <th scope="col">Client</th>
+                                    <th scope="col">Total</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div class="mb-3">
+                    <button type="button" id="submitLocalMediaSettingsBtn" class="btn btn-primary"
+                        onClick='submitLocalMediaSettings()'>Submit</button>
+                </div>
+
+                <hr class="hr-settings">
                 <h2 class="pb-2">Shop</h2>
                 <p>Shop configuration and customization.</p>
                 <!-- Shop URL -->
@@ -565,6 +601,7 @@
 {% endblock %}
 
 {% block panel_scripts %}
+<script src="{{ url_for('static', filename='js/format.js') }}"></script>
 <script>
 
     settings_map = {
@@ -679,6 +716,49 @@
                     $("#watcherIntervalInput").removeClass('is-invalid').addClass('is-valid');
                 }
                 $('#submitWatcherSettingsBtn').prop('disabled', false);
+            }
+        });
+    }
+
+    // Artwork kinds in the order they are shown, labelled for the usage table.
+    const MEDIA_KINDS = { icon: 'Icon', banner: 'Banner', screenshot: 'Screenshots', boxart: 'Box art' };
+
+    function usageRow(label, original, client, bold) {
+        const row = $(bold ? '<tr class="fw-semibold">' : '<tr>');
+        return row.append($('<td>').text(label), $('<td>').text(formatBytes(original)),
+            $('<td>').text(formatBytes(client)), $('<td>').text(formatBytes(original + client)));
+    }
+
+    function fillMediaUsage() {
+        $.getJSON("/api/settings/local_media/usage", function (usage) {
+            const rows = [];
+            let files = 0, originalTotal = 0, clientTotal = 0;
+            Object.entries(MEDIA_KINDS).forEach(([kind, label]) => {
+                const original = ((usage[kind] || {}).original) || { bytes: 0, files: 0 };
+                const client = ((usage[kind] || {}).client) || { bytes: 0, files: 0 };
+                files += original.files + client.files;
+                originalTotal += original.bytes;
+                clientTotal += client.bytes;
+                rows.push(usageRow(label, original.bytes, client.bytes, false));
+            });
+            rows.push(usageRow('Total', originalTotal, clientTotal, true));
+            $('#mediaUsageTable tbody').empty().append(rows);
+            $('#mediaUsageCaption').text(`${files} file${files === 1 ? '' : 's'} stored`);
+        });
+    }
+
+    function submitLocalMediaSettings() {
+        $('#submitLocalMediaSettingsBtn').prop('disabled', true);
+        $.ajax({
+            url: "/api/settings/local_media",
+            type: 'POST',
+            data: JSON.stringify({ enabled: getCheckboxStatus("localMediaEnabledCheck") }),
+            contentType: "application/json",
+            success: function (result) {
+                if ($('#mediaUsage').hasClass('show')) {
+                    fillMediaUsage();
+                }
+                $('#submitLocalMediaSettingsBtn').prop('disabled', false);
             }
         });
     }
@@ -1344,6 +1424,9 @@
     $(document).ready(function () {
         fillUserTable();
         fillLibraryTable();
+        // The figures are a live scan of the store, so they are read when asked for rather
+        // than on every settings page load.
+        $('#mediaUsage').on('show.bs.collapse', fillMediaUsage);
 
         // Add real-time password validation
         $('#inputNewUserPassword').on('input', function() {
@@ -1414,6 +1497,9 @@
             setInputVal("selectRegion", titlesSettings['region']);
             $('#selectRegion').trigger('change');
             setInputVal("selectLanguage", titlesSettings['language']);
+
+            // Local media settings
+            $("#localMediaEnabledCheck").prop("checked", result['local_media']['enabled']);
 
             // Scheduler settings
             schedulerSettings = result['scheduler'];

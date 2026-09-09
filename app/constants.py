@@ -57,6 +57,9 @@ DEFAULT_SETTINGS = {
         "language": "en",
         "region": "US",
     },
+    "local_media": {
+        "enabled": True,
+    },
     "shop": {
         "host": "",
         "public": False,

@@ -122,6 +122,32 @@ def dimensions(kind, filename):
     return tuple(sizes)
 
 
+def usage():
+    """What the store occupies, as {kind: {size: {'bytes': n, 'files': n}}}.
+
+    Read off the filesystem rather than the `media` rows: one file backs every title using
+    that image, so the rows count copies the disk does not hold - and a file the last row
+    naming it has already retired still costs space until the next sweep.
+    """
+    totals = {}
+    for kind in KINDS:
+        totals[kind] = {}
+        for size in SIZES:
+            used = count = 0
+            try:
+                with os.scandir(media_dir(kind, size)) as entries:
+                    for entry in entries:
+                        try:
+                            used += entry.stat().st_size
+                            count += 1
+                        except OSError:
+                            pass  # removed under us by a sweep
+            except OSError:
+                pass  # nothing of this kind stored yet
+            totals[kind][size] = {'bytes': used, 'files': count}
+    return totals
+
+
 def collect(keep, grace=COLLECT_GRACE):
     """Delete stored files nothing names. `keep` is the (kind, filename) pairs still in use.
 

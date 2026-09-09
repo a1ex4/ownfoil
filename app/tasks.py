@@ -25,7 +25,7 @@ from db import (
     verification_status,
     upsert_media, get_title_media, delete_media_slots,
 )
-from settings import get_settings
+from settings import get_settings, local_media_enabled
 from titledb.schema import SOURCE_EXTRACT
 from utils import interval_string_to_timedelta, delete_empty_folders, human_size
 from library import (
@@ -944,8 +944,9 @@ def add_missing_apps_for_title_task(title_id, **kwargs):
     add_missing_apps_for_title(title_id)
     enqueue_or_child('update_titles_for_title', {'title_id': title_id})
     # Cheap when nothing changed - a few stat calls - so re-identifying a file costs nothing.
-    for media_id in media_title_ids(title_id):
-        enqueue_or_child('download_title_media', {'title_id': media_id})
+    if local_media_enabled():
+        for media_id in media_title_ids(title_id):
+            enqueue_or_child('download_title_media', {'title_id': media_id})
     set_waiting_for_children()
 
 
@@ -1138,6 +1139,8 @@ def media_title_ids(title_id):
 @register_task('download_media')
 def download_media_task(**kwargs):
     """Fetch artwork for every title in the library, one child task per title and DLC."""
+    if not local_media_enabled():
+        return
     title_ids = [t.title_id for t in Titles.query.all() if t.title_id]
     for title_id in title_ids:
         for media_id in media_title_ids(title_id):
@@ -1153,6 +1156,8 @@ def download_title_media_task(title_id, attempt=0, **kwargs):
     Reads the merged titledb record, so which source a given image comes from has already
     been decided by SOURCE_PRIORITY and this never re-implements it.
     """
+    if not local_media_enabled():
+        return
     record = titledb.store.get_title_record(title_id)
     if record is None:
         # No record means "cannot say", not "has no artwork" - titles.db is rebuilt from
