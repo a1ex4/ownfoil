@@ -206,7 +206,7 @@
                  appType: $appType, search: $search, owned: $owned,
                  upToDate: $upToDate, complete: $complete) {
                 total
-                items { appId titledb { icon { url } } title { titleId } }
+                items { appId titledb { icon(size: ORIGINAL) { url } } title { titleId } }
             }
         }`;
 
