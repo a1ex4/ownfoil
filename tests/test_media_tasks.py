@@ -15,6 +15,7 @@ from PIL import Image
 import db as db_mod
 import library as library_mod
 import media
+import settings as settings_mod
 import tasks as tasks_mod
 import titledb
 from app import create_app
@@ -56,6 +57,10 @@ def install(tmp_path, monkeypatch):
     monkeypatch.setattr(titledb.store, "TITLES_DB_FILE", str(config / "titles.db"))
     monkeypatch.setattr(titledb.store, "DB_FILE", str(config / "ownfoil.db"))
     monkeypatch.setattr(media, "MEDIA_DIR", str(tmp_path / "media"))
+    # Per-test settings, so switching the store off in one test can't reach the next.
+    monkeypatch.setattr(settings_mod, "CONFIG_FILE", str(config / "settings.yaml"))
+    monkeypatch.setattr(settings_mod, "KEYS_FILE", str(config / "keys.txt"))
+    monkeypatch.setattr(settings_mod, "_cached_settings", None)
 
     app = create_app(f"sqlite:///{config / 'ownfoil.db'}")
     with app.app_context():
@@ -335,6 +340,69 @@ def test_an_empty_library_parks_no_parent(install, monkeypatch):
         tasks_mod.download_media_task()
 
     assert waited == []
+
+
+# --- the store switched off ---
+def test_nothing_is_downloaded_while_the_store_is_off(install, monkeypatch):
+    _import(install, dlc=[dict(RECORD, id=DLC_ID)])
+    _own(install, TITLE_ID)
+    children = []
+    monkeypatch.setattr(tasks_mod, "enqueue_or_child",
+                        lambda name, data: children.append((name, data)))
+    settings_mod.set_local_media_settings({"enabled": False})
+
+    with install.app.app_context():
+        tasks_mod.download_media_task()
+        # Reached directly too: a retry scheduled before the switch comes back to this task.
+        tasks_mod.download_title_media_task(TITLE_ID)
+
+    assert children == []
+    assert install.fetched == []
+    assert _slots(install) == {}
+
+
+def test_a_newly_identified_title_spends_no_child_while_the_store_is_off(install, monkeypatch):
+    """The per-title chain would otherwise enqueue one child per title and DLC to no effect."""
+    children = []
+    monkeypatch.setattr(tasks_mod, "add_missing_apps_for_title", lambda title_id: None)
+    monkeypatch.setattr(tasks_mod, "enqueue_or_child",
+                        lambda name, data: children.append((name, data)))
+    monkeypatch.setattr(tasks_mod, "set_waiting_for_children", lambda: None)
+    monkeypatch.setattr(tasks_mod, "media_title_ids", lambda title_id: [TITLE_ID, DLC_ID])
+    settings_mod.set_local_media_settings({"enabled": False})
+
+    tasks_mod.add_missing_apps_for_title_task(TITLE_ID)
+
+    assert children == [("update_titles_for_title", {"title_id": TITLE_ID})]
+
+
+def test_switching_the_store_off_keeps_what_it_already_holds(install):
+    """Disabling stops downloads; it is not a delete, and the stored copies stay servable."""
+    _import(install)
+    with install.app.app_context():
+        tasks_mod.download_title_media_task(TITLE_ID)
+    stored = set(_slots(install))
+    settings_mod.set_local_media_settings({"enabled": False})
+
+    with install.app.app_context():
+        tasks_mod.download_title_media_task(TITLE_ID)
+
+    assert set(_slots(install)) == stored
+    assert media.have(media.ICON, "icon.jpg")
+
+
+def test_usage_counts_both_renditions_of_every_kind(install):
+    _import(install)
+    with install.app.app_context():
+        tasks_mod.download_title_media_task(TITLE_ID)
+
+    usage = media.usage()
+    assert usage[media.ICON][media.ORIGINAL]["files"] == 1
+    assert usage[media.SCREENSHOT][media.CLIENT]["files"] == len(SHOT_URLS)
+    # A rendition is a smaller re-encode of the same image, and nothing is stored for a kind
+    # the title has none of.
+    assert 0 < usage[media.BANNER][media.CLIENT]["bytes"] < usage[media.BANNER][media.ORIGINAL]["bytes"]
+    assert usage[media.BOXART][media.ORIGINAL] == {"bytes": 0, "files": 0}
 
 
 # --- collecting what the library no longer covers ---

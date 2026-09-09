@@ -258,6 +258,10 @@ The available languages depend on the region you pick.
 
 `Console Keys file` is where you upload your keys - see [Console keys](#console-keys). Below it, `Master key revisions` reports what Ownfoil found in the file you uploaded, and names any revision that is missing or invalid.
 
+## Local artworks
+
+For your shop to be fully self-hosted and not rely on external sources, Ownfoil can download all artworks locally and serve them to clients. Instead of providing direct eShop links, your Switch will retrieve them from your server and never connect to Nintendo's servers.
+
 ## Shop
 
 | Setting | Default | Description |

@@ -312,6 +312,15 @@ def set_titles_settings(region, language):
         settings['titles']['region'] = region
         settings['titles']['language'] = language
 
+def local_media_enabled():
+    """True when artwork may be downloaded into the local store."""
+    return get_settings()['local_media']['enabled']
+
+def set_local_media_settings(data):
+    with settings_transaction() as settings:
+        if 'enabled' in data:
+            settings['local_media']['enabled'] = bool(data['enabled'])
+
 def set_shop_settings(data):
     with settings_transaction() as settings:
         # Clean host URL if present
