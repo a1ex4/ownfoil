@@ -592,6 +592,17 @@
                     </div>
                 </div>
 
+                <div class="row mb-3">
+                    <div class="col-6">
+                        <label for="netLimitInput" class="form-label">Max concurrent network tasks:</label>
+                        <input type="number" class="form-control" id="netLimitInput" min="1" step="1">
+                        <div id="netLimitFeedback"></div>
+                        <div id="netLimitHelp" class="form-text">
+                            How many artwork downloads run at once, independent of worker count.
+                        </div>
+                    </div>
+                </div>
+
                 <div class="mb-3">
                     <button type="button" id="submitWorkerSettingsBtn" class="btn btn-primary"
                         onClick='submitWorkerSettings()'>Submit</button>
@@ -1381,7 +1392,10 @@
         $('#submitWorkerSettingsBtn').prop('disabled', true);
         data = {
             count: parseInt($('#workerCountInput').val()),
-            group_limits: { io: parseInt($('#ioLimitInput').val()) }
+            group_limits: {
+                io: parseInt($('#ioLimitInput').val()),
+                net: parseInt($('#netLimitInput').val())
+            }
         }
 
         $.ajax({
@@ -1398,11 +1412,16 @@
                                 $('#workerCountFeedback').addClass('invalid-feedback d-block');
                                 $("#workerCountInput").removeClass('is-valid');
                                 $("#workerCountInput").addClass('is-invalid');
-                            } else if (error['path'] === 'worker/group_limits') {
+                            } else if (error['path'] === 'worker/group_limits/io') {
                                 $('#ioLimitFeedback').text(error['error']);
                                 $('#ioLimitFeedback').addClass('invalid-feedback d-block');
                                 $("#ioLimitInput").removeClass('is-valid');
                                 $("#ioLimitInput").addClass('is-invalid');
+                            } else if (error['path'] === 'worker/group_limits/net') {
+                                $('#netLimitFeedback').text(error['error']);
+                                $('#netLimitFeedback').addClass('invalid-feedback d-block');
+                                $("#netLimitInput").removeClass('is-valid');
+                                $("#netLimitInput").addClass('is-invalid');
                             }
                         });
                     }
@@ -1415,6 +1434,10 @@
                     $('#ioLimitFeedback').removeClass('invalid-feedback d-block');
                     $("#ioLimitInput").removeClass('is-invalid');
                     $("#ioLimitInput").addClass('is-valid');
+                    $('#netLimitFeedback').text('');
+                    $('#netLimitFeedback').removeClass('invalid-feedback d-block');
+                    $("#netLimitInput").removeClass('is-invalid');
+                    $("#netLimitInput").addClass('is-valid');
                 }
                 $('#submitWorkerSettingsBtn').prop('disabled', false);
             }
@@ -1512,8 +1535,13 @@
             if (workerSettings && workerSettings['count'] !== undefined) {
                 $('#workerCountInput').val(workerSettings['count']);
             }
-            if (workerSettings && workerSettings['group_limits'] && workerSettings['group_limits']['io'] !== undefined) {
-                $('#ioLimitInput').val(workerSettings['group_limits']['io']);
+            if (workerSettings && workerSettings['group_limits']) {
+                if (workerSettings['group_limits']['io'] !== undefined) {
+                    $('#ioLimitInput').val(workerSettings['group_limits']['io']);
+                }
+                if (workerSettings['group_limits']['net'] !== undefined) {
+                    $('#netLimitInput').val(workerSettings['group_limits']['net']);
+                }
             }
 
             // Shop settings

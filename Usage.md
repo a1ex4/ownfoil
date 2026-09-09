@@ -305,10 +305,11 @@ TitleDB is updated upstream once per day, this scheduled task will sync your loc
 | --- | --- | --- |
 | `Worker count` | `2` | Number of worker processes. |
 | `Max concurrent I/O tasks` | `1` | How many disk-heavy tasks run at once. |
+| `Max concurrent network tasks` | `1` | How many artwork downloads run at once. |
 
 Workers are the processes that run everything in the background. More of them means more tasks in parallel like identifying, scanning, compressing.
 
-The second setting ensures CPU/disk heavy tasks do not loose the benefit of parallelism. Compression, decompression and verification read and write multi-GB files, and running several of them at once can be detrimental. If the files are on the same hard drive, parallel tasks will make the heads seek back and forth and will make processing time significantly longer.  So this limit caps them independently of the worker count, while light tasks keep flowing. Pick it based on where your library lives:
+The concurrent I/O setting ensures CPU/disk heavy tasks do not loose the benefit of parallelism. Compression, decompression and verification read and write multi-GB files, and running several of them at once can be detrimental. If the files are on the same hard drive, parallel tasks will make the heads seek back and forth and will make processing time significantly longer. So this limit caps them independently of the worker count, while light tasks keep flowing. Pick it based on where your library lives:
 
 * __Network share or a single hard drive: `1`__ - avoids seek thrashing, the safe default.
 * __SATA SSD: `2` to `3`__ - no seek penalty, so you are limited by CPU.
