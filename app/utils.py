@@ -1,3 +1,4 @@
+import copy
 import ipaddress
 import logging
 import re
@@ -258,7 +259,7 @@ def merge_dicts_recursive(source, destination):
     changed = False
     for key, value in source.items():
         if key not in destination:
-            destination[key] = value
+            destination[key] = copy.deepcopy(value)
             changed = True
             logging.getLogger('main').debug(f'Added missing default setting: {key}')
         elif isinstance(value, dict) and isinstance(destination[key], dict):
