@@ -19,7 +19,7 @@ from sqlalchemy.pool import NullPool
 
 from constants import DB_FILE, TITLES_DB_FILE
 from titledb import schema
-from titledb.schema import (OVERRIDE_SOURCES, SOURCE_CUSTOM, SOURCE_PRIORITY,
+from titledb.schema import (OVERRIDE_SOURCES, SOURCE_CUSTOM, SOURCE_EXTRACT, SOURCE_PRIORITY,
                             SOURCE_TITLEDB)
 
 logger = logging.getLogger('main')
@@ -376,6 +376,18 @@ def set_override(title_id, record, source=SOURCE_CUSTOM):
     upsert_title_override(title_id, source, _override_values(record))
     _project_override(title_id, source, record)
     return True, None
+
+
+def set_extract_override(title_id, record, version):
+    """Persist metadata read out of a file, stamped with the content version it came from.
+
+    Every file of a title carries a Control NCA naming that same title, so the version is
+    what tells the newest update's record from an older one's - see `db.get_extract_version`.
+    """
+    from db import upsert_title_override
+    upsert_title_override(title_id, SOURCE_EXTRACT,
+                          dict(_override_values(record), extract_version=version))
+    _project_override(title_id, SOURCE_EXTRACT, record)
 
 
 def delete_override(title_id, source=SOURCE_CUSTOM):
