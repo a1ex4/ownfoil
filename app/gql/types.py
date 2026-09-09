@@ -467,6 +467,8 @@ class App:
     files_loaded: Private[Optional[List[File]]] = None
     titledb_loaded: Private[Optional["Title"]] = None
     download_token_loaded: Private[Optional[str]] = None
+    download_size_loaded: Private[Optional[int]] = None
+    download_extension_loaded: Private[Optional[str]] = None
 
     @described_field
     def files(self, filter: NestedFileFilter = None) -> Optional[List[File]]:
@@ -492,6 +494,27 @@ class App:
         if self.download_token_loaded is None:
             return None
         return f"/api/download/{self.download_token_loaded}"
+
+    @described_field
+    def download_size(self) -> Optional[BigInt]:
+        """Size in bytes of the file `downloadUrl` points at.
+
+        Named after `downloadUrl` rather than called `size`, because an app can be
+        carried by several files: this describes the one that URL resolves to, not
+        the app. A 64-bit scalar for the same reason `File.size` is one. Null exactly
+        when `downloadUrl` is null. Not admin only - a shop client needs it to check
+        it has room for the download before starting one."""
+        return self.download_size_loaded
+
+    @described_field
+    def download_extension(self) -> Optional[str]:
+        """Container of the file `downloadUrl` points at: lowercase, no dot, e.g.
+        `nsp`, `nsz`, `xci`, `xcz`.
+
+        Null exactly when `downloadUrl` is null. Not admin only: the download itself
+        is served without a filename, so this is the only thing telling a client
+        which container it is about to read."""
+        return self.download_extension_loaded
 
     @described_field
     def titledb(self) -> Optional["Title"]:

@@ -313,6 +313,14 @@ _STATUS_RANK = {s: i for i, s in enumerate((
     STATUS_SIGNATURE_FAILED, STATUS_MODIFIED, STATUS_CORRUPT))}
 
 
+# Fields read off the file `_pick_download` selects.
+_APP_DOWNLOAD_FIELDS = ("downloadUrl", "downloadSize", "downloadExtension", "addedAt")
+
+
+def _wants_app_download(sel) -> bool:
+    return any(sel.has(f) for f in _APP_DOWNLOAD_FIELDS)
+
+
 def _pick_download(rows):
     """The file an app's `downloadUrl` points at: single-content, soundest verdict,
     uncompressed, then newest and highest id."""
@@ -329,6 +337,7 @@ def _hydrate_app_download(app_pks: List[int], apps_by_pk: Dict[int, App]) -> Non
     params = {f"a_{i}": pk for i, pk in enumerate(app_pks)}
     sql = f"""
     SELECT af.app_id AS pk, f.id AS id, f.download_token AS download_token,
+           f.size AS size, f.extension AS extension,
            f.multicontent AS multicontent, f.compressed AS compressed,
            f.added_at AS added_at, f.signature_valid AS signature_valid,
            f.hash_valid AS hash_valid, f.hash_modified AS hash_modified
@@ -344,7 +353,10 @@ def _hydrate_app_download(app_pks: List[int], apps_by_pk: Dict[int, App]) -> Non
             continue
         # Newest file, so an app is recent while any copy of it is.
         app.added_at = max((r.added_at for r in rows if r.added_at), default=None)
-        app.download_token_loaded = _pick_download(rows).download_token
+        picked = _pick_download(rows)
+        app.download_token_loaded = picked.download_token
+        app.download_size_loaded = picked.size
+        app.download_extension_loaded = picked.extension
 
 
 def _hydrate_app_files(
@@ -651,7 +663,7 @@ def resolve_title(title_id: str, ctx: GraphQLContext, info) -> Optional[Title]:
     want_apps_titledb = want_apps and apps_sel.has("titledb")
     want_apps_versions = want_apps and apps_sel.has("versions")
     want_apps_files_apps = want_apps_files and files_sel.has("apps")
-    want_apps_download = want_apps and (apps_sel.has("downloadUrl") or apps_sel.has("addedAt"))
+    want_apps_download = want_apps and _wants_app_download(apps_sel)
     want_available_versions = sel.has("availableVersions")
     want_available_dlc = sel.has("availableDlc")
 
@@ -711,7 +723,7 @@ def resolve_titles(*, owned: Optional[bool], filter: Optional[TitleFilter],
     want_apps_titledb = want_apps and apps_sel.has("titledb")
     want_apps_versions = want_apps and apps_sel.has("versions")
     want_apps_files_apps = want_apps_files and files_sel.has("apps")
-    want_apps_download = want_apps and (apps_sel.has("downloadUrl") or apps_sel.has("addedAt"))
+    want_apps_download = want_apps and _wants_app_download(apps_sel)
     want_available_versions = want_items and items_sel.has("availableVersions")
     want_available_dlc = want_items and items_sel.has("availableDlc")
     want_total = sel.has("total")
@@ -823,7 +835,7 @@ def resolve_apps(*, owned: Optional[bool], app_type: Optional[List[AppType]],
     want_versions = want_items and items_sel.has("versions")
     want_files_apps = want_files and files_sel.has("apps")
     # Not gated on can_admin: shop clients need the download URL.
-    want_download = want_items and (items_sel.has("downloadUrl") or items_sel.has("addedAt"))
+    want_download = want_items and _wants_app_download(items_sel)
 
     params: dict = {}
     where = build_clauses(filter, APP_FIELDS_EXCEPT_OWNED, params)
