@@ -455,10 +455,18 @@ class App:
         "the `apps`, `title`, `titles` and `files` queries; null for apps reached as a "
         "file's back-link under `apps { files { apps } }`.", default=None)
 
+    added_at: Optional[str] = desc(
+        "When ownfoil first saw this app - the newest `addedAt` among the files "
+        "carrying it, since an app has no timestamp of its own. Null for an app no "
+        "file carries, and for apps reached as a file's back-link under "
+        "`apps { files { apps } }`. `orderBy: {field: ADDED_AT}` sorts on it.",
+        default=None)
+
     # Eagerly batch-loaded by the apps/titles resolvers (admin only). None means
     # "not exposed for this role"; an empty list means "exposed but no files".
     files_loaded: Private[Optional[List[File]]] = None
     titledb_loaded: Private[Optional["Title"]] = None
+    download_token_loaded: Private[Optional[str]] = None
 
     @described_field
     def files(self, filter: NestedFileFilter = None) -> Optional[List[File]]:
@@ -468,6 +476,22 @@ class App:
         if self.files_loaded is None:
             return None
         return [f for f in self.files_loaded if match_file(f, filter)]
+
+    @described_field
+    def download_url(self) -> Optional[str]:
+        """Where to download this app, as a path on this server. Unlike `files` it is
+        not admin only - it is what a shop client reads the catalogue for.
+
+        An app can be carried by several files (an original and a compressed copy
+        cataloged side by side, say) and this names one of them: a single-content file
+        before a bundle, then the soundest `verificationStatus`, then the uncompressed
+        container, and finally the most recently added. Null for an app no file carries,
+        and for apps reached as a file's back-link under `apps { files { apps } }`.
+        The token is opaque and per-file; `files { id }` addresses the same bytes by
+        primary key."""
+        if self.download_token_loaded is None:
+            return None
+        return f"/api/download/{self.download_token_loaded}"
 
     @described_field
     def titledb(self) -> Optional["Title"]:

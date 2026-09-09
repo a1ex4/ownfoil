@@ -6,7 +6,10 @@ import strawberry
 from sqlalchemy import text
 
 from constants import APP_TYPE_BASE, APP_TYPE_UPD
-from containers.verification import status_of
+from containers.verification import (
+    STATUS_CORRUPT, STATUS_MODIFIED, STATUS_REPACK, STATUS_SIGNATURE_FAILED,
+    STATUS_SIGNATURE_OK, STATUS_UNVERIFIED, STATUS_VALID, status_of,
+)
 from db import db
 
 from .context import GraphQLContext
@@ -242,6 +245,7 @@ def _load_apps_for_titles(
     with_titledb: bool,
     with_versions: bool = False,
     with_files_apps: bool = False,
+    with_download: bool = False,
     titledb_sel: "Selection",
 ) -> Dict[str, List[App]]:
     """Return apps keyed by uppercase title_id.
@@ -281,17 +285,66 @@ def _load_apps_for_titles(
         )
         out.setdefault(r.tuc, []).append(a)
         all_apps.append(a)
-        if with_files:
+        if with_files or with_download:
             apps_by_pk[int(r.id)] = a
             app_pks.append(int(r.id))
 
     if with_files and app_pks:
         _hydrate_app_files(app_pks, apps_by_pk, with_apps=with_files_apps)
+    if with_download and app_pks:
+        _hydrate_app_download(app_pks, apps_by_pk)
     if with_titledb and all_apps:
         _hydrate_apps_titledb(all_apps, titledb_sel)
     if with_versions and all_apps:
         _hydrate_app_versions(all_apps)
     return out
+
+
+# Newest file added_at per app, joined only when ordering by it.
+_APP_ADDED_AT_JOIN = """
+LEFT JOIN (SELECT af.app_id AS app_id, MAX(f.added_at) AS added_at
+           FROM app_files af JOIN files f ON f.id = af.file_id
+           GROUP BY af.app_id) fa ON fa.app_id = a.id
+"""
+
+# Best verification verdict first.
+_STATUS_RANK = {s: i for i, s in enumerate((
+    STATUS_VALID, STATUS_REPACK, STATUS_SIGNATURE_OK, STATUS_UNVERIFIED,
+    STATUS_SIGNATURE_FAILED, STATUS_MODIFIED, STATUS_CORRUPT))}
+
+
+def _pick_download(rows):
+    """The file an app's `downloadUrl` points at: single-content, soundest verdict,
+    uncompressed, then newest and highest id."""
+    rows = sorted(rows, key=lambda r: (r.added_at or "", int(r.id)), reverse=True)
+    return min(rows, key=lambda r: (
+        bool(r.multicontent),
+        _STATUS_RANK[status_of(r.signature_valid, r.hash_valid, r.hash_modified)],
+        bool(r.compressed)))
+
+
+def _hydrate_app_download(app_pks: List[int], apps_by_pk: Dict[int, App]) -> None:
+    """Populate .added_at and .download_token_loaded from the files carrying each app."""
+    placeholders = ",".join(f":a_{i}" for i in range(len(app_pks)))
+    params = {f"a_{i}": pk for i, pk in enumerate(app_pks)}
+    sql = f"""
+    SELECT af.app_id AS pk, f.id AS id, f.download_token AS download_token,
+           f.multicontent AS multicontent, f.compressed AS compressed,
+           f.added_at AS added_at, f.signature_valid AS signature_valid,
+           f.hash_valid AS hash_valid, f.hash_modified AS hash_modified
+    FROM app_files af JOIN files f ON f.id = af.file_id
+    WHERE af.app_id IN ({placeholders})
+    """
+    by_app: Dict[int, list] = {}
+    for r in db.session.execute(text(sql), params).all():
+        by_app.setdefault(int(r.pk), []).append(r)
+    for pk, rows in by_app.items():
+        app = apps_by_pk.get(pk)
+        if app is None:
+            continue
+        # Newest file, so an app is recent while any copy of it is.
+        app.added_at = max((r.added_at for r in rows if r.added_at), default=None)
+        app.download_token_loaded = _pick_download(rows).download_token
 
 
 def _hydrate_app_files(
@@ -598,6 +651,7 @@ def resolve_title(title_id: str, ctx: GraphQLContext, info) -> Optional[Title]:
     want_apps_titledb = want_apps and apps_sel.has("titledb")
     want_apps_versions = want_apps and apps_sel.has("versions")
     want_apps_files_apps = want_apps_files and files_sel.has("apps")
+    want_apps_download = want_apps and (apps_sel.has("downloadUrl") or apps_sel.has("addedAt"))
     want_available_versions = sel.has("availableVersions")
     want_available_dlc = sel.has("availableDlc")
 
@@ -627,6 +681,7 @@ def resolve_title(title_id: str, ctx: GraphQLContext, info) -> Optional[Title]:
             with_titledb=want_apps_titledb,
             with_versions=want_apps_versions,
             with_files_apps=want_apps_files_apps,
+            with_download=want_apps_download,
             titledb_sel=apps_titledb_sel,
         )
         title.apps_loaded = apps_map.get(tid, [])
@@ -656,6 +711,7 @@ def resolve_titles(*, owned: Optional[bool], filter: Optional[TitleFilter],
     want_apps_titledb = want_apps and apps_sel.has("titledb")
     want_apps_versions = want_apps and apps_sel.has("versions")
     want_apps_files_apps = want_apps_files and files_sel.has("apps")
+    want_apps_download = want_apps and (apps_sel.has("downloadUrl") or apps_sel.has("addedAt"))
     want_available_versions = want_items and items_sel.has("availableVersions")
     want_available_dlc = want_items and items_sel.has("availableDlc")
     want_total = sel.has("total")
@@ -725,6 +781,7 @@ def resolve_titles(*, owned: Optional[bool], filter: Optional[TitleFilter],
             with_titledb=want_apps_titledb,
             with_versions=want_apps_versions,
             with_files_apps=want_apps_files_apps,
+            with_download=want_apps_download,
             titledb_sel=apps_titledb_sel,
         )
         for t, tid in zip(titles, title_ids_uc):
@@ -765,6 +822,8 @@ def resolve_apps(*, owned: Optional[bool], app_type: Optional[List[AppType]],
     want_title = want_items and items_sel.has("title")
     want_versions = want_items and items_sel.has("versions")
     want_files_apps = want_files and files_sel.has("apps")
+    # Not gated on can_admin: shop clients need the download URL.
+    want_download = want_items and (items_sel.has("downloadUrl") or items_sel.has("addedAt"))
 
     params: dict = {}
     where = build_clauses(filter, APP_FIELDS_EXCEPT_OWNED, params)
@@ -808,6 +867,7 @@ def resolve_apps(*, owned: Optional[bool], app_type: Optional[List[AppType]],
     JOIN main.titles ot ON ot.id = a.title_id
     LEFT JOIN {_TITLEDB} td ON td.id = ot.title_id
     LEFT JOIN {_TITLEDB} tda ON tda.id = a.app_id
+    {_APP_ADDED_AT_JOIN if order_by and order_by.field.value == "added_at" else ""}
     """
 
     total = 0
@@ -871,11 +931,13 @@ def resolve_apps(*, owned: Optional[bool], app_type: Optional[List[AppType]],
             files_loaded=[] if want_files else None,
         )
         items.append(a)
-        if want_files:
+        if want_files or want_download:
             apps_by_pk[int(r.id)] = a
 
     if want_files and apps_by_pk:
         _hydrate_app_files(list(apps_by_pk.keys()), apps_by_pk, with_apps=want_files_apps)
+    if want_download and apps_by_pk:
+        _hydrate_app_download(list(apps_by_pk.keys()), apps_by_pk)
     if want_titledb and items:
         _hydrate_apps_titledb(items, titledb_sel)
     if want_title and items:

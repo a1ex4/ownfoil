@@ -530,7 +530,8 @@ class OrderField(Enum):
         "How often shop clients fetched the file. `files` only."))
     ADDED_AT = strawberry.enum_value("added_at", description=(
         "When ownfoil first saw the file - the 'recently added' view, paired with "
-        "`direction: DESC`. `files` only."))
+        "`direction: DESC`. On `apps` it is the newest file carrying the app, since "
+        "an app has no timestamp of its own. Not applicable to `titles`."))
     VERSION = strawberry.enum_value("version", description=(
         "App version, compared numerically. `apps` only; under "
         "`groupByAppId: true` it sorts by the group's highest version."))
@@ -567,11 +568,14 @@ APP_ORDER = {
     "name": "td.name IS NULL, td.name COLLATE NOCASE",
     "release_date": "a.release_date IS NULL, a.release_date",
     "version": "CAST(a.app_version AS INTEGER)",
+    # `fa` is joined in by the resolver for this ordering only.
+    "added_at": "fa.added_at IS NULL, fa.added_at",
 }
 
 # Grouped by app id, the item is the group's highest version, so that is what sorting
 # by VERSION has to compare - a bare column would be the aggregate's row by accident
 # rather than by intent.
+# `added_at` stays bare: a second min/max aggregate would break the bare-column row pick.
 APP_ORDER_GROUPED = {**APP_ORDER, "version": "MAX(CAST(a.app_version AS INTEGER))"}
 
 FILE_ORDER = {

@@ -786,6 +786,179 @@ def test_added_at_is_exposed_and_sortable(library):
     assert all(f["addedAt"] for f in data["files"]["items"])
 
 
+# (filename, column overrides) for the files carrying an app. Everything a download
+# picks on is here; nothing else about a file matters to that choice.
+BUNDLE = ("bundle.nsp", {"multicontent": True, "signature_valid": True, "hash_valid": True})
+COMPRESSED_VALID = ("valid.nsz", {"compressed": True, "signature_valid": True, "hash_valid": True})
+PLAIN_VALID = ("valid.nsp", {"signature_valid": True, "hash_valid": True})
+PLAIN_CORRUPT = ("corrupt.nsp", {"signature_valid": True, "hash_valid": False})
+PLAIN_UNVERIFIED = ("unverified.nsp", {})
+OLDER_VALID = ("older.nsp", {"signature_valid": True, "hash_valid": True, "days": 2})
+
+# (case, files carrying the app, the one downloadUrl has to name)
+DOWNLOAD_CASES = [
+    ("a single-content file beats a bundle", [BUNDLE, PLAIN_UNVERIFIED], "unverified.nsp"),
+    ("verification beats compression", [COMPRESSED_VALID, PLAIN_CORRUPT], "valid.nsz"),
+    ("an unverified copy beats a corrupt one", [PLAIN_UNVERIFIED, PLAIN_CORRUPT], "unverified.nsp"),
+    ("compression breaks a verification tie", [COMPRESSED_VALID, PLAIN_VALID], "valid.nsp"),
+    ("the newest copy breaks every other tie", [OLDER_VALID, PLAIN_VALID], "valid.nsp"),
+    ("nothing to serve", [], None),
+]
+
+
+def carry_alpha_with(library, specs):
+    """Replace the files carrying the ALPHA base app with these, newest last."""
+    import datetime
+
+    with library.app.app_context():
+        app_row = Apps.query.filter_by(app_id=ALPHA).first()
+        library_id = Libraries.query.first().id
+        app_row.files = []
+        for filename, overrides in specs:
+            overrides = dict(overrides)
+            days = overrides.pop("days", 0)
+            row = Files(library_id=library_id, filepath="/games/" + filename,
+                        filename=filename, extension=filename.rsplit(".", 1)[-1],
+                        identified=True,
+                        added_at=datetime.datetime(2024, 1, 10) - datetime.timedelta(days),
+                        **overrides)
+            db.session.add(row)
+            app_row.files.append(row)
+        db.session.commit()
+
+
+def alpha_download(library):
+    """The filename behind ALPHA's downloadUrl, or None when it has none."""
+    apps = query(library, """
+        query { apps(filter: {appId: {eq: "%s"}}, page: 1, pageSize: 10) {
+            items { downloadUrl } } }""" % ALPHA)["apps"]["items"]
+    url = apps[0]["downloadUrl"]
+    if url is None:
+        return None
+    with library.app.app_context():
+        token = url.rsplit("/", 1)[-1]
+        return Files.query.filter_by(download_token=token).first().filename
+
+
+@pytest.mark.parametrize("case,specs,expected",
+                         DOWNLOAD_CASES, ids=[c[0] for c in DOWNLOAD_CASES])
+def test_download_url_picks_one_file(library, case, specs, expected):
+    """An app can be carried by several files; the URL has to name the one a client is
+    most likely to be able to install."""
+    carry_alpha_with(library, specs)
+
+    assert alpha_download(library) == expected
+
+
+def test_download_url_is_the_token_route(library):
+    """It addresses the file by its token, never by the enumerable primary key."""
+    carry_alpha_with(library, [PLAIN_VALID])
+    apps = query(library, """
+        query { apps(filter: {appId: {eq: "%s"}}, page: 1, pageSize: 10) {
+            items { downloadUrl files { id } } } }""" % ALPHA)["apps"]["items"]
+    url = apps[0]["downloadUrl"]
+
+    assert url.startswith("/api/download/")
+    assert url != f"/api/download/{apps[0]['files'][0]['id']}"
+    assert library.client.get(url).status_code in (200, 404)  # 404: no bytes on disk
+
+
+def test_an_app_added_at_is_its_newest_file(library):
+    carry_alpha_with(library, [OLDER_VALID, PLAIN_VALID])
+    apps = query(library, """
+        query { apps(filter: {appId: {eq: "%s"}}, page: 1, pageSize: 10) {
+            items { addedAt files { addedAt } } } }""" % ALPHA)["apps"]["items"]
+
+    assert apps[0]["addedAt"] == max(f["addedAt"] for f in apps[0]["files"])
+
+
+def test_an_app_no_file_carries_has_no_added_at(library):
+    carry_alpha_with(library, [])
+    apps = query(library, """
+        query { apps(filter: {appId: {eq: "%s"}}, page: 1, pageSize: 10) {
+            items { addedAt } } }""" % ALPHA)["apps"]["items"]
+
+    assert apps[0]["addedAt"] is None
+
+
+def test_a_titles_apps_carry_the_same_download_url(library):
+    """Same field, other entry point - a client that browses by title has to get the
+    URL rather than a silent null."""
+    carry_alpha_with(library, [PLAIN_VALID])
+    apps = query(library, """
+        query { title(titleId: "%s") { apps { appId downloadUrl addedAt } } }
+        """ % ALPHA)["title"]["apps"]
+    alpha = next(a for a in apps if a["appId"] == ALPHA)
+
+    assert alpha["downloadUrl"] == alpha_download_url(library)
+    assert alpha["addedAt"] is not None
+
+
+def alpha_download_url(library):
+    return query(library, """
+        query { apps(filter: {appId: {eq: "%s"}}, page: 1, pageSize: 10) {
+            items { downloadUrl } } }""" % ALPHA)["apps"]["items"][0]["downloadUrl"]
+
+
+@pytest.mark.parametrize("direction,expected", [
+    ("DESC", ["newest.nsp", "middle.nsp", "oldest.nsp"]),
+    ("ASC", ["oldest.nsp", "middle.nsp", "newest.nsp"]),
+])
+def test_apps_sort_by_added_at(library, direction, expected):
+    """`apps` has no timestamp column of its own, so ADDED_AT used to degrade silently
+    to id order - which is the order the fixture inserts these in, reversed here."""
+    import datetime
+
+    with library.app.app_context():
+        library_id = Libraries.query.first().id
+        days = {"newest.nsp": 0, "middle.nsp": 5, "oldest.nsp": 10}
+        for app_id, filename in ((ALPHA, "middle.nsp"), (ALPHA_UPD, "oldest.nsp"),
+                                 (ALPHA_DLC, "newest.nsp")):
+            # Two rows share each update/DLC app id; the owned one is the one with files.
+            app_row = Apps.query.filter_by(app_id=app_id, owned=True).first()
+            app_row.files = []
+            row = Files(library_id=library_id, filepath="/games/" + filename,
+                        filename=filename, extension="nsp", identified=True,
+                        added_at=datetime.datetime(2024, 1, 10)
+                        - datetime.timedelta(days[filename]))
+            db.session.add(row)
+            app_row.files.append(row)
+        db.session.commit()
+
+    items = query(library, """
+        query { apps(owned: true, orderBy: {field: ADDED_AT, direction: %s},
+                     page: 1, pageSize: 10) { items { files { filename } } } }
+        """ % direction)["apps"]["items"]
+
+    assert [i["files"][0]["filename"] for i in items] == expected
+
+
+def test_grouped_apps_sort_by_added_at_and_stay_real_rows(library):
+    """Grouped, the item is the highest-version app rather than a composite of the
+    group - which holds only while the query has exactly one min/max aggregate, so
+    this ordering may not introduce a second one."""
+    items = query(library, """
+        query { apps(groupByAppId: true, orderBy: {field: ADDED_AT, direction: DESC},
+                     page: 1, pageSize: 10) { items { appId appVersion } } }
+        """)["apps"]["items"]
+
+    assert len({i["appId"] for i in items}) == len(items) == 3
+    assert {i["appId"]: i["appVersion"] for i in items}[ALPHA_UPD] == 131072
+
+
+def test_apps_without_files_sort_last_by_added_at(library):
+    """Null placement is not reversed by direction: an app nothing carries has nothing
+    to sort on either way."""
+    def tail(direction):
+        items = query(library, """
+            query { apps(orderBy: {field: ADDED_AT, direction: %s}, page: 1, pageSize: 10) {
+                items { owned } } }""" % direction)["apps"]["items"]
+        return [i["owned"] for i in items[-2:]]
+
+    assert tail("ASC") == [False, False]
+    assert tail("DESC") == [False, False]
+
+
 def test_a_missing_id_resolves_to_null(library):
     data = query(library, 'query { app(id: "99999") { appId } file(id: "99999") { filename } task(id: "99999") { taskName } }')
 
