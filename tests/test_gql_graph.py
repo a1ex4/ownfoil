@@ -386,6 +386,43 @@ def test_a_titles_apps_filter_on_the_same_boolean(library, arg, expected):
     assert len(apps) == expected
 
 
+def app_ids(library, arg):
+    data = query(library, """
+        query { apps(%s page: 1, pageSize: 10) { total items { appId } } }""" % arg)
+    assert data["apps"]["total"] == len(data["apps"]["items"])
+    return [a["appId"] for a in data["apps"]["items"]]
+
+
+def test_not_in_excludes_the_listed_values(library):
+    """"Everything except these" in one page, rather than paging the catalogue and
+    diffing client-side."""
+    assert set(app_ids(library, 'filter: {appId: {notIn: ["%s"]}},' % ALPHA_UPD)) == {
+        ALPHA, ALPHA_DLC}
+
+
+def test_not_in_partitions_the_page_with_in(library):
+    """The two operators have to cut the same catalogue in two: anything they disagree
+    about is a row a client asking for 'the rest' would never see."""
+    listed = 'filter: {appId: {in: ["%s"]}},' % ALPHA_UPD
+    rest = 'filter: {appId: {notIn: ["%s"]}},' % ALPHA_UPD
+    assert sorted(app_ids(library, listed) + app_ids(library, rest)) == sorted(
+        app_ids(library, ""))
+
+
+def test_an_empty_not_in_is_no_constraint(library):
+    assert app_ids(library, "filter: {appId: {notIn: []}},") == app_ids(library, "")
+
+
+def test_a_nested_apps_list_honours_not_in(library):
+    """The nested path filters an already-hydrated list in memory - it would ignore a
+    new operator silently rather than erroring on it."""
+    apps = query(library, """
+        query { title(titleId: "%s") { apps(filter: {appId: {notIn: ["%s"]}}) { appId } } }
+        """ % (ALPHA, ALPHA_UPD))["title"]["apps"]
+
+    assert {a["appId"] for a in apps} == {ALPHA, ALPHA_DLC}
+
+
 @pytest.mark.parametrize("arg,expected", FILE_BOOL_CASES)
 def test_files_filter_on_a_bare_boolean(library, arg, expected):
     data = query(library, """
