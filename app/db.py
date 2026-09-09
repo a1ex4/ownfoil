@@ -13,6 +13,7 @@ from alembic.script import ScriptDirectory
 from flask_login import UserMixin
 from alembic import command
 import os, sys
+import secrets
 import shutil
 import logging
 import datetime
@@ -153,6 +154,8 @@ class Files(db.Model):
     # When ownfoil first saw the file. Distinct from mtime, which a re-organize or a
     # copy rewrites - only this one can answer "recently added".
     added_at = db.Column(db.DateTime, default=datetime.datetime.utcnow)
+    download_token = db.Column(db.String, unique=True, index=True,
+                               default=lambda: secrets.token_urlsafe(16))
 
     library = db.relationship('Libraries', backref=db.backref('files', lazy=True, cascade="all, delete-orphan"))
 

@@ -653,3 +653,15 @@ def serve_game(id):
     response = send_from_directory(filedir, filename)
     increment_download_count_throttled(filepath, client_address(request))
     return response
+
+@app.route('/api/download/<token>')
+@file_access
+def download_file(token):
+    """Serve a game file by the opaque token the GraphQL catalogue hands out."""
+    filepath = db.session.query(Files.filepath).filter_by(download_token=token).scalar()
+    if not filepath:
+        return jsonify({'error': 'No file with that token.'}), 404
+    filedir, filename = os.path.split(filepath)
+    response = send_from_directory(filedir, filename)
+    increment_download_count_throttled(filepath, client_address(request))
+    return response
