@@ -36,6 +36,28 @@
     border-bottom-left-radius: 8px;
 }
 
+/* Stands in for a missing banner: the card keeps the height it would have had, so a
+   row of cards stays even whatever artwork each one turned out to have. */
+.card-art-fallback {
+    aspect-ratio: 16 / 9;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 8px;
+    background-color: var(--bs-secondary-bg);
+}
+
+.card-art-fallback .card-art-icon {
+    height: 100%;
+    border-radius: 8px;
+}
+
+.art-missing {
+    color: var(--bs-secondary-color);
+    font-size: 0.875rem;
+    text-align: center;
+}
+
 .game-title {
     font-size: 1.1rem;
     /* font-size: 18px; */
@@ -915,4 +937,13 @@ p.game-description {
 .game-icon-link .game-icon {
     display: block;
     width: 100%;
+}
+
+.game-icon--missing {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    aspect-ratio: 1;
+    border-radius: 8px;
+    background-color: var(--bs-secondary-bg);
 }

@@ -159,8 +159,6 @@
     let activeUpdateFilter = "";
     let activeCompletionFilter = "";
 
-    const PLACEHOLDER_BANNER = '//placehold.it/400x200';
-
     async function gqlFetch(query, variables) {
         // GET (not POST) so the browser's HTTP cache automatically revalidates
         // via If-None-Match against the ETag the server sets on every response.
@@ -345,7 +343,7 @@
                 title_id: title.titleId,
                 title_id_name: title.name || 'Unrecognized',
                 name: title.name || 'Unrecognized',
-                bannerUrl: (meta.banner || {}).url || PLACEHOLDER_BANNER,
+                bannerUrl: (meta.banner || {}).url || '',
                 iconUrl: (meta.icon || {}).url || '',
                 app_type: 'BASE',
                 owned: ownership.haveBase,
@@ -362,13 +360,25 @@
             title_id: title.titleId,
             title_id_name: title.name || 'Unrecognized',
             name: meta.name || 'Unrecognized',
-            bannerUrl: (meta.banner || {}).url || PLACEHOLDER_BANNER,
+            bannerUrl: (meta.banner || {}).url || '',
             iconUrl: (meta.icon || {}).url || '',
             app_type: app.appType,
             owned: app.owned,
             has_latest_version: ownedVersions.length > 0 && Math.max(...ownedVersions) >= highest,
             version: versions,
         };
+    }
+
+    /** No banner falls back to the icon, then to a label - both in a box holding the
+     *  banner's aspect ratio, so a card without artwork is the size of one with it. */
+    function cardArtwork(game) {
+        if (game.bannerUrl) {
+            return $('<img class="card-img"></img>').attr('src', game.bannerUrl);
+        }
+        const box = $('<div class="card-img card-art-fallback"></div>');
+        return game.iconUrl
+            ? box.append($('<img class="card-art-icon">').attr('src', game.iconUrl))
+            : box.append($('<span class="art-missing">Missing artwork</span>'));
     }
 
     function renderCardView(games) {
@@ -381,8 +391,7 @@
             const link = $('<a class="game-link"></a>').attr('href', `/title/${game.title_id}`);
             const card = $('<div class="card text-bg-dark game-card"></div>');
 
-            const img = $('<img class="card-img"></img>').attr('src', game.bannerUrl);
-            card.append(img);
+            card.append(cardArtwork(game));
 
             const cardOverlay = $('<div class="card-img-overlay game-info"></div>');
 
@@ -446,7 +455,10 @@
         gameGrid.empty(); // Clear existing games
 
         apps.forEach(app => {
-            const icon = $('<img class="game-icon">').attr('src', ((app.titledb || {}).icon || {}).url || '');
+            const iconUrl = ((app.titledb || {}).icon || {}).url || '';
+            const icon = iconUrl
+                ? $('<img class="game-icon">').attr('src', iconUrl)
+                : $('<div class="game-icon game-icon--missing"><span class="art-missing">Missing artwork</span></div>');
             const link = $('<a class="game-icon-link"></a>')
                 .attr('href', `/title/${(app.title || {}).titleId}`).append(icon);
             gameGrid.append(link);

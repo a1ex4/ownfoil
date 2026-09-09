@@ -494,7 +494,7 @@ def get_game_info(title_id):
     if rec is None:
         return {
             'name': 'Unrecognized',
-            'bannerUrl': '//placehold.it/400x200',
+            'bannerUrl': '',
             'iconUrl': '',
             'id': str(title_id) + ' not found in titledb',
             'category': '',
