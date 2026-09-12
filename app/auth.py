@@ -6,11 +6,43 @@ from db import *
 from settings import get_settings
 from flask_login import LoginManager
 
+import hmac
 import logging
+import os
 import re
+import threading
+import time
 
 # Retrieve main logger
 logger = logging.getLogger('main')
+
+# Successful scrypt verifications, keyed by an HMAC of the stored hash and password under a
+# per-process secret: a password change misses the cache, and failures are never cached.
+VERIFY_CACHE_TTL = 300
+VERIFY_CACHE_MAX = 512
+_verify_secret = os.urandom(32)
+_verify_cache = {}
+_verify_lock = threading.Lock()
+
+
+def verify_password(pwhash, password):
+    """check_password_hash, memoizing successes so a repeat request skips scrypt."""
+    key = hmac.new(_verify_secret, pwhash.encode() + b'\0' + password.encode(),
+                   'sha256').digest()
+    now = time.monotonic()
+    with _verify_lock:
+        if _verify_cache.get(key, 0) > now:
+            return True
+    if not check_password_hash(pwhash, password):
+        return False
+    with _verify_lock:
+        if len(_verify_cache) >= VERIFY_CACHE_MAX:
+            for expired in [k for k, e in _verify_cache.items() if e <= now]:
+                del _verify_cache[expired]
+            if len(_verify_cache) >= VERIFY_CACHE_MAX:
+                _verify_cache.clear()
+        _verify_cache[key] = now + VERIFY_CACHE_TTL
+    return True
 
 def validate_password(password):
     """
@@ -148,7 +180,7 @@ def basic_auth(request):
         success = False
         error = f'Unknown user {username}.'
     
-    elif not check_password_hash(user.password, password):
+    elif not verify_password(user.password, password):
         success = False
         error = f'Incorrect password for user {username}.'
 
@@ -274,7 +306,7 @@ def login():
 
     # check if the user actually exists
     # take the user-supplied password, hash it, and compare it to the hashed password in the database
-    if not user or not check_password_hash(user.password, password):
+    if not user or not verify_password(user.password, password):
         logger.warning(f'Incorrect login for user {username}')
         return redirect(url_for('auth.login')) # if the user doesn't exist or password is wrong, reload the page
 
