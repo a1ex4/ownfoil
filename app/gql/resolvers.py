@@ -610,7 +610,8 @@ def _hydrate_app_versions(apps: List[App]) -> None:
         placeholders = ",".join(f":v_{i}" for i in range(len(title_ids)))
         sql = f"""
         SELECT ot.title_id AS key, a.app_version AS app_version,
-               a.owned AS owned, a.release_date AS release_date
+               a.owned AS owned, a.release_date AS release_date,
+               a.display_version AS display_version
         FROM apps a JOIN main.titles ot ON ot.id = a.title_id
         WHERE ot.title_id IN ({placeholders}) AND a.app_type = :upd
         ORDER BY CAST(a.app_version AS INTEGER)
@@ -625,7 +626,8 @@ def _hydrate_app_versions(apps: List[App]) -> None:
         placeholders = ",".join(f":v_{i}" for i in range(len(app_ids)))
         sql = f"""
         SELECT a.app_id AS key, a.app_version AS app_version,
-               a.owned AS owned, a.release_date AS release_date
+               a.owned AS owned, a.release_date AS release_date,
+               a.display_version AS display_version
         FROM apps a
         WHERE a.app_id IN ({placeholders})
         ORDER BY CAST(a.app_version AS INTEGER)
@@ -643,7 +645,8 @@ def _group_versions(sql: str, params: dict) -> Dict[str, List[AppVersion]]:
         except (TypeError, ValueError):
             continue
         out.setdefault(r.key, []).append(
-            AppVersion(version=version, owned=bool(r.owned), release_date=r.release_date))
+            AppVersion(version=version, owned=bool(r.owned), release_date=r.release_date,
+                       display_version=r.display_version))
     return out
 
 

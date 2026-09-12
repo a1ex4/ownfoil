@@ -385,6 +385,10 @@ class AppVersion:
     release_date: Optional[str] = desc(
         "When this version shipped, as titledb reports it. Null when unknown.",
         default=None)
+    display_version: Optional[str] = desc(
+        "The version string this version's own file reports about itself, as "
+        "`App.displayVersion` does. Null on a version no owned file carries, and "
+        "until that file has been through metadata extraction.", default=None)
 
 
 @described(strawberry.type)
