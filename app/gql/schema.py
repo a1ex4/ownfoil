@@ -2,7 +2,7 @@
 from typing import List, Optional
 
 import strawberry
-from strawberry.extensions import QueryDepthLimiter
+from strawberry.extensions import ParserCache, QueryDepthLimiter, ValidationCache
 from strawberry.types import Info
 from typing_extensions import Annotated
 
@@ -221,8 +221,10 @@ class Query:
 # would otherwise happily expand, on an endpoint any shop-access user can reach.
 MAX_QUERY_DEPTH = 15
 
+# Parsing and validation, depth limit included, are cached per query text.
 schema = strawberry.Schema(
     query=Query,
     mutation=Mutation,
-    extensions=[QueryDepthLimiter(max_depth=MAX_QUERY_DEPTH)],
+    extensions=[lambda: QueryDepthLimiter(max_depth=MAX_QUERY_DEPTH),
+                ParserCache, ValidationCache],
 )
