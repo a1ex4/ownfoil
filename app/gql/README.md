@@ -329,12 +329,22 @@ Implicit AND across populated fields. v1 has no OR / NOT combinators.
   owned exactly when it has files, so a file's apps are all owned and the
   argument could only ever return everything or nothing.
 - **One meaning per predicate**: `owned:` and `filter: {owned:}` are the same
-  clause, emitted once in `resolve_apps` rather than by two code paths. Under
-  `groupByAppId: true` that clause is `HAVING (SUM(a.owned) > 0)` — owned is a
-  property of the app id as a whole, "any version of it" — for both spellings;
+  clause, emitted once in `resolve_apps` rather than by two code paths;
   ungrouped it is the row's own column. `APP_FIELDS_EXCEPT_OWNED` is what keeps
   `build_clauses` from also emitting the row-level form and splitting the two
-  spellings apart again.
+  spellings apart again. Grouped, the two polarities are not symmetric:
+  - `owned: true` is a `WHERE a.owned = 1` applied **before** the grouping. The
+    app ids it keeps are the same ones `HAVING (SUM(a.owned) > 0)` kept — a
+    group built from owned rows alone is non-empty for exactly those — but the
+    row standing for each group becomes its highest *owned* version rather than
+    its highest known one. That is the version a client installs, and offering
+    one with no file behind it was a real defect. It also leaves `HAVING` empty,
+    so the count is a flat `COUNT(DISTINCT a.app_id)` instead of a derived-table
+    re-run of the whole grouped query.
+  - `owned: false` has to stay `HAVING (SUM(a.owned) > 0) = 0`. "No version of
+    this app id is owned" is a property of the group; a row-level `a.owned = 0`
+    would keep every app id that merely *has* an unowned version, including ones
+    that are owned.
 - **Ownership is false, not unknown, for a title the library has never seen**.
   `haveBase` / `upToDate` / `complete` live on `main.titles`, which is LEFT
   JOINed, so a catalogue-only title has no row there. The `TITLE_FIELDS`

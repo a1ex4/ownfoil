@@ -149,8 +149,9 @@ class Query:
         id: Annotated[strawberry.ID, _arg("Primary key of the app row.")],
     ) -> Optional[App]:
         """One app by primary key, including an item returned by
-        `apps(groupByAppId: true)` - a grouped item is the group's highest-version row,
-        not a composite, so its `id` resolves back to that same app."""
+        `apps(groupByAppId: true)` - a grouped item is a real row of the group (its
+        highest version, or its highest owned one under `owned: true`) rather than a
+        composite, so its `id` resolves back to that same app."""
         return resolve_app(str(id), info.context, info)
 
     @described_field
