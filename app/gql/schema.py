@@ -222,9 +222,13 @@ class Query:
 MAX_QUERY_DEPTH = 15
 
 # Parsing and validation, depth limit included, are cached per query text.
+# Bounded, as the query text is caller-supplied.
+QUERY_CACHE_SIZE = 128
+
 schema = strawberry.Schema(
     query=Query,
     mutation=Mutation,
     extensions=[lambda: QueryDepthLimiter(max_depth=MAX_QUERY_DEPTH),
-                ParserCache, ValidationCache],
+                lambda: ParserCache(maxsize=QUERY_CACHE_SIZE),
+                lambda: ValidationCache(maxsize=QUERY_CACHE_SIZE)],
 )
