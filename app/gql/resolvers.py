@@ -244,6 +244,7 @@ def _load_apps_for_titles(
     with_files: bool,
     with_titledb: bool,
     with_versions: bool = False,
+    with_latest_owned: bool = False,
     with_files_apps: bool = False,
     with_download: bool = False,
     titledb_sel: "Selection",
@@ -297,6 +298,8 @@ def _load_apps_for_titles(
         _hydrate_apps_titledb(all_apps, titledb_sel)
     if with_versions and all_apps:
         _hydrate_app_versions(all_apps)
+    if with_latest_owned and all_apps:
+        _hydrate_app_latest_owned(all_apps)
     return out
 
 
@@ -391,6 +394,7 @@ def _hydrate_file_apps(
     with_title: bool = False,
     title_sel: Optional["Selection"] = None,
     with_versions: bool = False,
+    with_latest_owned: bool = False,
 ) -> None:
     """Populate .apps_loaded on each file (m2m back-direction across app_files).
 
@@ -436,6 +440,8 @@ def _hydrate_file_apps(
         _hydrate_apps_title(backlinked, title_sel)
     if with_versions and backlinked:
         _hydrate_app_versions(backlinked)
+    if with_latest_owned and backlinked:
+        _hydrate_app_latest_owned(backlinked)
 
 
 def _hydrate_apps_titledb(apps: List[App], sel: "Selection") -> None:
@@ -637,6 +643,43 @@ def _hydrate_app_versions(apps: List[App]) -> None:
             a.versions = by_app.get(a.app_id, [])
 
 
+def _hydrate_app_latest_owned(apps: List[App]) -> None:
+    """Attach the newest owned version behind each app, keyed as `versions` is."""
+    base_apps = [a for a in apps if a.app_type == APP_TYPE_BASE]
+    other_apps = [a for a in apps if a.app_type != APP_TYPE_BASE]
+    # The only aggregate, so SQLite reads the bare columns from the MAX row.
+    cols = """MAX(CAST(a.app_version AS INTEGER)) AS app_version, a.owned AS owned,
+              a.release_date AS release_date, a.display_version AS display_version"""
+
+    if base_apps:
+        title_ids = list({a.title_id for a in base_apps if a.title_id})
+        params = {f"l_{i}": x for i, x in enumerate(title_ids)}
+        placeholders = ",".join(f":l_{i}" for i in range(len(title_ids)))
+        sql = f"""
+        SELECT ot.title_id AS key, {cols}
+        FROM apps a JOIN main.titles ot ON ot.id = a.title_id
+        WHERE ot.title_id IN ({placeholders}) AND a.app_type = :upd AND a.owned
+        GROUP BY ot.title_id
+        """
+        by_title = _group_versions(sql, dict(params, upd=APP_TYPE_UPD))
+        for a in base_apps:
+            a.latest_owned_version = next(iter(by_title.get(a.title_id, [])), None)
+
+    if other_apps:
+        app_ids = list({a.app_id for a in other_apps if a.app_id})
+        params = {f"l_{i}": x for i, x in enumerate(app_ids)}
+        placeholders = ",".join(f":l_{i}" for i in range(len(app_ids)))
+        sql = f"""
+        SELECT a.app_id AS key, {cols}
+        FROM apps a
+        WHERE a.app_id IN ({placeholders}) AND a.owned
+        GROUP BY a.app_id
+        """
+        by_app = _group_versions(sql, params)
+        for a in other_apps:
+            a.latest_owned_version = next(iter(by_app.get(a.app_id, [])), None)
+
+
 def _group_versions(sql: str, params: dict) -> Dict[str, List[AppVersion]]:
     out: Dict[str, List[AppVersion]] = {}
     for r in db.session.execute(text(sql), params).all():
@@ -665,6 +708,7 @@ def resolve_title(title_id: str, ctx: GraphQLContext, info) -> Optional[Title]:
     want_apps_files = ctx.can_admin and want_apps and apps_sel.has("files")
     want_apps_titledb = want_apps and apps_sel.has("titledb")
     want_apps_versions = want_apps and apps_sel.has("versions")
+    want_apps_latest = want_apps and apps_sel.has("latestOwnedVersion")
     want_apps_files_apps = want_apps_files and files_sel.has("apps")
     want_apps_download = want_apps and _wants_app_download(apps_sel)
     want_available_versions = sel.has("availableVersions")
@@ -695,6 +739,7 @@ def resolve_title(title_id: str, ctx: GraphQLContext, info) -> Optional[Title]:
             with_files=want_apps_files,
             with_titledb=want_apps_titledb,
             with_versions=want_apps_versions,
+            with_latest_owned=want_apps_latest,
             with_files_apps=want_apps_files_apps,
             with_download=want_apps_download,
             titledb_sel=apps_titledb_sel,
@@ -725,6 +770,7 @@ def resolve_titles(*, owned: Optional[bool], filter: Optional[TitleFilter],
     want_apps_files = ctx.can_admin and want_apps and apps_sel.has("files")
     want_apps_titledb = want_apps and apps_sel.has("titledb")
     want_apps_versions = want_apps and apps_sel.has("versions")
+    want_apps_latest = want_apps and apps_sel.has("latestOwnedVersion")
     want_apps_files_apps = want_apps_files and files_sel.has("apps")
     want_apps_download = want_apps and _wants_app_download(apps_sel)
     want_available_versions = want_items and items_sel.has("availableVersions")
@@ -795,6 +841,7 @@ def resolve_titles(*, owned: Optional[bool], filter: Optional[TitleFilter],
             with_files=want_apps_files,
             with_titledb=want_apps_titledb,
             with_versions=want_apps_versions,
+            with_latest_owned=want_apps_latest,
             with_files_apps=want_apps_files_apps,
             with_download=want_apps_download,
             titledb_sel=apps_titledb_sel,
@@ -836,6 +883,7 @@ def resolve_apps(*, owned: Optional[bool], app_type: Optional[List[AppType]],
     want_titledb = want_items and items_sel.has("titledb")
     want_title = want_items and items_sel.has("title")
     want_versions = want_items and items_sel.has("versions")
+    want_latest_owned = want_items and items_sel.has("latestOwnedVersion")
     want_files_apps = want_files and files_sel.has("apps")
     # Not gated on can_admin: shop clients need the download URL.
     want_download = want_items and _wants_app_download(items_sel)
@@ -959,6 +1007,8 @@ def resolve_apps(*, owned: Optional[bool], app_type: Optional[List[AppType]],
         _hydrate_apps_title(items, title_sel)
     if want_versions and items:
         _hydrate_app_versions(items)
+    if want_latest_owned and items:
+        _hydrate_app_latest_owned(items)
 
     return AppConnection(total=int(total), items=items)
 
@@ -984,6 +1034,7 @@ def resolve_files(*, filter: Optional[FileFilter], page: int, page_size: int,
     want_apps_titledb = want_apps and apps_sel.has("titledb")
     want_apps_title = want_apps and apps_sel.has("title")
     want_apps_versions = want_apps and apps_sel.has("versions")
+    want_apps_latest = want_apps and apps_sel.has("latestOwnedVersion")
     want_library = want_items and items_sel.has("library")
 
     params: dict = {}
@@ -1027,6 +1078,7 @@ def resolve_files(*, filter: Optional[FileFilter], page: int, page_size: int,
             with_title=want_apps_title,
             title_sel=apps_title_sel,
             with_versions=want_apps_versions,
+            with_latest_owned=want_apps_latest,
         )
     if want_library and items:
         _hydrate_file_libraries(items)
