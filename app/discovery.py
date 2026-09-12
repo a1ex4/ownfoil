@@ -8,9 +8,8 @@ import logging
 import socket
 import threading
 
-from constants import APP_VERSION, DISCOVERY_MAGIC, DISCOVERY_PORT, DISCOVERY_REQUEST, HTTP_PORT
-from settings import get_server_uid, get_settings
-from utils import get_lan_ip
+from constants import APP_VERSION, DISCOVERY_MAGIC, DISCOVERY_PORT, DISCOVERY_REQUEST
+from settings import get_server_uid, get_settings, get_shop_addresses
 
 logger = logging.getLogger('main')
 
@@ -21,15 +20,12 @@ _lock = threading.Lock()
 def discovery_payload():
     """The reply describing this shop: who it is, and where a console can reach it."""
     shop = get_settings()['shop']
-    lan_ip = get_lan_ip()
     return {
         'magic': DISCOVERY_MAGIC,
         'uid': get_server_uid(),
         'name': shop['name'],
         'version': APP_VERSION,
-        # Reachable here on this network, and there from anywhere else - either may be empty.
-        'local': f'{lan_ip}:{HTTP_PORT}' if lan_ip else '',
-        'remote': shop['host'],
+        **get_shop_addresses(),
         'public': shop['public'],
     }
 
