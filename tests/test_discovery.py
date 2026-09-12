@@ -66,7 +66,7 @@ def test_only_the_discovery_request_is_answered(responder, request_bytes, answer
 
 
 def test_reply_describes_the_shop(responder, monkeypatch):
-    monkeypatch.setattr(discovery, "get_lan_ip", lambda: "192.168.1.42")
+    monkeypatch.setattr(settings_mod, "get_lan_ip", lambda: "192.168.1.42")
     set_shop_settings({"name": "My Shop", "host": "shop.example.com", "public": True})
 
     assert ask(responder) == {
@@ -82,7 +82,7 @@ def test_reply_describes_the_shop(responder, monkeypatch):
 
 def test_local_address_is_empty_when_the_lan_ip_is_unknown(responder, monkeypatch):
     """A host with no routable address still answers: the console can fall back on the remote one."""
-    monkeypatch.setattr(discovery, "get_lan_ip", lambda: None)
+    monkeypatch.setattr(settings_mod, "get_lan_ip", lambda: None)
 
     assert ask(responder)["local"] == ""
 

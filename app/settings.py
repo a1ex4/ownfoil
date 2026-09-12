@@ -345,6 +345,17 @@ def get_server_uid():
     """This install's identity as clients know it, minted when settings are first written."""
     return get_settings()['server']['uid']
 
+def get_shop_addresses():
+    """Where a console can reach this shop: here on this network, and from anywhere else.
+
+    Either may be empty. The discovery reply and the handshake both report these, so a
+    client that saved them once learns about a move from whichever it can still reach."""
+    lan_ip = get_lan_ip()
+    return {
+        'local': f'{lan_ip}:{HTTP_PORT}' if lan_ip else '',
+        'remote': get_settings()['shop']['host'],
+    }
+
 def set_services_settings(data):
     with settings_transaction() as settings:
         for service, config in data.items():
