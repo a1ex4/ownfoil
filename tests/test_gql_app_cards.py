@@ -103,6 +103,7 @@ query Cards($page: Int!, $pageSize: Int!, $appType: [AppType!], $search: String,
             titledb { name }
             title { titleId name ownership { haveBase upToDate complete } }
             versions { version owned }
+            latestOwnedVersion { version owned displayVersion }
         }
     }
 }"""
@@ -192,6 +193,20 @@ def test_base_cards_carry_the_titles_update_history(library):
 
     assert [(v["version"], v["owned"]) for v in base["versions"]] == [(65536, True), (131072, False)]
     assert base["title"]["ownership"] == {"haveBase": True, "upToDate": False, "complete": True}
+
+
+def test_latest_owned_version_is_the_newest_the_shop_can_serve(library):
+    """The point of the field, and the whole difference from `versions`: Alpha knows
+    about 131072 but holds only 65536, and a client sizing up what installing would
+    leave on the console has to be told the one there is a file for."""
+    by_id = {i["appId"]: i for i in cards(library)["items"]}
+    alpha = by_id[ALPHA]
+
+    assert alpha["versions"][-1]["version"] == 131072           # newest it knows of
+    assert alpha["latestOwnedVersion"]["version"] == 65536      # newest it can serve
+    assert by_id[BETA]["latestOwnedVersion"]["version"] == 65536
+    # A DLC is keyed on its own app id rather than on the title's updates.
+    assert by_id[ALPHA_DLC_1]["latestOwnedVersion"]["version"] == 0
 
 
 def test_dlc_cards_carry_their_own_versions_and_their_parent(library):

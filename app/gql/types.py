@@ -459,6 +459,13 @@ class App:
         "the `apps`, `title`, `titles` and `files` queries; null for apps reached as a "
         "file's back-link under `apps { files { apps } }`.", default=None)
 
+    latest_owned_version: Optional[AppVersion] = desc(
+        "The highest version of what `versions` covers that the shop actually holds a "
+        "file for - for a BASE app, the newest update it could install. Null when it "
+        "holds none. Hydrated by the same queries as `versions`, and answers on its own "
+        "the question a client would otherwise pull the whole history to work out.",
+        default=None)
+
     added_at: Optional[str] = desc(
         "When ownfoil first saw this app - the newest `addedAt` among the files "
         "carrying it, since an app has no timestamp of its own. Null for an app no "
