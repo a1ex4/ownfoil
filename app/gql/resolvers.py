@@ -895,17 +895,18 @@ def resolve_apps(*, owned: Optional[bool], app_type: Optional[List[AppType]],
         where.append("a.id = :only_pk")
     having: List[str] = []
     # Both spellings of ownership land here - the `owned:` shorthand and
-    # `filter: {owned:}` - so they cannot disagree. Grouped, owned is a property of the
-    # app id as a whole (any version of it), which is a HAVING on the group rather than
-    # a WHERE on one row; ungrouped the two are the same clause anyway. Given both, they
-    # AND, so asking for owned and unowned at once correctly matches nothing.
-    # SUM rather than MAX for the same reason the page query uses it: the page's
-    # bare-column resolution depends on there being exactly one min/max aggregate.
-    owned_col = "(SUM(a.owned) > 0)" if group_by_app_id else "a.owned"
+    # `filter: {owned:}` - so they cannot disagree. Given both, they AND, so asking for
+    # owned and unowned at once correctly matches nothing.
     owned_args = [v for v in (owned, filter.owned if filter else None) if v is not None]
     for i, value in enumerate(owned_args):
         params[f"owned_{i}"] = 1 if value else 0
-        (having if group_by_app_id else where).append(f"{owned_col} = :owned_{i}")
+        if group_by_app_id and not value:
+            # No version of the app id owned is a group property. SUM, not MAX, keeps a
+            # single min/max aggregate for the bare-column row pick.
+            having.append(f"(SUM(a.owned) > 0) = :owned_{i}")
+        else:
+            # Filtering rows before grouping makes each group's row its highest owned version.
+            where.append(f"a.owned = :owned_{i}")
     if app_type:
         params.update({f"at_{i}": t.value for i, t in enumerate(app_type)})
         where.append(f"a.app_type IN ({','.join(f':at_{i}' for i in range(len(app_type)))})")

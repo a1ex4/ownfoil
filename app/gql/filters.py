@@ -201,7 +201,9 @@ class AppFilter:
         "The `appType` argument is the several-at-once version.", default=None)
     owned: Optional[bool] = desc(
         "Whether a file carries the app. Identical to the `owned` argument, including "
-        "under `groupByAppId: true`, where both mean 'any version of this app id'.",
+        "under `groupByAppId: true`, where both select app ids by 'any version of this "
+        "one'. Grouped, `true` additionally narrows the item shown for each app id to "
+        "its highest owned version - the one that can actually be served.",
         default=None)
 
 

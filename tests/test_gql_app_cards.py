@@ -35,19 +35,24 @@ TITLEDB_JSON = {
     BETA:        {"id": BETA, "name": "Beta Game", "publisher": "Sega"},
 }
 
-# (title_id, name, have_base, up_to_date, complete, [(app_id, type, version, owned), ...])
+# (title_id, have_base, up_to_date, complete,
+#  [(app_id, type, version, owned, display_version), ...])
+#
+# display_version is read out of the file carrying a version, so it is set on exactly
+# the owned rows - which is what makes it the tell for a query reporting a version the
+# library has no file for.
 LIBRARY = [
     (ALPHA, True, False, True, [
-        (ALPHA,       APP_TYPE_BASE, "0",      True),
-        (ALPHA_UPD,   APP_TYPE_UPD,  "65536",  True),
-        (ALPHA_UPD,   APP_TYPE_UPD,  "131072", False),   # behind: newest update missing
-        (ALPHA_DLC_1, APP_TYPE_DLC,  "0",      True),
-        (ALPHA_DLC_1, APP_TYPE_DLC,  "65536",  False),   # behind: newest version missing
-        (ALPHA_DLC_2, APP_TYPE_DLC,  "0",      True),    # current
+        (ALPHA,       APP_TYPE_BASE, "0",      True,  "1.0.0"),
+        (ALPHA_UPD,   APP_TYPE_UPD,  "65536",  True,  "1.1.0"),
+        (ALPHA_UPD,   APP_TYPE_UPD,  "131072", False, None),   # behind: newest update missing
+        (ALPHA_DLC_1, APP_TYPE_DLC,  "0",      True,  "1.0.0"),
+        (ALPHA_DLC_1, APP_TYPE_DLC,  "65536",  False, None),   # behind: newest version missing
+        (ALPHA_DLC_2, APP_TYPE_DLC,  "0",      True,  "1.0.0"),   # current
     ]),
     (BETA, True, True, False, [
-        (BETA,      APP_TYPE_BASE, "0",     True),
-        (BETA_UPD,  APP_TYPE_UPD,  "65536", True),
+        (BETA,      APP_TYPE_BASE, "0",     True, "1.0.0"),
+        (BETA_UPD,  APP_TYPE_UPD,  "65536", True, "1.2.0"),
     ]),
 ]
 
@@ -83,9 +88,10 @@ def library(tmp_path, monkeypatch):
                            up_to_date=up_to_date, complete=complete)
             db.session.add(title)
             db.session.flush()
-            for app_id, app_type, version, owned in apps:
+            for app_id, app_type, version, owned, display_version in apps:
                 db.session.add(Apps(title_id=title.id, app_id=app_id, app_version=version,
-                                    app_type=app_type, owned=owned))
+                                    app_type=app_type, owned=owned,
+                                    display_version=display_version))
         db.session.commit()
 
     return types.SimpleNamespace(app=app, client=app.test_client())
@@ -195,6 +201,24 @@ def test_base_cards_carry_the_titles_update_history(library):
     assert base["title"]["ownership"] == {"haveBase": True, "upToDate": False, "complete": True}
 
 
+def test_grouped_owned_card_is_a_version_the_shop_can_serve(library):
+    """Grouped, `owned: true` has to pick the group's highest *owned* row, not its
+    highest row. Alpha's update app id knows 131072 and holds only 65536: reporting
+    131072 here would offer a client a version with no file behind it."""
+    query = """query { apps(groupByAppId: true, owned: true, appType: [UPDATE],
+                            page: 1, pageSize: 50) {
+                   total items { appId appVersion displayVersion } } }"""
+    resp = library.client.get("/api/graphql", query_string={"query": query})
+    body = resp.get_json()
+
+    assert "errors" not in body, body["errors"]
+    by_id = {i["appId"]: i for i in body["data"]["apps"]["items"]}
+    assert by_id[ALPHA_UPD]["appVersion"] == 65536
+    # the tell: 131072 carries no file, so picking it would report a null here.
+    assert by_id[ALPHA_UPD]["displayVersion"] == "1.1.0"
+    assert body["data"]["apps"]["total"] == len(by_id)
+
+
 def test_latest_owned_version_is_the_newest_the_shop_can_serve(library):
     """The point of the field, and the whole difference from `versions`: Alpha knows
     about 131072 but holds only 65536, and a client sizing up what installing would
@@ -204,6 +228,7 @@ def test_latest_owned_version_is_the_newest_the_shop_can_serve(library):
 
     assert alpha["versions"][-1]["version"] == 131072           # newest it knows of
     assert alpha["latestOwnedVersion"]["version"] == 65536      # newest it can serve
+    assert alpha["latestOwnedVersion"]["displayVersion"] == "1.1.0"
     assert by_id[BETA]["latestOwnedVersion"]["version"] == 65536
     # A DLC is keyed on its own app id rather than on the title's updates.
     assert by_id[ALPHA_DLC_1]["latestOwnedVersion"]["version"] == 0

@@ -434,7 +434,9 @@ class App:
     owned: bool = desc(
         "At least one file in the library carries this app. Under "
         "`apps(groupByAppId: true)` this is group-level: true when any version of the "
-        "app id is owned, even though the item shown is the highest version.")
+        "app id is owned. With no ownership filter the item shown is the group's "
+        "highest version, owned or not; under `owned: true` it is the highest version "
+        "a file actually carries, so the item is always one that can be served.")
     release_date: Optional[str] = desc(
         "When this version shipped. Populated for UPDATE rows; null on BASE and DLC "
         "rows, whose date lives on `titledb.releaseDate`.", default=None)
