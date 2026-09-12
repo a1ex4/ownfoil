@@ -36,23 +36,25 @@ TITLEDB_JSON = {
 }
 
 # (title_id, have_base, up_to_date, complete,
-#  [(app_id, type, version, owned, display_version), ...])
+#  [(app_id, type, version, owned, display_version, release_date), ...])
 #
 # display_version is read out of the file carrying a version, so it is set on exactly
 # the owned rows - which is what makes it the tell for a query reporting a version the
-# library has no file for.
+# library has no file for. release_date comes from titledb per (app id, version), so
+# every app type carries one, BASE included; Alpha is named first but released later,
+# so name order and release order disagree.
 LIBRARY = [
     (ALPHA, True, False, True, [
-        (ALPHA,       APP_TYPE_BASE, "0",      True,  "1.0.0"),
-        (ALPHA_UPD,   APP_TYPE_UPD,  "65536",  True,  "1.1.0"),
-        (ALPHA_UPD,   APP_TYPE_UPD,  "131072", False, None),   # behind: newest update missing
-        (ALPHA_DLC_1, APP_TYPE_DLC,  "0",      True,  "1.0.0"),
-        (ALPHA_DLC_1, APP_TYPE_DLC,  "65536",  False, None),   # behind: newest version missing
-        (ALPHA_DLC_2, APP_TYPE_DLC,  "0",      True,  "1.0.0"),   # current
+        (ALPHA,       APP_TYPE_BASE, "0",      True,  "1.0.0", "2020-01-01"),
+        (ALPHA_UPD,   APP_TYPE_UPD,  "65536",  True,  "1.1.0", "2020-06-01"),
+        (ALPHA_UPD,   APP_TYPE_UPD,  "131072", False, None,    "2021-02-01"),  # behind
+        (ALPHA_DLC_1, APP_TYPE_DLC,  "0",      True,  "1.0.0", "2020-09-01"),
+        (ALPHA_DLC_1, APP_TYPE_DLC,  "65536",  False, None,    "2021-03-01"),  # behind
+        (ALPHA_DLC_2, APP_TYPE_DLC,  "0",      True,  "1.0.0", "2020-10-01"),  # current
     ]),
     (BETA, True, True, False, [
-        (BETA,      APP_TYPE_BASE, "0",     True, "1.0.0"),
-        (BETA_UPD,  APP_TYPE_UPD,  "65536", True, "1.2.0"),
+        (BETA,      APP_TYPE_BASE, "0",     True, "1.0.0", "2017-03-03"),
+        (BETA_UPD,  APP_TYPE_UPD,  "65536", True, "1.2.0", "2017-08-08"),
     ]),
 ]
 
@@ -88,10 +90,11 @@ def library(tmp_path, monkeypatch):
                            up_to_date=up_to_date, complete=complete)
             db.session.add(title)
             db.session.flush()
-            for app_id, app_type, version, owned, display_version in apps:
+            for app_id, app_type, version, owned, display_version, release_date in apps:
                 db.session.add(Apps(title_id=title.id, app_id=app_id, app_version=version,
                                     app_type=app_type, owned=owned,
-                                    display_version=display_version))
+                                    display_version=display_version,
+                                    release_date=release_date))
         db.session.commit()
 
     return types.SimpleNamespace(app=app, client=app.test_client())
@@ -199,6 +202,21 @@ def test_base_cards_carry_the_titles_update_history(library):
 
     assert [(v["version"], v["owned"]) for v in base["versions"]] == [(65536, True), (131072, False)]
     assert base["title"]["ownership"] == {"haveBase": True, "upToDate": False, "complete": True}
+
+
+def test_base_cards_sort_by_their_own_release_date(library):
+    """A shop's "sort by release date" rests on BASE rows carrying a date of their own -
+    library.py fills it from titledb for every app type, not just UPDATE."""
+    def ids(direction):
+        query = """query { apps(groupByAppId: true, owned: true, appType: [BASE],
+                                orderBy: {field: RELEASE_DATE, direction: %s},
+                                page: 1, pageSize: 50) { items { appId releaseDate } } }""" % direction
+        body = library.client.get("/api/graphql", query_string={"query": query}).get_json()
+        assert "errors" not in body, body["errors"]
+        return [i["appId"] for i in body["data"]["apps"]["items"]]
+
+    assert ids("ASC") == [BETA, ALPHA]    # 2017 before 2020, the reverse of name order
+    assert ids("DESC") == [ALPHA, BETA]
 
 
 def test_grouped_owned_card_is_a_version_the_shop_can_serve(library):
