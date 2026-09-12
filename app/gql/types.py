@@ -438,8 +438,9 @@ class App:
         "highest version, owned or not; under `owned: true` it is the highest version "
         "a file actually carries, so the item is always one that can be served.")
     release_date: Optional[str] = desc(
-        "When this version shipped. Populated for UPDATE rows; null on BASE and DLC "
-        "rows, whose date lives on `titledb.releaseDate`.", default=None)
+        "When this version shipped, as titledb records it for this app id and version - "
+        "so BASE and DLC rows carry one too, not only UPDATE rows. Null when the "
+        "catalogue has no date for that particular version.", default=None)
     display_version: Optional[str] = desc(
         "The version string the game shows about itself, e.g. `1.0.1`, read out of the "
         "file's own Control NCA. Unrelated to `appVersion`, which is the number Nintendo "
