@@ -176,6 +176,29 @@ def test_unrequested_nested_fields_stay_null(library):
     assert backlinked["files"] is None
 
 
+# (base alias selection, dlc alias selection, expected base items, expected dlc items)
+ALIASED_APPS = [
+    ("appId", "titledb { name }",
+     [{"appId": ALPHA}], [{"titledb": {"name": "Alpha Extra Levels"}}]),
+    ("titledb { publisher }", "titledb { name }",
+     [{"titledb": {"publisher": "Nintendo"}}], [{"titledb": {"name": "Alpha Extra Levels"}}]),
+    ("appId", "versions { version owned }",
+     [{"appId": ALPHA}], [{"versions": [{"version": 0, "owned": True}, {"version": 65536, "owned": False}]}]),
+]
+
+
+@pytest.mark.parametrize("base_fields, dlc_fields, expected_base, expected_dlc", ALIASED_APPS)
+def test_each_alias_of_a_list_gets_its_own_nested_fields(library, base_fields, dlc_fields, expected_base, expected_dlc):
+    """Aliasing one list twice must not hydrate the second as if it asked what the first did."""
+    data = query(library, """
+        query { title(titleId: "%s") {
+            base: apps(owned: true, appType: [BASE]) { %s }
+            dlc: apps(owned: true, appType: [DLC]) { %s } } }""" % (ALPHA, base_fields, dlc_fields))
+
+    assert data["title"]["base"] == expected_base
+    assert data["title"]["dlc"] == expected_dlc
+
+
 # ---- entities that had no representation in the graph at all ----
 
 def test_a_file_resolves_its_library(library):

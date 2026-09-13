@@ -37,7 +37,5 @@ class Selection:
         return any(f.name == name for f in self._fields)
 
     def child(self, name: str) -> "Selection":
-        for f in self._fields:
-            if f.name == name:
-                return Selection(_expand(f.selections))
-        return Selection([])
+        # A field aliased more than once asks for its own sub-selections under each alias.
+        return Selection(s for f in self._fields if f.name == name for s in _expand(f.selections))
