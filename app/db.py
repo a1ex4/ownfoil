@@ -228,22 +228,21 @@ class Media(db.Model):
     source = db.Column(db.String, nullable=False)
     source_url = db.Column(db.String)
     filename = db.Column(db.String, nullable=False)
+    # The original's size; renditions follow via `media.fit`.
     width = db.Column(db.Integer)
     height = db.Column(db.Integer)
-    client_width = db.Column(db.Integer)
-    client_height = db.Column(db.Integer)
     downloaded_at = db.Column(db.DateTime, default=datetime.datetime.utcnow)
 
     __table_args__ = (db.UniqueConstraint('title_id', 'kind', 'position',
                                           name='uq_media_slot'),)
 
 
-def upsert_media(title_id, kind, position, *, source, source_url, filename, size, client_size):
-    """Record the local copy filling one artwork slot, replacing whatever filled it before."""
+def upsert_media(title_id, kind, position, *, source, source_url, filename, size):
+    """Record the local copy filling one artwork slot, replacing whatever filled it before.
+    `size` is the original's."""
     values = {
         'source': source, 'source_url': source_url, 'filename': filename,
         'width': size[0], 'height': size[1],
-        'client_width': client_size[0], 'client_height': client_size[1],
         'downloaded_at': datetime.datetime.utcnow(),
     }
     stmt = insert(Media.__table__).values(

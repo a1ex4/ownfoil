@@ -488,7 +488,7 @@ def _hydrate_title_media(titles: List[Title], sel: "Selection") -> None:
     params = {f"m_{i}": x for i, x in enumerate(ids)}
     placeholders = ",".join(f":m_{i}" for i in range(len(ids)))
     rows = db.session.execute(text(f"""
-    SELECT title_id, kind, position, filename, width, height, client_width, client_height
+    SELECT title_id, kind, position, filename, width, height
     FROM main.media
     WHERE title_id IN ({placeholders})
     """), params).all()

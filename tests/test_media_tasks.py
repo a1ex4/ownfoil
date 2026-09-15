@@ -123,11 +123,10 @@ def test_a_titles_artwork_is_stored_slot_by_slot(install):
     assert icon.filename == "icon.jpg"
     assert icon.source_url == ICON_URL
     assert (icon.width, icon.height) == (1024, 1024)
-    assert (icon.client_width, icon.client_height) == (256, 256)
     assert media.have(media.ICON, "icon.jpg")
 
     banner = slots[(TITLE_ID, media.BANNER, 0)]
-    assert (banner.client_width, banner.client_height) == (640, 360)
+    assert (banner.width, banner.height) == (1280, 720)
 
 
 def test_artwork_already_on_disk_is_not_downloaded_again(install):
@@ -140,7 +139,21 @@ def test_artwork_already_on_disk_is_not_downloaded_again(install):
     assert install.fetched == []
 
 
-def test_a_missing_file_is_downloaded_again_even_though_the_row_stands(install):
+def test_a_missing_original_is_downloaded_again_even_though_the_row_stands(install):
+    _import(install)
+    with install.app.app_context():
+        tasks_mod.download_title_media_task(TITLE_ID)
+    (install.media_dir / media.ICON / media.ORIGINAL / "icon.jpg").unlink()
+
+    with install.app.app_context():
+        install.fetched.clear()
+        tasks_mod.download_title_media_task(TITLE_ID)
+
+    assert install.fetched == [ICON_URL]
+
+
+def test_a_missing_rendition_is_not_downloaded_again(install):
+    """It is built from the stored original when it is next asked for, so the CDN is not."""
     _import(install)
     with install.app.app_context():
         tasks_mod.download_title_media_task(TITLE_ID)
@@ -150,7 +163,7 @@ def test_a_missing_file_is_downloaded_again_even_though_the_row_stands(install):
         install.fetched.clear()
         tasks_mod.download_title_media_task(TITLE_ID)
 
-    assert install.fetched == [ICON_URL]
+    assert install.fetched == []
 
 
 def test_one_unreachable_image_does_not_lose_the_others(install, monkeypatch):
@@ -225,7 +238,6 @@ def test_a_lost_row_is_rebuilt_from_the_stored_bytes(install):
     icon = _slots(install)[(TITLE_ID, media.ICON, 0)]
     assert icon.filename == "icon.jpg"
     assert (icon.width, icon.height) == (1024, 1024)
-    assert (icon.client_width, icon.client_height) == (256, 256)
 
 
 def test_a_shrunken_screenshot_list_drops_the_slots_it_no_longer_fills(install):

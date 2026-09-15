@@ -141,3 +141,27 @@ def test_an_unknown_rendition_is_not_found(stored):
 
     assert stored.client.get(url, headers=basic("shopper")).status_code == 404
     assert stored.client.get(url).status_code == 401
+
+
+def test_a_rendition_the_store_lacks_is_built_from_its_original(stored):
+    """A store written before a rendition existed, or before its box changed, holds only the
+    original: the first request builds the rest rather than being turned away."""
+    buffer = io.BytesIO()
+    Image.new("RGB", (1024, 1024), "red").save(buffer, format="JPEG")
+    directory = media.media_dir(media.ICON, media.ORIGINAL)
+    os.makedirs(directory, exist_ok=True)
+    with open(os.path.join(directory, "older.jpg"), "wb") as f:
+        f.write(buffer.getvalue())
+
+    url = f"/api/media/{TITLE_ID}/{media.ICON}/0/{media.CLIENT}/older.jpg"
+    response = stored.client.get(url, headers=basic("shopper"))
+
+    assert response.status_code == 200
+    with Image.open(io.BytesIO(response.data)) as image:
+        assert image.size == (256, 256)
+
+
+def test_a_rendition_with_no_original_is_not_found(stored):
+    url = f"/api/media/{TITLE_ID}/{media.ICON}/0/{media.CLIENT}/absent.jpg"
+
+    assert stored.client.get(url, headers=basic("shopper")).status_code == 404
