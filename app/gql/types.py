@@ -82,13 +82,12 @@ def _remote_image(url: Optional[str]) -> Optional[Image]:
 
 
 def _local_image(row, size: ImageSize) -> Image:
-    filename = row.filename
-    if size is ImageSize.CLIENT:
-        width, height = row.client_width, row.client_height
-    else:
-        width, height = row.width, row.height
+    # Renditions are fitted to a box, so their size follows from the original's.
+    width, height = row.width, row.height
+    if size is not ImageSize.ORIGINAL and width and height:
+        width, height = media.fit((width, height), media.box(row.kind, size.value))
     return Image(
-        url=media.url_for(row.title_id, row.kind, row.position, size.value, filename),
+        url=media.url_for(row.title_id, row.kind, row.position, size.value, row.filename),
         size=size, local=True, width=width, height=height)
 
 

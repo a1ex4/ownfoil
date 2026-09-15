@@ -635,6 +635,8 @@ def serve_media(title_id, kind, position, size, name):
         directory = media.media_dir(kind, size)
     except ValueError:
         abort(404)
+    # Derive a missing rendition from its original; without one the send 404s.
+    media.build(kind, size, name)
     response = send_from_directory(directory, name, max_age=31536000)
     if not get_settings()['shop']['public']:
         # Keep a private shop's artwork out of shared caches.

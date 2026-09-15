@@ -66,13 +66,12 @@ def catalogue(tmp_path, monkeypatch):
         db.session.commit()
 
         upsert_media(LOCAL, media.ICON, 0, source="titledb", source_url=ICON_URL,
-                     filename="icon.jpg", size=(1024, 1024), client_size=(256, 256))
+                     filename="icon.jpg", size=(1024, 1024))
         upsert_media(LOCAL, media.BANNER, 0, source="titledb", source_url=BANNER_URL,
-                     filename="banner.jpg", size=(1280, 720), client_size=(640, 360))
+                     filename="banner.jpg", size=(1280, 720))
         for position, url in enumerate(SHOT_URLS):
             upsert_media(LOCAL, media.SCREENSHOT, position, source="titledb", source_url=url,
-                         filename=f"shot{position}.jpg", size=(1280, 720),
-                         client_size=(640, 360))
+                         filename=f"shot{position}.jpg", size=(1280, 720))
 
     return types.SimpleNamespace(app=app, client=app.test_client())
 

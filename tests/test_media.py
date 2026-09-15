@@ -72,16 +72,17 @@ RESIZE_CASES = [
 
 
 @pytest.mark.parametrize("kind,source,expected", RESIZE_CASES)
-def test_both_renditions_exist_and_the_client_one_fits_its_box(store, kind, source, expected):
-    filename, size, client_size = media.store_bytes(kind, jpeg(*source), "art.jpg")
+def test_every_rendition_exists_and_the_client_one_fits_its_box(store, kind, source, expected):
+    filename, size = media.store_bytes(kind, jpeg(*source), "art.jpg")
 
     assert filename == "art.jpg"
     assert size == source
-    assert client_size == expected
     for rendition, dims in ((media.ORIGINAL, source), (media.CLIENT, expected)):
         path = store / kind / rendition / "art.jpg"
         with Image.open(path) as image:
             assert image.size == dims
+    # What GraphQL reports for the rendition, worked out without opening the file.
+    assert media.fit(source, media.box(kind, media.CLIENT)) == expected
 
 
 def test_the_client_rendition_only_loses_resolution(store):
@@ -109,13 +110,34 @@ def test_the_client_rendition_only_loses_resolution(store):
     assert sum(error) / len(error) < 4
 
 
-def test_have_is_true_only_once_both_renditions_are_written(store):
+def test_have_is_true_once_the_original_is_written(store):
+    """Every other rendition is derived from the original, so it alone makes a slot retrieved."""
     assert not media.have(media.ICON, "art.jpg")
     media.store_bytes(media.ICON, jpeg(64, 64), "art.jpg")
     assert media.have(media.ICON, "art.jpg")
 
     os.remove(store / media.ICON / media.CLIENT / "art.jpg")
+    assert media.have(media.ICON, "art.jpg")
+    os.remove(store / media.ICON / media.ORIGINAL / "art.jpg")
     assert not media.have(media.ICON, "art.jpg")
+
+
+def test_a_missing_rendition_is_built_from_the_original(store):
+    media.store_bytes(media.ICON, jpeg(1024, 1024), "art.jpg")
+    os.remove(store / media.ICON / media.CLIENT / "art.jpg")
+
+    assert media.build(media.ICON, media.CLIENT, "art.jpg")
+    with Image.open(store / media.ICON / media.CLIENT / "art.jpg") as image:
+        assert image.size == (256, 256)
+
+
+def test_nothing_is_built_without_an_original_to_build_it_from(store):
+    assert not media.build(media.ICON, media.CLIENT, "absent.jpg")
+    media.store_bytes(media.ICON, jpeg(64, 64), "art.jpg")
+    # The original is the source rather than something to rebuild, and a name that would
+    # leave the store is refused before anything is opened.
+    assert not media.build(media.ICON, media.ORIGINAL, "art.jpg")
+    assert not media.build(media.ICON, media.CLIENT, "../art.jpg")
 
 
 def test_store_bytes_refuses_a_filename_that_would_escape_the_store(store):
