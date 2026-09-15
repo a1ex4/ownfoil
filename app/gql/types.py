@@ -51,7 +51,7 @@ def decode_json_list(value) -> Optional[List[str]]:
 
 
 ImageSizeArg = Annotated[ImageSize, arg(
-    "Which rendition to link to. Defaults to `CLIENT`, the size meant for display.")]
+    "Which rendition to link to. Defaults to `CLIENT`, the size of a title's own page.")]
 
 
 @described(strawberry.type)
