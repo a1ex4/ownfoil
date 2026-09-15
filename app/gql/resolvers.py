@@ -5,7 +5,7 @@ from typing import Dict, List, Optional
 import strawberry
 from sqlalchemy import text
 
-from constants import APP_TYPE_BASE, APP_TYPE_UPD
+from constants import APP_TYPE_BASE, APP_TYPE_DLC, APP_TYPE_UPD
 from containers.verification import (
     STATUS_CORRUPT, STATUS_MODIFIED, STATUS_REPACK, STATUS_SIGNATURE_FAILED,
     STATUS_SIGNATURE_OK, STATUS_UNVERIFIED, STATUS_VALID, status_of,
@@ -752,7 +752,18 @@ def resolve_title(title_id: str, ctx: GraphQLContext, info) -> Optional[Title]:
     return title
 
 
+def _title_id_type(id_sql: str) -> str:
+    """SQL for a title id's AppType: an odd 13th digit is DLC, `000` suffix BASE, `800` UPDATE."""
+    even = f"upper(substr({id_sql}, 13, 1)) IN ('0','2','4','6','8','A','C','E')"
+    return f"""(CASE
+        WHEN NOT {even} THEN '{APP_TYPE_DLC}'
+        WHEN substr({id_sql}, 14) = '000' THEN '{APP_TYPE_BASE}'
+        WHEN substr({id_sql}, 14) = '800' THEN '{APP_TYPE_UPD}'
+        ELSE '{APP_TYPE_DLC}' END)"""
+
+
 def resolve_titles(*, owned: Optional[bool], filter: Optional[TitleFilter],
+                    app_type: Optional[List[AppType]] = None,
                     search: Optional[str] = None, order_by: Optional[OrderBy] = None,
                     page: int, page_size: int, ctx: GraphQLContext, info) -> TitleConnection:
     if not ctx.can_shop:
@@ -805,6 +816,12 @@ def resolve_titles(*, owned: Optional[bool], filter: Optional[TitleFilter],
         default_order = "td.id"
         cols = _title_cols("titledb", items_sel)
 
+    if app_type:
+        # Owned, the library drives and a title titledb never heard of has no td.id.
+        id_sql = "ot.title_id" if owned is True else "td.id"
+        params.update({f"tt_{i}": t.value for i, t in enumerate(app_type)})
+        where.append(f"{_title_id_type(id_sql)} IN "
+                     f"({','.join(f':tt_{i}' for i in range(len(app_type)))})")
     if search:
         params["search"] = f"%{search}%"
         where.append(_TITLE_SEARCH)

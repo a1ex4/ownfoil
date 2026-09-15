@@ -29,12 +29,24 @@ OWNED_DLC = OWNED[:-4] + "1001"
 UNOWNED_DLC_1 = UNOWNED[:-4] + "1001"
 UNOWNED_DLC_2 = UNOWNED[:-4] + "1002"
 
+# Shaped like real ids, which the ones above are not, for reading a title's kind off
+# its id: an update is its game's id ending in 800, and a DLC takes the game's first
+# thirteen digits plus one - so the first DLC ends in 000, just as a game does.
+GAME = "0100000000DD0000"
+GAME_UPDATE = GAME[:-3] + "800"
+GAME_DLC_FIRST = GAME[:-4] + "1000"
+GAME_DLC_SECOND = GAME[:-4] + "1001"
+
 TITLEDB_JSON = {
     OWNED:         {"id": OWNED, "name": "Alpha Game", "releaseDate": 20170303},
     OWNED_DLC:     {"id": OWNED_DLC, "name": "Alpha Extra Levels"},
     UNOWNED:       {"id": UNOWNED, "name": "Beta Game", "releaseDate": 20180921},
     UNOWNED_DLC_1: {"id": UNOWNED_DLC_1, "name": "Beta Season Pass"},
     UNOWNED_DLC_2: {"id": UNOWNED_DLC_2, "name": "Beta Costume Pack"},
+    GAME:            {"id": GAME, "name": "Gamma Game"},
+    GAME_UPDATE:     {"id": GAME_UPDATE, "name": "Gamma Game Update"},
+    GAME_DLC_FIRST:  {"id": GAME_DLC_FIRST, "name": "Gamma Soundtrack"},
+    GAME_DLC_SECOND: {"id": GAME_DLC_SECOND, "name": "Gamma Artbook"},
 }
 
 # versions.json is keyed by title id -> {version: release date}.
@@ -186,3 +198,33 @@ def test_source_is_reported_and_filtered_as_an_enum(catalogue):
         query { titles(owned: true, filter: {source: UNRECOGNIZED}, page: 1, pageSize: 50)
             { items { titleId } } }""")
     assert [t["titleId"] for t in data["titles"]["items"]] == [unknown]
+
+
+def test_titles_are_narrowed_to_one_kind_by_their_id(catalogue):
+    """titledb holds a row for every update and DLC as well as every game, so a
+    catalogue listing asks for the games alone - and the id is what says which is
+    which, since a title nobody owns has no app row to say it."""
+    ids = ",".join('"%s"' % i for i in (GAME, GAME_UPDATE, GAME_DLC_FIRST, GAME_DLC_SECOND))
+
+    def listed(app_type):
+        data = query(catalogue, """
+            query { titles(appType: [%s], filter: {titleId: {in: [%s]}}, page: 1, pageSize: 50)
+                { total items { titleId } } }""" % (app_type, ids))
+        return data["titles"]["total"], sorted(t["titleId"] for t in data["titles"]["items"])
+
+    assert listed("BASE") == (1, [GAME])
+    assert listed("UPDATE") == (1, [GAME_UPDATE])
+    assert listed("DLC") == (2, sorted([GAME_DLC_FIRST, GAME_DLC_SECOND]))
+
+
+def test_the_owned_listing_reads_the_kind_off_its_own_id(catalogue):
+    """Owned, the listing is driven by the library, where a title titledb has never
+    heard of has no catalogue id at all - its own id has to answer."""
+    unknown_game = "0100000000EE0000"
+    _own_a_title_titledb_never_heard_of(catalogue, unknown_game)
+
+    data = query(catalogue, """
+        query { titles(owned: true, appType: [BASE], page: 1, pageSize: 50)
+            { items { titleId } } }""")
+    # Alpha is owned too, but its id is shaped like a DLC's.
+    assert [t["titleId"] for t in data["titles"]["items"]] == [unknown_game]
