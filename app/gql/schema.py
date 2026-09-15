@@ -65,6 +65,11 @@ class Query:
             "`true` lists what the library holds, including titles titledb does not "
             "recognize. `false` lists the catalogue minus the library - the "
             "'what could I add' view. Omit for everything.")] = None,
+        app_type: Annotated[Optional[List[AppType]], _arg(
+            "Restrict to these kinds of content, read off each title's id: titledb holds "
+            "a row for every update and DLC as well as every game, so a catalogue of "
+            "games asks for `[BASE]`. A bare value is coerced to a one-element list; an "
+            "empty list is no constraint.")] = None,
         filter: Annotated[Optional[TitleFilter], _arg(
             "Field-level predicates, ANDed together.")] = None,
         search: Annotated[Optional[str], _arg(
@@ -77,7 +82,7 @@ class Query:
         """A page of titles, from the catalogue and the library together. Requires
         shop access; returns an empty page otherwise."""
         return resolve_titles(
-            owned=owned, filter=filter, search=search, order_by=order_by,
+            owned=owned, app_type=app_type, filter=filter, search=search, order_by=order_by,
             page=page, page_size=page_size, ctx=info.context, info=info,
         )
 
