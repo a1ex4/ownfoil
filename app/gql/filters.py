@@ -104,16 +104,25 @@ class TitleSource(Enum):
 
 @described(strawberry.enum)
 class ImageSize(Enum):
-    """Which rendition of a piece of artwork to link to. Both always exist for an image
-    ownfoil holds locally, so asking for either is a choice about transfer size rather
-    than about availability."""
+    """Which rendition of a piece of artwork to link to. Every one exists for an image
+    ownfoil holds locally, so asking for one is a choice about transfer size rather than
+    about availability. Each but ORIGINAL is fitted to a box sized for where a 1280x720
+    screen draws it, keeping the aspect ratio and never enlarging, so an original smaller
+    than the box is served at its own size."""
     ORIGINAL = strawberry.enum_value(
         "original", description="The image as its source published it, untouched.")
+    THUMB = strawberry.enum_value(
+        "thumb",
+        description="Sized for a catalog card: fitted to 176x176 for icons, and to 320x180 "
+                    "for banners, screenshots and box art.")
     CLIENT = strawberry.enum_value(
         "client",
-        description="Fitted to a display box - 256x256 for icons, 640x360 for banners, "
-                    "screenshots and box art - preserving the aspect ratio and never "
-                    "enlarging, so a smaller original is served unchanged.")
+        description="Sized for a title's own page: fitted to 256x256 for icons, and to "
+                    "720x405 for banners, screenshots and box art.")
+    SCREEN = strawberry.enum_value(
+        "screen",
+        description="Sized for one image across a whole screen: fitted to 720x720 for "
+                    "icons, and to 1280x720 for banners, screenshots and box art.")
 
 
 @described(strawberry.input)

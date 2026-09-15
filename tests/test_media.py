@@ -60,29 +60,35 @@ def test_an_unusable_basename_falls_back_to_a_hash(url):
 
 # --- storing ---
 
-# (kind, source size, the client size it is fitted to)
+# (kind, source size, {rendition: the size it is fitted to})
 RESIZE_CASES = [
-    (media.ICON, (1024, 1024), (256, 256)),
-    (media.BANNER, (1280, 720), (640, 360)),
-    (media.SCREENSHOT, (1280, 720), (640, 360)),
-    (media.BOXART, (600, 900), (240, 360)),
-    # Already inside the box: thumbnail() never enlarges, so this is served unchanged.
-    (media.ICON, (64, 64), (64, 64)),
+    (media.ICON, (1024, 1024),
+     {media.THUMB: (176, 176), media.CLIENT: (256, 256), media.SCREEN: (720, 720)}),
+    (media.BANNER, (1920, 1080),
+     {media.THUMB: (320, 180), media.CLIENT: (720, 405), media.SCREEN: (1280, 720)}),
+    (media.SCREENSHOT, (1280, 720),
+     {media.THUMB: (320, 180), media.CLIENT: (720, 405), media.SCREEN: (1280, 720)}),
+    (media.BOXART, (600, 900),
+     {media.THUMB: (120, 180), media.CLIENT: (270, 405), media.SCREEN: (480, 720)}),
+    # Already inside every box: a rendition never enlarges, so this keeps its own size.
+    (media.ICON, (64, 64),
+     {media.THUMB: (64, 64), media.CLIENT: (64, 64), media.SCREEN: (64, 64)}),
 ]
 
 
 @pytest.mark.parametrize("kind,source,expected", RESIZE_CASES)
-def test_every_rendition_exists_and_the_client_one_fits_its_box(store, kind, source, expected):
+def test_every_rendition_exists_and_fits_its_box(store, kind, source, expected):
     filename, size = media.store_bytes(kind, jpeg(*source), "art.jpg")
 
     assert filename == "art.jpg"
     assert size == source
-    for rendition, dims in ((media.ORIGINAL, source), (media.CLIENT, expected)):
-        path = store / kind / rendition / "art.jpg"
-        with Image.open(path) as image:
+    assert set(media.SIZES) == {media.ORIGINAL, *expected}
+    for rendition, dims in ((media.ORIGINAL, source), *expected.items()):
+        with Image.open(store / kind / rendition / "art.jpg") as image:
             assert image.size == dims
-    # What GraphQL reports for the rendition, worked out without opening the file.
-    assert media.fit(source, media.box(kind, media.CLIENT)) == expected
+        if rendition != media.ORIGINAL:
+            # What GraphQL reports for the rendition, worked out without opening the file.
+            assert media.fit(source, media.box(kind, rendition)) == dims
 
 
 def test_the_client_rendition_only_loses_resolution(store):
@@ -161,7 +167,7 @@ def backdate(directory):
             os.utime(path, (old, old))
 
 
-def test_collect_removes_both_renditions_of_a_file_no_row_names(store):
+def test_collect_removes_every_rendition_of_a_file_no_row_names(store):
     media.store_bytes(media.ICON, jpeg(64, 64), "kept.jpg")
     media.store_bytes(media.ICON, jpeg(48, 48), "dropped.jpg")
     # An interrupted write leaves one of these behind and no row ever names it.
@@ -170,7 +176,8 @@ def test_collect_removes_both_renditions_of_a_file_no_row_names(store):
 
     removed = media.collect({(media.ICON, "kept.jpg")})
 
-    assert removed == 3
+    # Each rendition of the dropped file, and the leftover.
+    assert removed == len(media.SIZES) + 1
     assert media.have(media.ICON, "kept.jpg")
     assert not media.have(media.ICON, "dropped.jpg")
     assert not (store / media.ICON / media.ORIGINAL / "dropped.jpg").exists()

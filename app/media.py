@@ -37,20 +37,22 @@ BOXART = 'boxart'
 KINDS = (ICON, BANNER, SCREENSHOT, BOXART)
 
 ORIGINAL = 'original'
+THUMB = 'thumb'
 CLIENT = 'client'
-SIZES = (ORIGINAL, CLIENT)
+SCREEN = 'screen'
+SIZES = (ORIGINAL, THUMB, CLIENT, SCREEN)
 
-# Every rendition but the original is a re-encode fitted to a box, as (the box for icons,
-# the box for everything else, JPEG quality). Icons are square; everything else is
-# landscape store art, which titledb ships at the Switch's own 1280x720 - half of that is
-# still sharp on a phone card or a half-width Switch browser at a quarter of the bytes.
+# (icon box, other box, JPEG quality), each box sized to where a 1280x720 screen draws it:
+#   thumb   a catalog card
+#   client  a title's own page
+#   screen  one image across the whole screen
 RENDITIONS = {
-    CLIENT: ((256, 256), (640, 360), 90),
+    THUMB: ((176, 176), (320, 180), 90),
+    CLIENT: ((256, 256), (720, 405), 85),
+    SCREEN: ((720, 720), (1280, 720), 85),
 }
 
-# A re-encode needs its encoder spelled out: Pillow defaults to quality 75 and 4:2:0 chroma,
-# and halving the chroma planes smears exactly the saturated logo edges store artwork is
-# made of. Full chroma keeps a downscale looking like a downscale.
+# Full chroma: Pillow's default 4:2:0 smears the saturated edges of store art.
 _JPEG_OPTIONS = {'subsampling': 0, 'optimize': True}
 
 # How long a stored file is left alone regardless of what names it. The bytes land before the
