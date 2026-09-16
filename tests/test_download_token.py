@@ -6,7 +6,7 @@ else - the bytes, the gate, the counting - has to stay identical to the old rout
 """
 import pytest
 
-from db import Files
+from db import Files, db
 from settings import set_shop_settings
 
 FILENAME = "Test Game [0100000000010000][v0].nsp"
@@ -33,9 +33,16 @@ def test_every_file_gets_a_token(shop):
 def test_a_token_is_not_derived_from_the_row(shop):
     """A token built from the id or the path would be as guessable as the id it replaces."""
     id_, token, filepath = file_row(shop)
-    assert str(id_) not in token
     assert FILENAME.rsplit(".", 1)[0] not in token
     assert len(token) >= 16
+    with shop.app.app_context():
+        row = Files.query.get(id_)
+        library_id = row.library_id
+        db.session.delete(row)
+        db.session.flush()
+        db.session.add(Files(id=id_, library_id=library_id, filepath=filepath, filename=FILENAME))
+        db.session.commit()
+    assert file_row(shop)[1] != token
 
 
 def test_the_token_route_serves_the_same_bytes(shop):
