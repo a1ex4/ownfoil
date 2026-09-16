@@ -3,13 +3,46 @@ from flask_login import login_user, login_required, logout_user, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
 from functools import wraps
 from db import *
+from settings import get_settings
 from flask_login import LoginManager
 
+import hmac
 import logging
+import os
 import re
+import threading
+import time
 
 # Retrieve main logger
 logger = logging.getLogger('main')
+
+# Successful scrypt verifications, keyed by an HMAC of the stored hash and password under a
+# per-process secret: a password change misses the cache, and failures are never cached.
+VERIFY_CACHE_TTL = 300
+VERIFY_CACHE_MAX = 512
+_verify_secret = os.urandom(32)
+_verify_cache = {}
+_verify_lock = threading.Lock()
+
+
+def verify_password(pwhash, password):
+    """check_password_hash, memoizing successes so a repeat request skips scrypt."""
+    key = hmac.new(_verify_secret, pwhash.encode() + b'\0' + password.encode(),
+                   'sha256').digest()
+    now = time.monotonic()
+    with _verify_lock:
+        if _verify_cache.get(key, 0) > now:
+            return True
+    if not check_password_hash(pwhash, password):
+        return False
+    with _verify_lock:
+        if len(_verify_cache) >= VERIFY_CACHE_MAX:
+            for expired in [k for k, e in _verify_cache.items() if e <= now]:
+                del _verify_cache[expired]
+            if len(_verify_cache) >= VERIFY_CACHE_MAX:
+                _verify_cache.clear()
+        _verify_cache[key] = now + VERIFY_CACHE_TTL
+    return True
 
 def validate_password(password):
     """
@@ -147,11 +180,45 @@ def basic_auth(request):
         success = False
         error = f'Unknown user {username}.'
     
-    elif not check_password_hash(user.password, password):
+    elif not verify_password(user.password, password):
         success = False
         error = f'Incorrect password for user {username}.'
 
     return success, error, user
+
+def check_shop_access(request, auth=None):
+    """Anyone on a public shop, else a user with shop access. `auth` reuses a basic_auth result."""
+    success, error, user = auth if auth is not None else basic_auth(request)
+    user = user if success else None
+
+    if get_settings()['shop']['public']:
+        return True, None, user
+
+    if not success:
+        return False, 'Shop requires authentication.\n' + error, None
+    if not user.has_shop_access():
+        return False, f'User {user.user} does not have access to the shop.', user
+    return True, None, user
+
+def resolve_shop_caller(request):
+    """Shop gate by session cookie or Basic Auth; an admin passes without shop access."""
+    if not admin_account_created():
+        return True, None, None
+    auth = ((True, None, current_user._get_current_object())
+            if current_user.is_authenticated else basic_auth(request))
+
+    success, error, user = check_shop_access(request, auth=auth)
+    if not success and user is not None and user.has_admin_access():
+        return True, None, user
+    return success, error, user
+
+def shop_access_denied(error, user):
+    """403 for a known caller, 401 with a Basic Auth challenge otherwise."""
+    status = 403 if user else 401
+    response = jsonify({'error': error})
+    if status == 401:
+        response.headers['WWW-Authenticate'] = 'Basic realm="Ownfoil"'
+    return response, status
 
 auth_blueprint = Blueprint('auth', __name__)
 
@@ -239,7 +306,7 @@ def login():
 
     # check if the user actually exists
     # take the user-supplied password, hash it, and compare it to the hashed password in the database
-    if not user or not check_password_hash(user.password, password):
+    if not user or not verify_password(user.password, password):
         logger.warning(f'Incorrect login for user {username}')
         return redirect(url_for('auth.login')) # if the user doesn't exist or password is wrong, reload the page
 

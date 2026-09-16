@@ -51,7 +51,7 @@ def decode_json_list(value) -> Optional[List[str]]:
 
 
 ImageSizeArg = Annotated[ImageSize, arg(
-    "Which rendition to link to. Defaults to `CLIENT`, the size meant for display.")]
+    "Which rendition to link to. Defaults to `CLIENT`, the size of a title's own page.")]
 
 
 @described(strawberry.type)
@@ -82,13 +82,12 @@ def _remote_image(url: Optional[str]) -> Optional[Image]:
 
 
 def _local_image(row, size: ImageSize) -> Image:
-    filename = row.filename
-    if size is ImageSize.CLIENT:
-        width, height = row.client_width, row.client_height
-    else:
-        width, height = row.width, row.height
+    # Renditions are fitted to a box, so their size follows from the original's.
+    width, height = row.width, row.height
+    if size is not ImageSize.ORIGINAL and width and height:
+        width, height = media.fit((width, height), media.box(row.kind, size.value))
     return Image(
-        url=media.url_for(row.title_id, row.kind, row.position, size.value, filename),
+        url=media.url_for(row.title_id, row.kind, row.position, size.value, row.filename),
         size=size, local=True, width=width, height=height)
 
 
@@ -385,6 +384,10 @@ class AppVersion:
     release_date: Optional[str] = desc(
         "When this version shipped, as titledb reports it. Null when unknown.",
         default=None)
+    display_version: Optional[str] = desc(
+        "The version string this version's own file reports about itself, as "
+        "`App.displayVersion` does. Null on a version no owned file carries, and "
+        "until that file has been through metadata extraction.", default=None)
 
 
 @described(strawberry.type)
@@ -430,10 +433,13 @@ class App:
     owned: bool = desc(
         "At least one file in the library carries this app. Under "
         "`apps(groupByAppId: true)` this is group-level: true when any version of the "
-        "app id is owned, even though the item shown is the highest version.")
+        "app id is owned. With no ownership filter the item shown is the group's "
+        "highest version, owned or not; under `owned: true` it is the highest version "
+        "a file actually carries, so the item is always one that can be served.")
     release_date: Optional[str] = desc(
-        "When this version shipped. Populated for UPDATE rows; null on BASE and DLC "
-        "rows, whose date lives on `titledb.releaseDate`.", default=None)
+        "When this version shipped, as titledb records it for this app id and version - "
+        "so BASE and DLC rows carry one too, not only UPDATE rows. Null when the "
+        "catalogue has no date for that particular version.", default=None)
     display_version: Optional[str] = desc(
         "The version string the game shows about itself, e.g. `1.0.1`, read out of the "
         "file's own Control NCA. Unrelated to `appVersion`, which is the number Nintendo "
@@ -455,10 +461,27 @@ class App:
         "the `apps`, `title`, `titles` and `files` queries; null for apps reached as a "
         "file's back-link under `apps { files { apps } }`.", default=None)
 
+    latest_owned_version: Optional[AppVersion] = desc(
+        "The highest version of what `versions` covers that the shop actually holds a "
+        "file for - for a BASE app, the newest update it could install. Null when it "
+        "holds none. Hydrated by the same queries as `versions`, and answers on its own "
+        "the question a client would otherwise pull the whole history to work out.",
+        default=None)
+
+    added_at: Optional[str] = desc(
+        "When ownfoil first saw this app - the newest `addedAt` among the files "
+        "carrying it, since an app has no timestamp of its own. Null for an app no "
+        "file carries, and for apps reached as a file's back-link under "
+        "`apps { files { apps } }`. `orderBy: {field: ADDED_AT}` sorts on it.",
+        default=None)
+
     # Eagerly batch-loaded by the apps/titles resolvers (admin only). None means
     # "not exposed for this role"; an empty list means "exposed but no files".
     files_loaded: Private[Optional[List[File]]] = None
     titledb_loaded: Private[Optional["Title"]] = None
+    download_token_loaded: Private[Optional[str]] = None
+    download_size_loaded: Private[Optional[int]] = None
+    download_extension_loaded: Private[Optional[str]] = None
 
     @described_field
     def files(self, filter: NestedFileFilter = None) -> Optional[List[File]]:
@@ -468,6 +491,43 @@ class App:
         if self.files_loaded is None:
             return None
         return [f for f in self.files_loaded if match_file(f, filter)]
+
+    @described_field
+    def download_url(self) -> Optional[str]:
+        """Where to download this app, as a path on this server. Unlike `files` it is
+        not admin only - it is what a shop client reads the catalogue for.
+
+        An app can be carried by several files (an original and a compressed copy
+        cataloged side by side, say) and this names one of them: a single-content file
+        before a bundle, then the soundest `verificationStatus`, then the uncompressed
+        container, and finally the most recently added. Null for an app no file carries,
+        and for apps reached as a file's back-link under `apps { files { apps } }`.
+        The token is opaque and per-file; `files { id }` addresses the same bytes by
+        primary key."""
+        if self.download_token_loaded is None:
+            return None
+        return f"/api/download/{self.download_token_loaded}"
+
+    @described_field
+    def download_size(self) -> Optional[BigInt]:
+        """Size in bytes of the file `downloadUrl` points at.
+
+        Named after `downloadUrl` rather than called `size`, because an app can be
+        carried by several files: this describes the one that URL resolves to, not
+        the app. A 64-bit scalar for the same reason `File.size` is one. Null exactly
+        when `downloadUrl` is null. Not admin only - a shop client needs it to check
+        it has room for the download before starting one."""
+        return self.download_size_loaded
+
+    @described_field
+    def download_extension(self) -> Optional[str]:
+        """Container of the file `downloadUrl` points at: lowercase, no dot, e.g.
+        `nsp`, `nsz`, `xci`, `xcz`.
+
+        Null exactly when `downloadUrl` is null. Not admin only: the download itself
+        is served without a filename, so this is the only thing telling a client
+        which container it is about to read."""
+        return self.download_extension_loaded
 
     @described_field
     def titledb(self) -> Optional["Title"]:

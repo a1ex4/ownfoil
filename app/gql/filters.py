@@ -30,6 +30,11 @@ class StringFilter:
     in_: Optional[List[str]] = desc(
         "Matches any value in the list. An empty list is no constraint.",
         name="in", default=None)
+    not_in: Optional[List[str]] = desc(
+        "Matches nothing in the list - 'everything except these', in one page rather "
+        "than by paging the catalogue and diffing client-side. Rows with no value at "
+        "all are excluded too, the same way `in` excludes them. An empty list is no "
+        "constraint.", default=None)
 
 
 @described(strawberry.input)
@@ -99,16 +104,25 @@ class TitleSource(Enum):
 
 @described(strawberry.enum)
 class ImageSize(Enum):
-    """Which rendition of a piece of artwork to link to. Both always exist for an image
-    ownfoil holds locally, so asking for either is a choice about transfer size rather
-    than about availability."""
+    """Which rendition of a piece of artwork to link to. Every one exists for an image
+    ownfoil holds locally, so asking for one is a choice about transfer size rather than
+    about availability. Each but ORIGINAL is fitted to a box sized for where a 1280x720
+    screen draws it, keeping the aspect ratio and never enlarging, so an original smaller
+    than the box is served at its own size."""
     ORIGINAL = strawberry.enum_value(
         "original", description="The image as its source published it, untouched.")
+    THUMB = strawberry.enum_value(
+        "thumb",
+        description="Sized for a catalog card: fitted to 176x176 for icons, and to 320x180 "
+                    "for banners, screenshots and box art.")
     CLIENT = strawberry.enum_value(
         "client",
-        description="Fitted to a display box - 256x256 for icons, 640x360 for banners, "
-                    "screenshots and box art - preserving the aspect ratio and never "
-                    "enlarging, so a smaller original is served unchanged.")
+        description="Sized for a title's own page: fitted to 256x256 for icons, and to "
+                    "720x405 for banners, screenshots and box art.")
+    SCREEN = strawberry.enum_value(
+        "screen",
+        description="Sized for one image across a whole screen: fitted to 720x720 for "
+                    "icons, and to 1280x720 for banners, screenshots and box art.")
 
 
 @described(strawberry.input)
@@ -196,7 +210,9 @@ class AppFilter:
         "The `appType` argument is the several-at-once version.", default=None)
     owned: Optional[bool] = desc(
         "Whether a file carries the app. Identical to the `owned` argument, including "
-        "under `groupByAppId: true`, where both mean 'any version of this app id'.",
+        "under `groupByAppId: true`, where both select app ids by 'any version of this "
+        "one'. Grouped, `true` additionally narrows the item shown for each app id to "
+        "its highest owned version - the one that can actually be served.",
         default=None)
 
 
@@ -304,6 +320,13 @@ def string_clauses(column_sql: str, f: Optional[StringFilter], params: dict, key
             params[pk] = v
             keys.append(f":{pk}")
         out.append(f"{column_sql} IN ({','.join(keys)})")
+    if f.not_in:
+        keys = []
+        for i, v in enumerate(f.not_in):
+            pk = f"{key}_ni_{i}"
+            params[pk] = v
+            keys.append(f":{pk}")
+        out.append(f"{column_sql} NOT IN ({','.join(keys)})")
     return out
 
 
@@ -518,7 +541,8 @@ class OrderField(Enum):
         "How often shop clients fetched the file. `files` only."))
     ADDED_AT = strawberry.enum_value("added_at", description=(
         "When ownfoil first saw the file - the 'recently added' view, paired with "
-        "`direction: DESC`. `files` only."))
+        "`direction: DESC`. On `apps` it is the newest file carrying the app, since "
+        "an app has no timestamp of its own. Not applicable to `titles`."))
     VERSION = strawberry.enum_value("version", description=(
         "App version, compared numerically. `apps` only; under "
         "`groupByAppId: true` it sorts by the group's highest version."))
@@ -555,11 +579,14 @@ APP_ORDER = {
     "name": "td.name IS NULL, td.name COLLATE NOCASE",
     "release_date": "a.release_date IS NULL, a.release_date",
     "version": "CAST(a.app_version AS INTEGER)",
+    # `fa` is joined in by the resolver for this ordering only.
+    "added_at": "fa.added_at IS NULL, fa.added_at",
 }
 
 # Grouped by app id, the item is the group's highest version, so that is what sorting
 # by VERSION has to compare - a bare column would be the aggregate's row by accident
 # rather than by intent.
+# `added_at` stays bare: a second min/max aggregate would break the bare-column row pick.
 APP_ORDER_GROUPED = {**APP_ORDER, "version": "MAX(CAST(a.app_version AS INTEGER))"}
 
 FILE_ORDER = {
@@ -626,6 +653,8 @@ def match_string(value, f: Optional[StringFilter]) -> bool:
     if f.contains is not None and f.contains.lower() not in str(value).lower():
         return False
     if f.in_ is not None and value not in f.in_:
+        return False
+    if f.not_in and value in f.not_in:
         return False
     return True
 

@@ -17,6 +17,7 @@ import hashlib
 import io
 import os
 import re
+import threading
 import time
 from urllib.parse import urlparse
 
@@ -36,20 +37,23 @@ BOXART = 'boxart'
 KINDS = (ICON, BANNER, SCREENSHOT, BOXART)
 
 ORIGINAL = 'original'
+THUMB = 'thumb'
 CLIENT = 'client'
-SIZES = (ORIGINAL, CLIENT)
+SCREEN = 'screen'
+SIZES = (ORIGINAL, THUMB, CLIENT, SCREEN)
 
-# The box the `client` rendition is fitted into. Icons are square; everything else is
-# landscape store art, which titledb ships at the Switch's own 1280x720 - half of that is
-# still sharp on a phone card or a half-width Switch browser at a quarter of the bytes.
-CLIENT_BOX = {ICON: (256, 256), BANNER: (640, 360), SCREENSHOT: (640, 360), BOXART: (640, 360)}
+# (icon box, other box, JPEG quality), each box sized to where a 1280x720 screen draws it:
+#   thumb   a catalog card
+#   client  a title's own page
+#   screen  one image across the whole screen
+RENDITIONS = {
+    THUMB: ((176, 176), (320, 180), 90),
+    CLIENT: ((256, 256), (720, 405), 85),
+    SCREEN: ((720, 720), (1280, 720), 85),
+}
 
-# The client rendition is a re-encode, so it needs its encoder spelled out: Pillow defaults
-# to quality 75 and 4:2:0 chroma, and halving the chroma planes smears exactly the saturated
-# logo edges store artwork is made of. Full chroma at 90 keeps a downscale looking like a
-# downscale, for about twice the bytes of the default and a twentieth of the original's.
-CLIENT_QUALITY = 90
-_JPEG_OPTIONS = {'quality': CLIENT_QUALITY, 'subsampling': 0, 'optimize': True}
+# Full chroma: Pillow's default 4:2:0 smears the saturated edges of store art.
+_JPEG_OPTIONS = {'subsampling': 0, 'optimize': True}
 
 # How long a stored file is left alone regardless of what names it. The bytes land before the
 # row naming them is committed, so without this a sweep running in between would collect an
@@ -71,6 +75,22 @@ def media_dir(kind, size):
 
 def media_path(kind, size, filename):
     return os.path.join(media_dir(kind, size), filename)
+
+
+def box(kind, size):
+    """The box one rendition of one kind of artwork is fitted into."""
+    icon, other, _quality = RENDITIONS[size]
+    return icon if kind == ICON else other
+
+
+def fit(dimensions, box):
+    """The size an image of `dimensions` is stored at in `box`: the aspect ratio kept, and
+    never enlarged, so an original already inside the box keeps its own size."""
+    width, height = dimensions
+    scale = min(box[0] / width, box[1] / height)
+    if scale >= 1:
+        return width, height
+    return max(1, round(width * scale)), max(1, round(height * scale))
 
 
 def url_for(title_id, kind, position, size, filename):
@@ -109,17 +129,14 @@ def slots_in(text):
 
 
 def have(kind, filename):
-    """Both renditions are on disk, which is what makes a slot already retrieved."""
-    return all(os.path.isfile(media_path(kind, size, filename)) for size in SIZES)
+    """The original is on disk, which is what makes a slot already retrieved."""
+    return os.path.isfile(media_path(kind, ORIGINAL, filename))
 
 
 def dimensions(kind, filename):
-    """Sizes of both renditions already on disk, as ((w, h), (client_w, client_h))."""
-    sizes = []
-    for size in SIZES:
-        with Image.open(media_path(kind, size, filename)) as image:
-            sizes.append(image.size)
-    return tuple(sizes)
+    """Size of the stored original, as (w, h). Every rendition's size follows from it."""
+    with Image.open(media_path(kind, ORIGINAL, filename)) as image:
+        return image.size
 
 
 def usage():
@@ -181,8 +198,17 @@ def fetch(url):
     return response.content
 
 
+def _render(image, kind, size):
+    """One rendition of an opened image, encoded in the format its source came in."""
+    fitted = image.resize(fit(image.size, box(kind, size)), Image.LANCZOS)
+    options = {'quality': RENDITIONS[size][2], **_JPEG_OPTIONS} if image.format == 'JPEG' else {}
+    buffer = io.BytesIO()
+    fitted.save(buffer, format=image.format, **options)
+    return buffer.getvalue()
+
+
 def store_bytes(kind, data, filename=None):
-    """Write both renditions of an image. Returns (filename, (w, h), (client_w, client_h))."""
+    """Write every rendition of an image. Returns (filename, (w, h)), the original's size."""
     if filename is None:
         filename = hashlib.sha256(data).hexdigest()[:32] + '.jpg'
     if not _SAFE_FILENAME.match(filename):
@@ -191,21 +217,28 @@ def store_bytes(kind, data, filename=None):
     with Image.open(io.BytesIO(data)) as image:
         image.load()
         size = image.size
-        # thumbnail() fits the box preserving the aspect ratio and never upscales, so a
-        # source already smaller than the box is simply copied and a client rendition
-        # always exists without a special case for it.
-        client = image.copy()
-        # reducing_gap defaults to 2.0, which reduce()s before resampling; None asks for the
-        # straight LANCZOS pass, which is what the box was sized for.
-        client.thumbnail(CLIENT_BOX[kind], Image.LANCZOS, reducing_gap=None)
-        client_size = client.size
-        buffer = io.BytesIO()
-        client.save(buffer, format=image.format,
-                    **(_JPEG_OPTIONS if image.format == 'JPEG' else {}))
+        renditions = {rendition: _render(image, kind, rendition) for rendition in RENDITIONS}
 
     _write(kind, ORIGINAL, filename, data)
-    _write(kind, CLIENT, filename, buffer.getvalue())
-    return filename, size, client_size
+    for rendition, rendered in renditions.items():
+        _write(kind, rendition, filename, rendered)
+    return filename, size
+
+
+def build(kind, size, filename):
+    """Make sure one rendition is on disk, deriving it from the stored original if it isn't.
+    False when there is no original, and for ORIGINAL itself."""
+    if size not in RENDITIONS or not _SAFE_FILENAME.match(filename):
+        return False
+    if os.path.isfile(media_path(kind, size, filename)):
+        return True
+    if not have(kind, filename):
+        return False
+    with Image.open(media_path(kind, ORIGINAL, filename)) as image:
+        image.load()
+        rendered = _render(image, kind, size)
+    _write(kind, size, filename, rendered)
+    return True
 
 
 def store_extracted(title_id, kind, data):
@@ -215,9 +248,9 @@ def store_extracted(title_id, kind, data):
     same name and the URL only changes when the image does.
     """
     from db import upsert_media
-    filename, size, client_size = store_bytes(kind, data)
+    filename, size = store_bytes(kind, data)
     upsert_media(title_id, kind, 0, source=SOURCE_EXTRACT, source_url=None,
-                 filename=filename, size=size, client_size=client_size)
+                 filename=filename, size=size)
     return url_for(title_id, kind, 0, ORIGINAL, filename)
 
 
@@ -225,7 +258,8 @@ def _write(kind, size, filename, data):
     directory = media_dir(kind, size)
     os.makedirs(directory, exist_ok=True)
     path = os.path.join(directory, filename)
-    tmp = path + '.tmp'
+    # Per-thread temp file, so concurrent builds of one rendition don't share it.
+    tmp = f'{path}.{threading.get_ident()}.tmp'
     with open(tmp, 'wb') as f:
         f.write(data)
     os.replace(tmp, path)

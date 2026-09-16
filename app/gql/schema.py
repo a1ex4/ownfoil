@@ -2,7 +2,7 @@
 from typing import List, Optional
 
 import strawberry
-from strawberry.extensions import QueryDepthLimiter
+from strawberry.extensions import ParserCache, QueryDepthLimiter, ValidationCache
 from strawberry.types import Info
 from typing_extensions import Annotated
 
@@ -65,6 +65,11 @@ class Query:
             "`true` lists what the library holds, including titles titledb does not "
             "recognize. `false` lists the catalogue minus the library - the "
             "'what could I add' view. Omit for everything.")] = None,
+        app_type: Annotated[Optional[List[AppType]], _arg(
+            "Restrict to these kinds of content, read off each title's id: titledb holds "
+            "a row for every update and DLC as well as every game, so a catalogue of "
+            "games asks for `[BASE]`. A bare value is coerced to a one-element list; an "
+            "empty list is no constraint.")] = None,
         filter: Annotated[Optional[TitleFilter], _arg(
             "Field-level predicates, ANDed together.")] = None,
         search: Annotated[Optional[str], _arg(
@@ -77,7 +82,7 @@ class Query:
         """A page of titles, from the catalogue and the library together. Requires
         shop access; returns an empty page otherwise."""
         return resolve_titles(
-            owned=owned, filter=filter, search=search, order_by=order_by,
+            owned=owned, app_type=app_type, filter=filter, search=search, order_by=order_by,
             page=page, page_size=page_size, ctx=info.context, info=info,
         )
 
@@ -149,8 +154,9 @@ class Query:
         id: Annotated[strawberry.ID, _arg("Primary key of the app row.")],
     ) -> Optional[App]:
         """One app by primary key, including an item returned by
-        `apps(groupByAppId: true)` - a grouped item is the group's highest-version row,
-        not a composite, so its `id` resolves back to that same app."""
+        `apps(groupByAppId: true)` - a grouped item is a real row of the group (its
+        highest version, or its highest owned one under `owned: true`) rather than a
+        composite, so its `id` resolves back to that same app."""
         return resolve_app(str(id), info.context, info)
 
     @described_field
@@ -220,8 +226,14 @@ class Query:
 # would otherwise happily expand, on an endpoint any shop-access user can reach.
 MAX_QUERY_DEPTH = 15
 
+# Parsing and validation, depth limit included, are cached per query text.
+# Bounded, as the query text is caller-supplied.
+QUERY_CACHE_SIZE = 128
+
 schema = strawberry.Schema(
     query=Query,
     mutation=Mutation,
-    extensions=[QueryDepthLimiter(max_depth=MAX_QUERY_DEPTH)],
+    extensions=[lambda: QueryDepthLimiter(max_depth=MAX_QUERY_DEPTH),
+                lambda: ParserCache(maxsize=QUERY_CACHE_SIZE),
+                lambda: ValidationCache(maxsize=QUERY_CACHE_SIZE)],
 )

@@ -1,7 +1,7 @@
 """Flask view for the GraphQL endpoint with auth + ETag/304 handling."""
 import json
 
-from flask import Response, jsonify, make_response, request
+from flask import Response, g, jsonify, make_response, request
 from graphql import GraphQLError, OperationDefinitionNode, OperationType, parse
 from strawberry.flask.views import GraphQLView
 
@@ -15,7 +15,7 @@ class OwnfoilGraphQLView(GraphQLView):
     graphql_ide = "graphiql"  # interactive UI when browsing the endpoint
 
     def get_context(self, request, response) -> GraphQLContext:  # type: ignore[override]
-        return build_context()
+        return g.graphql_context
 
 
 _view = OwnfoilGraphQLView.as_view("ownfoil_graphql", schema=schema)
@@ -72,16 +72,16 @@ def is_mutation(query: str, operation_name=None) -> bool:
 
 def graphql_dispatch():
     """Dispatch /api/graphql with auth gating, ETag handling, and a 304 fast path."""
-    from auth import admin_account_created
-    from flask_login import current_user
+    from auth import resolve_shop_caller
 
-    if admin_account_created():
-        if not current_user.is_authenticated:
-            return Response("Unauthorized", status=401)
-        if not (current_user.has_shop_access() or current_user.has_admin_access()):
-            return Response("Forbidden", status=403)
+    # No WWW-Authenticate challenge: it would pop a credential dialog over the playground.
+    success, _error, user = resolve_shop_caller(request)
+    if not success:
+        return Response("Forbidden" if user else "Unauthorized",
+                        status=403 if user else 401)
 
-    ctx = build_context()
+    ctx = build_context(user)
+    g.graphql_context = ctx
     query, variables, operation_name = _parse_request()
 
     # Writes are never cached and never served from a GET: a cacheable, prefetchable,

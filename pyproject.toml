@@ -1,6 +1,6 @@
 [project]
 name = "ownfoil"
-version = "2.5.0.dev0"
+dynamic = ["version"]
 description = "Self-hosted Nintendo Switch library manager, with automated management tasks, multi user authentication, serving your library to multiple supported clients on your Switch."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -46,6 +46,12 @@ ownfoil = "ownfoil.cli:main"
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+# The version lives with the application code, so a Docker image - which ships app/ only -
+# can report it at runtime.
+[tool.hatch.version]
+path = "app/constants.py"
+pattern = 'APP_VERSION = "(?P<version>.+?)"'
 
 [tool.hatch.build.targets.wheel]
 packages = ["ownfoil"]

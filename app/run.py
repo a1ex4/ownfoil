@@ -3,6 +3,7 @@ import logging
 from gunicorn.app.base import BaseApplication
 from gunicorn.glogging import Logger as GunicornLogger
 
+from constants import HTTP_PORT
 from utils import ColoredFormatter, LOG_FORMAT, LOG_DATEFMT
 from worker_pool import WorkerPool
 
@@ -71,14 +72,16 @@ def main():
     def worker_exit(server, worker):
         """Stop watcher and worker pool when Gunicorn worker exits."""
         from realtime import stop as stop_realtime
+        from discovery import stop as stop_discovery
         stop_realtime()
+        stop_discovery()
         if app_mod.pool is not None:
             app_mod.pool.shutdown()
         if app_mod.watcher is not None:
             app_mod.watcher.stop()
 
     options = {
-        'bind': '0.0.0.0:8465',
+        'bind': f'0.0.0.0:{HTTP_PORT}',
         'workers': 1,
         'worker_class': 'gthread',
         # Each open realtime WebSocket pins a thread for its lifetime, so the pool has to
