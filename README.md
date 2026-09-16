@@ -4,7 +4,7 @@
 [![Docker Image Size (latest semver)](https://img.shields.io/docker/image-size/a1ex4/ownfoil?sort=date&arch=amd64)](https://hub.docker.com/r/a1ex4/ownfoil/tags)  
 [![Docker Pulls](https://img.shields.io/docker/pulls/a1ex4/ownfoil?)](https://hub.docker.com/r/a1ex4/ownfoil)
 [![Unraid downloads](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fca.unraid.net%2Fapi%2Fsearch%3Fquery%3Downfoil%26type%3Ddocker&query=%24.hits%5B0%5D.chartData.totalDownloadsChart.data%5B6%5D&label=unraid%20downloads&color=F15A2C)](https://ca.unraid.net/apps/ownfoil-19wo90o0t5ul8s)  
-![Image archs](https://img.shields.io/badge/platforms-amd64%20%7C%20%20arm64%2Fv8%20%7C%20arm%2Fv7%20%7C%20arm%2Fv6-8A2BE2)  
+![Image archs](https://img.shields.io/badge/platforms-amd64%20%7C%20%20arm64%2Fv8%20%7C%20arm%2Fv7%20%7C%20arm%2Fv6-8A2BE2?style=flat-square)[![Nokia support](https://img.shields.io/badge/%7C%20Nokia%203310-8A2BE2?style=flat-square)](https://www.reddit.com/r/SwitchPirates/s/zy5ELiUW9y)  
 [![Tinfoil Version](https://img.shields.io/badge/Tinfoil-v20.0-da1c5c)](https://tinfoil.io/Download)
 [![Sphaira Version](https://img.shields.io/badge/Sphaira-v1.0.6-%233cd57a)](https://github.com/NaGaa95/sphaira)
 [![CyberFoil Version](https://img.shields.io/badge/CyberFoil-v1.4.5-firebrick)](https://github.com/luketanti/CyberFoil)
