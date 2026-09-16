@@ -1,15 +1,11 @@
-"""LAN discovery: answers the UDP broadcast clients send to find shops on the local network.
-
-The wire format belongs to the client: a datagram containing exactly OWNFOIL_DISCOVER, answered
-with a JSON object carrying the magic, this shop's identity and the addresses to reach it on.
-"""
+"""LAN discovery: answers the UDP broadcast clients send to find shops on the local network."""
 import json
 import logging
 import socket
 import threading
 
-from constants import APP_VERSION, DISCOVERY_MAGIC, DISCOVERY_PORT, DISCOVERY_REQUEST
-from settings import get_server_uid, get_settings, get_shop_addresses
+from constants import APP_VERSION, DISCOVERY_MAGIC, DISCOVERY_PORT, DISCOVERY_REQUEST, HTTP_PORT
+from settings import get_server_uid, get_settings
 
 logger = logging.getLogger('main')
 
@@ -25,7 +21,9 @@ def discovery_payload():
         'uid': get_server_uid(),
         'name': shop['name'],
         'version': APP_VERSION,
-        **get_shop_addresses(),
+        # A port, not an address: the client knows the host the reply came from.
+        'port': HTTP_PORT,
+        'remote': shop['host'],
         'public': shop['public'],
     }
 

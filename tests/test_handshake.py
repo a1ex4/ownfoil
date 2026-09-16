@@ -9,7 +9,7 @@ import pytest
 
 from constants import API_PROTOCOL_VERSION, APP_VERSION
 from discovery import discovery_payload
-from settings import get_server_uid, get_shop_addresses, set_shop_settings
+from settings import get_server_uid, set_shop_settings
 
 # What a caller reaching the handshake can do today: browse, and resume its downloads. The
 # rest stay false until the dump upload, save backup and tus endpoints exist.
@@ -64,7 +64,7 @@ def test_shop_access_gating(shop_app, public, user, password, status):
 
 
 def test_identity_comes_from_settings(shop_app):
-    set_shop_settings({"public": True, "name": "My Public Shop", "motd": "Welcome!"})
+    set_shop_settings({"public": True, "name": "My Public Shop", "motd": "Welcome!", "host": "shop.example.com"})
 
     assert handshake(shop_app).json == {
         "uid": get_server_uid(),
@@ -73,7 +73,7 @@ def test_identity_comes_from_settings(shop_app):
         "protocol_version": API_PROTOCOL_VERSION,
         "motd": "Welcome!",
         "public": True,
-        **get_shop_addresses(),
+        "remote": "shop.example.com",
         "features": FEATURES,
     }
 
@@ -83,15 +83,6 @@ def test_uid_is_the_one_discovery_answers_with(shop_app):
     set_shop_settings({"public": True})
 
     assert handshake(shop_app).json["uid"] == discovery_payload()["uid"]
-
-
-def test_addresses_are_the_ones_discovery_answers_with(shop_app):
-    """A client off the LAN never hears the broadcast, so the handshake is the only way it
-    learns the shop moved - it has to report the same pair."""
-    set_shop_settings({"public": True, "host": "shop.example.com"})
-    reply, announced = handshake(shop_app).json, discovery_payload()
-
-    assert (reply["local"], reply["remote"]) == (announced["local"], announced["remote"])
 
 
 def test_refusal_without_credentials_challenges(shop_app):

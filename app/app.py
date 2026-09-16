@@ -237,9 +237,8 @@ def shop_handshake():
         'protocol_version': API_PROTOCOL_VERSION,
         'motd': settings['shop']['motd'],
         'public': settings['shop']['public'],
-        # Also the discovery reply's, so a client that can only reach one of the two
-        # addresses still learns when the other one moves.
-        **get_shop_addresses(),
+        # No local address: only discovery, on the client's own network, gives one.
+        'remote': settings['shop']['host'],
         'features': {
             # Reached only past the shop access gate above, and downloads support Range.
             'shop': True,
