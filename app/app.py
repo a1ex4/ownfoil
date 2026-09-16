@@ -19,6 +19,7 @@ from library import *
 import json
 import media
 import tasks as tasks_mod
+import discovery
 import realtime
 import titledb
 import os
@@ -34,6 +35,9 @@ def init():
     watcher_thread = threading.Thread(target=watcher.run)
     watcher_thread.daemon = True
     watcher_thread.start()
+
+    # Start UDP discovery for clients on the LAN
+    discovery.reconcile()
 
     # init libraries
     library_paths = get_library_paths()
@@ -84,6 +88,7 @@ def on_settings_change():
         if desired != pool.count:
             logger.info(f'Settings changed: scaling workers from {pool.count} to {desired}')
             pool.scale(desired)
+    discovery.reconcile()
     if watcher is not None:
         # Reconcile off this thread: this callback runs inside the native observer's dispatch,
         # which holds the observer lock that schedule/unschedule also need.
@@ -218,10 +223,40 @@ def access_shop():
 def access_shop_auth():
     return access_shop()
 
-@app.route('/', defaults={'path': ''})
+def shop_handshake():
+    """Server identity and per-caller capabilities: the OPTIONS handshake of the Ownfoil API."""
+    success, error, user = check_shop_access(request)
+    if not success:
+        return shop_access_denied(error, user)
+
+    settings = get_settings()
+    return jsonify({
+        'uid': get_server_uid(),
+        'name': settings['shop']['name'],
+        'version': APP_VERSION,
+        'protocol_version': API_PROTOCOL_VERSION,
+        'motd': settings['shop']['motd'],
+        'public': settings['shop']['public'],
+        # No local address: only discovery, on the client's own network, gives one.
+        'remote': settings['shop']['host'],
+        'features': {
+            # Reached only past the shop access gate above, and downloads support Range.
+            'shop': True,
+            'resumable_download': True,
+            'dumps_upload': False,      # needs the dumps_access permission and upload_library_id
+            'save_backup': False,       # becomes user.has_backup_access() once saves are served
+            'resumable_upload': False,  # becomes True with the tus upload endpoints
+        },
+    })
+
+@app.route('/', defaults={'path': ''}, methods=['GET', 'OPTIONS'])
 @app.route('/<path:path>')
 def index(path=None):
     """Main shop endpoint routing to either client-specific shop or web browser UI."""
+    # The handshake answers for itself, before any client identification happens.
+    if request.method == 'OPTIONS':
+        return shop_handshake()
+
     # Check if this is a client request
     client = get_client_for_request(request)
 
@@ -279,6 +314,13 @@ def settings_page():
         title='Settings',
         languages_from_titledb=languages,
         admin_account_created=admin_account_created())
+
+@app.route('/admin/services')
+@access_required('admin')
+def services_page():
+    return render_template('services.html', title='Services',
+                           discovery_port=DISCOVERY_PORT,
+                           admin_account_created=admin_account_created())
 
 @app.route('/admin/tasks')
 @access_required('admin')
@@ -415,6 +457,13 @@ def set_shop_settings_api():
         'errors': []
     } 
     return jsonify(resp)
+
+@app.post('/api/settings/services')
+@access_required('admin')
+def set_services_settings_api():
+    set_services_settings(request.json)
+    discovery.reconcile()
+    return jsonify({'success': True, 'errors': []})
 
 @app.route('/api/settings/library/paths', methods=['GET', 'POST', 'DELETE'])
 @access_required('admin')
@@ -570,7 +619,6 @@ app.add_url_rule(
 )
 
 @app.route('/api/media/<title_id>/<kind>/<int:position>/<size>/<path:name>')
-@access_required('shop', 'admin')
 def serve_media(title_id, kind, position, size, name):
     """Serve a local copy of title artwork. Same audience as the catalogue itself.
 
@@ -578,11 +626,23 @@ def serve_media(title_id, kind, position, size, name):
     kind/size/filename alone, so this stays a static send with no database read. Filenames
     are content hashes, which is what makes the year of cache safe.
     """
+    success, error, user = resolve_shop_caller(request)
+    if not success:
+        return shop_access_denied(error, user)
+
     try:
         directory = media.media_dir(kind, size)
     except ValueError:
         abort(404)
-    return send_from_directory(directory, name, max_age=31536000)
+    # Derive a missing rendition from its original; without one the send 404s.
+    media.build(kind, size, name)
+    response = send_from_directory(directory, name, max_age=31536000)
+    if not get_settings()['shop']['public']:
+        # Keep a private shop's artwork out of shared caches.
+        response.cache_control.public = False
+        response.cache_control.private = True
+        response.headers['Vary'] = 'Authorization, Cookie'
+    return response
 
 @app.route('/api/get_game/<int:id>')
 @file_access
@@ -594,6 +654,18 @@ def serve_game(id):
     filedir, filename = os.path.split(filepath)
     # Count only once the response exists: clients probe files with a Range before taking
     # them, and a range past the end of the file raises out of here without transferring.
+    response = send_from_directory(filedir, filename)
+    increment_download_count_throttled(filepath, client_address(request))
+    return response
+
+@app.route('/api/download/<token>')
+@file_access
+def download_file(token):
+    """Serve a game file by the opaque token the GraphQL catalogue hands out."""
+    filepath = db.session.query(Files.filepath).filter_by(download_token=token).scalar()
+    if not filepath:
+        return jsonify({'error': 'No file with that token.'}), 404
+    filedir, filename = os.path.split(filepath)
     response = send_from_directory(filedir, filename)
     increment_download_count_throttled(filepath, client_address(request))
     return response

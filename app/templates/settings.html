@@ -475,6 +475,13 @@
                 <hr class="hr-settings">
                 <h2 class="pb-2">Shop</h2>
                 <p>Shop configuration and customization.</p>
+                <!-- Shop name -->
+                <div class="mb-3">
+                    <label for="shopNameInput" class="form-label">Shop name:</label>
+                    <input class="form-control" id="shopNameInput" aria-describedby="shopNameHelp"
+                        placeholder="Ownfoil">
+                    <div id="shopNameHelp" class="form-text">Name displayed by clients for your shop.</div>
+                </div>
                 <!-- Shop URL -->
                 <div class="mb-3">
                     <label for="shopHostInput" class="form-label">Shop URL:</label>
@@ -734,25 +741,31 @@
     // Artwork kinds in the order they are shown, labelled for the usage table.
     const MEDIA_KINDS = { icon: 'Icon', banner: 'Banner', screenshot: 'Screenshots', boxart: 'Box art' };
 
-    function usageRow(label, original, client, bold) {
+    // Renditions in the order they are shown, one column each ahead of the total.
+    const MEDIA_SIZES = ['original', 'thumb', 'client', 'screen'];
+
+    function usageRow(label, bytes, bold) {
         const row = $(bold ? '<tr class="fw-semibold">' : '<tr>');
-        return row.append($('<td>').text(label), $('<td>').text(formatBytes(original)),
-            $('<td>').text(formatBytes(client)), $('<td>').text(formatBytes(original + client)));
+        const total = bytes.reduce((sum, used) => sum + used, 0);
+        return row.append($('<td>').text(label), ...bytes.map(used => $('<td>').text(formatBytes(used))),
+            $('<td>').text(formatBytes(total)));
     }
 
     function fillMediaUsage() {
         $.getJSON("/api/settings/local_media/usage", function (usage) {
             const rows = [];
-            let files = 0, originalTotal = 0, clientTotal = 0;
+            const totals = MEDIA_SIZES.map(() => 0);
+            let files = 0;
             Object.entries(MEDIA_KINDS).forEach(([kind, label]) => {
-                const original = ((usage[kind] || {}).original) || { bytes: 0, files: 0 };
-                const client = ((usage[kind] || {}).client) || { bytes: 0, files: 0 };
-                files += original.files + client.files;
-                originalTotal += original.bytes;
-                clientTotal += client.bytes;
-                rows.push(usageRow(label, original.bytes, client.bytes, false));
+                const bytes = MEDIA_SIZES.map((size, i) => {
+                    const used = ((usage[kind] || {})[size]) || { bytes: 0, files: 0 };
+                    files += used.files;
+                    totals[i] += used.bytes;
+                    return used.bytes;
+                });
+                rows.push(usageRow(label, bytes, false));
             });
-            rows.push(usageRow('Total', originalTotal, clientTotal, true));
+            rows.push(usageRow('Total', totals, true));
             $('#mediaUsageTable tbody').empty().append(rows);
             $('#mediaUsageCaption').text(`${files} file${files === 1 ? '' : 's'} stored`);
         });
@@ -1267,6 +1280,7 @@
     function submitShopSettings() {
         $('#submitShopSettingsBtn').prop('disabled', true);
         data = {
+            name: $('#shopNameInput').val(),
             host: $('#shopHostInput').val(),
             public: getCheckboxStatus("publicShopCheck"),
             motd: $('#shopMotdTextArea').val(),
@@ -1546,6 +1560,7 @@
 
             // Shop settings
             shopSettings = result['shop'];
+            setInputVal("shopNameInput", shopSettings['name']);
             setInputVal("shopHostInput", shopSettings['host']);
             $("#publicShopCheck").prop("checked", shopSettings['public']);
             setInputVal("shopMotdTextArea", shopSettings['motd']);

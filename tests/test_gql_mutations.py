@@ -255,3 +255,14 @@ def test_a_pathological_nesting_is_refused(library):
         "query": _nested_query(MAX_QUERY_DEPTH + 5)})
 
     assert resp.get_json().get("errors")
+
+
+def test_a_pathological_nesting_is_refused_again_on_a_repeat(library):
+    """The depth cap is a validation rule and validation results are cached, so the
+    second send of the same document must be refused exactly like the first."""
+    query = _nested_query(MAX_QUERY_DEPTH + 5)
+
+    for _ in range(2):
+        resp = library.client.get("/api/graphql", query_string={"query": query})
+
+        assert resp.get_json().get("errors")

@@ -1,5 +1,10 @@
 import os
 
+# Read by pyproject.toml at build time.
+APP_VERSION = "2.5.0.dev0"
+# Ownfoil API contract version.
+API_PROTOCOL_VERSION = 1
+
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.environ.get('OWNFOIL_DATA_DIR') or os.path.join(APP_DIR, 'data')
 CONFIG_DIR = os.environ.get('OWNFOIL_CONFIG_DIR') or os.path.join(APP_DIR, 'config')
@@ -18,6 +23,11 @@ TITLEDB_DEFAULT_FILES = [
 ]
 TITLES_DB_FILE = os.path.join(CONFIG_DIR, 'titles.db')
 OWNFOIL_DB = 'sqlite:///' + DB_FILE
+
+HTTP_PORT = 8465
+DISCOVERY_PORT = 8465
+DISCOVERY_REQUEST = b'OWNFOIL_DISCOVER'
+DISCOVERY_MAGIC = 'OWNFOIL'
 
 # Global file watcher defaults
 DEFAULT_WATCHER = {"enabled": True, "polling_interval": 60}
@@ -61,6 +71,7 @@ DEFAULT_SETTINGS = {
         "enabled": True,
     },
     "shop": {
+        "name": "Ownfoil",
         "host": "",
         "public": False,
         "motd": "Welcome to your own shop!",
@@ -78,6 +89,14 @@ DEFAULT_SETTINGS = {
             },
             "sphaira": {"enabled": True,}
         }
+    },
+    "server": {
+        "uid": "",
+    },
+    "services": {
+        "discovery": {
+            "enabled": True,
+        },
     },
     "scheduler": {
         "titledb_update_interval": "12h",

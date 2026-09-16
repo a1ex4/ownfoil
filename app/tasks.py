@@ -1187,12 +1187,10 @@ def download_title_media_task(title_id, attempt=0, **kwargs):
             continue
         try:
             if media.have(kind, filename):
-                # The bytes are stored already, so a row that went missing or names an older
-                # file is rebuilt from them rather than paid for again over the network.
-                size, client_size = media.dimensions(kind, filename)
+                # Original already stored: rebuild the row from it instead of downloading.
+                size = media.dimensions(kind, filename)
             else:
-                filename, size, client_size = media.store_bytes(
-                    kind, media.fetch(url), filename)
+                filename, size = media.store_bytes(kind, media.fetch(url), filename)
         except Exception as e:
             # One dead URL must not fail the task: the slot stays hotlinked, and a red task
             # per unreachable image would bury the real failures.
@@ -1200,7 +1198,7 @@ def download_title_media_task(title_id, attempt=0, **kwargs):
             failed = True
             continue
         upsert_media(title_id, kind, position, source=record['source'], source_url=url,
-                     filename=filename, size=size, client_size=client_size)
+                     filename=filename, size=size)
         filled.append((kind, position))
 
     delete_media_slots(title_id, filled)

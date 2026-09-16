@@ -66,13 +66,12 @@ def catalogue(tmp_path, monkeypatch):
         db.session.commit()
 
         upsert_media(LOCAL, media.ICON, 0, source="titledb", source_url=ICON_URL,
-                     filename="icon.jpg", size=(1024, 1024), client_size=(256, 256))
+                     filename="icon.jpg", size=(1024, 1024))
         upsert_media(LOCAL, media.BANNER, 0, source="titledb", source_url=BANNER_URL,
-                     filename="banner.jpg", size=(1280, 720), client_size=(640, 360))
+                     filename="banner.jpg", size=(1280, 720))
         for position, url in enumerate(SHOT_URLS):
             upsert_media(LOCAL, media.SCREENSHOT, position, source="titledb", source_url=url,
-                         filename=f"shot{position}.jpg", size=(1280, 720),
-                         client_size=(640, 360))
+                         filename=f"shot{position}.jpg", size=(1280, 720))
 
     return types.SimpleNamespace(app=app, client=app.test_client())
 
@@ -92,9 +91,25 @@ def _title(catalogue, title_id, selection):
 
 # (requested size, the URL segment and dimensions it resolves to)
 SIZE_CASES = [
+    ("THUMB", "thumb", 176, 176),
     ("CLIENT", "client", 256, 256),
+    ("SCREEN", "screen", 720, 720),
     ("ORIGINAL", "original", 1024, 1024),
 ]
+
+
+def test_a_landscape_rendition_reports_the_box_it_is_fitted_to(catalogue):
+    """The stored banner is 1280x720; each rendition's size follows from that and its box."""
+    banner = _title(catalogue, LOCAL,
+                    "thumb: banner(size: THUMB) { width height } "
+                    "client: banner(size: CLIENT) { width height } "
+                    "screen: banner(size: SCREEN) { width height }")
+
+    assert banner == {
+        "thumb": {"width": 320, "height": 180},
+        "client": {"width": 720, "height": 405},
+        "screen": {"width": 1280, "height": 720},
+    }
 
 
 @pytest.mark.parametrize("size,segment,width,height", SIZE_CASES)
