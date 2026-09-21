@@ -16,4 +16,4 @@ jobs:
           GH_REPO: ${{ github.repository }}
           ISSUE: ${{ github.event.issue.number }}
         run: |
-          gh issue comment "$ISSUE" --body 'This issue is fixed in the `develop` branch/image, you can try it following the [installation instructions](https://github.com/a1ex4/ownfoil/blob/develop/Install.md#available-versions).'
+          gh issue comment "$ISSUE" --body 'This issue is fixed in the `develop` branch/image, you can try it following the [installation instructions](https://github.com/a1ex4/ownfoil/blob/develop/Install.md#available-versions). The issue will be closed when the next release is published.'
