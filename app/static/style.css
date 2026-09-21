@@ -826,14 +826,16 @@ p.game-description {
 .title-row--head {
     border-top: 0;
     padding-bottom: .35rem;
-    font-size: .7rem;
+    font-size: .85rem;
     letter-spacing: .09em;
     text-transform: uppercase;
     font-weight: 600;
+    white-space: nowrap;
     color: var(--bs-secondary-color);
 }
 
-/* A long DLC name gives way to the other columns rather than wrapping the row open. */
+/* Geometry is shared with the header; only typography splits. A long DLC name gives
+   way to the other columns rather than wrapping the row open. */
 .title-col--name {
     min-width: 0;
     overflow: hidden;
@@ -841,17 +843,17 @@ p.game-description {
     white-space: nowrap;
 }
 
-.title-col--version,
-.title-col--released,
 .title-col--size {
+    text-align: right;
+}
+
+.title-row:not(.title-row--head) .title-col--version,
+.title-row:not(.title-row--head) .title-col--released,
+.title-row:not(.title-row--head) .title-col--size {
     color: var(--bs-secondary-color);
     font-size: .85rem;
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
-}
-
-.title-col--size {
-    text-align: right;
 }
 
 /* Version and release date are secondary once the row has to fit a phone; ownership
