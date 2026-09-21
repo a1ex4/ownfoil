@@ -1,0 +1,24 @@
+name: 'Close fixed issues on release'
+on:
+  release:
+    types: [released]
+
+jobs:
+  close:
+    if: '!github.event.release.prerelease'
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - name: Close issues labeled fixed
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.event.release.tag_name }}
+          URL: ${{ github.event.release.html_url }}
+        run: |
+          body="This issue has been fixed and released in [Ownfoil ${TAG}](${URL}), closing as completed. Feel free to re-open if needed."
+          for issue in $(gh issue list --label fixed --state open --limit 200 --json number --jq '.[].number'); do
+            gh issue edit "$issue" --remove-label fixed
+            gh issue close "$issue" --reason completed --comment "$body"
+          done

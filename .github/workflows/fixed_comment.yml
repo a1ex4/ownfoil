@@ -1,0 +1,19 @@
+name: 'Comment on fixed issues'
+on:
+  issues:
+    types: [labeled]
+
+jobs:
+  comment:
+    if: github.event.label.name == 'fixed'
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - name: Comment on issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          ISSUE: ${{ github.event.issue.number }}
+        run: |
+          gh issue comment "$ISSUE" --body 'This issue is fixed in the `develop` branch/image, you can try it following the [installation instructions](https://github.com/a1ex4/ownfoil/blob/develop/Install.md#available-versions).'
