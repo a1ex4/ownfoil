@@ -190,6 +190,17 @@ def use_seekable_file_wrapper_for_range_requests():
         request.environ["wsgi.file_wrapper"] = WerkzeugFileWrapper
 
 
+@app.context_processor
+def inject_shop_name():
+    """Templates show the configured shop name, not the product name."""
+    return {'shop_name': get_settings()['shop']['name'] or 'Ownfoil'}
+
+
+@app.route('/site.webmanifest')
+def webmanifest():
+    return Response(render_template('site.webmanifest'), mimetype='application/manifest+json')
+
+
 # List of supported client classes
 SUPPORTED_CLIENTS = [CyberFoilClient, TinfoilClient, SphairaClient]
 

@@ -25,6 +25,7 @@
     // exactly the boxes they render into; the full-bleed banner and the lightbox, which
     // both scale past that, take the original.
     const TITLE_ID = {{ title_id|tojson }};
+    const SHOP_NAME = {{ shop_name|tojson }};
 
     const TITLE_QUERY = `
         query TitleDetails($titleId: ID!) {
@@ -364,7 +365,7 @@
             return;
         }
 
-        document.title = `Ownfoil | ${title.name || title.titleId}`;
+        document.title = `${SHOP_NAME} | ${title.name || title.titleId}`;
         if (title.banner) {
             document.getElementById('titleBanner').style.backgroundImage = `url('${title.banner.url}')`;
         } else {
