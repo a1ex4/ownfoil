@@ -60,6 +60,8 @@ services:
       - ./config:/app/config
     ports:
       - "8465:8465"
+   # # for LAN discovery, replaces the ports mapping above with:
+   # network_mode: host
 ```
 
 You can then create and start the container with the command (executed in the same directory as the docker-compose file):
@@ -68,6 +70,9 @@ You can then create and start the container with the command (executed in the sa
 
 This is usefull if you don't want to remember the `docker run` command and have a persistent and reproductible container configuration.
 </details>
+
+> [!TIP]
+> To let clients find your shop on the local network with [discovery](./Usage.md#discovery), the container has to use the host network: replace `-p 8465:8465` with `--network host` in `docker run`, or the `ports` mapping with `network_mode: host` in Docker compose.
 
 ## Volumes
 
@@ -102,6 +107,10 @@ uvx ownfoil
 uv tool install ownfoil
 ownfoil
 ```
+
+> [!IMPORTANT]
+> On the first run, Windows Defender Firewall asks whether to allow Python to access the network - it must be allowed on private networks, otherwise your Switch will not be able to [discover](./Usage.md#discovery) nor use your shop.
+
 By default, `config/` and `data/` are created in the current directory. Pass a directory to use instead (works the same way with `uvx`, just append it after `ownfoil`):
 ```
 ownfoil /path/to/persist

@@ -3,16 +3,21 @@
             <div class="settings-container container mt-3">
 
                 <h2 class="pb-2">Discovery</h2>
-                <p>Let clients find this shop on the local network by themselves, instead of having its
-                    address typed in on the console.</p>
+                <p>Let clients find this shop on the local network by themselves, instead of having to
+                    enter the address and port.</p>
+                <div class="alert alert-warning" role="alert">
+                    <i class="bi bi-exclamation-triangle-fill"></i>
+                    <strong>When running Ownfoil with Docker</strong>, discovery only works if the container uses the
+                    host network: <code>--network host</code> with <code>docker run</code>, or
+                    <code>network_mode: host</code> with Docker compose.
+                </div>
                 <div class="mb-3 form-check">
                     <input type="checkbox" class="form-check-input" id="discoveryEnabledCheck"
                         aria-describedby="discoveryEnabledCheckHelp">
                     <label class="form-check-label" for="discoveryEnabledCheck">Enabled</label>
                     <div id="discoveryEnabledCheckHelp" class="form-text">Ownfoil answers discovery requests
-                        broadcast on UDP port <code>{{ discovery_port }}</code> with the shop name, the Ownfoil
-                        version, the address of this server on the local network, the shop URL, and whether the
-                        shop is public.
+                        broadcast on UDP port <code>{{ discovery_port }}</code> with the server configuration,
+                        so it can be setup directly.
                     </div>
                 </div>
 

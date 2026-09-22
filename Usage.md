@@ -21,15 +21,16 @@ Upload your `prod.keys` (or any `.keys` / `.txt` file with the same content) in 
 
 Without keys, Ownfoil falls back to reading the filename, and every file __must contain `[TITLEID][vVERSION]`__ or it won't be recognized.
 
-Three features need valid keys and are unavailable without them:
+These features need valid keys and are unavailable without them:
 
 * identification of files that aren't named `[TITLEID][vVERSION]`
+* [metadata extraction](#title-metadata), for games not covered by titledb
 * [file verification](#file-verification), which is disabled when no valid keys are loaded
 * [file compression](#file-compression), which has to decrypt the content to recompress it
 
 # The Web UI
 
-There are three main pages: the library view, the setup guide, and under `Admin` the settings, the task list and the stats.
+There are three main pages: the library view, the setup guide, and under `Admin` the settings, the services, the task list and the stats.
 
 ## Library view
 
@@ -48,6 +49,23 @@ It has two tabs. `Local Access` is for when your Switch and your Ownfoil server 
 Everything Ownfoil does in the background is a task, and this page shows them live: what is queued, what is running with its progress, what is scheduled to run later, and what failed. Failed tasks stay until you dismiss them, so you can see what went wrong earlier.
 
 The worker section shows what each worker process is doing right now. How many there are is configured in [Workers](#workers), you can use it to see if the backlog of tasks can be optimized.
+
+## Services page
+
+Admin only, for configuring other services your Ownfoil server interfaces with.
+
+### Discovery
+
+| Setting | Default | Description |
+| --- | --- | --- |
+| `Enabled` | enabled | Listen for and answer discovery requests from clients on the local network. |
+
+Discovery lets a client on your Switch find your shop by itself, instead of you typing its address on the console. The client broadcasts a request on your local network on UDP port `8465`, and Ownfoil answers with the shop name, the port to reach it on and the remote `Shop URL` if you configured one.
+
+It only works when your Switch and Ownfoil are on the same network, remote access still needs the address manually configured in the client.
+
+> [!IMPORTANT]
+> With Docker, discovery only works if the container uses the host network: `--network host` with `docker run`, or `network_mode: host` with Docker compose.
 
 ## Settings page
 
@@ -128,7 +146,7 @@ You can also create users from [environment variables](./Install.md#environment-
 
 This section is where you tell Ownfoil what your library is, how to watch it, and how to automatically manage the files in it.
 
-Every file goes through the same pipeline, in order: it is __identified__ (what game, which version, base/update/DLC it contains), __verified__, __organized__, then __compressed__. A step that is disabled or already done is skipped, so a settled library does nothing at all. This is why enabling compression on an existing library starts compressing everything.
+Every file goes through the same pipeline, in order: it is __identified__ (what game, which version, base/update/DLC it contains), its [metadata](#title-metadata) is __extracted__, it is __verified__, __organized__, then __compressed__. A step that is disabled or already done is skipped, so a settled library does nothing at all. This is why enabling compression on an existing library starts compressing everything.
 
 ### Paths
 
@@ -258,17 +276,33 @@ The available languages depend on the region you pick.
 
 `Console Keys file` is where you upload your keys - see [Console keys](#console-keys). Below it, `Master key revisions` reports what Ownfoil found in the file you uploaded, and names any revision that is missing or invalid.
 
+### Title metadata
+
+Names, descriptions and artwork come from [blawar/titledb](https://github.com/blawar/titledb), which is updated upstream once per day but can remain without updates for long periods of time, and also miss games entirely. To work around content missing from `titledb` Ownfoil manages its own metadata database, merging `titledb` data with the metadata extracted directly from the files.  
+This means homebrew ports and games missing from the uptream `titledb` will always be identified, organized, renamed and served with their metadatas.
+
 ## Local artworks
 
+| Setting | Default | Description |
+| --- | --- | --- |
+| `Download artwork locally` | enabled | Store the artwork of your library on your server. |
+
 For your shop to be fully self-hosted and not rely on external sources, Ownfoil can download all artworks locally and serve them to clients. Instead of providing direct eShop links, your Switch will retrieve them from your server and never connect to Nintendo's servers.
+
+This covers the icon, banner and screenshots of every game in your library and of its DLCs, owned or not. Each image is also resized to the dimensions clients display it at, so your Switch downloads a lighter image than the original. Artwork is fetched again after each titledb update, and changing the library language or region downloads the matching artwork.
+
+`Disk usage` shows how much space the artwork takes, by type, for the originals and the resized copies. Turning the setting off stops new downloads, the artwork already stored is still served.
 
 ## Shop
 
 | Setting | Default | Description |
 | --- | --- | --- |
+| `Shop name` | `Ownfoil` | Name of your shop, shown in the Web UI and in clients. |
 | `Shop URL` | empty | The hostname your shop is reachable at from the internet, e.g. `shop.domain.tld`. |
 | `Public shop` | disabled | Serve the shop to clients without authentication. |
 | `Message of the day` | `Welcome to your own shop!` | Message presented in clients after successfully loading your shop. |
+
+The shop name replaces `Ownfoil` in the navigation bar, the browser tab and the app name when you add the Web UI to your home screen. The `Setup` page also uses it to name the shop entries it tells you to create in each client, so set it before configuring your Switch. It can also be used by homebrew clients when browsing the shop
 
 The MOTD is shown by Tinfoil and CyberFoil. Sphaira browses files and does not display it.
 
