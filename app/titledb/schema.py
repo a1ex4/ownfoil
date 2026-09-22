@@ -41,7 +41,6 @@ def metadata_columns():
         _col('name', 'name'),
         _col('banner_url', 'bannerUrl'),
         _col('icon_url', 'iconUrl'),
-        _col('front_box_art', 'frontBoxArt'),
         _col('description', 'description'),
         _col('intro', 'intro'),
         _col('developer', 'developer'),

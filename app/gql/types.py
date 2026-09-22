@@ -553,7 +553,6 @@ class Title:
                                default=None)
     banner_url_raw: Private[Optional[str]] = None
     icon_url_raw: Private[Optional[str]] = None
-    front_box_art_raw: Private[Optional[str]] = None
     description: Optional[str] = desc("Long-form store description.", default=None)
     intro: Optional[str] = desc("Short tagline, where the store has one.", default=None)
     developer: Optional[str] = desc("Studio that made the game.", default=None)
@@ -628,12 +627,6 @@ class Title:
         """The wide banner artwork, which is what a card view shows. Null when no source
         has one - most catalogue entries have a banner and nothing else."""
         return self._image(media.BANNER, 0, self.banner_url_raw, size)
-
-    @described_field
-    def front_box_art(self, size: ImageSizeArg = ImageSize.CLIENT) -> Optional[Image]:
-        """The box art. Null for very nearly every title: the catalogue carries the field
-        but almost never fills it."""
-        return self._image(media.BOXART, 0, self.front_box_art_raw, size)
 
     @described_field
     def screenshots(self, size: ImageSizeArg = ImageSize.CLIENT) -> Optional[List[Image]]:

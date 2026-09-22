@@ -68,7 +68,7 @@ RESIZE_CASES = [
      {media.THUMB: (320, 180), media.CLIENT: (720, 405), media.SCREEN: (1280, 720)}),
     (media.SCREENSHOT, (1280, 720),
      {media.THUMB: (320, 180), media.CLIENT: (720, 405), media.SCREEN: (1280, 720)}),
-    (media.BOXART, (600, 900),
+    (media.BANNER, (600, 900),
      {media.THUMB: (120, 180), media.CLIENT: (270, 405), media.SCREEN: (480, 720)}),
     # Already inside every box: a rendition never enlarges, so this keeps its own size.
     (media.ICON, (64, 64),
