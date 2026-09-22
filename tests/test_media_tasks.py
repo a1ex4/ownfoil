@@ -411,10 +411,8 @@ def test_usage_counts_both_renditions_of_every_kind(install):
     usage = media.usage()
     assert usage[media.ICON][media.ORIGINAL]["files"] == 1
     assert usage[media.SCREENSHOT][media.CLIENT]["files"] == len(SHOT_URLS)
-    # A rendition is a smaller re-encode of the same image, and nothing is stored for a kind
-    # the title has none of.
+    # A rendition is a smaller re-encode of the same image.
     assert 0 < usage[media.BANNER][media.CLIENT]["bytes"] < usage[media.BANNER][media.ORIGINAL]["bytes"]
-    assert usage[media.BOXART][media.ORIGINAL] == {"bytes": 0, "files": 0}
 
 
 # --- collecting what the library no longer covers ---

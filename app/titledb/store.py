@@ -631,7 +631,7 @@ def filter_with_artwork(title_ids):
         placeholders = ','.join('?' * len(ids))
         rows = conn.execute(
             f'SELECT id FROM titles WHERE id IN ({placeholders}) AND ('
-            'icon_url IS NOT NULL OR banner_url IS NOT NULL OR front_box_art IS NOT NULL '
+            'icon_url IS NOT NULL OR banner_url IS NOT NULL '
             "OR (screenshots IS NOT NULL AND screenshots != '[]'))", ids)
         found = {r['id'] for r in rows}
         return [i for i in ids if i in found]

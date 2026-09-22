@@ -114,15 +114,15 @@ class ImageSize(Enum):
     THUMB = strawberry.enum_value(
         "thumb",
         description="Sized for a catalog card: fitted to 176x176 for icons, and to 320x180 "
-                    "for banners, screenshots and box art.")
+                    "for banners and screenshots.")
     CLIENT = strawberry.enum_value(
         "client",
         description="Sized for a title's own page: fitted to 256x256 for icons, and to "
-                    "720x405 for banners, screenshots and box art.")
+                    "720x405 for banners and screenshots.")
     SCREEN = strawberry.enum_value(
         "screen",
         description="Sized for one image across a whole screen: fitted to 720x720 for "
-                    "icons, and to 1280x720 for banners, screenshots and box art.")
+                    "icons, and to 1280x720 for banners and screenshots.")
 
 
 @described(strawberry.input)

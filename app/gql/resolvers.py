@@ -43,7 +43,6 @@ _TITLE_COL_MAP = {
     'name':            'td.name AS name',
     'banner':          'td.banner_url AS banner_url',
     'icon':            'td.icon_url AS icon_url',
-    'frontBoxArt':     'td.front_box_art AS front_box_art',
     'description':     'td.description AS description',
     'intro':           'td.intro AS intro',
     'developer':       'td.developer AS developer',
@@ -175,7 +174,6 @@ def _build_title(row, *, with_apps: bool, with_files: bool) -> Title:
         name=m.get('name'),
         banner_url_raw=m.get('banner_url'),
         icon_url_raw=m.get('icon_url'),
-        front_box_art_raw=m.get('front_box_art'),
         description=m.get('description'),
         intro=m.get('intro'),
         developer=m.get('developer'),
@@ -471,7 +469,7 @@ def _hydrate_apps_titledb(apps: List[App], sel: "Selection") -> None:
 
 
 # The Title fields backed by the media store. Any of them selected is reason to hydrate.
-_MEDIA_FIELDS = ('icon', 'banner', 'frontBoxArt', 'screenshots')
+_MEDIA_FIELDS = ('icon', 'banner', 'screenshots')
 
 
 def _hydrate_title_media(titles: List[Title], sel: "Selection") -> None:

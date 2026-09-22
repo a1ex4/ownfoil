@@ -158,7 +158,6 @@ def test_the_same_field_can_be_aliased_at_two_sizes(catalogue):
 
 
 def test_a_slot_no_source_fills_is_null(catalogue):
-    assert _title(catalogue, LOCAL, "frontBoxArt { url }")["frontBoxArt"] is None
     assert _title(catalogue, REMOTE, "screenshots { url }")["screenshots"] is None
 
 

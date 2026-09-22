@@ -178,7 +178,7 @@ Resolvers use it in two places:
    text/JSON blobs.
 
 Field names in selection paths are **GraphQL camelCase** (`availableVersions`,
-`frontBoxArt`, `releaseDate`) — not Python snake_case.
+`numberOfPlayers`, `releaseDate`) — not Python snake_case.
 
 `_build_title` reads row columns via `row._mapping.get(...)`, so unselected
 columns map cleanly to `None` instead of raising `AttributeError`.
@@ -291,7 +291,7 @@ a task should not change the published schema) but is checked against
 
 ## Artwork
 
-`Title.icon` / `banner` / `frontBoxArt` / `screenshots` return an `Image`, not a URL
+`Title.icon` / `banner` / `screenshots` return an `Image`, not a URL
 string, and each takes `size: ImageSize` (`ORIGINAL` / `CLIENT`, defaulting to `CLIENT`).
 `Image` carries `url`, `size`, `local` and the rendition's `width`/`height`.
 

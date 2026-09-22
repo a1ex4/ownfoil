@@ -1114,8 +1114,7 @@ def update_titles_task(**kwargs):
 #
 # The slots a title can have artwork for, as (kind, titledb key). Screenshots are a list and
 # fill one slot per entry, so they are handled apart from these.
-MEDIA_SLOTS = ((media.ICON, 'iconUrl'), (media.BANNER, 'bannerUrl'),
-               (media.BOXART, 'frontBoxArt'))
+MEDIA_SLOTS = ((media.ICON, 'iconUrl'), (media.BANNER, 'bannerUrl'))
 
 # A slot that failed is retried on its own schedule, doubling each time, rather than waiting
 # on the next titledb refresh - twelve hours out by default, which is a long time to hotlink.

@@ -33,8 +33,7 @@ TIMEOUT = (10, 60)
 ICON = 'icon'
 BANNER = 'banner'
 SCREENSHOT = 'screenshot'
-BOXART = 'boxart'
-KINDS = (ICON, BANNER, SCREENSHOT, BOXART)
+KINDS = (ICON, BANNER, SCREENSHOT)
 
 ORIGINAL = 'original'
 THUMB = 'thumb'
