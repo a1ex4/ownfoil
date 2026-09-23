@@ -1,542 +1,652 @@
 {% extends "base.html" %}
 
 {% block content %}
+{% set username = current_user.user if current_user.is_authenticated else 'Username' %}
 {% include 'nav.html' %}
 <div class="container mt-4">
     <h1 class="mb-4">Setup Guide</h1>
-    
-    <!-- Supported Clients Section -->
+
+    <!-- Sphaira: the Ownfoil menu, the recommended client -->
     <div class="card mb-4">
         <div class="card-header">
-            <h2 class="h4 mb-0">Supported Clients</h2>
+            <h2 class="h4 mb-0"><i class="bi bi-nintendo-switch"></i> Sphaira</h2>
         </div>
         <div class="card-body">
-            <p class="text-muted">Ownfoil supports the following Nintendo Switch clients:</p>
-            
-            {% if tinfoil_enabled %}
-            <!-- Tinfoil Client -->
-            <div class="card mb-3">
-                <div class="card-header bg-secondary">
-                    <h3 class="h5 mb-0">
-                        <i class="bi bi-box-seam"></i> Tinfoil
-                    </h3>
-                </div>
-                <div class="card-body">
-                    <ul class="list-unstyled mb-0">
-                        <li><i class="bi bi-check-circle-fill text-success"></i> <code>HTTP</code> / <code>HTTPS</code> protocol support</li>
-                        <li><i class="bi bi-check-circle-fill text-success"></i> User authentication</li>
-                        <li><i class="bi bi-check-circle-fill text-success"></i> Shop browsing with icons and banners</li>
-                        <li><i class="bi bi-check-circle-fill text-success"></i> Content filtering (games, updates, DLC, XCI) based on URL</li>
-                        <li><i class="bi bi-check-circle-fill text-success"></i> New games, DLC, Updates, Recommended and XCI sections</li>
-                        <li><i class="bi bi-check-circle-fill text-success"></i> Compressed content (NSZ and XCZ) support</li>
-                        <li><i class="bi bi-check-circle-fill text-success"></i> Encrypted shop support</li>
-                        <li><i class="bi bi-check-circle-fill text-success"></i> Client side Host verification for secure connections</li>
-                        <li><i class="bi bi-check-circle-fill text-success"></i> Custom welcome message (MOTD)</li>
-                    </ul>
-                </div>
+            <p>
+                <a href="https://github.com/NaGaa95/sphaira" target="_blank" rel="noopener">Sphaira</a>
+                has a built-in Ownfoil menu that browses your library by game rather than by file: pick a game, the version
+                and the DLC you want, and it downloads only what it needs, whatever files they are stored in.
+                Downloads resume after a dropped connection, and all artworks are served by Ownfoil itself so your Nintendo Switch
+                never connects to Nintendo's servers.
+            </p>
+
+            {% if show_local_tab and (discovery_enabled or is_admin) %}
+            <h4 class="mb-3">Discovery</h4>
+            {% if discovery_enabled %}
+            <div class="alert alert-success">
+                <i class="bi bi-broadcast"></i>
+                <strong>Discovery is enabled</strong>: Sphaira will find this server automatically on your local network.
+            </div>
+            <ol>
+                <li class="mb-2">Connect your Nintendo Switch to the same network as this server</li>
+                <li class="mb-2">In <strong>Sphaira</strong>, open <strong>(Y) Menu</strong> → <strong>Menus</strong> → <strong>Ownfoil</strong></li>
+                <li class="mb-2">Select <strong>Discover local servers</strong>, then <code>{{ shop_name }}</code> in the list</li>
+                {% if current_user.is_authenticated %}
+                <li class="mb-2">Accept the login prompt, enter <code>{{ current_user.user }}</code> and your password and press <strong>Save</strong></li>
+                {% elif admin_account_created %}
+                <li class="mb-2">Accept the login prompt, enter your Ownfoil username and password and press <strong>Save</strong></li>
+                {% endif %}
+            </ol>
+            <p class="text-muted">
+                The server is saved with its local address{% if remote_host %} and its remote address <code>{{ remote_host }}</code>, so it keeps working away from home{% endif %}.
+            </p>
+            {% else %}
+            <div class="alert alert-warning">
+                <i class="bi bi-broadcast"></i>
+                <strong>Discovery is disabled.</strong> Enable it in <a href="/admin/services" class="alert-link">Services</a>
+                to let Sphaira find this server by itself, instead of typing its address on the console.
             </div>
             {% endif %}
-            
-            {% if sphaira_enabled %}
-            <!-- Sphaira Client -->
-            <div class="card mb-3">
-                <div class="card-header bg-secondary">
-                    <h3 class="h5 mb-0">
-                        <i class="bi bi-globe"></i> Sphaira
-                    </h3>
-                </div>
-                <div class="card-body">
-                    <ul class="list-unstyled mb-0">
-                        <li><i class="bi bi-check-circle-fill text-success"></i> <code>HTTP</code> / <code>HTTPS</code> protocol support</li>
-                        <li><i class="bi bi-check-circle-fill text-success"></i> User authentication</li>
-                        <li><i class="bi bi-check-circle-fill text-success"></i> Directory-based file browsing</li>
-                        <li><i class="bi bi-check-circle-fill text-success"></i> Content filtering (games, updates, DLC, XCI) based on URL</li>
-                        <li><i class="bi bi-check-circle-fill text-success"></i> Compressed content (NSZ and XCZ) support</li>
-                    </ul>
-                </div>
-            </div>
             {% endif %}
 
-            {% if cyberfoil_enabled %}
-            <!-- CyberFoil Client -->
-            <div class="card mb-3">
-                <div class="card-header bg-secondary">
-                    <h3 class="h5 mb-0">
-                        <i class="bi bi-download"></i> CyberFoil
-                    </h3>
-                </div>
-                <div class="card-body">
-                    <ul class="list-unstyled mb-0">
-                        <li><i class="bi bi-check-circle-fill text-success"></i> <code>HTTP</code> / <code>HTTPS</code> protocol support</li>
-                        <li><i class="bi bi-check-circle-fill text-success"></i> User authentication</li>
-                        <li><i class="bi bi-check-circle-fill text-success"></i> Shop browsing with icons and Sections (Updates, DLC)</li>
-                        <li><i class="bi bi-check-circle-fill text-success"></i> Compressed content (NSZ and XCZ) support</li>
-                        <li><i class="bi bi-check-circle-fill text-success"></i> Client side Host verification for secure connections</li>
-                        <li><i class="bi bi-check-circle-fill text-success"></i> Custom welcome message (MOTD)</li>
-                    </ul>
-                </div>
-            </div>
+            <h4 class="mb-3">Add the server manually</h4>
+                <ol>
+                    <li class="mb-2">In <strong>Sphaira</strong>, open <strong>(Y) Menu</strong> → <strong>Menus</strong> → <strong>Ownfoil</strong></li>
+                <li class="mb-2">Open <strong>(X) Options</strong> → <strong>Add server</strong> and enter the following details:
+                    <div class="card bg-dark mt-2 mb-2">
+                        <div class="card-body">
+                            <table class="table table-sm table-dark mb-0">
+                                <tr>
+                                    <td class="fw-bold" style="width: 160px;">Name:</td>
+                                    <td><code>{{ shop_name }}</code></td>
+                                </tr>
+                                {% if local_address %}
+                                <tr>
+                                    <td class="fw-bold">Local address:</td>
+                                    <td><code>{{ local_address }}:{{ local_port }}</code></td>
+                                </tr>
+                                {% endif %}
+                                {% if remote_host %}
+                                <tr>
+                                    <td class="fw-bold">Remote address:</td>
+                                    <td><code>{{ remote_host }}</code></td>
+                                </tr>
+                                {% endif %}
+                                {% if admin_account_created %}
+                                <tr>
+                                    <td class="fw-bold">User:</td>
+                                    <td><code>{{ username }}</code></td>
+                                </tr>
+                                <tr>
+                                    <td class="fw-bold">Pass:</td>
+                                    <td><code>Password</code></td>
+                                </tr>
+                                {% endif %}
+                            </table>
+                        </div>
+                    </div>
+                </li>
+                <li class="mb-2">Press <strong>Save</strong>.</li>
+            </ol>
+            <p class="text-muted">
+                If there is a single server configured it is opened automatically, otherwise select the server to browse your shop.
+            </p>
+            {% if local_address and remote_host %}
+            <p class="text-muted mb-0">
+                Sphaira uses the local address at home and falls back to the remote one elsewhere.
+            </p>
             {% endif %}
         </div>
     </div>
-    
-    <!-- Setup Instructions Section -->
-    <div class="card">
+
+    <!-- Legacy clients: Tinfoil, Sphaira's file browser and CyberFoil -->
+    {% if tinfoil_enabled or sphaira_enabled or cyberfoil_enabled %}
+    <div class="card mb-4">
         <div class="card-header">
-            <h2 class="h4 mb-0">Setup Instructions</h2>
+            <button class="btn btn-link text-reset text-decoration-none p-0 h4 mb-0" type="button" data-bs-toggle="collapse" data-bs-target="#legacyClients" aria-expanded="false" aria-controls="legacyClients">
+                <i class="bi bi-chevron-down"></i> Legacy clients
+            </button>
         </div>
-        <div class="card-body">
-            <!-- Nav tabs -->
-            <ul class="nav nav-tabs mb-3" id="setupTabs" role="tablist">
-                {% if show_local_tab %}
-                <li class="nav-item" role="presentation">
-                    <button class="nav-link active" id="local-tab" data-bs-toggle="tab" data-bs-target="#local-setup" type="button" role="tab" aria-controls="local-setup" aria-selected="true">
-                        <i class="bi bi-house-fill"></i> Local Access
-                    </button>
-                </li>
-                <li class="nav-item" role="presentation">
-                    <button class="nav-link" id="remote-tab" data-bs-toggle="tab" data-bs-target="#remote-setup" type="button" role="tab" aria-controls="remote-setup" aria-selected="false">
-                        <i class="bi bi-cloud-fill"></i> Remote Access
-                    </button>
-                </li>
-                {% else %}
-                <li class="nav-item" role="presentation">
-                    <button class="nav-link active" id="remote-tab" data-bs-toggle="tab" data-bs-target="#remote-setup" type="button" role="tab" aria-controls="remote-setup" aria-selected="true">
-                        <i class="bi bi-cloud-fill"></i> Remote Access
-                    </button>
-                </li>
-                {% endif %}
-            </ul>
-            
-            <!-- Tab contents -->
-            <div class="tab-content" id="setupTabsContent">
-                <!-- Local Access Tab -->
-                {% if show_local_tab %}
-                <div class="tab-pane show active" id="local-setup" role="tabpanel" aria-labelledby="local-tab">
-                {% else %}
-                <div class="tab-pane" id="local-setup" role="tabpanel" aria-labelledby="local-tab">
-                {% endif %}
-                    <div class="alert alert-info">
-                        <i class="bi bi-info-circle-fill"></i>
-                        <strong>Local Access</strong> is for when your Nintendo Switch and Ownfoil server are on the same network (e.g., both on your home WiFi).
+        <div class="collapse" id="legacyClients">
+            <div class="card-body">
+                <!-- Supported Clients Section -->
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h2 class="h4 mb-0">Supported Clients</h2>
                     </div>
-                    
-                    {% if not local_address %}
-                    <div class="alert alert-warning">
-                        <i class="bi bi-exclamation-triangle-fill"></i>
-                        Unable to determine local server address. Please check your network configuration.
-                    </div>
-                    {% else %}
-                    
-                    <div class="accordion" id="accordionSetup">
+                    <div class="card-body">
+                        <p class="text-muted">
+                            These clients browse the shop from a file list using their own title metadatas,
+                            which can differ from what's actually identified by Ownfoil.</p>
+                        
                         {% if tinfoil_enabled %}
-                        <div class="accordion-item">
-                            <h5 class="accordion-header" id="headingTinfoil">
-                            <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapseTinfoil" aria-expanded="false" aria-controls="collapseTinfoil" style="font-size: 1.25rem;">
-                                <i class="bi bi-box-seam"></i>&nbsp; Tinfoil Setup
-                            </button>
-                            </h5>
-                            <div id="collapseTinfoil" class="accordion-collapse collapse" aria-labelledby="headingTinfoil" data-bs-parent="#accordionSetup">
-                                <div class="accordion-body">
-                                    <!-- Tinfoil Local Setup -->
-                                    <ol>
-                                        <li class="mb-2">On your Nintendo Switch, open <strong>Tinfoil</strong></li>
-                                        <li class="mb-2">Navigate to <strong>File Browser</strong> → <strong>New</strong></li>
-                                        <li class="mb-2">Enter the following details:
-                                            <div class="card bg-dark mt-2 mb-2">
-                                                <div class="card-body">
-                                                    <table class="table table-sm table-dark mb-0">
-                                                        <tr>
-                                                            <td class="fw-bold" style="width: 120px;">Protocol:</td>
-                                                            <td><code>http</code></td>
-                                                        </tr>
-                                                        <tr>
-                                                            <td class="fw-bold">Host:</td>
-                                                            <td><code>{{ local_address }}</code></td>
-                                                        </tr>
-                                                        <tr>
-                                                            <td class="fw-bold">Port:</td>
-                                                            <td><code>{{ local_port }}</code></td>
-                                                        </tr>
-                                                        <tr>
-                                                            <td class="fw-bold">Path:</td>
-                                                            <td><code>/</code><span class="text-muted"> for <strong>all</strong> content, else one of </span><code>/base</code>, <code>/update</code>, <code>/dlc</code>, <code>/multi</code> <span class="text-muted"> to serve specific content.</span></td>
-                                                        </tr>
-                                                        {% if not shop_public %}
-                                                        <tr>
-                                                            <td class="fw-bold">Username:</td>
-                                                            <td><code>Username</code></td>
-                                                        </tr>
-                                                        <tr>
-                                                            <td class="fw-bold">Password:</td>
-                                                            <td><code>Password</code></td>
-                                                        </tr>
-                                                        {% endif %}
-                                                        <tr>
-                                                            <td class="fw-bold">Title:</td>
-                                                            <td><code>{{ shop_name }} - Local</code></td>
-                                                        </tr>
-                                                        <tr>
-                                                            <td class="fw-bold">Enabled:</td>
-                                                            <td><code>YES</code></td>
-                                                        </tr>
-                                                    </table>
-                                                </div>
-                                            </div>
-                                        </li>
-                                        <li class="mb-2">Press <strong>Save</strong> to save the location and load the shop</li>
-                                    </ol>
-                                </div>
+                        <!-- Tinfoil Client -->
+                        <div class="card mb-3">
+                            <div class="card-header bg-secondary">
+                                <h3 class="h5 mb-0">
+                                    <i class="bi bi-box-seam"></i> Tinfoil
+                                </h3>
+                            </div>
+                            <div class="card-body">
+                                <ul class="list-unstyled mb-0">
+                                    <li><i class="bi bi-check-circle-fill text-success"></i> <code>HTTP</code> / <code>HTTPS</code> protocol support</li>
+                                    <li><i class="bi bi-check-circle-fill text-success"></i> User authentication</li>
+                                    <li><i class="bi bi-check-circle-fill text-success"></i> Shop browsing with icons and banners</li>
+                                    <li><i class="bi bi-check-circle-fill text-success"></i> Content filtering (games, updates, DLC, XCI) based on URL</li>
+                                    <li><i class="bi bi-check-circle-fill text-success"></i> New games, DLC, Updates, Recommended and XCI sections</li>
+                                    <li><i class="bi bi-check-circle-fill text-success"></i> Compressed content (NSZ and XCZ) support</li>
+                                    <li><i class="bi bi-check-circle-fill text-success"></i> Encrypted shop support</li>
+                                    <li><i class="bi bi-check-circle-fill text-success"></i> Client side Host verification for secure connections</li>
+                                    <li><i class="bi bi-check-circle-fill text-success"></i> Custom welcome message (MOTD)</li>
+                                </ul>
                             </div>
                         </div>
                         {% endif %}
                         
                         {% if sphaira_enabled %}
-                        <div class="accordion-item">
-                            <h2 class="accordion-header" id="headingSphaira">
-                            <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapseSphaira" aria-expanded="false" aria-controls="collapseSphaira" style="font-size: 1.25rem;">
-                                <i class="bi bi-globe"></i>&nbsp; Sphaira Setup
-                            </button>
-                            </h2>
-                            <div id="collapseSphaira" class="accordion-collapse collapse" aria-labelledby="headingSphaira" data-bs-parent="#accordionSetup">
-                                <div class="accordion-body">
-                                    <!-- Sphaira Local Setup -->
-                                    <ol>
-                                        <li class="mb-2">On your Nintendo Switch, open <strong>Sphaira</strong></li>
-                                        <li class="mb-2">Open <strong>Menu</strong> → <strong>Advanced Options</strong> → <strong>Install options</strong> and turn on <code>Enable emummc</code></li>
-                                        <li class="mb-2">Open <strong>Menu</strong> → <strong>Advanced Options</strong> → <strong>Add / modify mounts</strong> → <strong>Create New Entry</strong></li>
-                                        <li class="mb-2">Enter the following details:
-                                            <div class="card bg-dark mt-2 mb-2">
-                                                <div class="card-body">
-                                                    <table class="table table-sm table-dark mb-0">
-                                                        <tr>
-                                                            <td class="fw-bold" style="width: 120px;">Type:</td>
-                                                            <td><code>HTTP</code></td>
-                                                            <td></td>
-                                                        </tr>
-                                                        <tr>
-                                                            <td class="fw-bold">Name:</td>
-                                                            <td><code>{{ shop_name }} - Local</code></td>
-                                                            <td></td>
-                                                        </tr>
-                                                        <tr>
-                                                            <td class="fw-bold">URL:</td>
-                                                            <td><code>http://{{ local_address }}</code></td>
-                                                            <td><span class="text-muted">Add <code>/base</code>, <code>/update</code>, <code>/dlc</code>, <code>/multi</code> to serve specific content.</span></td>
-                                                        </tr>
-                                                        <tr>
-                                                            <td class="fw-bold">Port:</td>
-                                                            <td><code>{{ local_port }}</code></td>
-                                                            <td></td>
-                                                        </tr>
-                                                        {% if not shop_public %}
-                                                        <tr>
-                                                            <td class="fw-bold">User:</td>
-                                                            <td><code>Username</code></td>
-                                                            <td></td>
-                                                        </tr>
-                                                        <tr>
-                                                            <td class="fw-bold">Pass:</td>
-                                                            <td><code>Password</code></td>
-                                                            <td></td>
-                                                        </tr>
-                                                        {% endif %}
-                                                    </table>
-                                                </div>
-                                            </div>
-                                        </li>
-                                        <li class="mb-2">Press <strong>Save</strong> and <strong>restart Sphaira</strong></li>
-                                        <li class="mb-2">Navigate to <strong>FileBrowser</strong> → <strong>Options</strong> → <strong>Mount</strong> → Select <code>[HTTP] {{ shop_name }} - Local</code></li>
-                                    </ol>
-                                    <div class="alert alert-success">
-                                        <i class="bi bi-check-circle-fill"></i>
-                                        Opening a file will show a preview of its content. To actually install the file, press <strong>Options</strong> → <strong>Install</strong>.
-                                    </div>
-                                    <div class="alert alert-info">
-                                        <i class="bi bi-info-circle-fill"></i>
-                                        To refresh the shop, simply select another <code>Mount</code> then select back {{ shop_name }}.
-                                    </div>
-                                </div>
+                        <!-- Sphaira Client -->
+                        <div class="card mb-3">
+                            <div class="card-header bg-secondary">
+                                <h3 class="h5 mb-0">
+                                    <i class="bi bi-globe"></i> Sphaira (file browser)
+                                </h3>
+                            </div>
+                            <div class="card-body">
+                                <ul class="list-unstyled mb-0">
+                                    <li><i class="bi bi-check-circle-fill text-success"></i> <code>HTTP</code> / <code>HTTPS</code> protocol support</li>
+                                    <li><i class="bi bi-check-circle-fill text-success"></i> User authentication</li>
+                                    <li><i class="bi bi-check-circle-fill text-success"></i> Directory-based file browsing</li>
+                                    <li><i class="bi bi-check-circle-fill text-success"></i> Content filtering (games, updates, DLC, XCI) based on URL</li>
+                                    <li><i class="bi bi-check-circle-fill text-success"></i> Compressed content (NSZ and XCZ) support</li>
+                                </ul>
                             </div>
                         </div>
                         {% endif %}
 
                         {% if cyberfoil_enabled %}
-                        <div class="accordion-item">
-                            <h2 class="accordion-header" id="headingCyberFoil">
-                            <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapseCyberFoil" aria-expanded="false" aria-controls="collapseCyberFoil" style="font-size: 1.25rem;">
-                                <i class="bi bi-download"></i>&nbsp; CyberFoil Setup
-                            </button>
-                            </h2>
-                            <div id="collapseCyberFoil" class="accordion-collapse collapse" aria-labelledby="headingCyberFoil" data-bs-parent="#accordionSetup">
-                                <div class="accordion-body">
-                                    <!-- CyberFoil Local Setup -->
-                                    <ol>
-                                        <li class="mb-2">On your Nintendo Switch, open <strong>CyberFoil</strong></li>
-                                        <li class="mb-2">Open <strong>Settings</strong> → <strong>Shop</strong> → <strong>Add new shop</strong></li>
-                                        <li class="mb-2">Enter the following details:
-                                            <div class="card bg-dark mt-2 mb-2">
-                                                <div class="card-body">
-                                                    <table class="table table-sm table-dark mb-0">
-                                                        <tr>
-                                                            <td class="fw-bold">Shop title:</td>
-                                                            <td><code>{{ shop_name }} - Local</code></td>
-                                                            <td></td>
-                                                        </tr>
-                                                        <tr>
-                                                            <td class="fw-bold" style="width: 120px;">Shop protocol:</td>
-                                                            <td><code>HTTP</code></td>
-                                                            <td></td>
-                                                        </tr>
-                                                        <tr>
-                                                            <td class="fw-bold">Host:</td>
-                                                            <td><code>{{ local_address }}</code></td>
-                                                            <td></td>
-                                                        </tr>
-                                                        <tr>
-                                                            <td class="fw-bold">Port:</td>
-                                                            <td><code>{{ local_port }}</code></td>
-                                                            <td></td>
-                                                        </tr>
-                                                        {% if not shop_public %}
-                                                        <tr>
-                                                            <td class="fw-bold">Username:</td>
-                                                            <td><code>Username</code></td>
-                                                            <td></td>
-                                                        </tr>
-                                                        <tr>
-                                                            <td class="fw-bold">Password:</td>
-                                                            <td><code>Password</code></td>
-                                                            <td></td>
-                                                        </tr>
-                                                        {% endif %}
-                                                    </table>
-                                                </div>
-                                            </div>
-                                        </li>
-                                        <li class="mb-2">Ensure <strong>Active shop</strong> is set to the correct shop</strong></li>
-                                        <li class="mb-2">Press <strong>Back</strong> to go back to the main menu, and open <strong>Install from eShop</strong> to browse your shop</li>
-                                    </ol>
-                                </div>
+                        <!-- CyberFoil Client -->
+                        <div class="card mb-3">
+                            <div class="card-header bg-secondary">
+                                <h3 class="h5 mb-0">
+                                    <i class="bi bi-download"></i> CyberFoil
+                                </h3>
+                            </div>
+                            <div class="card-body">
+                                <ul class="list-unstyled mb-0">
+                                    <li><i class="bi bi-check-circle-fill text-success"></i> <code>HTTP</code> / <code>HTTPS</code> protocol support</li>
+                                    <li><i class="bi bi-check-circle-fill text-success"></i> User authentication</li>
+                                    <li><i class="bi bi-check-circle-fill text-success"></i> Shop browsing with icons and Sections (Updates, DLC)</li>
+                                    <li><i class="bi bi-check-circle-fill text-success"></i> Compressed content (NSZ and XCZ) support</li>
+                                    <li><i class="bi bi-check-circle-fill text-success"></i> Client side Host verification for secure connections</li>
+                                    <li><i class="bi bi-check-circle-fill text-success"></i> Custom welcome message (MOTD)</li>
+                                </ul>
                             </div>
                         </div>
                         {% endif %}
                     </div>
-                    {% endif %}
                 </div>
                 
-                <!-- Remote Access Tab -->
-                {% if show_local_tab %}
-                <div class="tab-pane" id="remote-setup" role="tabpanel" aria-labelledby="remote-tab">
-                {% else %}
-                <div class="tab-pane show active" id="remote-setup" role="tabpanel" aria-labelledby="remote-tab">
-                {% endif %}
-                    <div class="alert alert-info">
-                        <i class="bi bi-info-circle-fill"></i>
-                        <strong>Remote Access</strong> allows you to access your Ownfoil shop from anywhere over the internet. Requires proper port forwarding or a reverse proxy setup.
+                <!-- Setup Instructions Section -->
+                <div class="card">
+                    <div class="card-header">
+                        <h2 class="h4 mb-0">Setup Instructions</h2>
                     </div>
-                    
-                    {% if not remote_host %}
-                    <div class="alert alert-warning">
-                        <i class="bi bi-exclamation-triangle-fill"></i>
-                        <strong>Remote host not configured.</strong> Please configure the remote host in the <a href="/admin/settings#shopHostInput" class="alert-link">Settings</a> page under the Shop section.
-                    </div>
-                    {% else %}
-                    
-                    <div class="accordion" id="accordionSetup">
-                        {% if tinfoil_enabled %}
-                        <div class="accordion-item">
-                            <h5 class="accordion-header" id="headingTinfoil">
-                            <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapseTinfoil" aria-expanded="false" aria-controls="collapseTinfoil" style="font-size: 1.25rem;">
-                                <i class="bi bi-box-seam"></i>&nbsp; Tinfoil Setup
-                            </button>
-                            </h5>
-                            <div id="collapseTinfoil" class="accordion-collapse collapse" aria-labelledby="headingTinfoil" data-bs-parent="#accordionSetup">
-                                <div class="accordion-body">
-                                    <!-- Tinfoil Remote Setup -->
-                                    <ol>
-                                        <li class="mb-2">On your Nintendo Switch, open <strong>Tinfoil</strong></li>
-                                        <li class="mb-2">Navigate to <strong>File Browser</strong> → <strong>New</strong></li>
-                                        <li class="mb-2">Enter the following details:
-                                            <div class="card bg-dark mt-2 mb-2">
-                                                <div class="card-body">
-                                                    <table class="table table-sm table-dark mb-0">
-                                                        <tr>
-                                                            <td class="fw-bold" style="width: 120px;">Protocol:</td>
-                                                            <td><code>https</code></td>
-                                                        </tr>
-                                                        <tr>
-                                                            <td class="fw-bold">Host:</td>
-                                                            <td><code>{{ remote_host }}</code></td>
-                                                        </tr>
-                                                        <tr>
-                                                            <td class="fw-bold">Path:</td>
-                                                            <td><code>/</code><span class="text-muted"> for <strong>all</strong> content, else one of </span><code>/base</code>, <code>/update</code>, <code>/dlc</code>, <code>/multi</code> <span class="text-muted"> to serve specific content.</span></td>
-                                                        </tr>
-                                                        {% if not shop_public %}
-                                                        <tr>
-                                                            <td class="fw-bold">Username:</td>
-                                                            <td><code>Username</code></td>
-                                                        </tr>
-                                                        <tr>
-                                                            <td class="fw-bold">Password:</td>
-                                                            <td><code>Password</code></td>
-                                                        </tr>
-                                                        {% endif %}
-                                                        <tr>
-                                                            <td class="fw-bold">Title:</td>
-                                                            <td><code>{{ shop_name }} - Remote</code></td>
-                                                        </tr>
-                                                        <tr>
-                                                            <td class="fw-bold">Enabled:</td>
-                                                            <td><code>YES</code></td>
-                                                        </tr>
-                                                    </table>
-                                                </div>
-                                            </div>
-                                        </li>
-                                        <li class="mb-2">Press <strong>Save</strong> to save the location and load the shop</li>
-                                    </ol>
-                                </div>
-                            </div>
-                        </div>
-                        {% endif %}
+                    <div class="card-body">
+                        <!-- Nav tabs -->
+                        <ul class="nav nav-tabs mb-3" id="setupTabs" role="tablist">
+                            {% if show_local_tab %}
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link active" id="local-tab" data-bs-toggle="tab" data-bs-target="#local-setup" type="button" role="tab" aria-controls="local-setup" aria-selected="true">
+                                    <i class="bi bi-house-fill"></i> Local Access
+                                </button>
+                            </li>
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link" id="remote-tab" data-bs-toggle="tab" data-bs-target="#remote-setup" type="button" role="tab" aria-controls="remote-setup" aria-selected="false">
+                                    <i class="bi bi-cloud-fill"></i> Remote Access
+                                </button>
+                            </li>
+                            {% else %}
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link active" id="remote-tab" data-bs-toggle="tab" data-bs-target="#remote-setup" type="button" role="tab" aria-controls="remote-setup" aria-selected="true">
+                                    <i class="bi bi-cloud-fill"></i> Remote Access
+                                </button>
+                            </li>
+                            {% endif %}
+                        </ul>
                         
-                        {% if sphaira_enabled %}
-                        <div class="accordion-item">
-                            <h2 class="accordion-header" id="headingSphaira">
-                            <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapseSphaira" aria-expanded="false" aria-controls="collapseSphaira" style="font-size: 1.25rem;">
-                                <i class="bi bi-globe"></i>&nbsp; Sphaira Setup
-                            </button>
-                            </h2>
-                            <div id="collapseSphaira" class="accordion-collapse collapse" aria-labelledby="headingSphaira" data-bs-parent="#accordionSetup">
-                                <div class="accordion-body">
-                                    <!-- Sphaira Remote Setup -->
-                                    <ol>
-                                        <li class="mb-2">On your Nintendo Switch, open <strong>Sphaira</strong></li>
-                                        <li class="mb-2">Open <strong>Menu</strong> → <strong>Advanced Options</strong> → <strong>Install options</strong> and turn on <code>Enable emummc</code></li>
-                                        <li class="mb-2">Open <strong>Menu</strong> → <strong>Advanced Options</strong> → <strong>Add / modify mounts</strong> → <strong>Create New Entry</strong></li>
-                                        <li class="mb-2">Enter the following details:
-                                            <div class="card bg-dark mt-2 mb-2">
-                                                <div class="card-body">
-                                                    <table class="table table-sm table-dark mb-0">
-                                                        <tr>
-                                                            <td class="fw-bold" style="width: 120px;">Type:</td>
-                                                            <td><code>HTTP</code></td>
-                                                            <td></td>
-                                                        </tr>
-                                                        <tr>
-                                                            <td class="fw-bold">Name:</td>
-                                                            <td><code>{{ shop_name }} - Remote</code></td>
-                                                            <td></td>
-                                                        </tr>
-                                                        <tr>
-                                                            <td class="fw-bold">URL:</td>
-                                                            <td><code>https://{{ remote_host }}</code></td>
-                                                            <td><span class="text-muted">Append <code>/base</code>, <code>/update</code>, <code>/dlc</code>, <code>/multi</code> to serve specific content.</span></td>
-                                                        </tr>
-                                                        <tr>
-                                                            <td class="fw-bold">Port:</td>
-                                                            <td><code>443</code></td>
-                                                            <td></td>
-                                                        </tr>
-                                                        {% if not shop_public %}
-                                                        <tr>
-                                                            <td class="fw-bold">User:</td>
-                                                            <td><code>Username</code></td>
-                                                            <td></td>
-                                                        </tr>
-                                                        <tr>
-                                                            <td class="fw-bold">Pass:</td>
-                                                            <td><code>Password</code></td>
-                                                            <td></td>
-                                                        </tr>
-                                                        {% endif %}
-                                                    </table>
+                        <!-- Tab contents -->
+                        <div class="tab-content" id="setupTabsContent">
+                            <!-- Local Access Tab -->
+                            {% if show_local_tab %}
+                            <div class="tab-pane show active" id="local-setup" role="tabpanel" aria-labelledby="local-tab">
+                            {% else %}
+                            <div class="tab-pane" id="local-setup" role="tabpanel" aria-labelledby="local-tab">
+                            {% endif %}
+                                <div class="alert alert-info">
+                                    <i class="bi bi-info-circle-fill"></i>
+                                    <strong>Local Access</strong> is for when your Nintendo Switch and Ownfoil server are on the same network (e.g., both on your home WiFi).
+                                </div>
+                                
+                                {% if not local_address %}
+                                <div class="alert alert-warning">
+                                    <i class="bi bi-exclamation-triangle-fill"></i>
+                                    Unable to determine local server address. Please check your network configuration.
+                                </div>
+                                {% else %}
+                                
+                                <div class="accordion" id="accordionSetup">
+                                    {% if tinfoil_enabled %}
+                                    <div class="accordion-item">
+                                        <h5 class="accordion-header" id="headingTinfoil">
+                                        <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapseTinfoil" aria-expanded="false" aria-controls="collapseTinfoil" style="font-size: 1.25rem;">
+                                            <i class="bi bi-box-seam"></i>&nbsp; Tinfoil Setup
+                                        </button>
+                                        </h5>
+                                        <div id="collapseTinfoil" class="accordion-collapse collapse" aria-labelledby="headingTinfoil" data-bs-parent="#accordionSetup">
+                                            <div class="accordion-body">
+                                                <!-- Tinfoil Local Setup -->
+                                                <ol>
+                                                    <li class="mb-2">On your Nintendo Switch, open <strong>Tinfoil</strong></li>
+                                                    <li class="mb-2">Navigate to <strong>File Browser</strong> → <strong>New</strong></li>
+                                                    <li class="mb-2">Enter the following details:
+                                                        <div class="card bg-dark mt-2 mb-2">
+                                                            <div class="card-body">
+                                                                <table class="table table-sm table-dark mb-0">
+                                                                    <tr>
+                                                                        <td class="fw-bold" style="width: 120px;">Protocol:</td>
+                                                                        <td><code>http</code></td>
+                                                                    </tr>
+                                                                    <tr>
+                                                                        <td class="fw-bold">Host:</td>
+                                                                        <td><code>{{ local_address }}</code></td>
+                                                                    </tr>
+                                                                    <tr>
+                                                                        <td class="fw-bold">Port:</td>
+                                                                        <td><code>{{ local_port }}</code></td>
+                                                                    </tr>
+                                                                    <tr>
+                                                                        <td class="fw-bold">Path:</td>
+                                                                        <td><code>/</code><span class="text-muted"> for <strong>all</strong> content, else one of </span><code>/base</code>, <code>/update</code>, <code>/dlc</code>, <code>/multi</code> <span class="text-muted"> to serve specific content.</span></td>
+                                                                    </tr>
+                                                                    {% if not shop_public %}
+                                                                    <tr>
+                                                                        <td class="fw-bold">Username:</td>
+                                                                        <td><code>{{ username }}</code></td>
+                                                                    </tr>
+                                                                    <tr>
+                                                                        <td class="fw-bold">Password:</td>
+                                                                        <td><code>Password</code></td>
+                                                                    </tr>
+                                                                    {% endif %}
+                                                                    <tr>
+                                                                        <td class="fw-bold">Title:</td>
+                                                                        <td><code>{{ shop_name }} - Local</code></td>
+                                                                    </tr>
+                                                                    <tr>
+                                                                        <td class="fw-bold">Enabled:</td>
+                                                                        <td><code>YES</code></td>
+                                                                    </tr>
+                                                                </table>
+                                                            </div>
+                                                        </div>
+                                                    </li>
+                                                    <li class="mb-2">Press <strong>Save</strong> to save the location and load the shop</li>
+                                                </ol>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    {% endif %}
+                                    
+                                    {% if sphaira_enabled %}
+                                    <div class="accordion-item">
+                                        <h2 class="accordion-header" id="headingSphaira">
+                                        <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapseSphaira" aria-expanded="false" aria-controls="collapseSphaira" style="font-size: 1.25rem;">
+                                            <i class="bi bi-globe"></i>&nbsp; Sphaira (file browser) Setup
+                                        </button>
+                                        </h2>
+                                        <div id="collapseSphaira" class="accordion-collapse collapse" aria-labelledby="headingSphaira" data-bs-parent="#accordionSetup">
+                                            <div class="accordion-body">
+                                                <!-- Sphaira Local Setup -->
+                                                <ol>
+                                                    <li class="mb-2">On your Nintendo Switch, open <strong>Sphaira</strong></li>
+                                                    <li class="mb-2">Open <strong>Menu</strong> → <strong>Advanced Options</strong> → <strong>Install options</strong> and turn on <code>Enable emummc</code></li>
+                                                    <li class="mb-2">Open <strong>Menu</strong> → <strong>Advanced Options</strong> → <strong>Add / modify mounts</strong> → <strong>Create New Entry</strong></li>
+                                                    <li class="mb-2">Enter the following details:
+                                                        <div class="card bg-dark mt-2 mb-2">
+                                                            <div class="card-body">
+                                                                <table class="table table-sm table-dark mb-0">
+                                                                    <tr>
+                                                                        <td class="fw-bold" style="width: 120px;">Type:</td>
+                                                                        <td><code>HTTP</code></td>
+                                                                        <td></td>
+                                                                    </tr>
+                                                                    <tr>
+                                                                        <td class="fw-bold">Name:</td>
+                                                                        <td><code>{{ shop_name }} - Local</code></td>
+                                                                        <td></td>
+                                                                    </tr>
+                                                                    <tr>
+                                                                        <td class="fw-bold">URL:</td>
+                                                                        <td><code>http://{{ local_address }}</code></td>
+                                                                        <td><span class="text-muted">Add <code>/base</code>, <code>/update</code>, <code>/dlc</code>, <code>/multi</code> to serve specific content.</span></td>
+                                                                    </tr>
+                                                                    <tr>
+                                                                        <td class="fw-bold">Port:</td>
+                                                                        <td><code>{{ local_port }}</code></td>
+                                                                        <td></td>
+                                                                    </tr>
+                                                                    {% if not shop_public %}
+                                                                    <tr>
+                                                                        <td class="fw-bold">User:</td>
+                                                                        <td><code>{{ username }}</code></td>
+                                                                        <td></td>
+                                                                    </tr>
+                                                                    <tr>
+                                                                        <td class="fw-bold">Pass:</td>
+                                                                        <td><code>Password</code></td>
+                                                                        <td></td>
+                                                                    </tr>
+                                                                    {% endif %}
+                                                                </table>
+                                                            </div>
+                                                        </div>
+                                                    </li>
+                                                    <li class="mb-2">Press <strong>Save</strong> and <strong>restart Sphaira</strong></li>
+                                                    <li class="mb-2">Navigate to <strong>FileBrowser</strong> → <strong>Options</strong> → <strong>Mount</strong> → Select <code>[HTTP] {{ shop_name }} - Local</code></li>
+                                                </ol>
+                                                <div class="alert alert-success">
+                                                    <i class="bi bi-check-circle-fill"></i>
+                                                    Opening a file will show a preview of its content. To actually install the file, press <strong>Options</strong> → <strong>Install</strong>.
+                                                </div>
+                                                <div class="alert alert-info">
+                                                    <i class="bi bi-info-circle-fill"></i>
+                                                    To refresh the shop, simply select another <code>Mount</code> then select back {{ shop_name }}.
                                                 </div>
                                             </div>
-                                        </li>
-                                        <li class="mb-2">Press <strong>Save</strong> and <strong>restart Sphaira</strong></li>
-                                        <li class="mb-2">Navigate to <strong>FileBrowser</strong> → <strong>Options</strong> → <strong>Mount</strong> → Select <code>[HTTP] {{ shop_name }} - Remote</code></li>
-                                    </ol>
-                                    <div class="alert alert-success">
-                                        <i class="bi bi-check-circle-fill"></i>
-                                        Opening a file will show a preview of its content. To actually install the file, press <strong>Options</strong> → <strong>Install</strong>.
+                                        </div>
                                     </div>
-                                    <div class="alert alert-info">
-                                        <i class="bi bi-info-circle-fill"></i>
-                                        To refresh the shop, simply select another <code>Mount</code> then select back {{ shop_name }}.
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                        {% endif %}
+                                    {% endif %}
 
-                        {% if cyberfoil_enabled %}
-                        <div class="accordion-item">
-                            <h2 class="accordion-header" id="headingCyberFoil">
-                            <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapseCyberFoil" aria-expanded="false" aria-controls="collapseCyberFoil" style="font-size: 1.25rem;">
-                                <i class="bi bi-download"></i>&nbsp; CyberFoil Setup
-                            </button>
-                            </h2>
-                            <div id="collapseCyberFoil" class="accordion-collapse collapse" aria-labelledby="headingCyberFoil" data-bs-parent="#accordionSetup">
-                                <div class="accordion-body">
-                                    <!-- CyberFoil Local Setup -->
-                                    <ol>
-                                        <li class="mb-2">On your Nintendo Switch, open <strong>CyberFoil</strong></li>
-                                        <li class="mb-2">Open <strong>Settings</strong> → <strong>Shop</strong> → <strong>Add new shop</strong></li>
-                                        <li class="mb-2">Enter the following details:
-                                            <div class="card bg-dark mt-2 mb-2">
-                                                <div class="card-body">
-                                                    <table class="table table-sm table-dark mb-0">
-                                                        <tr>
-                                                            <td class="fw-bold">Shop title:</td>
-                                                            <td><code>{{ shop_name }} - Remote</code></td>
-                                                            <td></td>
-                                                        </tr>
-                                                        <tr>
-                                                            <td class="fw-bold" style="width: 120px;">Shop protocol:</td>
-                                                            <td><code>HTTPS</code></td>
-                                                            <td></td>
-                                                        </tr>
-                                                        <tr>
-                                                            <td class="fw-bold">Host:</td>
-                                                            <td><code>{{ remote_host }}</code></td>
-                                                            <td></td>
-                                                        </tr>
-                                                        <tr>
-                                                            <td class="fw-bold">Port:</td>
-                                                            <td><code>443</code></td>
-                                                            <td></td>
-                                                        </tr>
-                                                        {% if not shop_public %}
-                                                        <tr>
-                                                            <td class="fw-bold">Username:</td>
-                                                            <td><code>Username</code></td>
-                                                            <td></td>
-                                                        </tr>
-                                                        <tr>
-                                                            <td class="fw-bold">Password:</td>
-                                                            <td><code>Password</code></td>
-                                                            <td></td>
-                                                        </tr>
-                                                        {% endif %}
-                                                    </table>
+                                    {% if cyberfoil_enabled %}
+                                    <div class="accordion-item">
+                                        <h2 class="accordion-header" id="headingCyberFoil">
+                                        <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapseCyberFoil" aria-expanded="false" aria-controls="collapseCyberFoil" style="font-size: 1.25rem;">
+                                            <i class="bi bi-download"></i>&nbsp; CyberFoil Setup
+                                        </button>
+                                        </h2>
+                                        <div id="collapseCyberFoil" class="accordion-collapse collapse" aria-labelledby="headingCyberFoil" data-bs-parent="#accordionSetup">
+                                            <div class="accordion-body">
+                                                <!-- CyberFoil Local Setup -->
+                                                <ol>
+                                                    <li class="mb-2">On your Nintendo Switch, open <strong>CyberFoil</strong></li>
+                                                    <li class="mb-2">Open <strong>Settings</strong> → <strong>Shop</strong> → <strong>Add new shop</strong></li>
+                                                    <li class="mb-2">Enter the following details:
+                                                        <div class="card bg-dark mt-2 mb-2">
+                                                            <div class="card-body">
+                                                                <table class="table table-sm table-dark mb-0">
+                                                                    <tr>
+                                                                        <td class="fw-bold">Shop title:</td>
+                                                                        <td><code>{{ shop_name }} - Local</code></td>
+                                                                        <td></td>
+                                                                    </tr>
+                                                                    <tr>
+                                                                        <td class="fw-bold" style="width: 120px;">Shop protocol:</td>
+                                                                        <td><code>HTTP</code></td>
+                                                                        <td></td>
+                                                                    </tr>
+                                                                    <tr>
+                                                                        <td class="fw-bold">Host:</td>
+                                                                        <td><code>{{ local_address }}</code></td>
+                                                                        <td></td>
+                                                                    </tr>
+                                                                    <tr>
+                                                                        <td class="fw-bold">Port:</td>
+                                                                        <td><code>{{ local_port }}</code></td>
+                                                                        <td></td>
+                                                                    </tr>
+                                                                    {% if not shop_public %}
+                                                                    <tr>
+                                                                        <td class="fw-bold">Username:</td>
+                                                                        <td><code>{{ username }}</code></td>
+                                                                        <td></td>
+                                                                    </tr>
+                                                                    <tr>
+                                                                        <td class="fw-bold">Password:</td>
+                                                                        <td><code>Password</code></td>
+                                                                        <td></td>
+                                                                    </tr>
+                                                                    {% endif %}
+                                                                </table>
+                                                            </div>
+                                                        </div>
+                                                    </li>
+                                                    <li class="mb-2">Ensure <strong>Active shop</strong> is set to the correct shop</strong></li>
+                                                    <li class="mb-2">Press <strong>Back</strong> to go back to the main menu, and open <strong>Install from eShop</strong> to browse your shop</li>
+                                                </ol>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    {% endif %}
+                                </div>
+                                {% endif %}
+                            </div>
+                            
+                            <!-- Remote Access Tab -->
+                            {% if show_local_tab %}
+                            <div class="tab-pane" id="remote-setup" role="tabpanel" aria-labelledby="remote-tab">
+                            {% else %}
+                            <div class="tab-pane show active" id="remote-setup" role="tabpanel" aria-labelledby="remote-tab">
+                            {% endif %}
+                                <div class="alert alert-info">
+                                    <i class="bi bi-info-circle-fill"></i>
+                                    <strong>Remote Access</strong> allows you to access your Ownfoil shop from anywhere over the internet. Requires proper port forwarding or a reverse proxy setup.
+                                </div>
+                                
+                                {% if not remote_host %}
+                                <div class="alert alert-warning">
+                                    <i class="bi bi-exclamation-triangle-fill"></i>
+                                    <strong>Remote host not configured.</strong> Please configure the remote host in the <a href="/admin/settings#shopHostInput" class="alert-link">Settings</a> page under the Shop section.
+                                </div>
+                                {% else %}
+                                
+                                <div class="accordion" id="accordionSetup">
+                                    {% if tinfoil_enabled %}
+                                    <div class="accordion-item">
+                                        <h5 class="accordion-header" id="headingTinfoil">
+                                        <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapseTinfoil" aria-expanded="false" aria-controls="collapseTinfoil" style="font-size: 1.25rem;">
+                                            <i class="bi bi-box-seam"></i>&nbsp; Tinfoil Setup
+                                        </button>
+                                        </h5>
+                                        <div id="collapseTinfoil" class="accordion-collapse collapse" aria-labelledby="headingTinfoil" data-bs-parent="#accordionSetup">
+                                            <div class="accordion-body">
+                                                <!-- Tinfoil Remote Setup -->
+                                                <ol>
+                                                    <li class="mb-2">On your Nintendo Switch, open <strong>Tinfoil</strong></li>
+                                                    <li class="mb-2">Navigate to <strong>File Browser</strong> → <strong>New</strong></li>
+                                                    <li class="mb-2">Enter the following details:
+                                                        <div class="card bg-dark mt-2 mb-2">
+                                                            <div class="card-body">
+                                                                <table class="table table-sm table-dark mb-0">
+                                                                    <tr>
+                                                                        <td class="fw-bold" style="width: 120px;">Protocol:</td>
+                                                                        <td><code>https</code></td>
+                                                                    </tr>
+                                                                    <tr>
+                                                                        <td class="fw-bold">Host:</td>
+                                                                        <td><code>{{ remote_host }}</code></td>
+                                                                    </tr>
+                                                                    <tr>
+                                                                        <td class="fw-bold">Path:</td>
+                                                                        <td><code>/</code><span class="text-muted"> for <strong>all</strong> content, else one of </span><code>/base</code>, <code>/update</code>, <code>/dlc</code>, <code>/multi</code> <span class="text-muted"> to serve specific content.</span></td>
+                                                                    </tr>
+                                                                    {% if not shop_public %}
+                                                                    <tr>
+                                                                        <td class="fw-bold">Username:</td>
+                                                                        <td><code>{{ username }}</code></td>
+                                                                    </tr>
+                                                                    <tr>
+                                                                        <td class="fw-bold">Password:</td>
+                                                                        <td><code>Password</code></td>
+                                                                    </tr>
+                                                                    {% endif %}
+                                                                    <tr>
+                                                                        <td class="fw-bold">Title:</td>
+                                                                        <td><code>{{ shop_name }} - Remote</code></td>
+                                                                    </tr>
+                                                                    <tr>
+                                                                        <td class="fw-bold">Enabled:</td>
+                                                                        <td><code>YES</code></td>
+                                                                    </tr>
+                                                                </table>
+                                                            </div>
+                                                        </div>
+                                                    </li>
+                                                    <li class="mb-2">Press <strong>Save</strong> to save the location and load the shop</li>
+                                                </ol>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    {% endif %}
+                                    
+                                    {% if sphaira_enabled %}
+                                    <div class="accordion-item">
+                                        <h2 class="accordion-header" id="headingSphaira">
+                                        <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapseSphaira" aria-expanded="false" aria-controls="collapseSphaira" style="font-size: 1.25rem;">
+                                            <i class="bi bi-globe"></i>&nbsp; Sphaira (file browser) Setup
+                                        </button>
+                                        </h2>
+                                        <div id="collapseSphaira" class="accordion-collapse collapse" aria-labelledby="headingSphaira" data-bs-parent="#accordionSetup">
+                                            <div class="accordion-body">
+                                                <!-- Sphaira Remote Setup -->
+                                                <ol>
+                                                    <li class="mb-2">On your Nintendo Switch, open <strong>Sphaira</strong></li>
+                                                    <li class="mb-2">Open <strong>Menu</strong> → <strong>Advanced Options</strong> → <strong>Install options</strong> and turn on <code>Enable emummc</code></li>
+                                                    <li class="mb-2">Open <strong>Menu</strong> → <strong>Advanced Options</strong> → <strong>Add / modify mounts</strong> → <strong>Create New Entry</strong></li>
+                                                    <li class="mb-2">Enter the following details:
+                                                        <div class="card bg-dark mt-2 mb-2">
+                                                            <div class="card-body">
+                                                                <table class="table table-sm table-dark mb-0">
+                                                                    <tr>
+                                                                        <td class="fw-bold" style="width: 120px;">Type:</td>
+                                                                        <td><code>HTTP</code></td>
+                                                                        <td></td>
+                                                                    </tr>
+                                                                    <tr>
+                                                                        <td class="fw-bold">Name:</td>
+                                                                        <td><code>{{ shop_name }} - Remote</code></td>
+                                                                        <td></td>
+                                                                    </tr>
+                                                                    <tr>
+                                                                        <td class="fw-bold">URL:</td>
+                                                                        <td><code>https://{{ remote_host }}</code></td>
+                                                                        <td><span class="text-muted">Append <code>/base</code>, <code>/update</code>, <code>/dlc</code>, <code>/multi</code> to serve specific content.</span></td>
+                                                                    </tr>
+                                                                    <tr>
+                                                                        <td class="fw-bold">Port:</td>
+                                                                        <td><code>443</code></td>
+                                                                        <td></td>
+                                                                    </tr>
+                                                                    {% if not shop_public %}
+                                                                    <tr>
+                                                                        <td class="fw-bold">User:</td>
+                                                                        <td><code>{{ username }}</code></td>
+                                                                        <td></td>
+                                                                    </tr>
+                                                                    <tr>
+                                                                        <td class="fw-bold">Pass:</td>
+                                                                        <td><code>Password</code></td>
+                                                                        <td></td>
+                                                                    </tr>
+                                                                    {% endif %}
+                                                                </table>
+                                                            </div>
+                                                        </div>
+                                                    </li>
+                                                    <li class="mb-2">Press <strong>Save</strong> and <strong>restart Sphaira</strong></li>
+                                                    <li class="mb-2">Navigate to <strong>FileBrowser</strong> → <strong>Options</strong> → <strong>Mount</strong> → Select <code>[HTTP] {{ shop_name }} - Remote</code></li>
+                                                </ol>
+                                                <div class="alert alert-success">
+                                                    <i class="bi bi-check-circle-fill"></i>
+                                                    Opening a file will show a preview of its content. To actually install the file, press <strong>Options</strong> → <strong>Install</strong>.
+                                                </div>
+                                                <div class="alert alert-info">
+                                                    <i class="bi bi-info-circle-fill"></i>
+                                                    To refresh the shop, simply select another <code>Mount</code> then select back {{ shop_name }}.
                                                 </div>
                                             </div>
-                                        </li>
-                                        <li class="mb-2">Ensure <strong>Active shop</strong> is set to the correct shop</strong></li>
-                                        <li class="mb-2">Press <strong>Back</strong> to go back to the main menu, and open <strong>Install from eShop</strong> to browse your shop</li>
-                                    </ol>
+                                        </div>
+                                    </div>
+                                    {% endif %}
+
+                                    {% if cyberfoil_enabled %}
+                                    <div class="accordion-item">
+                                        <h2 class="accordion-header" id="headingCyberFoil">
+                                        <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapseCyberFoil" aria-expanded="false" aria-controls="collapseCyberFoil" style="font-size: 1.25rem;">
+                                            <i class="bi bi-download"></i>&nbsp; CyberFoil Setup
+                                        </button>
+                                        </h2>
+                                        <div id="collapseCyberFoil" class="accordion-collapse collapse" aria-labelledby="headingCyberFoil" data-bs-parent="#accordionSetup">
+                                            <div class="accordion-body">
+                                                <!-- CyberFoil Local Setup -->
+                                                <ol>
+                                                    <li class="mb-2">On your Nintendo Switch, open <strong>CyberFoil</strong></li>
+                                                    <li class="mb-2">Open <strong>Settings</strong> → <strong>Shop</strong> → <strong>Add new shop</strong></li>
+                                                    <li class="mb-2">Enter the following details:
+                                                        <div class="card bg-dark mt-2 mb-2">
+                                                            <div class="card-body">
+                                                                <table class="table table-sm table-dark mb-0">
+                                                                    <tr>
+                                                                        <td class="fw-bold">Shop title:</td>
+                                                                        <td><code>{{ shop_name }} - Remote</code></td>
+                                                                        <td></td>
+                                                                    </tr>
+                                                                    <tr>
+                                                                        <td class="fw-bold" style="width: 120px;">Shop protocol:</td>
+                                                                        <td><code>HTTPS</code></td>
+                                                                        <td></td>
+                                                                    </tr>
+                                                                    <tr>
+                                                                        <td class="fw-bold">Host:</td>
+                                                                        <td><code>{{ remote_host }}</code></td>
+                                                                        <td></td>
+                                                                    </tr>
+                                                                    <tr>
+                                                                        <td class="fw-bold">Port:</td>
+                                                                        <td><code>443</code></td>
+                                                                        <td></td>
+                                                                    </tr>
+                                                                    {% if not shop_public %}
+                                                                    <tr>
+                                                                        <td class="fw-bold">Username:</td>
+                                                                        <td><code>{{ username }}</code></td>
+                                                                        <td></td>
+                                                                    </tr>
+                                                                    <tr>
+                                                                        <td class="fw-bold">Password:</td>
+                                                                        <td><code>Password</code></td>
+                                                                        <td></td>
+                                                                    </tr>
+                                                                    {% endif %}
+                                                                </table>
+                                                            </div>
+                                                        </div>
+                                                    </li>
+                                                    <li class="mb-2">Ensure <strong>Active shop</strong> is set to the correct shop</strong></li>
+                                                    <li class="mb-2">Press <strong>Back</strong> to go back to the main menu, and open <strong>Install from eShop</strong> to browse your shop</li>
+                                                </ol>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    {% endif %}
                                 </div>
+                                {% endif %}
                             </div>
                         </div>
-                        {% endif %}
                     </div>
-                    {% endif %}
                 </div>
             </div>
         </div>
     </div>
+    {% endif %}
 </div>
 {% endblock %}

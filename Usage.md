@@ -40,9 +40,11 @@ You can filter by type (base game or DLC), by ownership, by whether an update is
 
 ## Setup page
 
-This is the page to use when configuring a client on your Nintendo Switch. It prints the configuration tables for Tinfoil, Sphaira and CyberFoil, already filled in with your own address and port, and the exact menu path to follow in each app.
+This is the page to use when configuring a client on your Nintendo Switch, with values already filled in with your own address and port, and the exact menu path to follow in each app.
 
-It has two tabs. `Local Access` is for when your Switch and your Ownfoil server are on the same network, and uses your server's LAN IP. `Remote Access` is for reaching your shop over the internet, and uses the `Shop URL` you configured in the [Shop](#shop) settings.
+It leads with [Sphaira](#sphaira). Opened from your local network, it also tells you whether [discovery](#discovery) is enabled and, if so, how to let Sphaira find your server by itself. The server's local and remote addresses are given to add it manually otherwise.
+
+The [legacy clients](#legacy-clients) are in a collapsed section below. Its `Local Access` tab uses your server's LAN IP, and its `Remote Access` tab the `Shop URL` configured in the [Shop](#shop) settings.
 
 ## Tasks page
 
@@ -62,7 +64,7 @@ Admin only, for configuring other services your Ownfoil server interfaces with.
 
 Discovery lets a client on your Switch find your shop by itself, instead of you typing its address on the console. The client broadcasts a request on your local network on UDP port `8465`, and Ownfoil answers with the shop name, the port to reach it on and the remote `Shop URL` if you configured one.
 
-It only works when your Switch and Ownfoil are on the same network, remote access still needs the address manually configured in the client.
+It only works when your Switch and Ownfoil are on the same network, but the remote `Shop URL` is reported in the discovery response: in Sphaira it is then saved and used when away from home.
 
 > [!IMPORTANT]
 > With Docker, discovery only works if the container uses the host network: `--network host` with `docker run`, or `network_mode: host` with Docker compose.
@@ -73,9 +75,28 @@ Admin only, and a single scrolling page.
 
 # Clients
 
-Ownfoil supports multiple clients to install content on your Nintendo Switch. They can be enabled and disabled individually in the [Shop](#client-access) settings.
+## [Sphaira](https://github.com/NaGaa95/sphaira/releases)
 
-## [Tinfoil:](https://tinfoil.io/Download)
+Sphaira has a built-in Ownfoil menu, under `Menu` → `Menus` → `Ownfoil`, and is the recommended client.
+
+- Finds local servers by itself with [discovery](#discovery)
+- A local and a remote address per server, over `HTTP` or `HTTPS`, used in that order
+- User authentication
+- Browsing by game rather than by file: `New games`, `Updates`, `DLC`, `All games` and `Search`, paginated and sortable
+- Pick a version and the DLC you want, only the content needed is downloaded, whichever files it is stored in
+- Compares against what the console has installed already
+- Compressed content (NSZ and XCZ) support
+- Downloads resume after a dropped connection
+- Artwork served by Ownfoil, the console never contacts Nintendo's servers
+- Custom welcome message (MOTD)
+
+Select `Discover local servers` and pick your shop, or add it manually with `X` using the local and remote addresses shown on the `Setup` page.
+
+## Legacy clients
+
+These clients browse the shop from a file list using their own title metadatas, which can differ from what's actually identified by Ownfoil. They can be enabled and disabled individually in the [Shop](#client-access) settings.
+
+### [Tinfoil:](https://tinfoil.io/Download)
 - `HTTP` / `HTTPS` protocol support
 - User authentication
 - Shop browsing with icons and banners
@@ -86,18 +107,18 @@ Ownfoil supports multiple clients to install content on your Nintendo Switch. Th
 - Client side Host verification for secure connections
 - Tinfoil shop customization
 
-## [Sphaira:](https://github.com/ITotalJustice/sphaira)
+### [Sphaira file browser:](https://github.com/NaGaa95/sphaira)
 - `HTTP` / `HTTPS` protocol support
 - User authentication
 - Directory-based file browsing
 - [Content filtering](#content-filters) (games, updates, DLC, multi-content) based on URL
 - Compressed content (NSZ and XCZ) support
 
-Sphaira browses your shop as a folder tree rather than a shop listing, so what you see is the layout of your library on disk. Opening a file shows a preview of its content, to actually install it press `Options` → `Install`.
+Mounted as an `HTTP` location in its file browser, Sphaira browses your shop as a folder tree rather than a shop listing, so what you see is the layout of your library on disk. Opening a file shows a preview of its content, to actually install it press `Options` → `Install`.
 
 Sphaira identifies itself in its requests since version `1.0.6`, which Ownfoil needs to serve the shop. Be sure to use an up to date version if encountering issues.
 
-## [CyberFoil:](https://github.com/luketanti/CyberFoil)
+### [CyberFoil:](https://github.com/luketanti/CyberFoil)
 - `HTTP` / `HTTPS` protocol support
 - User authentication
 - Shop browsing with icons and Sections (Updates, DLC)
@@ -304,7 +325,7 @@ This covers the icon, banner and screenshots of every game in your library and o
 
 The shop name replaces `Ownfoil` in the navigation bar, the browser tab and the app name when you add the Web UI to your home screen. The `Setup` page also uses it to name the shop entries it tells you to create in each client, so set it before configuring your Switch. It can also be used by homebrew clients when browsing the shop
 
-The MOTD is shown by Tinfoil and CyberFoil. Sphaira browses files and does not display it.
+The MOTD is shown by Sphaira's Ownfoil menu, Tinfoil and CyberFoil. The Sphaira file browser does not display it.
 
 Setting `Shop URL` lets Ownfoil tell the client which address the shop is supposed to be served from, and the client refuses to load it from anywhere else. That is what stops someone who got hold of your URL and credentials from rebroadcasting your shop as their own.
 
@@ -316,10 +337,10 @@ It only works on secure requests: if your reverse proxy still answers on plain `
 | --- | --- | --- |
 | `Tinfoil` → `Enabled` | enabled | Allow Tinfoil to access the shop. |
 | `Tinfoil` → `Encrypt shop` | enabled | Serve the shop listing encrypted. |
-| `Sphaira` → `Enabled` | enabled | Allow Sphaira to access the shop. |
+| `Sphaira` → `Enabled` | enabled | Allow the Sphaira file browser to access the shop. |
 | `CyberFoil` → `Enabled` | enabled | Allow CyberFoil to access the shop. |
 
-Disabling a client makes Ownfoil refuse it with a message.
+Disabling a client makes Ownfoil refuse it with a message. These only apply to the [legacy clients](#legacy-clients), Sphaira's Ownfoil menu is always allowed.
 
 `Encrypt shop` compresses and encrypts the shop listing in a way only a real Tinfoil build can read, so only a Tinfoil client will be able to inspect the shop's content. Note that if a client other than Tinfoil is enabled (and not encryption is available), the shop content will be served in clear through their headers, rendering encryption useless.
 
