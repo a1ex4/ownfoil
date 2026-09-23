@@ -381,7 +381,8 @@ def setup_page():
 
     # Check if shop is public
     shop_public = settings['shop']['public']
-    
+    is_admin = not admin_account_created() or (current_user.is_authenticated and current_user.has_admin_access())
+
     return render_template(
         'setup.html',
         title='Setup',
@@ -393,6 +394,8 @@ def setup_page():
         sphaira_enabled=sphaira_enabled,
         cyberfoil_enabled=cyberfoil_enabled,
         shop_public=shop_public,
+        discovery_enabled=settings['services']['discovery']['enabled'],
+        is_admin=is_admin,
         admin_account_created=admin_account_created()
     )
 
