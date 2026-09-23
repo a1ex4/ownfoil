@@ -149,6 +149,29 @@ def test_other_locales_already_on_disk_are_refreshed_too(remote):
     assert json.loads((remote.dir / "titles.FR.fr.json").read_text()) == {"file": "titles.FR.fr.json"}
 
 
+# previous imported locale -> (titles.db rebuilt, file flags reset)
+LOCALE_CASES = {
+    "empty titles.db after a schema rebuild": (None, (True, False)),
+    "same locale": ("US.en", (False, False)),
+    "locale changed": ("FR.fr", (True, True)),
+}
+
+
+@pytest.mark.parametrize("previous, expected", LOCALE_CASES.values(), ids=LOCALE_CASES.keys())
+def test_only_a_real_locale_change_resets_file_flags(remote, monkeypatch, previous, expected):
+    for name in DEFAULTS + [REGION_FILE]:
+        (remote.dir / name).write_text("{}")
+    (remote.dir / ".latest").write_text(NEW_COMMIT)
+    monkeypatch.setattr(update_mod.store, "get_imported_locale", lambda: previous)
+    resets = []
+    monkeypatch.setattr("db.reset_files_organized", lambda: resets.append("organized"))
+    monkeypatch.setattr("db.reset_files_metadata_extracted", lambda: resets.append("extracted"))
+
+    titledb.update_titledb(SETTINGS)
+
+    assert (bool(remote.imported), bool(resets)) == expected
+
+
 # ------------- failures must not advance the marker -------------
 
 @pytest.mark.parametrize("failure", ["broken", "truncate"])
