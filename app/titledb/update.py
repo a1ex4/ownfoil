@@ -93,10 +93,11 @@ def update_titledb(app_settings):
 
     downloaded, remote_commit = update_titledb_files(app_settings)
     locale = get_locale(app_settings)
-    locale_changed = store.get_imported_locale() != locale
-    if downloaded or locale_changed:
+    # None is an empty titles.db (first run, schema rebuild), not a locale change
+    previous_locale = store.get_imported_locale()
+    if downloaded or previous_locale != locale:
         store.import_from_json(os.path.join(TITLEDB_DIR, get_region_titles_file(app_settings)), locale)
-        if locale_changed:
+        if previous_locale not in (None, locale):
             from db import reset_files_metadata_extracted, reset_files_organized
             reset_files_organized()
             # Names and icons are per language, so a new locale invalidates what was read
