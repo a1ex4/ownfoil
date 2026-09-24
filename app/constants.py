@@ -50,6 +50,10 @@ DEFAULT_SETTINGS = {
                 "depth": "hash",
             },
             "delete_older_updates": False,
+            "deduplication": {
+                "enabled": False,
+                "prefer_multicontent": False,
+            },
             "organizer": {
                 "enabled": False,
                 "remove_empty_folders": False,

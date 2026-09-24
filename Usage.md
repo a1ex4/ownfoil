@@ -193,6 +193,13 @@ Automated library management. Everything in this section shares the `Submit` but
 | Setting | Default | Description |
 | --- | --- | --- |
 | `Delete older updates` | disabled | Deletes older update files when a newer version of the same update is in your library. |
+| `Delete duplicate files` | disabled | When several files carry the same content, keeps the best copy and deletes the others. |
+| `Prefer multi-content files` | disabled | Keep files bundling several contents over single-content copies of them. Also applies to downloads. |
+
+The best copy is an intact file over a [corrupt or modified](#file-verification) one, then a single-content file over a multi-content one unless you prefer them, then a [compressed](#file-compression) and organized file, and finally the oldest. A multi-content file is only deleted once every content it holds has a better copy elsewhere, and nothing is judged until every copy of it has been through the pipeline.
+
+> [!TIP]
+> Deleting duplicates needs valid [console keys](#console-keys): a file identified only from its filename is never deleted.
 
 #### File compression
 
@@ -248,7 +255,7 @@ Verification is disabled entirely, with the controls greyed out, when no valid [
 | Setting | Default | Description |
 | --- | --- | --- |
 | `Enable organizer` | disabled | Move identified files into the paths built from the templates below. |
-| `Remove empty folders` | disabled | Remove folders left empty after files are moved out of them. |
+| `Remove empty folders` | disabled | Remove folders left empty after files are moved out of them or deleted. |
 | `Windows compatible filenames` | disabled | Use filenames a Windows system can read. |
 
 Once a file is identified, the organizer renders the matching template, and moves the file there if it isn't already. Paths are relative to the library path the file is in, and the extension is added automatically.

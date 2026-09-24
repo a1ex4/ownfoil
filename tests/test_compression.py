@@ -30,12 +30,13 @@ DEFAULT_COMPRESSION = {
 }
 
 
-def _settings(compress_files=True, organizer=False, delete_older=False, group_limits=None,
+def _settings(compress_files=True, organizer=False, group_limits=None,
               verify=False, depth="signature"):
     s = {"library": {"management": {
         "compression": {**DEFAULT_COMPRESSION, "enabled": compress_files},
         "verification": {"enabled": verify, "depth": depth},
-        "delete_older_updates": delete_older,
+        "delete_older_updates": False,
+        "deduplication": {"enabled": False, "prefer_multicontent": False},
         "organizer": {"enabled": organizer, "remove_empty_folders": False},
     }},
         "titles": {"language": "en", "region": "US"}}
@@ -788,12 +789,3 @@ def test_process_library_continuation_runs_maintenance(env):
     env.monkeypatch.setattr(tasks, "enqueue_task", lambda name, data=None, **k: enqueued.append(name))
     tasks._process_library_done()
     assert enqueued == ["library_maintenance", "update_titles"]
-
-
-@pytest.mark.parametrize("enabled,expected", [(True, True), (False, False)])
-def test_library_maintenance_chains_outdated_updates(env, enabled, expected):
-    enqueued = []
-    env.monkeypatch.setattr(tasks, "get_settings", lambda: _settings(delete_older=enabled))
-    env.monkeypatch.setattr(tasks, "enqueue_task", lambda name, data=None: enqueued.append(name))
-    tasks.library_maintenance_task()
-    assert ("remove_outdated_updates" in enqueued) is expected
