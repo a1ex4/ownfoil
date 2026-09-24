@@ -292,27 +292,25 @@ def remove_outdated_update_files():
                                 # Check if file meets criteria: identified, not multicontent
                                 if file_obj.identified and not file_obj.multicontent:
                                     logger.info(f"Removing outdated update file: {file_obj.filepath} (App ID: {app_obj.app_id}, Version: {app_obj.app_version}) - Greater owned version available.")
-                                    
-                                    # Remove from disk
-                                    if os.path.exists(file_obj.filepath):
-                                        try:
-                                            # Add the delete event to the ignored list before performing the remove
-                                            add_ignored_event(file_obj.filepath, '')
-                                            os.remove(file_obj.filepath)
-                                            logger.debug(f"Deleted physical file: {file_obj.filepath}")
-                                            # Remove from database and update app owned status
-                                            # This function handles db.session.delete(file_obj) and app.owned status
-                                            remove_file_from_apps(file_obj.id)
-                                        except OSError as e:
-                                            logger.error(f"Error deleting physical file {file_obj.filepath}: {e}")
-                                            # If an error occurs, remove from the ignored list
-                                            pop_ignored_event(src_path=file_obj.filepath, dest_path='')
-                                    else:
-                                        logger.warning(f"Physical file not found for deletion: {file_obj.filepath}")
-                                    
+                                    delete_library_file(file_obj)
+
         logger.info(f"Finished removal of outdated update files.")
     except Exception as e:
         logger.error(f"Error during removal of outdated update files: {e}")
+
+def delete_library_file(file_obj):
+    """Delete a library file from disk and the database, unseen by the watcher."""
+    if not os.path.exists(file_obj.filepath):
+        logger.warning(f"Physical file not found for deletion: {file_obj.filepath}")
+        return
+    add_ignored_event(file_obj.filepath, '')
+    try:
+        os.remove(file_obj.filepath)
+    except OSError as e:
+        logger.error(f"Error deleting physical file {file_obj.filepath}: {e}")
+        pop_ignored_event(src_path=file_obj.filepath, dest_path='')
+        return
+    delete_file_by_filepath(file_obj.filepath)
 
 def update_title_flags(title_id):
     """Recompute have_base / up_to_date / complete for a single title.
