@@ -825,6 +825,7 @@ OLDER_VALID = ("older.nsp", {**VALID, "days": 2})
 # (case, files carrying the app, the one downloadUrl has to name)
 DOWNLOAD_CASES = [
     ("a single-content file beats a bundle", [BUNDLE, PLAIN_UNVERIFIED], "unverified.nsp"),
+    ("an intact bundle beats a broken single-content file", [BUNDLE, PLAIN_CORRUPT], "bundle.nsp"),
     ("cnmt identification beats verification", [FILENAME_VALID, PLAIN_UNVERIFIED], "unverified.nsp"),
     ("verification beats compression", [COMPRESSED_CORRUPT, PLAIN_VALID], "valid.nsp"),
     ("an unverified copy beats a corrupt one", [PLAIN_UNVERIFIED, PLAIN_CORRUPT], "unverified.nsp"),

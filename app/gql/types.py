@@ -498,7 +498,8 @@ class App:
         not admin only - it is what a shop client reads the catalogue for.
 
         An app can be carried by several files (an original and a compressed copy
-        cataloged side by side, say) and this names one of them: a single-content file
+        cataloged side by side, say) and this names one of them: an intact file before a
+        broken one (`SIGNATURE_FAILED`, `MODIFIED`, `CORRUPT`), then a single-content file
         before a bundle, then one identified from its CNMT over its filename, then the
         soundest `verificationStatus`, then the compressed container, then an organized
         one, and finally the earliest added. Null for an app no file carries,
