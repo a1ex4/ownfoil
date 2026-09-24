@@ -8,6 +8,7 @@ from sqlalchemy import text
 from constants import APP_TYPE_BASE, APP_TYPE_DLC, APP_TYPE_UPD
 from containers.verification import status_of
 from db import best_file, db
+from settings import get_settings
 
 from .context import GraphQLContext
 from .filters import (
@@ -330,13 +331,14 @@ def _hydrate_app_download(app_pks: List[int], apps_by_pk: Dict[int, App]) -> Non
     by_app: Dict[int, list] = {}
     for r in db.session.execute(text(sql), params).all():
         by_app.setdefault(int(r.pk), []).append(r)
+    prefer_multicontent = get_settings()['library']['management']['deduplication']['prefer_multicontent']
     for pk, rows in by_app.items():
         app = apps_by_pk.get(pk)
         if app is None:
             continue
         # Newest file, so an app is recent while any copy of it is.
         app.added_at = max((r.added_at for r in rows if r.added_at), default=None)
-        picked = best_file(rows)
+        picked = best_file(rows, prefer_multicontent)
         app.download_token_loaded = picked.download_token
         app.download_size_loaded = picked.size
         app.download_extension_loaded = picked.extension

@@ -30,7 +30,7 @@ from utils import interval_string_to_timedelta, delete_empty_folders, human_size
 from library import (
     add_missing_apps_for_title, update_title_flags,
     add_missing_apps_to_db, update_titles, organize_file,
-    remove_outdated_update_files,
+    remove_outdated_update_files, remove_duplicate_files,
 )
 
 logger = logging.getLogger('main')
@@ -133,7 +133,6 @@ TASK_DISPLAY = {
         f'Maintain {library_path}' if library_path else 'Library maintenance'),
     'add_missing_apps_for_title': lambda title_id, **kw: f'Add missing content for {title_id}',
     'update_titles_for_title': lambda title_id, **kw: f'Update title {title_id}',
-    'remove_outdated_updates': lambda **kw: 'Remove outdated updates',
     'verify_file': lambda **kw: f'Verify {_file_label(**kw)}',
     'compress_file': lambda **kw: f'Compress {_file_label(**kw)}',
     'decompress_file': lambda **kw: f'Decompress {_file_label(**kw)}',
@@ -878,6 +877,10 @@ STAGES = [
 ]
 
 
+def _has_pending_stage(file, mgmt):
+    return any(s.applies(file, mgmt) for s in STAGES)
+
+
 @register_task('process_file')
 def process_file_task(file_id, **kwargs):
     """Drive one file down the stage list: inline stages here, delegated stages by task."""
@@ -907,7 +910,7 @@ def process_file_task(file_id, **kwargs):
 def process_library_task(**kwargs):
     """Drive every file that still has pipeline work."""
     mgmt = get_settings()['library']['management']
-    files = [f for f in Files.query.all() if any(s.applies(f, mgmt) for s in STAGES)]
+    files = [f for f in Files.query.all() if _has_pending_stage(f, mgmt)]
     logger.info(f'Processing library: {len(files)} file(s) with pending work.')
     for f in files:
         enqueue_or_child('process_file', {'file_id': f.id})
@@ -923,15 +926,23 @@ def _process_library_done(**kwargs):
 
 @register_task('library_maintenance')
 def library_maintenance_task(library_path=None, **kwargs):
-    """Post-organization GC: prune empty folders and outdated updates."""
-    settings = get_settings()
-    organizer = settings['library']['management']['organizer']
+    """Post-organization GC: outdated updates, then duplicates, then the folders they emptied.
+
+    Inline and in this order: dedup judges the library outdated updates left, which decides
+    whether a bundle carrying an outdated update is still needed.
+    """
+    mgmt = get_settings()['library']['management']
+    if mgmt['delete_older_updates']:
+        remove_outdated_update_files()
+        enqueue_task('update_titles')
+    if mgmt['deduplication']['enabled']:
+        remove_duplicate_files(mgmt['deduplication']['prefer_multicontent'],
+                               lambda f: _has_pending_stage(f, mgmt))
+    organizer = mgmt['organizer']
     if organizer.get('enabled') and organizer.get('remove_empty_folders'):
         paths = [library_path] if library_path else [lib.path for lib in get_libraries()]
         for path in paths:
             delete_empty_folders(path)
-    if settings['library']['management']['delete_older_updates']:
-        enqueue_task('remove_outdated_updates')
 
 
 @register_task('add_missing_apps_for_title')
@@ -956,13 +967,6 @@ def add_missing_apps_for_title_task(title_id, **kwargs):
 def update_titles_for_title_task(title_id, **kwargs):
     """Per-title: recompute have_base / up_to_date / complete under BEGIN IMMEDIATE."""
     update_title_flags(title_id)
-
-
-@register_task('remove_outdated_updates')
-def remove_outdated_updates_task(**kwargs):
-    """Remove outdated update files."""
-    remove_outdated_update_files()
-    enqueue_task('update_titles')
 
 
 # --- Verification ---

@@ -222,6 +222,20 @@
                     <label class="form-check-label" for="deleteOlderUpdatesCheck">Delete older updates</label>
                     <div class="form-text">Deletes older update files when a newer version is available in the library.</div>
                 </div>
+                <div class="mb-3 form-check">
+                    <input type="checkbox" class="form-check-input" id="deleteDuplicatesCheck">
+                    <label class="form-check-label" for="deleteDuplicatesCheck">Delete duplicate files</label>
+                    <div class="form-text">When several files carry the same content, keeps the best copy and deletes
+                        the others, once they have all been verified and compressed. Intact files are preferred, then
+                        compressed and organized ones. Requires keys: files identified from their filename are
+                        never deleted.</div>
+                </div>
+                <div class="mb-3 form-check">
+                    <input type="checkbox" class="form-check-input" id="preferMulticontentCheck">
+                    <label class="form-check-label" for="preferMulticontentCheck">Prefer multi-content files</label>
+                    <div class="form-text">Prefer files bundling several contents over single-content copies of them,
+                        also applies for download.</div>
+                </div>
 
                 <h4 class="py-2">File compression</h4>
                 <p>Compress files to save disk space after they are added and organized.</p>
@@ -1337,6 +1351,10 @@
                 depth: $("input[name='verificationDepth']:checked").val() || "signature"
             },
             delete_older_updates: getCheckboxStatus("deleteOlderUpdatesCheck"),
+            deduplication: {
+                enabled: getCheckboxStatus("deleteDuplicatesCheck"),
+                prefer_multicontent: getCheckboxStatus("preferMulticontentCheck")
+            },
             organizer: {
                 enabled: getCheckboxStatus("organizerEnabledCheck"),
                 remove_empty_folders: getCheckboxStatus("removeEmptyFoldersCheck"),
@@ -1518,6 +1536,9 @@
             $("#verifyFilesCheck").prop("checked", verification['enabled']);
             $("input[name='verificationDepth'][value='" + verification['depth'] + "']").prop("checked", true);
             $("#deleteOlderUpdatesCheck").prop("checked", librarySettings['management']['delete_older_updates']);
+            const deduplication = librarySettings['management']['deduplication'];
+            $("#deleteDuplicatesCheck").prop("checked", deduplication['enabled']);
+            $("#preferMulticontentCheck").prop("checked", deduplication['prefer_multicontent']);
             $("#organizerEnabledCheck").prop("checked", librarySettings['management']['organizer']['enabled']);
             $("#removeEmptyFoldersCheck").prop("checked", librarySettings['management']['organizer']['remove_empty_folders']);
             $("#windowsCompatibleCheck").prop("checked", librarySettings['management']['organizer']['windows_compatible']);

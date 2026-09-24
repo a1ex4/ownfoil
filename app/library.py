@@ -312,6 +312,31 @@ def delete_library_file(file_obj):
         return
     delete_file_by_filepath(file_obj.filepath)
 
+def duplicate_files(prefer_multicontent, is_pending):
+    """Files whose every app has a better copy elsewhere.
+
+    Skips apps with a copy still pending or identified from its filename only: such a file
+    may carry more than the database knows, and deleting it would lose that.
+    """
+    copies = {}
+    for app_id, file in db.session.query(app_files.c.app_id, Files).join(Files, Files.id == app_files.c.file_id):
+        copies.setdefault(app_id, []).append(file)
+    keep, candidates = set(), set()
+    for files in copies.values():
+        best = best_file(files, prefer_multicontent)
+        if (len(files) > 1 and all(f.identification_type == 'cnmt' and not is_pending(f) for f in files)
+                and os.path.exists(best.filepath)):
+            keep.add(best)
+            candidates.update(files)
+        else:
+            keep.update(files)
+    return sorted(candidates - keep, key=lambda f: f.id)
+
+def remove_duplicate_files(prefer_multicontent, is_pending):
+    for file_obj in duplicate_files(prefer_multicontent, is_pending):
+        logger.info(f"Removing duplicate file: {file_obj.filepath}")
+        delete_library_file(file_obj)
+
 def update_title_flags(title_id):
     """Recompute have_base / up_to_date / complete for a single title.
     Wrapped in BEGIN IMMEDIATE to serialize concurrent recomputes and prevent
