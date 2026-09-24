@@ -1,5 +1,6 @@
 """Which copies deduplication deletes: every file whose apps all have a better copy kept."""
 import datetime
+import json
 import os
 import types
 
@@ -7,9 +8,9 @@ import pytest
 
 import library
 import tasks
-from db import db, Apps, Files, IgnoredEvent, Libraries, Task, Titles
-from library import (duplicate_files, files_with_free_base_name, remove_duplicate_files,
-                     remove_outdated_update_files)
+from db import db, Apps, Files, IgnoredEvent, Libraries, Task, TempFile, Titles
+from library import (duplicate_files, duplicate_groups, files_with_free_base_name,
+                     outdated_update_groups, remove_duplicate_files, remove_outdated_update_files)
 
 from app import create_app
 
@@ -117,20 +118,147 @@ def test_remove_duplicate_files_deletes_the_file_and_its_row(env):
     assert env.apps["A"].owned
 
 
-def test_remove_outdated_update_files_deletes_the_file_and_its_row(env):
+def seed_updates(env):
+    """An older and a newer owned update of the same title: old.nsp (U) and new.nsp (V)."""
     old = env.seed("old.nsp", "U", {})
     env.seed("new.nsp", "V", {})
     for letter, version in (("U", "65536"), ("V", "131072")):
         app = env.apps[letter]
         app.app_id, app.app_version, app.app_type = "0100000000010800", version, "UPDATE"
     db.session.commit()
-    path = old.filepath
+    return old
+
+
+def test_remove_outdated_update_files_deletes_the_file_and_its_row(env):
+    path = seed_updates(env).filepath
 
     remove_outdated_update_files()
 
     assert not os.path.exists(path)
     assert Files.query.filter_by(filepath=path).first() is None
     assert [f.filename for f in Files.query.all()] == ["new.nsp"]
+
+
+def test_outdated_update_groups_keep_the_newest_update(env):
+    seed_updates(env)
+
+    groups = [(app_pk, [f.filename for f in keep], [f.filename for f in remove])
+              for app_pk, keep, remove in outdated_update_groups()]
+
+    assert groups == [(env.apps["V"].id, ["new.nsp"], ["old.nsp"])]
+
+
+# (case, files, prefer_multicontent, {app letter: (name kept, names deleted)})
+GROUP_CASES = [
+    ("the uncompressed copy is the deleted one",
+     [("a.nsp", "A", {}), ("a.nsz", "A", {"compressed": True})], False, {"A": ("a.nsz", ["a.nsp"])}),
+    ("a deleted bundle is in the group of each app it carries",
+     [("ab.nsp", "AB", {}), ("a.nsp", "A", {}), ("b.nsp", "B", {})], False,
+     {"A": ("a.nsp", ["ab.nsp"]), "B": ("b.nsp", ["ab.nsp"])}),
+    ("an app whose copies are all kept has no group",
+     [("ab.nsp", "AB", {}), ("a.nsp", "A", {})], False, {}),
+]
+
+
+@pytest.mark.parametrize("case,files,prefer_multicontent,expected",
+                         GROUP_CASES, ids=[c[0] for c in GROUP_CASES])
+def test_duplicate_groups(env, case, files, prefer_multicontent, expected):
+    for name, app_letters, overrides in files:
+        env.seed(name, app_letters, overrides)
+    letters = {app.id: letter for letter, app in env.apps.items()}
+
+    groups = {letters[app_pk]: (kept.filename, [f.filename for f in removed])
+              for app_pk, kept, removed in duplicate_groups(prefer_multicontent, lambda f: False)}
+
+    assert groups == expected
+
+
+@pytest.fixture
+def manual(env, monkeypatch):
+    """The manual deletion tasks with settings, pipeline and follow-up work stubbed out."""
+    enqueued = []
+    mgmt = {"deduplication": {"enabled": False, "prefer_multicontent": False}}
+    monkeypatch.setattr(tasks, "get_settings", lambda: {"library": {"management": mgmt}})
+    monkeypatch.setattr(tasks, "_has_pending_stage", lambda f, mgmt: False)
+    monkeypatch.setattr(tasks, "enqueue_task", lambda name, data=None, **k: enqueued.append(name))
+    monkeypatch.setattr(tasks, "request_maintenance", lambda path=None: enqueued.append("maintenance"))
+    return enqueued
+
+
+def make_busy(f, how):
+    if how == "task":
+        db.session.add(Task(task_name="verify_file", status="running", input_hash="x",
+                            input_json=json.dumps({"file_id": f["id"]})))
+    elif how == "claim":
+        db.session.add(TempFile(filepath=f["filepath"]))
+    db.session.commit()
+
+
+def refs(*files):
+    return {f.filename: {"id": f.id, "filepath": f.filepath} for f in files}
+
+
+# (case, files sent as a function of the shown refs, how a.nsp is busy, names left)
+REMOVAL_CASES = [
+    ("a previewed duplicate goes", lambda s: [s["a.nsp"]], None, ["a.nsz"]),
+    ("a duplicate not previewed stays", lambda s: [], None, ["a.nsp", "a.nsz"]),
+    ("a duplicate moved since the preview stays",
+     lambda s: [dict(s["a.nsp"], filepath="/elsewhere/a.nsp")], None, ["a.nsp", "a.nsz"]),
+    ("a previewed file no longer a duplicate stays", lambda s: [s["a.nsz"]], None, ["a.nsp", "a.nsz"]),
+    ("a duplicate being verified stays", lambda s: [s["a.nsp"]], "task", ["a.nsp", "a.nsz"]),
+    ("a duplicate being compressed stays", lambda s: [s["a.nsp"]], "claim", ["a.nsp", "a.nsz"]),
+]
+
+
+@pytest.mark.parametrize("case,sent,busy,expected", REMOVAL_CASES, ids=[c[0] for c in REMOVAL_CASES])
+def test_remove_duplicates_deletes_only_previewed_duplicates(env, manual, case, sent, busy, expected):
+    shown = refs(env.seed("a.nsp", "A", {}), env.seed("a.nsz", "A", {"compressed": True}))
+    make_busy(shown["a.nsp"], busy)
+
+    tasks.remove_duplicates_task(files=sent(shown))
+
+    assert sorted(f.filename for f in Files.query.all()) == expected
+    assert manual == ["maintenance"]
+
+
+def test_remove_outdated_updates_deletes_the_previewed_update(env, manual):
+    old = seed_updates(env)
+
+    tasks.remove_outdated_updates_task(files=[{"id": old.id, "filepath": old.filepath}])
+
+    assert [f.filename for f in Files.query.all()] == ["new.nsp"]
+    assert manual == ["update_titles", "maintenance"]
+
+
+# (case, path sent, how the file is busy, still on disk, refused, names left)
+DELETE_CASES = [
+    ("the file goes", None, None, True, False, []),
+    ("a file moved since it was shown stays", "/elsewhere/a.nsp", None, True, False, ["a.nsp"]),
+    ("a file being verified is refused", None, "task", True, True, ["a.nsp"]),
+    ("a file being compressed is refused", None, "claim", True, True, ["a.nsp"]),
+    ("a file already gone from disk leaves the library", None, None, False, False, []),
+]
+
+
+@pytest.mark.parametrize("case,path,busy,on_disk,refused,expected",
+                         DELETE_CASES, ids=[c[0] for c in DELETE_CASES])
+def test_delete_file(env, manual, case, path, busy, on_disk, refused, expected):
+    shown = refs(env.seed("a.nsp", "A", {}))["a.nsp"]
+    make_busy(shown, busy)
+    if not on_disk:
+        os.remove(shown["filepath"])
+
+    if refused:
+        with pytest.raises(RuntimeError):
+            tasks.delete_file_task(file_id=shown["id"], filepath=shown["filepath"])
+    else:
+        tasks.delete_file_task(file_id=shown["id"], filepath=path or shown["filepath"])
+
+    assert [f.filename for f in Files.query.all()] == expected
+    deleted = not expected
+    assert manual == (["update_titles", "maintenance"] if deleted else [])
+    # Only the claim this test planted may remain: the task releases its own.
+    assert [t.filepath for t in TempFile.query.all()] == ([shown["filepath"]] if busy == "claim" else [])
 
 
 # (case, files as (name, organized), the name the template renders, names released).

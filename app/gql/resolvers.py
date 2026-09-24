@@ -14,13 +14,14 @@ from .context import GraphQLContext
 from .filters import (
     AppFilter, AppType, FileFilter, OrderBy, TitleFilter, TitleSource, VerificationStatus,
     APP_FIELDS, APP_FIELDS_EXCEPT_OWNED, APP_ORDER, APP_ORDER_GROUPED,
-    FILE_FIELDS, FILE_ORDER, TITLE_FIELDS, TITLE_ORDER,
+    FILE_FIELDS, FILE_ORDER, FILE_CONTENTS_FROM, TITLE_FIELDS, TITLE_ORDER,
     build_clauses, order_sql,
 )
 from .selection import Selection
 from .types import (
-    App, AppConnection, AppTypeCount, AppVersion, File, FileConnection, Library,
-    LibraryStats, Ownership, SizedCountByKey, Task, TaskStatus, Title, TitleConnection,
+    App, AppConnection, AppTypeCount, AppVersion, CleanupGroup, File, FileConnection, Library,
+    LibraryStats, Ownership, PendingFile, PendingFileList, SizedCountByKey, Task, TaskStatus,
+    Title, TitleConnection,
     TitledbDlc, TitledbVersion, VerificationStatusCount, Worker, decode_json_list,
 )
 
@@ -129,6 +130,11 @@ _APP_SEARCH = """(
 _TITLE_SEARCH = """(
     td.name LIKE :search COLLATE NOCASE OR td.id LIKE :search COLLATE NOCASE
 )"""
+
+
+def _pk_clause(column: str, pks: list, params: dict) -> str:
+    params.update({f"pk_{i}": pk for i, pk in enumerate(pks)})
+    return f"{column} IN ({','.join(f':pk_{i}' for i in range(len(pks)))})"
 
 
 # ------------- builders -------------
@@ -357,16 +363,33 @@ def _hydrate_app_files(
     """
     rows = db.session.execute(text(sql), params).all()
     files_by_pk: Dict[int, File] = {}
+    copies: Dict[int, List[File]] = {}
     for r in rows:
         app = apps_by_pk.get(int(r.pk))
         if app is None:
             continue
         f = _build_file(r, include_filepath=True)
         f.apps_loaded = [] if with_apps else None
+        f.contents_loaded = []
         app.files_loaded.append(f)
         files_by_pk[int(r.id)] = f
+        copies.setdefault(int(r.id), []).append(f)
+    if copies:
+        _hydrate_file_contents(copies)
     if with_apps and files_by_pk:
         _hydrate_file_apps(list(files_by_pk.keys()), files_by_pk)
+
+
+def _hydrate_file_contents(copies: Dict[int, List[File]]) -> None:
+    """Attach what each file carries, so `App.files(filter: {title:, appType:})` matches in
+    memory what the SQL does. A file is listed once per app carrying it."""
+    params: dict = {}
+    sql = (f"SELECT af.file_id AS pk, ot.title_id AS title_id, td.name AS name, "
+           f"a.app_type AS app_type {FILE_CONTENTS_FROM} "
+           f"WHERE {_pk_clause('af.file_id', list(copies), params)}")
+    for r in db.session.execute(text(sql), params).all():
+        for f in copies[int(r.pk)]:
+            f.contents_loaded.append((r.title_id, r.name, r.app_type))
 
 
 def _hydrate_file_apps(
@@ -862,18 +885,19 @@ def resolve_apps(*, owned: Optional[bool], app_type: Optional[List[AppType]],
                   search: Optional[str] = None, order_by: Optional[OrderBy] = None,
                   group_by_app_id: bool = False,
                   page: int, page_size: int, ctx: GraphQLContext, info,
-                  only_pk: Optional[str] = None) -> AppConnection:
-    if not ctx.can_shop:
+                  pks: Optional[List[int]] = None,
+                  sel: Optional[Selection] = None) -> AppConnection:
+    if not ctx.can_shop or pks == []:
         return AppConnection(total=0, items=[])
     page = max(1, page)
-    page_size = max(1, min(page_size, 1000))
+    page_size = len(pks) if pks is not None else max(1, min(page_size, 1000))
 
-    # Reached as `app(id:)` the selection set is the item's own fields, not a
-    # connection's `{total, items}`, so the nested gates hang off it directly.
-    sel = Selection.from_info(info)
-    items_sel = sel if only_pk is not None else sel.child("items")
-    want_items = True if only_pk is not None else sel.has("items")
-    want_total = False if only_pk is not None else sel.has("total")
+    # Reached by primary keys (`app(id:)`, a review group) the selection set is the
+    # item's own fields, not a connection's `{total, items}`, so the gates hang off it.
+    sel = sel or Selection.from_info(info)
+    items_sel = sel if pks is not None else sel.child("items")
+    want_items = True if pks is not None else sel.has("items")
+    want_total = False if pks is not None else sel.has("total")
 
     files_sel = items_sel.child("files")
     titledb_sel = items_sel.child("titledb")
@@ -889,9 +913,8 @@ def resolve_apps(*, owned: Optional[bool], app_type: Optional[List[AppType]],
 
     params: dict = {}
     where = build_clauses(filter, APP_FIELDS_EXCEPT_OWNED, params)
-    if only_pk is not None:
-        params["only_pk"] = only_pk
-        where.append("a.id = :only_pk")
+    if pks is not None:
+        where.append(_pk_clause("a.id", pks, params))
     having: List[str] = []
     # Both spellings of ownership land here - the `owned:` shorthand and
     # `filter: {owned:}` - so they cannot disagree. Given both, they AND, so asking for
@@ -1015,17 +1038,18 @@ def resolve_apps(*, owned: Optional[bool], app_type: Optional[List[AppType]],
 
 def resolve_files(*, filter: Optional[FileFilter], page: int, page_size: int,
                    ctx: GraphQLContext, info, order_by: Optional[OrderBy] = None,
-                   only_pk: Optional[str] = None) -> FileConnection:
-    if not ctx.can_admin:
+                   pks: Optional[List[int]] = None,
+                   sel: Optional[Selection] = None) -> FileConnection:
+    if not ctx.can_admin or pks == []:
         return FileConnection(total=0, items=[])
     page = max(1, page)
-    page_size = max(1, min(page_size, 1000))
+    page_size = len(pks) if pks is not None else max(1, min(page_size, 1000))
 
-    # As in resolve_apps: `file(id:)` selects the item's fields directly.
-    sel = Selection.from_info(info)
-    items_sel = sel if only_pk is not None else sel.child("items")
-    want_items = True if only_pk is not None else sel.has("items")
-    want_total = False if only_pk is not None else sel.has("total")
+    # As in resolve_apps: reached by primary keys, the selection is the item's own fields.
+    sel = sel or Selection.from_info(info)
+    items_sel = sel if pks is not None else sel.child("items")
+    want_items = True if pks is not None else sel.has("items")
+    want_total = False if pks is not None else sel.has("total")
 
     apps_sel = items_sel.child("apps")
     apps_titledb_sel = apps_sel.child("titledb")
@@ -1039,9 +1063,8 @@ def resolve_files(*, filter: Optional[FileFilter], page: int, page_size: int,
 
     params: dict = {}
     where = build_clauses(filter, FILE_FIELDS, params)
-    if only_pk is not None:
-        params["only_pk"] = only_pk
-        where.append("f.id = :only_pk")
+    if pks is not None:
+        where.append(_pk_clause("f.id", pks, params))
     where_sql = (" WHERE " + " AND ".join(where)) if where else ""
 
     total = 0
@@ -1334,7 +1357,7 @@ def resolve_app(app_pk: str, ctx: GraphQLContext, info) -> Optional[App]:
     conn = resolve_apps(
         owned=None, app_type=None, filter=None, up_to_date=None, complete=None,
         search=None, order_by=None, group_by_app_id=False,
-        page=1, page_size=1, ctx=ctx, info=info, only_pk=app_pk,
+        page=1, page_size=1, ctx=ctx, info=info, pks=[app_pk],
     )
     return conn.items[0] if conn.items else None
 
@@ -1344,5 +1367,63 @@ def resolve_file(file_pk: str, ctx: GraphQLContext, info) -> Optional[File]:
     if not ctx.can_admin:
         return None
     conn = resolve_files(filter=None, page=1, page_size=1, ctx=ctx, info=info,
-                         only_pk=file_pk)
+                         pks=[file_pk])
     return conn.items[0] if conn.items else None
+
+
+# ------------- library review -------------
+
+def _files_by_pk(pks, sel: Selection, ctx: GraphQLContext, info) -> Dict[int, File]:
+    conn = resolve_files(filter=None, page=1, page_size=1, ctx=ctx, info=info,
+                         pks=sorted(pks), sel=sel)
+    return {int(f.id): f for f in conn.items}
+
+
+def _cleanup_groups(groups, ctx: GraphQLContext, info) -> List[CleanupGroup]:
+    """Hydrate (Apps.id, kept files, deleted files) groups as the `apps`/`files` queries would."""
+    sel = Selection.from_info(info)
+    files = _files_by_pk({f.id for _, keep, remove in groups for f in keep + remove},
+                         sel.child("keep", "remove"), ctx, info)
+    apps = {int(a.id): a for a in resolve_apps(
+        owned=None, app_type=None, filter=None, page=1, page_size=1, ctx=ctx, info=info,
+        pks=[app_pk for app_pk, _, _ in groups], sel=sel.child("app")).items}
+    return [CleanupGroup(app=apps[app_pk], keep=[files[f.id] for f in keep],
+                         remove=[files[f.id] for f in remove])
+            for app_pk, keep, remove in groups]
+
+
+def resolve_duplicates(*, ctx: GraphQLContext, info) -> List[CleanupGroup]:
+    if not ctx.can_admin:
+        return []
+    import tasks
+    from library import duplicate_groups
+    mgmt = get_settings()['library']['management']
+    groups = duplicate_groups(mgmt['deduplication']['prefer_multicontent'],
+                              lambda f: tasks._has_pending_stage(f, mgmt))
+    return _cleanup_groups([(app_pk, [best], remove) for app_pk, best, remove in groups],
+                           ctx, info)
+
+
+def resolve_outdated_updates(*, ctx: GraphQLContext, info) -> List[CleanupGroup]:
+    if not ctx.can_admin:
+        return []
+    from library import outdated_update_groups
+    return _cleanup_groups(outdated_update_groups(), ctx, info)
+
+
+def resolve_pending_files(*, limit: int, ctx: GraphQLContext, info) -> PendingFileList:
+    if not ctx.can_admin:
+        return PendingFileList(total=0, items=[])
+    import tasks
+    from db import Files
+    mgmt = get_settings()['library']['management']
+    pending = []
+    for f in Files.query.order_by(Files.id).all():
+        stages = [s.name for s in tasks.STAGES if s.applies(f, mgmt)]
+        if stages:
+            pending.append((f.id, stages))
+    shown = pending[:max(1, min(limit, 1000))]
+    files = _files_by_pk([pk for pk, _ in shown],
+                         Selection.from_info(info).child("items").child("file"), ctx, info)
+    return PendingFileList(total=len(pending),
+                           items=[PendingFile(file=files[pk], stages=stages) for pk, stages in shown])

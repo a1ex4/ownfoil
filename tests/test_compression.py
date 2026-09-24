@@ -284,6 +284,37 @@ def test_compress_file_noop(env, name, identified, compressed):
     assert called == []
 
 
+# (setting enabled, manual run, whether the work happens): the setting governs the
+# pipeline's runs only, a run asked for by hand goes ahead regardless.
+MANUAL_CASES = [(True, False, True), (False, False, False), (False, True, True), (True, True, True)]
+
+
+@pytest.mark.parametrize("enabled,manual,runs", MANUAL_CASES)
+def test_compress_file_honours_the_setting_unless_manual(env, enabled, manual, runs):
+    called = []
+    env.monkeypatch.setattr(tasks, "get_settings", lambda: _settings(compress_files=enabled))
+    env.monkeypatch.setattr(tasks, "_convert_file", lambda *a: called.append(1))
+    f = env.seed("Game.nsp")
+
+    tasks.compress_file_task(file_id=f.id, manual=manual)
+
+    assert bool(called) is runs
+
+
+@pytest.mark.parametrize("enabled,manual,runs", MANUAL_CASES)
+def test_verify_file_honours_the_setting_unless_manual(env, enabled, manual, runs):
+    called = []
+    env.monkeypatch.setattr(tasks, "get_settings", lambda: _settings(verify=enabled))
+    env.monkeypatch.setattr(tasks.verification_lib, "verify",
+                            lambda *a, **k: called.append(1) or (True, None, None, None))
+    env.monkeypatch.setattr(tasks, "enqueue_task", lambda *a, **k: None)
+    f = env.seed("Game.nsp")
+
+    tasks.verify_file_task(file_id=f.id, manual=manual)
+
+    assert bool(called) is runs
+
+
 def test_compress_file_missing_source_noop(env):
     env.monkeypatch.setattr(compression, "compress_to", lambda *a, **k: 1 / 0)
     f = env.seed("Game.nsp")
