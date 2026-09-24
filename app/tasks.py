@@ -30,7 +30,7 @@ from utils import interval_string_to_timedelta, delete_empty_folders, human_size
 from library import (
     add_missing_apps_for_title, update_title_flags,
     add_missing_apps_to_db, update_titles, organize_file,
-    remove_outdated_update_files, remove_duplicate_files,
+    remove_outdated_update_files, remove_duplicate_files, files_with_free_base_name,
 )
 
 logger = logging.getLogger('main')
@@ -926,10 +926,10 @@ def _process_library_done(**kwargs):
 
 @register_task('library_maintenance')
 def library_maintenance_task(library_path=None, **kwargs):
-    """Post-organization GC: outdated updates, then duplicates, then the folders they emptied.
+    """Post-organization GC: outdated updates, duplicates, freed "(n)" names, then empty folders.
 
     Inline and in this order: dedup judges the library outdated updates left, which decides
-    whether a bundle carrying an outdated update is still needed.
+    whether a bundle carrying an outdated update is still needed, and both can free a name.
     """
     mgmt = get_settings()['library']['management']
     if mgmt['delete_older_updates']:
@@ -939,10 +939,26 @@ def library_maintenance_task(library_path=None, **kwargs):
         remove_duplicate_files(mgmt['deduplication']['prefer_multicontent'],
                                lambda f: _has_pending_stage(f, mgmt))
     organizer = mgmt['organizer']
-    if organizer.get('enabled') and organizer.get('remove_empty_folders'):
-        paths = [library_path] if library_path else [lib.path for lib in get_libraries()]
-        for path in paths:
-            delete_empty_folders(path)
+    if organizer.get('enabled'):
+        _release_suffixed_files(mgmt)
+        if organizer.get('remove_empty_folders'):
+            paths = [library_path] if library_path else [lib.path for lib in get_libraries()]
+            for path in paths:
+                delete_empty_folders(path)
+
+
+def _release_suffixed_files(mgmt):
+    """Hand "(n)" files whose base name is free back to the organizer, through their own pipeline.
+
+    A file with a stage in flight is only flagged: that stage re-drives it when done, so it is
+    never moved while being verified or compressed.
+    """
+    for f in files_with_free_base_name(mgmt['organizer']):
+        idle = not _has_pending_stage(f, mgmt)
+        f.organized = False
+        db.session.commit()
+        if idle:
+            enqueue_task('process_file', {'file_id': f.id})
 
 
 @register_task('add_missing_apps_for_title')
@@ -1103,9 +1119,10 @@ def add_missing_apps_task(**kwargs):
 
 @register_task('remove_missing_files')
 def remove_missing_files_task(**kwargs):
-    """Delete DB entries for files missing from disk, then recompute all title flags."""
+    """Delete DB entries for files missing from disk, then recompute all title flags and maintain."""
     remove_missing_files_from_db()
     enqueue_task('update_titles')
+    enqueue_task('library_maintenance')
 
 
 @register_task('update_titles')
@@ -1267,6 +1284,7 @@ def handle_file_moved_task(library_path, src_path, dest_path, **kwargs):
 def handle_file_deleted_task(filepath, **kwargs):
     delete_file_by_filepath(filepath)
     enqueue_task('update_titles')
+    enqueue_task('library_maintenance')
 
 
 @register_task('handle_dir_deleted')

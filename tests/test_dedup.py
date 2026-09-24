@@ -4,9 +4,11 @@ import types
 
 import pytest
 
+import library
 import tasks
 from db import db, Apps, Files, IgnoredEvent, Libraries, Titles
-from library import duplicate_files, remove_duplicate_files, remove_outdated_update_files
+from library import (duplicate_files, files_with_free_base_name, remove_duplicate_files,
+                     remove_outdated_update_files)
 
 from app import create_app
 
@@ -130,29 +132,90 @@ def test_remove_outdated_update_files_deletes_the_file_and_its_row(env):
     assert [f.filename for f in Files.query.all()] == ["new.nsp"]
 
 
-# (delete_older_updates, deduplication, remove_empty_folders, steps run in order)
-MAINTENANCE_CASES = [
-    (False, False, False, []),
-    (True, False, False, ["outdated"]),
-    (False, True, False, ["duplicates"]),
-    (False, False, True, ["folders"]),
-    (True, True, True, ["outdated", "duplicates", "folders"]),
+# (case, files as (name, organized), the name the template renders, names released).
+RELEASE_CASES = [
+    ("a suffixed copy whose base name is free", [("G(2).nsp", True)], "G.{ext}", ["G(2).nsp"]),
+    ("a suffixed copy whose base name is taken",
+     [("G.nsp", True), ("G(2).nsp", True)], "G.{ext}", []),
+    ("a later suffix whose base name is free",
+     [("G(2).nsp", True), ("G(3).nsp", True)], "G.{ext}", ["G(2).nsp", "G(3).nsp"]),
+    ("the base name under another extension does not hold it",
+     [("G.nsz", True), ("G(2).nsp", True)], "G.{ext}", ["G(2).nsp"]),
+    ("a file not organized yet", [("G(2).nsp", False)], "G.{ext}", []),
+    ("a file without a suffix", [("G.nsp", True)], "G.{ext}", []),
+    ("a name the template itself ends in (n)", [("G(2019).nsp", True)], "G(2019).{ext}", []),
 ]
 
 
-@pytest.mark.parametrize("older,dedup,folders,expected", MAINTENANCE_CASES)
-def test_library_maintenance_runs_enabled_steps_in_order(monkeypatch, older, dedup, folders, expected):
-    """Dedup judges what outdated-update removal left, and folders are pruned after both."""
+@pytest.mark.parametrize("case,files,template,expected",
+                         RELEASE_CASES, ids=[c[0] for c in RELEASE_CASES])
+def test_files_with_free_base_name(env, monkeypatch, case, files, template, expected):
+    monkeypatch.setattr(library, "organized_path", lambda f, library_path, settings:
+                        os.path.join(library_path, template.format(ext=f.extension)))
+    for name, organized in files:
+        env.seed(name, "A", {"organized": organized})
+
+    assert sorted(f.filename for f in files_with_free_base_name({})) == expected
+
+
+@pytest.mark.parametrize("pending,queued", [(False, True), (True, False)])
+def test_release_hands_the_file_back_to_the_organizer(env, monkeypatch, pending, queued):
+    """An idle file is re-driven now; one with a stage in flight is re-driven by that stage."""
+    enqueued = []
+    monkeypatch.setattr(tasks, "_has_pending_stage", lambda f, mgmt: pending)
+    monkeypatch.setattr(tasks, "enqueue_task", lambda name, data=None: enqueued.append((name, data)))
+    f = env.seed("G(2).nsp", "A", {"organized": True})
+    monkeypatch.setattr(tasks, "files_with_free_base_name", lambda settings: [f])
+
+    tasks._release_suffixed_files({"organizer": {}})
+
+    assert db.session.get(Files, f.id).organized is False
+    assert enqueued == ([("process_file", {"file_id": f.id})] if queued else [])
+
+
+# (delete_older_updates, deduplication, organizer, remove_empty_folders, steps run in order)
+MAINTENANCE_CASES = [
+    (False, False, False, False, []),
+    (True, False, False, False, ["outdated"]),
+    (False, True, False, False, ["duplicates"]),
+    (False, False, True, False, ["release"]),
+    (False, False, True, True, ["release", "folders"]),
+    (False, False, False, True, []),
+    (True, True, True, True, ["outdated", "duplicates", "release", "folders"]),
+]
+
+
+@pytest.mark.parametrize("older,dedup,organizer,folders,expected", MAINTENANCE_CASES)
+def test_library_maintenance_runs_enabled_steps_in_order(monkeypatch, older, dedup, organizer,
+                                                         folders, expected):
+    """Dedup judges what outdated-update removal left, both can free a "(n)" name, and folders
+    are pruned last."""
     steps = []
     mgmt = {"delete_older_updates": older,
             "deduplication": {"enabled": dedup, "prefer_multicontent": False},
-            "organizer": {"enabled": True, "remove_empty_folders": folders}}
+            "organizer": {"enabled": organizer, "remove_empty_folders": folders}}
     monkeypatch.setattr(tasks, "get_settings", lambda: {"library": {"management": mgmt}})
     monkeypatch.setattr(tasks, "enqueue_task", lambda *a, **k: None)
     monkeypatch.setattr(tasks, "remove_outdated_update_files", lambda: steps.append("outdated"))
     monkeypatch.setattr(tasks, "remove_duplicate_files", lambda *a: steps.append("duplicates"))
+    monkeypatch.setattr(tasks, "_release_suffixed_files", lambda mgmt: steps.append("release"))
     monkeypatch.setattr(tasks, "delete_empty_folders", lambda path: steps.append("folders"))
 
     tasks.library_maintenance_task(library_path="/games")
 
     assert steps == expected
+
+
+@pytest.mark.parametrize("task,stub,args", [
+    ("handle_file_deleted_task", "delete_file_by_filepath", {"filepath": "/games/G.nsp"}),
+    ("remove_missing_files_task", "remove_missing_files_from_db", {}),
+])
+def test_deletions_outside_ownfoil_run_maintenance(monkeypatch, task, stub, args):
+    """A file deleted by hand can free a "(n)" name just like one deleted by dedup."""
+    enqueued = []
+    monkeypatch.setattr(tasks, stub, lambda *a: None)
+    monkeypatch.setattr(tasks, "enqueue_task", lambda name, data=None: enqueued.append(name))
+
+    getattr(tasks, task)(**args)
+
+    assert "library_maintenance" in enqueued
