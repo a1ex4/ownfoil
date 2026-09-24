@@ -389,6 +389,242 @@ p.game-description {
     overflow-wrap: anywhere;
 }
 
+/* Admin Files page. */
+.files-tabs .nav-link {
+    color: var(--bs-secondary-color);
+}
+
+.files-tabs .nav-link.active,
+.files-tabs .nav-link:hover {
+    color: var(--bs-body-color);
+}
+
+.files-status p {
+    margin-bottom: .5rem;
+}
+
+.files-pill {
+    display: inline-block;
+    padding: .15em .65em;
+    border-radius: 999px;
+    font-size: .75rem;
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+.files-chip {
+    display: inline-block;
+    padding: .05em .45em;
+    border-radius: .3rem;
+    background: var(--bs-tertiary-bg);
+    color: var(--bs-secondary-color);
+    font-family: var(--bs-font-monospace);
+    font-size: .72rem;
+    text-transform: uppercase;
+}
+
+/* Rows separated by a hairline and a hover tint. Fixed layout: the widths come from the
+   colgroup alone, so what a cell or a filter holds never resizes a column; a cell clips
+   what it cannot wrap. */
+.files-table {
+    --bs-table-bg: var(--bs-body-bg);
+    --bs-table-hover-bg: var(--bs-tertiary-bg);
+    --bs-table-hover-color: var(--bs-body-color);
+    --bs-border-color: var(--bs-border-color-translucent);
+    font-size: .875rem;
+    table-layout: fixed;
+    width: 100%;
+}
+
+.files-table > :not(caption) > * > * {
+    padding: .6rem .5rem;
+    vertical-align: middle;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.files-table thead th {
+    border-bottom: 0;
+    color: var(--bs-secondary-color);
+    font-size: .68rem;
+    font-weight: 600;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+
+.files-table .files-filters th {
+    padding-top: 0;
+    border-bottom: var(--bs-border-width) solid var(--bs-border-color);
+    text-transform: none;
+    letter-spacing: normal;
+}
+
+.files-filters .form-control,
+.files-filters .form-select {
+    width: 100%;
+    border-color: transparent;
+    background-color: var(--bs-tertiary-bg);
+    font-size: .8rem;
+    padding-left: .45rem;
+}
+
+/* A narrow caret gutter, so a 4rem column still shows what is ticked. */
+.files-filters .form-select {
+    padding-right: 1.3rem;
+    background-position: right .35rem center;
+    background-size: 10px 8px;
+}
+
+.files-filters .form-control:focus,
+.files-filters .form-select:focus {
+    border-color: var(--bs-primary-border-subtle);
+    box-shadow: none;
+}
+
+/* A header carrying a filter beside its label, e.g. File with the extension filter. */
+.files-head {
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+}
+
+.files-head > span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.files-head-filter {
+    flex: 0 0 5rem;
+    margin-left: auto;
+    font-weight: normal;
+    letter-spacing: normal;
+    text-transform: none;
+}
+
+.files-head-filter .form-select {
+    width: 100%;
+    border-color: transparent;
+    background-color: var(--bs-tertiary-bg);
+    font-size: .8rem;
+    padding: .15rem 1.3rem .15rem .45rem;
+    background-position: right .35rem center;
+    background-size: 10px 8px;
+}
+
+.files-bool {
+    padding-left: 0;
+    padding-right: 0;
+    text-align: center;
+}
+
+.files-multi-toggle {
+    overflow: hidden;
+    text-align: left;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.files-multi-menu,
+.files-suggest {
+    font-size: .8rem;
+}
+
+.files-suggest {
+    position: fixed;
+    max-width: 28rem;
+}
+
+.files-suggest .dropdown-item {
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.files-multi-menu .dropdown-item {
+    cursor: pointer;
+}
+
+.files-sortable {
+    cursor: pointer;
+    user-select: none;
+}
+
+.files-sortable:hover {
+    color: var(--bs-body-color) !important;
+}
+
+.files-name,
+.files-title {
+    overflow-wrap: anywhere;
+}
+
+.files-name {
+    font-weight: 500;
+}
+
+.files-title + .files-title {
+    margin-top: .2rem;
+}
+
+.files-num {
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.files-app {
+    display: flex;
+    align-items: center;
+    gap: .4rem;
+    white-space: nowrap;
+}
+
+.files-app + .files-app {
+    margin-top: .2rem;
+}
+
+/* The row actions come forward on hover. */
+.files-table tbody tr .icon-btn {
+    opacity: .5;
+    transition: opacity .15s;
+}
+
+.files-table tbody tr:hover .icon-btn {
+    opacity: 1;
+}
+
+.files-group td {
+    padding-top: 1.5rem !important;
+    border-bottom-color: var(--bs-border-color) !important;
+    font-weight: 600;
+}
+
+.files-group:hover > td {
+    --bs-table-bg-state: transparent !important;
+}
+
+.files-error {
+    font-size: .8rem;
+    overflow-wrap: anywhere;
+}
+
+.files-run {
+    color: var(--bs-danger);
+    margin-bottom: 1rem;
+}
+
+.files-run:hover:not(:disabled) {
+    color: var(--bs-danger-text-emphasis);
+}
+
+.files-pager {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: .75rem;
+    color: var(--bs-secondary-color);
+    font-size: .8rem;
+}
+
 /* The library grid's one-line summary above the cards. */
 .library-stats {
     color: var(--bs-secondary-color);
