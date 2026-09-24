@@ -1,4 +1,5 @@
 """Which copies deduplication deletes: every file whose apps all have a better copy kept."""
+import datetime
 import os
 import types
 
@@ -6,7 +7,7 @@ import pytest
 
 import library
 import tasks
-from db import db, Apps, Files, IgnoredEvent, Libraries, Titles
+from db import db, Apps, Files, IgnoredEvent, Libraries, Task, Titles
 from library import (duplicate_files, files_with_free_base_name, remove_duplicate_files,
                      remove_outdated_update_files)
 
@@ -206,6 +207,66 @@ def test_library_maintenance_runs_enabled_steps_in_order(monkeypatch, older, ded
     assert steps == expected
 
 
+# (case, maintenance passes already queued, passes pending after a request)
+REQUEST_CASES = [
+    ("the first request queues a pass", [], 1),
+    ("a request joins the pending pass", ["pending"], 1),
+    ("a request while a pass runs queues the next one", ["running"], 1),
+]
+
+
+@pytest.mark.parametrize("case,existing,pending", REQUEST_CASES, ids=[c[0] for c in REQUEST_CASES])
+def test_request_maintenance_is_throttled(env, case, existing, pending):
+    """One pending pass per window: joining never postpones it, and a running pass never
+    swallows a request made after it read the library."""
+    before = datetime.datetime.utcnow()
+    first_run_after = before + datetime.timedelta(seconds=5)
+    for status in existing:
+        db.session.add(Task(task_name="library_maintenance", status=status, input_json="{}",
+                            input_hash=tasks.compute_input_hash({}), run_after=first_run_after))
+    db.session.commit()
+
+    tasks.request_maintenance()
+
+    rows = Task.query.filter_by(task_name="library_maintenance", status="pending").all()
+    assert len(rows) == pending
+    if "pending" in existing:
+        assert rows[0].run_after == first_run_after
+    else:
+        assert before < rows[0].run_after <= datetime.datetime.utcnow() + tasks.MAINTENANCE_THROTTLE
+
+
+def test_a_settled_file_requests_maintenance(env, monkeypatch):
+    """The pass that skipped a file while a stage was in flight gets a successor once it settles."""
+    requested = []
+    monkeypatch.setattr(tasks, "get_settings", lambda: {"library": {"management": {}}})
+    monkeypatch.setattr(tasks, "STAGES", [])
+    monkeypatch.setattr(tasks, "request_maintenance", lambda path=None: requested.append(path))
+    f = env.seed("a.nsz", "A", {"compressed": True})
+
+    tasks.process_file_task(file_id=f.id)
+
+    assert requested == [os.path.dirname(f.filepath)]
+
+
+# (case, group_limits in settings, tasks running, whether a maintenance pass may start)
+MAINTENANCE_SLOT_CASES = [
+    ("nothing running", {}, [], True),
+    ("another pass running", {}, ["library_maintenance"], False),
+    ("a settings limit cannot raise it", {"maintenance": 5}, ["library_maintenance"], False),
+    ("unrelated work running", {"io": 1}, ["compress_file", "process_file"], True),
+]
+
+
+@pytest.mark.parametrize("case,limits,running,claimable",
+                         MAINTENANCE_SLOT_CASES, ids=[c[0] for c in MAINTENANCE_SLOT_CASES])
+def test_one_maintenance_pass_at_a_time(monkeypatch, case, limits, running, claimable):
+    """Two passes would judge the same duplicates and race to delete them."""
+    monkeypatch.setattr(tasks, "get_settings", lambda: {"worker": {"group_limits": limits}})
+
+    assert ("library_maintenance" not in tasks.blocked_task_names(running)) is claimable
+
+
 @pytest.mark.parametrize("task,stub,args", [
     ("handle_file_deleted_task", "delete_file_by_filepath", {"filepath": "/games/G.nsp"}),
     ("remove_missing_files_task", "remove_missing_files_from_db", {}),
@@ -214,7 +275,7 @@ def test_deletions_outside_ownfoil_run_maintenance(monkeypatch, task, stub, args
     """A file deleted by hand can free a "(n)" name just like one deleted by dedup."""
     enqueued = []
     monkeypatch.setattr(tasks, stub, lambda *a: None)
-    monkeypatch.setattr(tasks, "enqueue_task", lambda name, data=None: enqueued.append(name))
+    monkeypatch.setattr(tasks, "enqueue_task", lambda name, data=None, **k: enqueued.append(name))
 
     getattr(tasks, task)(**args)
 
