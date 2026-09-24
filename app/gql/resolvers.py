@@ -6,11 +6,8 @@ import strawberry
 from sqlalchemy import text
 
 from constants import APP_TYPE_BASE, APP_TYPE_DLC, APP_TYPE_UPD
-from containers.verification import (
-    STATUS_CORRUPT, STATUS_MODIFIED, STATUS_REPACK, STATUS_SIGNATURE_FAILED,
-    STATUS_SIGNATURE_OK, STATUS_UNVERIFIED, STATUS_VALID, status_of,
-)
-from db import db
+from containers.verification import status_of
+from db import best_file, db
 
 from .context import GraphQLContext
 from .filters import (
@@ -308,28 +305,12 @@ LEFT JOIN (SELECT af.app_id AS app_id, MAX(f.added_at) AS added_at
            GROUP BY af.app_id) fa ON fa.app_id = a.id
 """
 
-# Best verification verdict first.
-_STATUS_RANK = {s: i for i, s in enumerate((
-    STATUS_VALID, STATUS_REPACK, STATUS_SIGNATURE_OK, STATUS_UNVERIFIED,
-    STATUS_SIGNATURE_FAILED, STATUS_MODIFIED, STATUS_CORRUPT))}
-
-
-# Fields read off the file `_pick_download` selects.
+# Fields read off the file `best_file` selects.
 _APP_DOWNLOAD_FIELDS = ("downloadUrl", "downloadSize", "downloadExtension", "addedAt")
 
 
 def _wants_app_download(sel) -> bool:
     return any(sel.has(f) for f in _APP_DOWNLOAD_FIELDS)
-
-
-def _pick_download(rows):
-    """The file an app's `downloadUrl` points at: single-content, soundest verdict,
-    uncompressed, then newest and highest id."""
-    rows = sorted(rows, key=lambda r: (r.added_at or "", int(r.id)), reverse=True)
-    return min(rows, key=lambda r: (
-        bool(r.multicontent),
-        _STATUS_RANK[status_of(r.signature_valid, r.hash_valid, r.hash_modified)],
-        bool(r.compressed)))
 
 
 def _hydrate_app_download(app_pks: List[int], apps_by_pk: Dict[int, App]) -> None:
@@ -341,7 +322,8 @@ def _hydrate_app_download(app_pks: List[int], apps_by_pk: Dict[int, App]) -> Non
            f.size AS size, f.extension AS extension,
            f.multicontent AS multicontent, f.compressed AS compressed,
            f.added_at AS added_at, f.signature_valid AS signature_valid,
-           f.hash_valid AS hash_valid, f.hash_modified AS hash_modified
+           f.hash_valid AS hash_valid, f.hash_modified AS hash_modified,
+           f.identification_type AS identification_type, f.organized AS organized
     FROM app_files af JOIN files f ON f.id = af.file_id
     WHERE af.app_id IN ({placeholders})
     """
@@ -354,7 +336,7 @@ def _hydrate_app_download(app_pks: List[int], apps_by_pk: Dict[int, App]) -> Non
             continue
         # Newest file, so an app is recent while any copy of it is.
         app.added_at = max((r.added_at for r in rows if r.added_at), default=None)
-        picked = _pick_download(rows)
+        picked = best_file(rows)
         app.download_token_loaded = picked.download_token
         app.download_size_loaded = picked.size
         app.download_extension_loaded = picked.extension

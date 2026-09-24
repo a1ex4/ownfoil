@@ -662,6 +662,22 @@ def verification_status(file):
         file = db.session.get(Files, file)
     return status_of(file.signature_valid, file.hash_valid, file.hash_modified)
 
+def file_rank(file):
+    """Sort key of a copy of an app, lowest best; takes a Files row or a raw row with its columns."""
+    from containers.verification import STATUS_RANK, status_of
+    return (
+        bool(file.multicontent),
+        file.identification_type != 'cnmt',
+        STATUS_RANK[status_of(file.signature_valid, file.hash_valid, file.hash_modified)],
+        not file.compressed,
+        not file.organized,
+        file.added_at is None, file.added_at or '',
+        int(file.id))
+
+def best_file(files):
+    """The copy to serve or keep among files carrying the same app, None if there are none."""
+    return min(files, key=file_rank, default=None)
+
 def remove_file_from_apps(file_id):
     """Remove a file from all apps that reference it and update owned status"""
     apps_updated = 0
