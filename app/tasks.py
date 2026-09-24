@@ -37,12 +37,15 @@ logger = logging.getLogger('main')
 
 # How long to wait before retrying a titledb update that failed to reach the release
 TITLEDB_RETRY_DELAY = datetime.timedelta(hours=1)
+MAINTENANCE_THROTTLE = datetime.timedelta(seconds=30)
 
 # --- Task Registry ---
 TASK_REGISTRY = {}
 TASK_CONTINUATIONS = {}
 TASK_CLEANUP = {}
 TASK_GROUPS = {}  # task_name -> concurrency-group name
+# Groups whose limit is a correctness requirement, not a tuning knob: never read from settings.
+FIXED_GROUP_LIMITS = {'maintenance': 1}
 
 
 def register_task(name, group=None):
@@ -59,9 +62,7 @@ def register_task(name, group=None):
 def blocked_task_names(running_task_names):
     """Task names that must not be claimed right now because their concurrency group is already
     at its configured limit, given the task_names currently running."""
-    limits = get_settings().get('worker', {}).get('group_limits', {})
-    if not limits:
-        return set()
+    limits = {**get_settings().get('worker', {}).get('group_limits', {}), **FIXED_GROUP_LIMITS}
     running_per_group = {}
     for name in running_task_names:
         group = TASK_GROUPS.get(name)
@@ -853,7 +854,7 @@ def _organize(file, mgmt):
             db.session.commit()
     finally:
         remove_temp_file(claimed)
-    enqueue_task('library_maintenance', {'library_path': library_path})
+    request_maintenance(library_path)
 
 
 def _needs_compress(file, mgmt):
@@ -898,6 +899,9 @@ def process_file_task(file_id, **kwargs):
         mgmt = get_settings()['library']['management']
         stage = next((s for s in STAGES if s.name not in done and s.applies(file, mgmt)), None)
         if stage is None:
+            # Settled - not merely deferred this drive: the pass that skipped it needs a successor.
+            if not _has_pending_stage(file, mgmt):
+                request_maintenance(get_library_path(file.library_id))
             return
         done.add(stage.name)
         if stage.task:
@@ -920,16 +924,29 @@ def process_library_task(**kwargs):
 
 @register_continuation('process_library')
 def _process_library_done(**kwargs):
-    enqueue_task('library_maintenance')
+    request_maintenance()
     enqueue_task('update_titles')
 
 
-@register_task('library_maintenance')
+def request_maintenance(library_path=None):
+    """Queue a maintenance pass to start within MAINTENANCE_THROTTLE, joining one already pending.
+
+    Scheduled, so it only dedups against pending passes: a request made while a pass runs gets
+    the next pass rather than folding into one that already read the library. Joining never
+    postpones the pending pass, so a busy pipeline gets one pass per window, not none.
+    """
+    enqueue_task('library_maintenance', {'library_path': library_path} if library_path else {},
+                 run_after=datetime.datetime.utcnow() + MAINTENANCE_THROTTLE)
+
+
+@register_task('library_maintenance', group='maintenance')
 def library_maintenance_task(library_path=None, **kwargs):
     """Post-organization GC: outdated updates, duplicates, freed "(n)" names, then empty folders.
 
     Inline and in this order: dedup judges the library outdated updates left, which decides
     whether a bundle carrying an outdated update is still needed, and both can free a name.
+    One pass at a time (the fixed-limit group): two passes would judge the same duplicates and
+    race to delete them.
     """
     mgmt = get_settings()['library']['management']
     if mgmt['delete_older_updates']:
@@ -1122,7 +1139,7 @@ def remove_missing_files_task(**kwargs):
     """Delete DB entries for files missing from disk, then recompute all title flags and maintain."""
     remove_missing_files_from_db()
     enqueue_task('update_titles')
-    enqueue_task('library_maintenance')
+    request_maintenance()
 
 
 @register_task('update_titles')
@@ -1284,7 +1301,7 @@ def handle_file_moved_task(library_path, src_path, dest_path, **kwargs):
 def handle_file_deleted_task(filepath, **kwargs):
     delete_file_by_filepath(filepath)
     enqueue_task('update_titles')
-    enqueue_task('library_maintenance')
+    request_maintenance()
 
 
 @register_task('handle_dir_deleted')
