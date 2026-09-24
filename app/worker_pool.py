@@ -14,7 +14,19 @@ class WorkerPool:
         self.workers = {}  # worker_id -> (Process, MPEvent)
         self._lock = threading.Lock()
         self._next_id = 1
+        self._reap_orphaned_tasks()
         self._scale_to(initial_count)
+
+    def _reap_orphaned_tasks(self):
+        """Fail tasks still marked running: a new pool has no workers yet, so they belong to a
+        previous pool whose owner died without stopping them (Gunicorn respawns its worker
+        without rerunning startup's cleanup_tasks)."""
+        from db import db, Task
+        from tasks import reap_worker_task
+        with self.app.app_context():
+            # One call per row: reap_worker_task takes one task, and orphans can share an id.
+            for (worker_id,) in db.session.query(Task.worker_id).filter_by(status='running').all():
+                reap_worker_task(worker_id)
 
     def _start_worker(self, worker_id=None):
         """Start a single worker process. Reuses worker_id if given, else allocates a new one."""

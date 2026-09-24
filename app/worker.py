@@ -2,7 +2,10 @@
 import json
 import datetime
 import logging
+import multiprocessing
+import os
 import sys
+import threading
 from multiprocessing import Event
 
 logger = logging.getLogger('worker')
@@ -127,10 +130,25 @@ class TaskWorker:
             logger.info("Worker stopped")
 
 
+def exit_with_parent():
+    """Exit the moment the process that started this worker dies, even mid-task.
+
+    Nothing sets stop_event when the pool's owner is killed outright (SIGKILL, OOM, a Gunicorn
+    timeout), and an orphan would keep claiming tasks while the next start fails and purges
+    the ones it is still running. parent_process() is the starter, not the fork server, and its
+    sentinel is closed by the OS however the starter dies, on every platform.
+    """
+    def watch():
+        multiprocessing.parent_process().join()
+        os._exit(1)
+    threading.Thread(target=watch, name='parent-watchdog', daemon=True).start()
+
+
 def start_worker_process(stop_event, worker_id=1):
     """Entry point for the worker subprocess."""
     import signal
     from setproctitle import setproctitle
+    exit_with_parent()
     signal.signal(signal.SIGINT, signal.SIG_IGN)
     setproctitle(f'ownfoil-worker-{worker_id}')
 
