@@ -10,13 +10,14 @@ from .docs import arg as _arg, described, described_field
 from .filters import AppFilter, AppType, FileFilter, OrderBy, TitleFilter
 from .mutations import Mutation
 from .resolvers import (
-    resolve_app, resolve_apps, resolve_file, resolve_files, resolve_libraries,
+    resolve_app, resolve_apps, resolve_duplicates, resolve_file, resolve_files,
+    resolve_libraries, resolve_outdated_updates, resolve_pending_files,
     resolve_stats, resolve_task, resolve_tasks, resolve_title, resolve_titles,
     resolve_workers,
 )
 from .types import (
-    App, AppConnection, File, FileConnection, Library, LibraryStats, Task, TaskStatus,
-    Title, TitleConnection, Worker,
+    App, AppConnection, CleanupGroup, File, FileConnection, Library, LibraryStats,
+    PendingFileList, Task, TaskStatus, Title, TitleConnection, Worker,
 )
 
 
@@ -167,6 +168,30 @@ class Query:
         """One file by primary key. Admin only - null for any other role, which is
         indistinguishable from the file not existing, deliberately."""
         return resolve_file(str(id), info.context, info)
+
+    @described_field
+    def duplicates(self, info: Info) -> List[CleanupGroup]:
+        """What deduplication would delete now, one group per app losing a copy, whether
+        or not automatic deduplication is enabled. Apps with a copy still being processed,
+        identified from its filename only, or whose best copy is missing from disk are
+        left out, as the pass leaves them alone. Admin only; empty for any other role."""
+        return resolve_duplicates(ctx=info.context, info=info)
+
+    @described_field
+    def outdated_updates(self, info: Info) -> List[CleanupGroup]:
+        """What removing older updates would delete now, one group per title with a newer
+        owned update, whether or not the setting is enabled. Bundles are never listed.
+        Admin only; empty for any other role."""
+        return resolve_outdated_updates(ctx=info.context, info=info)
+
+    @described_field
+    def pending_files(
+        self, info: Info,
+        limit: Annotated[int, _arg("Maximum files to return, clamped to 1-1000.")] = 500,
+    ) -> PendingFileList:
+        """Files with pipeline work still due under the current settings, with the stages
+        they need. Admin only; empty for any other role."""
+        return resolve_pending_files(limit=limit, ctx=info.context, info=info)
 
     @described_field
     def libraries(self, info: Info) -> List[Library]:

@@ -24,6 +24,9 @@ INPUTS = {
                           'dest_path': '/games/B.nsp'},
     'handle_file_deleted': {'filepath': '/games/Game.nsp'},
     'handle_dir_deleted': {'dirpath': '/games/Folder'},
+    'delete_file': {'file_id': 1, 'filepath': '/games/Game.nsp'},
+    'remove_duplicates': {'files': [{'id': 1, 'filepath': '/games/Game.nsp'}]},
+    'remove_outdated_updates': {'files': [{'id': 1, 'filepath': '/games/Game.nsp'}]},
 }
 
 

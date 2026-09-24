@@ -15,7 +15,7 @@ Two conventions differ from the query side, both on purpose:
 
 Every resolver delegates; no business logic lives in this module.
 """
-from typing import Optional
+from typing import List, Optional
 
 import strawberry
 from strawberry.types import Info
@@ -23,7 +23,7 @@ from typing_extensions import Annotated
 
 from constants import COMPRESS_EXT
 
-from .docs import described, described_mutation
+from .docs import desc, described, described_mutation
 from .resolvers import resolve_task, resolve_title
 from .types import Task, Title
 
@@ -45,6 +45,24 @@ def _task_by_id(task_id, info) -> Optional[Task]:
     """Re-read a task through the query resolver so a mutation returns exactly what
     `task(id:)` would - one shape for a task, however the client got there."""
     return resolve_task(str(task_id), info.context, info)
+
+
+@described(strawberry.input)
+class FileRefInput:
+    """A file as the client displayed it. A deletion acts on the file only while both
+    still match, so a stale view never deletes a file it did not show."""
+    id: strawberry.ID = desc("Primary key of the file row.")
+    filepath: str = desc("Absolute path of the file when it was displayed.")
+
+
+def _enqueue_removal(task_name, files, info) -> Optional[Task]:
+    import tasks as tasks_mod
+    _require_admin(info.context)
+    if not files:
+        raise MutationFailed("No files given")
+    task, _ = tasks_mod.enqueue_task(task_name, {
+        'files': [{'id': int(f.id), 'filepath': f.filepath} for f in files]})
+    return _task_by_id(task.id, info)
 
 
 @described(strawberry.type)
@@ -143,7 +161,7 @@ class Mutation:
         file_id: Annotated[strawberry.ID, strawberry.argument(
             description="Primary key of the file to compress.")],
     ) -> Optional[Task]:
-        """Compress one file to NSZ/XCZ. Same guards as the REST endpoint."""
+        """Compress one file to NSZ/XCZ, whether or not automatic compression is on."""
         import tasks as tasks_mod
         from db import Files, db
         _require_admin(info.context)
@@ -154,7 +172,7 @@ class Mutation:
             raise MutationFailed("File is already compressed")
         if file.extension not in COMPRESS_EXT:
             raise MutationFailed("File type cannot be compressed")
-        task, _ = tasks_mod.enqueue_task('compress_file', {'file_id': int(file_id)})
+        task, _ = tasks_mod.enqueue_task('compress_file', {'file_id': int(file_id), 'manual': True})
         return _task_by_id(task.id, info)
 
     @described_mutation
@@ -181,21 +199,85 @@ class Mutation:
         file_id: Annotated[strawberry.ID, strawberry.argument(
             description="Primary key of the file to verify.")],
     ) -> Optional[Task]:
-        """Re-verify one file at the configured depth. The stored verdicts are cleared
-        first, so this re-checks a file that already has them rather than no-opping."""
+        """Re-verify one file at the configured depth, whether or not automatic
+        verification is on. The stored verdicts are cleared first, so this re-checks a
+        file that already has them rather than no-opping. Refused without console keys,
+        which verification cannot run without."""
         import tasks as tasks_mod
         from containers import verification as verification_lib
         from db import Files, db, reset_file_verification
+        from settings import load_keys
         _require_admin(info.context)
         file = db.session.get(Files, int(file_id))
         if not file:
             raise MutationFailed("File not found")
         if file.extension not in verification_lib.VERIFY_EXT:
             raise MutationFailed("File type cannot be verified")
+        if not load_keys()[0]:
+            raise MutationFailed("Verification needs console keys")
         reset_file_verification(file)
         db.session.commit()
-        task, _ = tasks_mod.enqueue_task('verify_file', {'file_id': int(file_id)})
+        task, _ = tasks_mod.enqueue_task('verify_file', {'file_id': int(file_id), 'manual': True})
         return _task_by_id(task.id, info)
+
+    @described_mutation
+    def retry_identification(
+        self, info: Info,
+        file_id: Annotated[strawberry.ID, strawberry.argument(
+            description="Primary key of the file to identify again.")],
+    ) -> Optional[Task]:
+        """Identify one file again. A file that failed identification is otherwise never
+        retried; this clears its attempts and sends it back down the pipeline."""
+        import tasks as tasks_mod
+        from db import Files, db, reset_file_identification
+        _require_admin(info.context)
+        file = db.session.get(Files, int(file_id))
+        if not file:
+            raise MutationFailed("File not found")
+        reset_file_identification(file)
+        db.session.commit()
+        task, _ = tasks_mod.enqueue_task('process_file', {'file_id': int(file_id)})
+        return _task_by_id(task.id, info)
+
+    @described_mutation
+    def delete_file(
+        self, info: Info,
+        file: Annotated[FileRefInput, strawberry.argument(
+            description="The file to delete, as it was displayed.")],
+    ) -> Optional[Task]:
+        """Delete one file from disk and the library. Runs as a task, one deletion at a
+        time; the task fails if the file is being processed, and does nothing if the
+        file moved since it was displayed."""
+        import tasks as tasks_mod
+        from db import Files, db
+        _require_admin(info.context)
+        row = db.session.get(Files, int(file.id))
+        if not row or row.filepath != file.filepath:
+            raise MutationFailed("File changed since it was displayed")
+        task, _ = tasks_mod.enqueue_task('delete_file', {'file_id': row.id,
+                                                         'filepath': row.filepath})
+        return _task_by_id(task.id, info)
+
+    @described_mutation
+    def remove_duplicates(
+        self, info: Info,
+        files: Annotated[List[FileRefInput], strawberry.argument(
+            description="The duplicates to delete, as `duplicates` listed them.")],
+    ) -> Optional[Task]:
+        """Delete previewed duplicates, whether or not automatic deduplication is on.
+        The set is recomputed when the task runs and only files in both are deleted, so
+        nothing is deleted that was not previewed or is no longer a duplicate."""
+        return _enqueue_removal('remove_duplicates', files, info)
+
+    @described_mutation
+    def remove_outdated_updates(
+        self, info: Info,
+        files: Annotated[List[FileRefInput], strawberry.argument(
+            description="The update files to delete, as `outdatedUpdates` listed them.")],
+    ) -> Optional[Task]:
+        """Delete previewed outdated update files, whether or not the setting is on. As
+        with `removeDuplicates`, only files still outdated when the task runs go."""
+        return _enqueue_removal('remove_outdated_updates', files, info)
 
     @described_mutation
     def set_title_override(

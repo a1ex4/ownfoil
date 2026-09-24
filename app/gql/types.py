@@ -341,6 +341,9 @@ class File:
     # by resolvers; None means "not exposed for this path/role".
     apps_loaded: Private[Optional[List["App"]]] = None
     library_loaded: Private[Optional[Library]] = None
+    # (title id, title name, app type) per app carried, for `FileFilter.title` and
+    # `FileFilter.appType` under `App.files`.
+    contents_loaded: Private[Optional[List[tuple]]] = None
 
     @described_field
     def verification_status(self) -> VerificationStatus:
@@ -693,3 +696,32 @@ class FileConnection:
     total: int = desc("Files matching the query across every page, before paging. "
                       "Computed only when selected.")
     items: List[File] = desc("The files on the requested page.")
+
+
+@described(strawberry.type)
+class CleanupGroup:
+    """What a cleanup pass would do to one app's copies: the files it keeps and the files
+    it would delete. Computed on read against the current library, so it previews the
+    pass rather than recording one."""
+    app: App = desc("The app the group is about: the app whose copies are compared "
+                    "for `duplicates`, the newest owned update for `outdatedUpdates`.")
+    keep: List[File] = desc("Files the pass keeps: the best copy of the app for "
+                            "`duplicates`, the newest update's files for `outdatedUpdates`.")
+    remove: List[File] = desc(
+        "Files the pass would delete. A bundle deleted as a duplicate appears in the "
+        "group of each app it carries.")
+
+
+@described(strawberry.type)
+class PendingFile:
+    """A file with pipeline work still due under the current settings."""
+    file: File = desc("The file with work due.")
+    stages: List[str] = desc("The pipeline stages it still needs, in the order they run: "
+                             "`read`, `organize`, `verify`, `compress`.")
+
+
+@described(strawberry.type)
+class PendingFileList:
+    """Files with pipeline work still due, capped at the requested limit."""
+    total: int = desc("How many files have work due, including those past the limit.")
+    items: List[PendingFile] = desc("The first files with work due, by primary key.")

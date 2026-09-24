@@ -36,6 +36,7 @@ class Selection:
     def has(self, name: str) -> bool:
         return any(f.name == name for f in self._fields)
 
-    def child(self, name: str) -> "Selection":
-        # A field aliased more than once asks for its own sub-selections under each alias.
-        return Selection(s for f in self._fields if f.name == name for s in _expand(f.selections))
+    def child(self, *names: str) -> "Selection":
+        # A field aliased more than once asks for its own sub-selections under each alias;
+        # several names merge fields of one type, e.g. a group's kept and removed files.
+        return Selection(s for f in self._fields if f.name in names for s in _expand(f.selections))

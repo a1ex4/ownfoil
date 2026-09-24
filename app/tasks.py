@@ -31,6 +31,7 @@ from library import (
     add_missing_apps_for_title, update_title_flags,
     add_missing_apps_to_db, update_titles, organize_file,
     remove_outdated_update_files, remove_duplicate_files, files_with_free_base_name,
+    delete_library_file, duplicate_files, outdated_update_files,
 )
 
 logger = logging.getLogger('main')
@@ -148,6 +149,9 @@ TASK_DISPLAY = {
         f'Moved {os.path.basename(src_path)} to {os.path.basename(dest_path)}'),
     'handle_file_deleted': lambda filepath, **kw: f'Deleted {os.path.basename(filepath)}',
     'handle_dir_deleted': lambda dirpath, **kw: f'Deleted folder {os.path.basename(dirpath)}',
+    'delete_file': lambda filepath, **kw: f'Delete {os.path.basename(filepath)}',
+    'remove_duplicates': lambda files, **kw: f'Remove {len(files)} duplicate file(s)',
+    'remove_outdated_updates': lambda files, **kw: f'Remove {len(files)} outdated update(s)',
 }
 
 
@@ -978,6 +982,71 @@ def _release_suffixed_files(mgmt):
             enqueue_task('process_file', {'file_id': f.id})
 
 
+# --- Manual deletion ---
+# In the maintenance group, so a deletion never runs alongside another deletion or an automatic
+# pass judging the same files. Manual one-offs: no settings toggle to re-check.
+FILE_TASKS = ('process_file', 'verify_file', 'compress_file', 'decompress_file')
+
+
+def _file_busy(file_id):
+    """Whether a task reading or rewriting this file is running."""
+    running = Task.query.filter(Task.status == 'running', Task.task_name.in_(FILE_TASKS)).all()
+    return any(json.loads(t.input_json or '{}').get('file_id') == file_id for t in running)
+
+
+def _delete_selected(candidates, files):
+    """Delete the candidates the caller saw: same id at the same path, and not busy."""
+    wanted = {(f['id'], f['filepath']) for f in files}
+    for f in candidates:
+        path = f.filepath
+        if (f.id, path) not in wanted:
+            continue
+        if _file_busy(f.id) or not claim_temp_file(path):
+            logger.info(f'Skipping busy file: {path}')
+            continue
+        try:
+            delete_library_file(f)
+        finally:
+            remove_temp_file(path)
+
+
+@register_task('delete_file', group='maintenance')
+def delete_file_task(file_id, filepath, **kwargs):
+    """Delete one library file from disk and the database."""
+    file = db.session.get(Files, file_id)
+    if file is None or file.filepath != filepath:
+        return
+    library_path = get_library_path(file.library_id)
+    if _file_busy(file_id) or not claim_temp_file(filepath):
+        raise RuntimeError(f'{os.path.basename(filepath)} is being processed, try again later.')
+    try:
+        if os.path.exists(filepath):
+            delete_library_file(file)
+        else:
+            delete_file_by_filepath(filepath)
+    finally:
+        remove_temp_file(filepath)
+    enqueue_task('update_titles')
+    request_maintenance(library_path)
+
+
+@register_task('remove_duplicates', group='maintenance')
+def remove_duplicates_task(files, **kwargs):
+    """Delete the previewed duplicates that are still duplicates."""
+    mgmt = get_settings()['library']['management']
+    _delete_selected(duplicate_files(mgmt['deduplication']['prefer_multicontent'],
+                                     lambda f: _has_pending_stage(f, mgmt)), files)
+    request_maintenance()
+
+
+@register_task('remove_outdated_updates', group='maintenance')
+def remove_outdated_updates_task(files, **kwargs):
+    """Delete the previewed outdated update files that are still outdated."""
+    _delete_selected(outdated_update_files(), files)
+    enqueue_task('update_titles')
+    request_maintenance()
+
+
 @register_task('add_missing_apps_for_title')
 def add_missing_apps_for_title_task(title_id, **kwargs):
     """Per-title: expand a title's apps, recompute its flags and fetch its artwork.
@@ -1004,15 +1073,16 @@ def update_titles_for_title_task(title_id, **kwargs):
 
 # --- Verification ---
 @register_task('verify_file', group='io')
-def verify_file_task(file_id, **kwargs):
-    """Verify one file's signatures and, at hash depth, its NCA content hashes."""
+def verify_file_task(file_id, manual=False, **kwargs):
+    """Verify one file's signatures and, at hash depth, its NCA content hashes. A `manual`
+    run was asked for by hand, so it goes ahead with automatic verification off."""
     file_obj = db.session.get(Files, file_id)
     if not file_obj or file_obj.extension not in verification_lib.VERIFY_EXT:
         return
     if not os.path.exists(file_obj.filepath):
         return
     opts = get_settings()['library']['management']['verification']
-    if not opts['enabled']:
+    if not opts['enabled'] and not manual:
         return
     depth = opts['depth']
     logger.info(f'Verifying file ({depth}): {file_obj.filename}')
@@ -1077,8 +1147,9 @@ def _convert_file(file_obj, produce, new_extension, compressed):
 
 
 @register_task('compress_file', group='io')
-def compress_file_task(file_id, **kwargs):
-    """Compress a single file in place: NSP->NSZ / XCI->XCZ, preserving its DB row."""
+def compress_file_task(file_id, manual=False, **kwargs):
+    """Compress a single file in place: NSP->NSZ / XCI->XCZ, preserving its DB row. A
+    `manual` run was asked for by hand, so it goes ahead with automatic compression off."""
     file_obj = db.session.get(Files, file_id)
     if not file_obj or file_obj.compressed or file_obj.extension not in COMPRESS_EXT:
         return
@@ -1086,7 +1157,7 @@ def compress_file_task(file_id, **kwargs):
         return
     logger.info(f'Compressing file: {file_obj.filename}')
     opts = get_settings()['library']['management']['compression']
-    if not opts['enabled']:
+    if not opts['enabled'] and not manual:
         return
     progress = _task_progress(_current_task_id)
     if _convert_file(file_obj,
