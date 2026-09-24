@@ -22,51 +22,53 @@ def prepare_template_names(format_data, windows_compatible):
 
     return {**format_data, **names}
 
+def organized_path(file_obj, library_path, organizer_settings):
+    """Where the organizer templates place a file, None when it cannot be organized."""
+    templates = organizer_settings['templates']
+
+    # Get the associated app for the file
+    app = file_obj.apps[0] if file_obj.apps else None
+    if not app:
+        logger.warning(f"No app associated with file {file_obj.filename}. Skipping organization.")
+        return None
+
+    template = _get_template_for_file(file_obj, app, templates)
+
+    # Retrieve data for template formatting
+    format_data = {}
+    # Get title name from the associated title_id
+    title_info = titles_lib.get_game_info(app.title.title_id)
+    if title_info['name'] == 'Unrecognized':
+        logger.warning(f"No title info associated with file {file_obj.filename}. Skipping organization.")
+        return None
+    format_data["extension"] = file_obj.extension
+    format_data["titleId"] = app.title.title_id
+    format_data["titleName"] = title_info['name']
+    if not file_obj.multicontent:
+        format_data["appId"] = app.app_id
+        format_data["appVersion"] = app.app_version
+        format_data["patchLevel"] = titles_lib.get_update_number(app.app_version)
+
+        game_info = titles_lib.get_game_info(app.app_id)
+        if app.app_type == APP_TYPE_DLC:
+            format_data["appName"] = game_info['name']
+        else:
+            format_data["appName"] = title_info['name']
+
+    # Format the new relative path, sanitizing and shortening the names first
+    windows_compatible = organizer_settings.get('windows_compatible', False)
+    format_data = prepare_template_names(format_data, windows_compatible)
+    safe_parts = sanitized_path_parts(template.format(**format_data), windows_compatible)
+    if sys.platform == 'win32' or windows_compatible:
+        safe_parts = truncate_path_parts(safe_parts, len(library_path))
+    return os.path.join(library_path, os.path.join(*safe_parts))
+
 def organize_file(file_obj, library_path, organizer_settings):
     try:
-        templates = organizer_settings['templates']
-        
         current_filepath = file_obj.filepath
-        
-        # Get the associated app for the file
-        app = file_obj.apps[0] if file_obj.apps else None
-        if not app:
-            logger.warning(f"No app associated with file {file_obj.filename}. Skipping organization.")
+        new_full_path = organized_path(file_obj, library_path, organizer_settings)
+        if new_full_path is None:
             return
-
-        template = _get_template_for_file(file_obj, app, templates)
-
-        # Retrieve data for template formatting
-        format_data = {}
-        # Get title name from the associated title_id
-        title_info = titles_lib.get_game_info(app.title.title_id)
-        if title_info['name'] == 'Unrecognized':
-            logger.warning(f"No title info associated with file {file_obj.filename}. Skipping organization.")
-            return
-        format_data["extension"] = file_obj.extension
-        format_data["titleId"] = app.title.title_id
-        format_data["titleName"] = title_info['name']
-        if not file_obj.multicontent:
-            format_data["appId"] = app.app_id
-            format_data["appVersion"] = app.app_version
-            format_data["patchLevel"] = titles_lib.get_update_number(app.app_version)
-
-            game_info = titles_lib.get_game_info(app.app_id)
-            if app.app_type == APP_TYPE_DLC:
-                format_data["appName"] = game_info['name']
-            else:
-                format_data["appName"] = title_info['name']
-        
-        # Format the new relative path, sanitizing and shortening the names first
-        windows_compatible = organizer_settings.get('windows_compatible', False)
-        format_data = prepare_template_names(format_data, windows_compatible)
-        safe_parts = sanitized_path_parts(template.format(**format_data), windows_compatible)
-        if sys.platform == 'win32' or windows_compatible:
-            safe_parts = truncate_path_parts(safe_parts, len(library_path))
-        new_relative_path = os.path.join(*safe_parts)
-        
-        # Construct the full new path
-        new_full_path = os.path.join(library_path, new_relative_path)
 
         if current_filepath == new_full_path:
             return True
@@ -126,6 +128,22 @@ def organize_file(file_obj, library_path, organizer_settings):
 
     except Exception as e:
         logger.error(f"An unexpected error occurred while organizing file {file_obj.filename}: {e}")
+
+def files_with_free_base_name(organizer_settings):
+    """Organized files kept off their template path by a "(n)" collision suffix, now that the path is free.
+
+    The suffix pattern only preselects: a template can render a name ending in "(n)" itself, so the
+    template path is what decides - else such a file would be released on every pass.
+    """
+    files = Files.query.filter(Files.organized.is_(True), Files.filename.like('%(%).%')).all()
+    released = []
+    for f in files:
+        if not re.fullmatch(r'.*\(\d+\)\.[^.]+', f.filename):
+            continue
+        target = organized_path(f, get_library_path(f.library_id), organizer_settings)
+        if target and target != f.filepath and not file_exists_in_db(target):
+            released.append(f)
+    return released
 
 def _get_template_for_file(file_obj, app, templates):
     """Helper function to determine the correct template for file organization."""
@@ -292,27 +310,50 @@ def remove_outdated_update_files():
                                 # Check if file meets criteria: identified, not multicontent
                                 if file_obj.identified and not file_obj.multicontent:
                                     logger.info(f"Removing outdated update file: {file_obj.filepath} (App ID: {app_obj.app_id}, Version: {app_obj.app_version}) - Greater owned version available.")
-                                    
-                                    # Remove from disk
-                                    if os.path.exists(file_obj.filepath):
-                                        try:
-                                            # Add the delete event to the ignored list before performing the remove
-                                            add_ignored_event(file_obj.filepath, '')
-                                            os.remove(file_obj.filepath)
-                                            logger.debug(f"Deleted physical file: {file_obj.filepath}")
-                                            # Remove from database and update app owned status
-                                            # This function handles db.session.delete(file_obj) and app.owned status
-                                            remove_file_from_apps(file_obj.id)
-                                        except OSError as e:
-                                            logger.error(f"Error deleting physical file {file_obj.filepath}: {e}")
-                                            # If an error occurs, remove from the ignored list
-                                            pop_ignored_event(src_path=file_obj.filepath, dest_path='')
-                                    else:
-                                        logger.warning(f"Physical file not found for deletion: {file_obj.filepath}")
-                                    
+                                    delete_library_file(file_obj)
+
         logger.info(f"Finished removal of outdated update files.")
     except Exception as e:
         logger.error(f"Error during removal of outdated update files: {e}")
+
+def delete_library_file(file_obj):
+    """Delete a library file from disk and the database, unseen by the watcher."""
+    if not os.path.exists(file_obj.filepath):
+        logger.warning(f"Physical file not found for deletion: {file_obj.filepath}")
+        return
+    add_ignored_event(file_obj.filepath, '')
+    try:
+        os.remove(file_obj.filepath)
+    except OSError as e:
+        logger.error(f"Error deleting physical file {file_obj.filepath}: {e}")
+        pop_ignored_event(src_path=file_obj.filepath, dest_path='')
+        return
+    delete_file_by_filepath(file_obj.filepath)
+
+def duplicate_files(prefer_multicontent, is_pending):
+    """Files whose every app has a better copy elsewhere.
+
+    Skips apps with a copy still pending or identified from its filename only: such a file
+    may carry more than the database knows, and deleting it would lose that.
+    """
+    copies = {}
+    for app_id, file in db.session.query(app_files.c.app_id, Files).join(Files, Files.id == app_files.c.file_id):
+        copies.setdefault(app_id, []).append(file)
+    keep, candidates = set(), set()
+    for files in copies.values():
+        best = best_file(files, prefer_multicontent)
+        if (len(files) > 1 and all(f.identification_type == 'cnmt' and not is_pending(f) for f in files)
+                and os.path.exists(best.filepath)):
+            keep.add(best)
+            candidates.update(files)
+        else:
+            keep.update(files)
+    return sorted(candidates - keep, key=lambda f: f.id)
+
+def remove_duplicate_files(prefer_multicontent, is_pending):
+    for file_obj in duplicate_files(prefer_multicontent, is_pending):
+        logger.info(f"Removing duplicate file: {file_obj.filepath}")
+        delete_library_file(file_obj)
 
 def update_title_flags(title_id):
     """Recompute have_base / up_to_date / complete for a single title.

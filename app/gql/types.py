@@ -498,9 +498,12 @@ class App:
         not admin only - it is what a shop client reads the catalogue for.
 
         An app can be carried by several files (an original and a compressed copy
-        cataloged side by side, say) and this names one of them: a single-content file
-        before a bundle, then the soundest `verificationStatus`, then the uncompressed
-        container, and finally the most recently added. Null for an app no file carries,
+        cataloged side by side, say) and this names one of them, the same copy
+        deduplication keeps: an intact file before a broken one (`SIGNATURE_FAILED`,
+        `MODIFIED`, `CORRUPT`), then a single-content file before a bundle (or the reverse
+        when the library prefers bundles), then one identified from its CNMT over its filename, then the
+        soundest `verificationStatus`, then the compressed container, then an organized
+        one, and finally the earliest added. Null for an app no file carries,
         and for apps reached as a file's back-link under `apps { files { apps } }`.
         The token is opaque and per-file; `files { id }` addresses the same bytes by
         primary key."""

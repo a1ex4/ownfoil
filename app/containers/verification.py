@@ -47,6 +47,14 @@ STATUS_RULES = (
     (STATUS_UNVERIFIED,       None,       None,  STATUS_ANY),
 )
 
+# Best verdict first: how much a status can be trusted, for choosing between copies.
+STATUS_RANK = {s: i for i, s in enumerate((
+    STATUS_VALID, STATUS_REPACK, STATUS_SIGNATURE_OK, STATUS_UNVERIFIED,
+    STATUS_SIGNATURE_FAILED, STATUS_MODIFIED, STATUS_CORRUPT))}
+
+# Verdicts that make a copy lose to any intact one, whatever else it has going for it.
+STATUS_BROKEN = frozenset((STATUS_SIGNATURE_FAILED, STATUS_MODIFIED, STATUS_CORRUPT))
+
 
 def status_of(signature_valid, hash_valid, hash_modified):
     """The status label for one file's verdict columns.
