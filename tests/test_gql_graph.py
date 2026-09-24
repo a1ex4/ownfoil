@@ -811,20 +811,27 @@ def test_added_at_is_exposed_and_sortable(library):
 
 # (filename, column overrides) for the files carrying an app. Everything a download
 # picks on is here; nothing else about a file matters to that choice.
-BUNDLE = ("bundle.nsp", {"multicontent": True, "signature_valid": True, "hash_valid": True})
-COMPRESSED_VALID = ("valid.nsz", {"compressed": True, "signature_valid": True, "hash_valid": True})
-PLAIN_VALID = ("valid.nsp", {"signature_valid": True, "hash_valid": True})
-PLAIN_CORRUPT = ("corrupt.nsp", {"signature_valid": True, "hash_valid": False})
-PLAIN_UNVERIFIED = ("unverified.nsp", {})
-OLDER_VALID = ("older.nsp", {"signature_valid": True, "hash_valid": True, "days": 2})
+VALID = {"identification_type": "cnmt", "signature_valid": True, "hash_valid": True}
+BUNDLE = ("bundle.nsp", {**VALID, "multicontent": True})
+COMPRESSED_VALID = ("valid.nsz", {**VALID, "compressed": True})
+PLAIN_VALID = ("valid.nsp", VALID)
+PLAIN_CORRUPT = ("corrupt.nsp", {**VALID, "hash_valid": False})
+COMPRESSED_CORRUPT = ("corrupt.nsz", {**VALID, "hash_valid": False, "compressed": True})
+PLAIN_UNVERIFIED = ("unverified.nsp", {"identification_type": "cnmt"})
+FILENAME_VALID = ("by-name.nsp", {**VALID, "identification_type": "filename"})
+ORGANIZED_VALID = ("organized.nsp", {**VALID, "organized": True})
+OLDER_VALID = ("older.nsp", {**VALID, "days": 2})
 
 # (case, files carrying the app, the one downloadUrl has to name)
 DOWNLOAD_CASES = [
     ("a single-content file beats a bundle", [BUNDLE, PLAIN_UNVERIFIED], "unverified.nsp"),
-    ("verification beats compression", [COMPRESSED_VALID, PLAIN_CORRUPT], "valid.nsz"),
+    ("cnmt identification beats verification", [FILENAME_VALID, PLAIN_UNVERIFIED], "unverified.nsp"),
+    ("verification beats compression", [COMPRESSED_CORRUPT, PLAIN_VALID], "valid.nsp"),
     ("an unverified copy beats a corrupt one", [PLAIN_UNVERIFIED, PLAIN_CORRUPT], "unverified.nsp"),
-    ("compression breaks a verification tie", [COMPRESSED_VALID, PLAIN_VALID], "valid.nsp"),
-    ("the newest copy breaks every other tie", [OLDER_VALID, PLAIN_VALID], "valid.nsp"),
+    ("compression breaks a verification tie", [PLAIN_VALID, COMPRESSED_VALID], "valid.nsz"),
+    ("organized breaks a compression tie", [PLAIN_VALID, ORGANIZED_VALID], "organized.nsp"),
+    ("the oldest copy breaks every other tie", [PLAIN_VALID, OLDER_VALID], "older.nsp"),
+    ("the lowest id breaks a same-age tie", [PLAIN_VALID, ("again.nsp", VALID)], "valid.nsp"),
     ("nothing to serve", [], None),
 ]
 
