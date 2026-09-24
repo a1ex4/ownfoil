@@ -1,0 +1,752 @@
+{% extends "settings_layout.html" %}
+
+{% macro pill(tone, text) -%}
+<span class="files-pill bg-{{ tone }}-subtle text-{{ tone }}-emphasis">{{ text }}</span>
+{%- endmacro %}
+{% macro state(on, on_text='On', off_text='Off') -%}
+{{ pill('success', on_text) if on else pill('secondary', off_text) }}
+{%- endmacro %}
+{% macro setting(anchor, label='Open the setting', icon='bi-gear') -%}
+<a class="icon-btn" href="/admin/settings#{{ anchor }}" title="{{ label }}"><i class="bi {{ icon }}"></i></a>
+{%- endmacro %}
+{% set verification_on = management.verification.enabled and keys_valid %}
+
+{% block panel %}
+<div class="settings-container container-fluid mt-3">
+
+    <div class="task-section-head">
+        <h2 class="mb-0">Files</h2>
+        <button type="button" id="refreshFiles" class="icon-btn ms-auto" onClick="loadTab(true)" title="Refresh">
+            <i class="bi bi-arrow-clockwise"></i>
+        </button>
+    </div>
+    <p class="text-secondary">Review library files by state. Actions run as tasks, listed on the
+        <a href="/admin/tasks">Tasks</a> page.</p>
+
+    <ul class="nav nav-underline files-tabs mb-4" id="filesTabs">
+        <li class="nav-item"><a class="nav-link" href="#all">All files</a></li>
+        <li class="nav-item"><a class="nav-link" href="#unidentified">Unidentified</a></li>
+        <li class="nav-item"><a class="nav-link" href="#verification">Verification</a></li>
+        <li class="nav-item"><a class="nav-link" href="#duplicates">Duplicates</a></li>
+        <li class="nav-item"><a class="nav-link" href="#outdated">Outdated updates</a></li>
+        <li class="nav-item"><a class="nav-link" href="#pending">Pending processing</a></li>
+    </ul>
+
+    <div class="files-status" data-tab="all">
+        <p class="text-secondary">Every file in every library.</p>
+    </div>
+    <div class="files-status" data-tab="unidentified">
+        <p>Keys {{ state(keys_valid, 'Valid', 'Missing') }} {{ setting('consoleKeysInputLabel', 'Console keys', 'bi-key') }}</p>
+        <p class="text-secondary">Files ownfoil could not match to any content.
+            {% if not keys_valid %}Without keys, files are identified from their filename only.{% endif %}
+            Identification is not attempted again on its own: retry once keys are added or a file is renamed.</p>
+    </div>
+    <div class="files-status" data-tab="verification">
+        <p>Verification
+            {% if management.verification.enabled and not keys_valid %}
+            {{ pill('warning', 'Needs keys') }} {{ setting('consoleKeysInputLabel', 'Console keys', 'bi-key') }}
+            {% else %}
+            {{ state(verification_on, 'On, ' ~ management.verification.depth ~ ' depth') }}
+            {% endif %}
+            {{ setting('verification') }}</p>
+        <p class="text-secondary">Signature and content hash verdicts of the files that can be verified.</p>
+    </div>
+    <div class="files-status" data-tab="duplicates">
+        <p>Automatic deletion {{ state(management.deduplication.enabled) }}
+            {% if management.deduplication.prefer_multicontent %}{{ pill('secondary', 'Prefers bundles') }}{% endif %}
+            {{ setting('management') }}</p>
+        <p class="text-secondary">For each app with several copies, the copy kept and the copies deleted.
+            Apps with a copy still being processed, or identified from its filename only, are not listed.</p>
+        <button type="button" class="icon-btn files-run" data-mutation="removeDuplicates">
+            <i class="bi bi-trash"></i> <span>Delete</span></button>
+    </div>
+    <div class="files-status" data-tab="outdated">
+        <p>Automatic deletion {{ state(management.delete_older_updates) }} {{ setting('management') }}</p>
+        <p class="text-secondary">Update files older than the newest update owned for the same title.
+            Bundles are never deleted.</p>
+        <button type="button" class="icon-btn files-run" data-mutation="removeOutdatedUpdates">
+            <i class="bi bi-trash"></i> <span>Delete</span></button>
+    </div>
+    <div class="files-status" data-tab="pending">
+        <p>Organizer {{ state(management.organizer.enabled) }} {{ setting('organizer') }}
+            &nbsp; Verification {{ state(verification_on) }} {{ setting('verification') }}
+            &nbsp; Compression {{ state(management.compression.enabled) }} {{ setting('compression') }}</p>
+        <p class="text-secondary">Files with processing still due under the current settings.</p>
+    </div>
+
+    <p id="filesNotice" class="small text-secondary d-none"></p>
+
+    <table class="table table-hover files-table">
+        <colgroup></colgroup>
+        <thead></thead>
+        <tbody></tbody>
+    </table>
+    <div class="files-pager">
+        <span id="filesCount"></span>
+        <button type="button" class="icon-btn" id="filesPrev" title="Previous page"><i class="bi bi-chevron-left"></i></button>
+        <button type="button" class="icon-btn" id="filesNext" title="Next page"><i class="bi bi-chevron-right"></i></button>
+    </div>
+
+</div>
+{% endblock %}
+
+{% block panel_scripts %}
+<script src="{{ url_for('static', filename='js/format.js') }}"></script>
+<script>
+
+    const VERIFY_EXT = {{ verify_ext|tojson }};
+    const COMPRESS_EXT = {{ compress_ext|tojson }};
+    const KEYS_VALID = {{ keys_valid|tojson }};
+    const PAGE_SIZE = 100;
+
+    const FILE_FIELDS = `fragment F on File {
+        id filename filepath extension size compressed organized multicontent
+        identificationType identificationError identificationAttempts
+        verificationStatus verificationError verifiedAt addedAt
+        apps { appId appType appVersion titleId title { name } }
+    }`;
+
+    async function gql(query, variables, post) {
+        const r = post
+            ? await fetch('/api/graphql', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json', 'Accept': 'application/json'},
+                credentials: 'same-origin',
+                body: JSON.stringify({query: query, variables: variables || {}}),
+            })
+            : await fetch('/api/graphql?' + new URLSearchParams(
+                {query: query, variables: JSON.stringify(variables || {})}), {
+                headers: {'Accept': 'application/json'},
+                credentials: 'same-origin',
+            });
+        if (!r.ok) throw new Error(`GraphQL HTTP ${r.status}`);
+        const body = await r.json();
+        if (body.errors && body.errors.length) throw new Error(body.errors.map(e => e.message).join('; '));
+        return body.data;
+    }
+
+    function el(tag, props, ...children) {
+        const node = Object.assign(document.createElement(tag), props || {});
+        children.flat().forEach(c => c != null && node.append(c));
+        return node;
+    }
+
+    function humanize(key) {
+        const words = key.replace(/_/g, ' ').toLowerCase();
+        return words.charAt(0).toUpperCase() + words.slice(1);
+    }
+
+    function date(iso) {
+        return iso ? new Date(iso).toLocaleDateString() : '';
+    }
+
+    /** "Name (TITLEID)", or the bare id for a title titledb does not know. */
+    function titleLabel(a) {
+        const name = a.title && a.title.name;
+        return name ? `${name} (${a.titleId})` : a.titleId;
+    }
+
+    /** The distinct titles a file carries - usually one, several for a multi-title bundle. */
+    function fileTitles(r) {
+        return [...new Map((r.apps || []).map(a => [a.titleId, a])).values()];
+    }
+
+    function appLabel(a) {
+        return `${titleLabel(a)} · ${a.appType} v${a.appVersion}`;
+    }
+
+    const STATUS_TONE = {VALID: 'success', REPACK: 'success', SIGNATURE_OK: 'info', UNVERIFIED: 'secondary',
+                         SIGNATURE_FAILED: 'danger', MODIFIED: 'danger', CORRUPT: 'danger'};
+    let options = {extension: [], status: []};
+
+    function pill(tone, text) {
+        return el('span', {className: `files-pill bg-${tone}-subtle text-${tone}-emphasis`, textContent: text});
+    }
+
+    function check(on) {
+        return on ? el('i', {className: 'bi bi-check-lg text-success'}) : null;
+    }
+
+    function muted(text) {
+        return text ? el('span', {className: 'text-secondary', textContent: text}) : null;
+    }
+
+    /** One app on its own line: its kind as a chip and the version, plus its own id for a DLC,
+     *  which the title alone does not tell apart from its siblings. */
+    function appLine(a) {
+        return el('div', {className: 'files-app'}, el('span', {className: 'files-chip', textContent: a.appType}),
+                  muted(`v${a.appVersion}`), a.appType === 'DLC' ? muted(a.appId) : null);
+    }
+
+    /** A title as its name with the id muted beside it, or the bare id when titledb has no name. */
+    function titleLine(a) {
+        const name = a.title && a.title.name;
+        return el('div', {className: 'files-title'}, name ? el('span', {textContent: name}) : null,
+                  name ? ' ' : null, muted(name ? `(${a.titleId})` : a.titleId));
+    }
+
+    // Same rule as FileFilter.title: shorter text is never read as part of an id, whose hex
+    // digits would put nearly every title behind a single letter.
+    const ID_FRAGMENT = /^[0-9a-f]{4,}$/i;
+
+    /** Titles in the library whose name - or, for enough hex digits, id - holds what is
+     *  typed, as (name, id) suggestions: name matches first, then id matches. */
+    async function suggestTitles(text) {
+        const byId = ID_FRAGMENT.test(text);
+        const d = await gql(`query ($text: String, $byId: Boolean!) {
+            byName: titles(owned: true, filter: {name: {contains: $text}}, orderBy: {field: NAME}, pageSize: 10) {
+                items { titleId name } }
+            byId: titles(owned: true, filter: {titleId: {contains: $text}}, orderBy: {field: NAME}, pageSize: 10)
+                @include(if: $byId) { items { titleId name } } }`, {text: text, byId: byId});
+        const titles = [...d.byName.items, ...(d.byId ? d.byId.items : [])];
+        const unique = [...new Map(titles.map(t => [t.titleId, t])).values()].slice(0, 10);
+        return unique.map(t => [t.name || t.titleId, t.titleId]);
+    }
+
+    /** Any ticked choice: a file carrying one of the ticked types, or a bundle when Multi-content is. */
+    function matchContent(r, selected) {
+        return (r.apps || []).some(a => selected.includes(a.appType))
+            || (selected.includes('multi') && r.multicontent);
+    }
+
+    // `value` feeds the in-page filter of computed tabs; `gql` turns a filter value into a
+    // FileFilter for the paged ones. A column filters only where it has the matching one.
+    // A `multi` filter's value is the list of ticked choices, any of which matches.
+    const COLUMNS = {
+        role: {label: '', value: r => r._role, filter: 'multi', choices: () => [['keep', 'Keep'], ['remove', 'Delete']],
+               render: r => r._role === 'keep' ? pill('success', 'Keep') : pill('danger', 'Delete')},
+        // The extension filter sits in the File header: the extension ends every file name, so
+        // it needs no column of its own.
+        name: {label: 'File', value: r => r.filename, filter: 'text', sort: 'NAME', headerFilter: 'ext',
+               gql: v => ({filename: {contains: v}}), render: r => r.filename, className: 'files-name'},
+        // A tab already limited to some extensions offers only those: ticking one outside it
+        // would intersect to an empty `in`, which reads as no constraint.
+        ext: {label: 'Extension', value: r => r.extension, filter: 'multi',
+              choices: () => {
+                  const limit = ((TABS[current].base || {}).extension || {}).in;
+                  return options.extension.filter(([v]) => !limit || limit.includes(v));
+              },
+              gql: v => ({extension: {in: v}})},
+        size: {label: 'Size', sort: 'SIZE', render: r => formatBytes(r.size), className: 'text-end files-num'},
+        title: {label: 'Title', value: r => fileTitles(r).map(titleLabel).join(', '), filter: 'text',
+                gql: v => ({title: v}), suggest: suggestTitles,
+                render: r => fileTitles(r).map(titleLine)},
+        content: {label: 'Content', filter: 'multi', match: matchContent,
+                  choices: () => [['BASE', 'Base'], ['UPDATE', 'Update'], ['DLC', 'DLC'], ['-'], ['multi', 'Multi-content']],
+                  value: r => r.apps,
+                  gql: v => {
+                      const types = v.filter(x => x !== 'multi');
+                      return {anyOf: [...(types.length ? [{appType: types}] : []),
+                                      ...(v.includes('multi') ? [{multicontent: true}] : [])]};
+                  },
+                  render: r => (r.apps || []).map(appLine)},
+        identifiedBy: {label: 'Identified by', value: r => r.identificationType || '', filter: 'multi',
+                       choices: () => [['cnmt', 'cnmt'], ['filename', 'filename']],
+                       gql: v => ({identificationType: {in: v}}), render: r => muted(r.identificationType)},
+        attempts: {label: 'Attempts', render: r => String(r.identificationAttempts), className: 'text-end files-num'},
+        idError: {label: 'Error', render: r => muted(r.identificationError), className: 'files-error'},
+        status: {label: 'Verification', value: r => r.verificationStatus, filter: 'multi', choices: () => options.status,
+                 gql: v => ({verificationStatus: v}),
+                 render: r => pill(STATUS_TONE[r.verificationStatus] || 'secondary', humanize(r.verificationStatus))},
+        verError: {label: 'Error', render: r => muted(r.verificationError), className: 'files-error'},
+        verifiedAt: {label: 'Verified', render: r => muted(date(r.verifiedAt)), className: 'files-num'},
+        compressed: {label: 'Compressed', icon: 'bi-file-earmark-zip', value: r => String(r.compressed), filter: 'bool',
+                     gql: v => ({compressed: v === 'true'}), render: r => check(r.compressed), className: 'text-center'},
+        organized: {label: 'Organized', icon: 'bi-folder-check', value: r => String(r.organized), filter: 'bool',
+                    gql: v => ({organized: v === 'true'}), render: r => check(r.organized), className: 'text-center'},
+        added: {label: 'Added', sort: 'ADDED_AT', render: r => muted(date(r.addedAt)), className: 'files-num'},
+        stages: {label: 'Due', value: r => r._stages, filter: 'multi',
+                 choices: () => ['read', 'organize', 'verify', 'compress'].map(s => [s, s]),
+                 render: r => r._stages.map(s => el('span', {className: 'files-chip me-1', textContent: s}))},
+    };
+
+    // Fixed column widths, so nothing a cell holds or a filter shows resizes a column. Short
+    // values get a width that fits them whole; the text columns (file, title, errors) have
+    // none and share what is left, wrapping - which keeps every tab within the panel.
+    const WIDTHS = {
+        role: '5.5rem', size: '5.5rem', content: '8rem', identifiedBy: '7rem',
+        attempts: '5.5rem', status: '8.5rem', verifiedAt: '5.5rem', compressed: '3rem',
+        organized: '3rem', added: '5.5rem', stages: '9rem',
+    };
+    const ACTIONS_WIDTH = '6rem';
+
+    const TABS = {
+        all: {kind: 'files', base: {},
+              columns: ['name', 'title', 'size', 'content', 'identifiedBy', 'status', 'compressed',
+                        'organized', 'added']},
+        unidentified: {kind: 'files', base: {identified: false},
+                       columns: ['name', 'size', 'attempts', 'idError', 'added']},
+        verification: {kind: 'files', base: {extension: {in: VERIFY_EXT}},
+                       columns: ['name', 'title', 'size', 'content', 'status', 'verError', 'verifiedAt']},
+        duplicates: {kind: 'groups', field: 'duplicates',
+                     columns: ['role', 'name', 'title', 'size', 'content', 'status', 'compressed',
+                               'organized', 'added']},
+        outdated: {kind: 'groups', field: 'outdatedUpdates',
+                   columns: ['role', 'name', 'title', 'size', 'content', 'added']},
+        pending: {kind: 'pending',
+                  columns: ['name', 'title', 'size', 'stages', 'status']},
+    };
+    Object.values(TABS).forEach(t => Object.assign(t, {filters: {}, page: 1, order: null, rows: null}));
+
+    let current = 'all';
+
+    // --- actions ---
+
+    function notice(text) {
+        $('#filesNotice').text(text).toggleClass('d-none', !text);
+    }
+
+    // --- tasks started from this page ---
+    //
+    // Polled rather than followed on the realtime feed: that feed covers the oldest 200
+    // tasks, so an action queued behind a library scan would never be seen to finish.
+    // A task that succeeded deletes itself, so a missing task is a finished one.
+
+    const watched = new Map();  // task id -> {files: Set of file ids, text}
+    const WATCH_MS = 2000;
+    let watchTimer = null;
+
+    /** The label of the task holding a file, if one is. */
+    function busy(fileId) {
+        for (const w of watched.values()) if (w.files.has(fileId)) return w.text;
+        return null;
+    }
+
+    /** Grey out the rows of files a watched task is working on, and only those. */
+    function paintBusy() {
+        document.querySelectorAll('.files-table tbody tr[data-id]').forEach(tr => {
+            const text = busy(tr.dataset.id);
+            tr.classList.toggle('opacity-50', Boolean(text));
+            tr.title = text || '';
+            tr.querySelectorAll('button').forEach(b => { b.disabled = Boolean(text) || b.dataset.blocked === '1'; });
+        });
+    }
+
+    function watch(task, fileIds, text) {
+        watched.set(task.id, {files: new Set(fileIds), text: text});
+        paintBusy();
+        if (!watchTimer) watchTimer = setInterval(checkWatched, WATCH_MS);
+    }
+
+    async function checkWatched() {
+        const ids = [...watched.keys()];
+        if (!ids.length) { clearInterval(watchTimer); watchTimer = null; return; }
+        let d;
+        try {
+            d = await gql(`query (${ids.map((_, i) => `$t${i}: ID!`).join(', ')}) {
+                ${ids.map((_, i) => `t${i}: task(id: $t${i}) { status errorMessage }`).join(' ')} }`,
+                Object.fromEntries(ids.map((id, i) => [`t${i}`, id])));
+        } catch (e) { return; }
+        const failures = [];
+        ids.forEach((id, i) => {
+            const t = d[`t${i}`];
+            if (t && !['COMPLETED', 'FAILED'].includes(t.status)) return;
+            if (t && t.status === 'FAILED') failures.push(`${watched.get(id).text} failed: ${t.errorMessage || 'see the Tasks page'}`);
+            watched.delete(id);
+        });
+        if (ids.length === watched.size) return;
+        // What finished changed the files: every tab's rows are stale, the current one reloads.
+        Object.entries(TABS).forEach(([name, tab]) => { if (name !== current) tab.rows = null; });
+        await loadTab(true);
+        if (failures.length) notice(failures.join(' '));
+    }
+
+    async function act(mutation, f, text) {
+        try {
+            const d = await gql(`mutation ($id: ID!) { ${mutation}(fileId: $id) { id } }`, {id: f.id}, true);
+            watch(d[mutation], [f.id], text);
+        } catch (e) { notice(e.message); }
+    }
+
+    /** Apps this file is the only copy of, so the confirmation can say what would be lost. */
+    async function soleCopyOf(f) {
+        const d = await gql('query ($id: ID!) { file(id: $id) { apps { id } } }', {id: f.id});
+        const ids = d.file ? d.file.apps.map(a => a.id) : [];
+        if (!ids.length) return [];
+        const vars = ids.map((_, i) => `$a${i}: ID!`).join(', ');
+        const fields = ids.map((_, i) =>
+            `a${i}: app(id: $a${i}) { appId appType appVersion titleId title { name } files { id } }`).join(' ');
+        const apps = await gql(`query (${vars}) { ${fields} }`,
+                               Object.fromEntries(ids.map((id, i) => [`a${i}`, id])));
+        return Object.values(apps).filter(a => a && a.files && a.files.length === 1);
+    }
+
+    async function deleteFile(f) {
+        try {
+            const sole = await soleCopyOf(f);
+            let message = `Delete ${f.filename} from disk?`;
+            if (sole.length) message += '\n\nIt is the only copy of:\n' + sole.map(appLabel).join('\n');
+            if (!confirm(message)) return;
+            const d = await gql('mutation ($file: FileRefInput!) { deleteFile(file: $file) { id } }',
+                                {file: {id: f.id, filepath: f.filepath}}, true);
+            watch(d.deleteFile, [f.id], 'Deleting');
+        } catch (e) { notice(e.message); }
+    }
+
+    // Offered whatever the settings say: an action asked for by hand runs even with the
+    // matching automatic step off. `blocked` explains an action that cannot run at all.
+    const ACTIONS = {
+        retry: {icon: 'bi-arrow-repeat', title: 'Identify again', run: f => act('retryIdentification', f, 'Identifying')},
+        verify: {icon: 'bi-shield-check', title: 'Verify', run: f => act('verifyFile', f, 'Verifying'),
+                 applies: f => VERIFY_EXT.includes(f.extension),
+                 blocked: () => !KEYS_VALID && 'Verification needs console keys'},
+        compress: {icon: 'bi-file-earmark-zip', title: 'Compress', run: f => act('compressFile', f, 'Compressing'),
+                   applies: f => !f.compressed && COMPRESS_EXT.includes(f.extension)},
+        decompress: {icon: 'bi-file-earmark-arrow-up', title: 'Decompress', run: f => act('decompressFile', f, 'Decompressing'),
+                     applies: f => f.compressed},
+        delete: {icon: 'bi-trash', title: 'Delete file', run: deleteFile},
+    };
+    const FILE_ACTIONS = ['retry', 'verify', 'compress', 'decompress', 'delete'];
+
+    /** Delete the visible files a group tab would remove - once each, a bundle can sit in several groups. */
+    async function runRemoval(mutation) {
+        const files = new Map(visibleRows().filter(r => r._role === 'remove')
+            .map(r => [r.id, {id: r.id, filepath: r.filepath}]));
+        if (!files.size || !confirm(`Delete ${files.size} file(s) from disk?`)) return;
+        try {
+            const d = await gql(`mutation ($files: [FileRefInput!]!) { ${mutation}(files: $files) { id } }`,
+                                {files: [...files.values()]}, true);
+            watch(d[mutation], [...files.keys()], 'Deleting');
+            notice('Queued: files still judged the same when the task runs are deleted.');
+        } catch (e) { notice(e.message); }
+    }
+
+    // --- loading ---
+
+    async function loadOptions() {
+        const d = await gql(`{ stats { filesByExtension { key } filesByVerificationStatus { status } } }`);
+        options = {
+            extension: d.stats.filesByExtension.filter(b => b.key).map(b => [b.key, b.key]),
+            status: d.stats.filesByVerificationStatus.map(b => [b.status, humanize(b.status)]),
+        };
+    }
+
+    function serverFilter(tab) {
+        const filter = JSON.parse(JSON.stringify(tab.base));
+        Object.entries(tab.filters).forEach(([key, v]) => {
+            Object.entries(COLUMNS[key].gql(v)).forEach(([field, clause]) => {
+                if (typeof clause !== 'object' || Array.isArray(clause)) { filter[field] = clause; return; }
+                // Operator objects merge; two `in` lists (a tab's base and a column) intersect.
+                const base = filter[field] || {};
+                filter[field] = {...base, ...clause};
+                if (base.in && clause.in) filter[field].in = base.in.filter(x => clause.in.includes(x));
+            });
+        });
+        return filter;
+    }
+
+    async function fetchRows(tab) {
+        if (tab.kind === 'files') {
+            const d = await gql(`query ($filter: FileFilter, $orderBy: OrderBy, $page: Int!) {
+                files(filter: $filter, orderBy: $orderBy, page: $page, pageSize: ${PAGE_SIZE}) {
+                    total items { ...F } } } ${FILE_FIELDS}`,
+                {filter: serverFilter(tab), orderBy: tab.order, page: tab.page});
+            tab.total = d.files.total;
+            return d.files.items;
+        }
+        if (tab.kind === 'groups') {
+            const d = await gql(`{ ${tab.field} { app { appId appType appVersion titleId title { name } }
+                                  keep { ...F } remove { ...F } } } ${FILE_FIELDS}`);
+            return d[tab.field].flatMap((g, i) => [
+                ...g.keep.map(f => ({...f, _role: 'keep', _group: i, _app: g.app})),
+                ...g.remove.map(f => ({...f, _role: 'remove', _group: i, _app: g.app})),
+            ]);
+        }
+        const d = await gql(`{ pendingFiles { total items { stages file { ...F } } } } ${FILE_FIELDS}`);
+        tab.total = d.pendingFiles.total;
+        return d.pendingFiles.items.map(p => ({...p.file, _stages: p.stages}));
+    }
+
+    function visibleRows() {
+        const tab = TABS[current];
+        if (tab.kind === 'files') return tab.rows || [];
+        return (tab.rows || []).filter(r => Object.entries(tab.filters).every(([key, v]) => {
+            const col = COLUMNS[key];
+            if (col.match) return col.match(r, v);
+            const value = col.value(r);
+            if (col.filter === 'multi') return v.some(x => [].concat(value).includes(x));
+            return col.filter === 'text'
+                ? String(value).toLowerCase().includes(v.toLowerCase()) : String(value) === v;
+        }));
+    }
+
+    /** Fetch the current tab's rows and repaint the body only, so a filter input keeps focus. */
+    async function loadTab(force) {
+        const tab = TABS[current];
+        renderBody();
+        if (tab.rows && !force) return;
+        const button = $('#refreshFiles').prop('disabled', true);
+        try {
+            tab.rows = await fetchRows(tab);
+            notice('');
+        } catch (e) {
+            notice(e.message);
+        } finally {
+            button.prop('disabled', false);
+        }
+        renderBody();
+    }
+
+    // --- rendering ---
+
+    let filterTimer = null;
+    let suggestTimer = null;
+
+    function setFilter(key, value) {
+        const tab = TABS[current];
+        if (value === '' || (Array.isArray(value) && !value.length)) delete tab.filters[key];
+        else tab.filters[key] = value;
+        tab.page = 1;
+        if (tab.kind === 'files') loadTab(true); else renderBody();
+    }
+
+    function filterInput(key) {
+        const tab = TABS[current];
+        const col = COLUMNS[key];
+        const usable = tab.kind === 'files' ? col.gql : col.value;
+        if (!col.filter || !usable) return '';
+        const value = tab.filters[key] || '';
+        if (col.filter === 'text') {
+            const input = el('input', {className: 'form-control form-control-sm', value: value, placeholder: 'Search'});
+            input.addEventListener('input', () => {
+                clearTimeout(filterTimer);
+                filterTimer = setTimeout(() => setFilter(key, input.value.trim()), 300);
+            });
+            if (!col.suggest) return input;
+            return withSuggestions(input, col.suggest, v => {
+                input.value = v;
+                clearTimeout(filterTimer);
+                setFilter(key, v);
+            });
+        }
+        if (col.filter === 'multi') return multiSelect(key, col.choices(), value || []);
+        return boolToggle(key, col.label, value);
+    }
+
+    // A yes/no filter cycles blank (either) -> yes -> no, compact enough for an icon column.
+    const BOOL_STATES = [['', '', 'either'], ['true', 'bi-check-lg', 'yes'], ['false', 'bi-x-lg', 'no']];
+
+    function boolToggle(key, label, value) {
+        let state = BOOL_STATES.findIndex(([v]) => v === value);
+        const button = el('button', {type: 'button', className: 'form-control form-control-sm files-bool'});
+        const paint = () => {
+            const [, icon, word] = BOOL_STATES[state];
+            button.replaceChildren(icon ? el('i', {className: `bi ${icon}`}) : ' ');
+            button.title = `${label}: ${word}`;
+        };
+        button.addEventListener('click', () => {
+            state = (state + 1) % BOOL_STATES.length;
+            paint();
+            setFilter(key, BOOL_STATES[state][0]);
+        });
+        paint();
+        return button;
+    }
+
+    /** Suggestions under a text input, refreshed as it is typed in. Fixed-positioned so the
+     *  scrolling table wrapper cannot clip it; an answer to an older keystroke is dropped. */
+    function withSuggestions(input, suggest, pick) {
+        const menu = el('div', {className: 'dropdown-menu files-suggest'});
+        let items = [], active = -1, asked = 0;
+        input.autocomplete = 'off';
+        const close = () => { menu.classList.remove('show'); active = -1; };
+        const highlight = i => {
+            active = i;
+            [...menu.children].forEach((item, j) => item.classList.toggle('active', j === i));
+        };
+        const choose = v => { pick(v); close(); };
+        const show = list => {
+            items = list;
+            active = -1;
+            menu.replaceChildren(...list.map(([v, hint]) => {
+                const item = el('button', {type: 'button', className: 'dropdown-item'},
+                                el('span', {textContent: v}), ' ', muted(hint));
+                // mousedown, not click: it lands before the input's blur closes the menu.
+                item.addEventListener('mousedown', e => { e.preventDefault(); choose(v); });
+                return item;
+            }));
+            const box = input.getBoundingClientRect();
+            Object.assign(menu.style, {left: `${box.left}px`, top: `${box.bottom + 2}px`, minWidth: `${box.width}px`});
+            menu.classList.toggle('show', list.length > 0);
+        };
+        input.addEventListener('input', () => {
+            clearTimeout(suggestTimer);
+            const text = input.value.trim();
+            const ask = ++asked;
+            if (!text) return close();
+            suggestTimer = setTimeout(async () => {
+                try {
+                    const list = await suggest(text);
+                    if (ask === asked) show(list);
+                } catch (e) { close(); }
+            }, 150);
+        });
+        input.addEventListener('keydown', e => {
+            if (!menu.classList.contains('show')) return;
+            if (e.key === 'ArrowDown') { e.preventDefault(); highlight(Math.min(active + 1, items.length - 1)); }
+            else if (e.key === 'ArrowUp') { e.preventDefault(); highlight(Math.max(active - 1, 0)); }
+            else if (e.key === 'Enter' && active >= 0) { e.preventDefault(); choose(items[active][0]); }
+            else if (e.key === 'Escape') close();
+        });
+        input.addEventListener('blur', close);
+        return el('div', null, input, menu);
+    }
+
+    /** A dropdown of checkboxes, blank until something is ticked. It stays open across
+     *  ticks, and only the body re-renders, so the menu is not rebuilt under the pointer. */
+    function multiSelect(key, choices, selected) {
+        const chosen = new Set(selected);
+        const toggle = el('button', {type: 'button', className: 'form-select form-select-sm files-multi-toggle'});
+        toggle.dataset.bsToggle = 'dropdown';
+        toggle.dataset.bsAutoClose = 'outside';
+        // Fixed, so the scrolling table wrapper does not clip the open menu.
+        toggle.dataset.bsPopperConfig = '{"strategy": "fixed"}';
+        const label = () => {
+            const names = choices.filter(([v]) => chosen.has(v)).map(([, text]) => text);
+            toggle.textContent = names.join(', ') || ' ';
+            toggle.title = names.join(', ');
+        };
+        const menu = el('div', {className: 'dropdown-menu files-multi-menu'}, choices.map(([v, text]) => {
+            if (v === '-') return el('hr', {className: 'dropdown-divider'});
+            const box = el('input', {type: 'checkbox', className: 'form-check-input me-2', checked: chosen.has(v)});
+            box.addEventListener('change', () => {
+                if (box.checked) chosen.add(v); else chosen.delete(v);
+                label();
+                setFilter(key, [...chosen]);
+            });
+            return el('label', {className: 'dropdown-item'}, box, text);
+        }));
+        label();
+        return el('div', {className: 'dropdown'}, toggle, menu);
+    }
+
+    function renderHead() {
+        const tab = TABS[current];
+        const head = document.querySelector('.files-table thead');
+        document.querySelector('.files-table colgroup').replaceChildren(
+            ...tab.columns.map(key => el('col', {style: WIDTHS[key] ? `width: ${WIDTHS[key]}` : ''})),
+            el('col', {style: `width: ${ACTIONS_WIDTH}`}));
+        const labels = el('tr', null, tab.columns.map(key => {
+            const col = COLUMNS[key];
+            const sorting = tab.kind === 'files' && col.sort;
+            const active = sorting && tab.order && tab.order.field === col.sort;
+            const label = el('span', null, col.icon ? el('i', {className: `bi ${col.icon}`}) : col.label,
+                             active ? [' ', el('i', {className: `bi bi-caret-${tab.order.direction === 'ASC' ? 'up' : 'down'}-fill`})] : null);
+            const th = el('th', {className: col.className || '', title: col.label}, label);
+            if (col.headerFilter) {
+                // Its own clicks stay off the header, which sorts.
+                const filter = el('div', {className: 'files-head-filter', title: COLUMNS[col.headerFilter].label},
+                                  filterInput(col.headerFilter));
+                filter.addEventListener('click', e => e.stopPropagation());
+                th.replaceChildren(el('div', {className: 'files-head'}, label, filter));
+            }
+            if (sorting) {
+                th.classList.add('files-sortable');
+                th.addEventListener('click', () => {
+                    tab.order = {field: col.sort, direction: active && tab.order.direction === 'ASC' ? 'DESC' : 'ASC'};
+                    tab.page = 1;
+                    renderHead();
+                    loadTab(true);
+                });
+            }
+            return th;
+        }), el('th'));
+        const filters = el('tr', {className: 'files-filters'},
+                           tab.columns.map(key => el('th', null, filterInput(key))), el('th'));
+        head.replaceChildren(labels, filters);
+    }
+
+    function actionCell(r) {
+        const td = el('td', {className: 'text-end text-nowrap'});
+        FILE_ACTIONS.forEach(name => {
+            const a = ACTIONS[name];
+            if (a.applies && !a.applies(r)) return;
+            const blocked = a.blocked && a.blocked();
+            const b = el('button', {type: 'button', className: 'icon-btn ms-1', title: blocked || a.title,
+                                    disabled: Boolean(blocked)},
+                         el('i', {className: `bi ${a.icon}`}));
+            if (blocked) b.dataset.blocked = '1';
+            b.addEventListener('click', () => a.run(r));
+            td.append(b);
+        });
+        return td;
+    }
+
+    function renderBody() {
+        const tab = TABS[current];
+        const body = document.querySelector('.files-table tbody');
+        const rows = visibleRows();
+        const span = tab.columns.length + 1;
+        const out = [];
+        if (tab.rows === null) {
+            out.push(el('tr', null, el('td', {colSpan: span, className: 'text-secondary fst-italic', textContent: 'Loading…'})));
+        } else if (!rows.length) {
+            out.push(el('tr', null, el('td', {colSpan: span, className: 'text-secondary fst-italic', textContent: 'Nothing to report.'})));
+        }
+        let group = null;
+        rows.forEach(r => {
+            if (tab.kind === 'groups' && r._group !== group) {
+                group = r._group;
+                out.push(el('tr', {className: 'files-group'},
+                            el('td', {colSpan: span}, el('div', {className: 'files-app'}, titleLine(r._app), appLine(r._app)))));
+            }
+            const tr = el('tr', null,
+                tab.columns.map(key => {
+                    const col = COLUMNS[key];
+                    return el('td', {className: col.className || ''}, col.render(r));
+                }),
+                actionCell(r));
+            tr.dataset.id = r.id;
+            out.push(tr);
+        });
+        body.replaceChildren(...out);
+        paintBusy();
+        renderPager(rows);
+    }
+
+    function renderPager(rows) {
+        const tab = TABS[current];
+        let text = '';
+        if (tab.rows !== null && tab.kind === 'files' && tab.total) {
+            const first = (tab.page - 1) * PAGE_SIZE + 1;
+            text = `${first.toLocaleString()}–${(first + rows.length - 1).toLocaleString()} of ${tab.total.toLocaleString()}`;
+        } else if (tab.rows !== null && tab.kind === 'pending') {
+            text = `${rows.length.toLocaleString()} shown of ${tab.total.toLocaleString()} with work due`;
+        } else if (tab.rows !== null && tab.kind === 'groups') {
+            const n = new Set(rows.filter(r => r._role === 'remove').map(r => r.id)).size;
+            text = `${n.toLocaleString()} file(s) to delete`;
+            $(`.files-status[data-tab="${current}"] .files-run`).prop('disabled', !n)
+                .find('span').text(n ? `Delete ${n.toLocaleString()} file(s)` : 'Delete');
+        }
+        $('#filesCount').text(text);
+        const paged = tab.kind === 'files' && tab.rows !== null;
+        $('#filesPrev').toggleClass('d-none', !paged).prop('disabled', tab.page <= 1);
+        $('#filesNext').toggleClass('d-none', !paged).prop('disabled', tab.page * PAGE_SIZE >= (tab.total || 0));
+    }
+
+    function render() {
+        document.querySelectorAll('#filesTabs .nav-link').forEach(a =>
+            a.classList.toggle('active', a.getAttribute('href') === '#' + current));
+        document.querySelectorAll('.files-status').forEach(s =>
+            s.classList.toggle('d-none', s.dataset.tab !== current));
+        renderHead();
+        renderBody();
+    }
+
+    function showTab() {
+        const name = location.hash.slice(1);
+        current = TABS[name] ? name : 'all';
+        notice('');
+        render();
+        loadTab(false);
+    }
+
+    $('#filesPrev').on('click', () => { TABS[current].page--; loadTab(true); });
+    $('#filesNext').on('click', () => { TABS[current].page++; loadTab(true); });
+    $('.files-run').on('click', e => runRemoval(e.currentTarget.dataset.mutation));
+    window.addEventListener('hashchange', showTab);
+
+    loadOptions().catch(e => notice(e.message)).finally(showTab);
+
+</script>
+{% endblock %}

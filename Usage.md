@@ -30,7 +30,7 @@ These features need valid keys and are unavailable without them:
 
 # The Web UI
 
-There are three main pages: the library view, the setup guide, and under `Admin` the settings, the services, the task list and the stats.
+There are three main pages: the library view, the setup guide, and under `Admin` the settings, the services, the library files, the task list and the stats.
 
 ## Library view
 
@@ -45,6 +45,21 @@ This is the page to use when configuring a client on your Nintendo Switch, with 
 It leads with [Sphaira](#sphaira). Opened from your local network, it also tells you whether [discovery](#discovery) is enabled and, if so, how to let Sphaira find your server by itself. The server's local and remote addresses are given to add it manually otherwise.
 
 The [legacy clients](#legacy-clients) are in a collapsed section below. Its `Local Access` tab uses your server's LAN IP, and its `Remote Access` tab the `Shop URL` configured in the [Shop](#shop) settings.
+
+## Files page
+
+Admin only, for reviewing the files in your libraries. Each tab lists files in one state, with a filter under each column heading, and says whether the related setting is enabled, with a link to it:
+
+- `All files`: every file in every library.
+- `Unidentified`: files Ownfoil could not match to any content. Identification is not attempted again on its own, so once you have added [console keys](#console-keys) or renamed a file, retry it from its row.
+- `Verification`: the [verification](#file-verification) status of every file that can be verified.
+- `Duplicates`: for each content with several copies, the copy [deduplication](#management) keeps and those it deletes.
+- `Outdated updates`: update files older than the newest one you own for the same title.
+- `Pending processing`: files that still need to be read, organized, verified or compressed under your current settings.
+
+The `Duplicates` and `Outdated updates` tabs work whether or not the automatic deletion is enabled, and their `Delete` button removes the files shown, narrowed by your filters. The list is checked again when the deletion runs, so a file is deleted only if it is still a duplicate or still outdated by then.
+
+Each row can identify its file again, verify it, compress or decompress it, and delete it, whether or not the matching automatic setting is enabled. Verifying needs [console keys](#console-keys). Deleting asks for confirmation, naming the contents the file is the only copy of.
 
 ## Tasks page
 

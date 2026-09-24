@@ -77,6 +77,8 @@ The rest of this document leans on the following terms.
 | `app(id:)` | one `App` by primary key | shop |
 | `files(filter:, page:)` | `FileConnection` | admin |
 | `file(id:)` | one `File` by primary key | admin |
+| `duplicates` / `outdatedUpdates` | `[CleanupGroup]`: per app, the files a cleanup pass keeps and would delete | admin |
+| `pendingFiles(limit:)` | files with pipeline stages still due, and which | admin |
 | `libraries` | the configured library roots | admin |
 | `tasks(status: TaskStatus, taskName:, includeChildren:, limit:)` | background jobs, newest first | admin |
 | `task(id:)` | one `Task` with its children | admin |
@@ -84,8 +86,10 @@ The rest of this document leans on the following terms.
 
 `app(id:)` and `file(id:)` delegate to the list resolvers with a primary-key
 filter, so every nested field hydrates exactly as it does under `apps` / `files`.
-They pass `only_pk`, which also tells the resolver its selection set is the
-item's own fields rather than a connection's `{total, items}`.
+They pass `pks`, which also tells the resolver its selection set is the
+item's own fields rather than a connection's `{total, items}`. The review queries
+(`duplicates`, `outdatedUpdates`, `pendingFiles`) pass their computed keys the same
+way, with the nested selection, so a file there hydrates as it does under `files`.
 
 ## Data sources
 
@@ -448,8 +452,13 @@ shaped. Every resolver delegates to existing code; no business logic lives there
 |---|---|
 | `enqueueTask(name, input)` | `tasks.enqueue_task` |
 | `cancelTask(id)` | `tasks.cancel_task` |
+| `dismissTask(id)` / `purgeFailedTasks` | `tasks.dismiss_task`, failed tasks only |
 | `scanLibrary(path)` | `enqueue_task('scan_library')`, all libraries when `path` is omitted |
 | `compressFile(fileId)` / `decompressFile(fileId)` | `enqueue_task`, guarded on file exists / not already in that state / extension in `COMPRESS_EXT` |
+| `verifyFile(fileId)` | `reset_file_verification` + `enqueue_task('verify_file')` |
+| `retryIdentification(fileId)` | `reset_file_identification` + `enqueue_task('process_file')` |
+| `deleteFile(file)` | `enqueue_task('delete_file')`, refused if the file's path changed since shown |
+| `removeDuplicates(files)` / `removeOutdatedUpdates(files)` | `enqueue_task`; the task deletes only files both shown and still selected when it runs |
 | `setTitleOverride(titleId, record)` | `titledb.store.set_override` + `identify_library` |
 | `deleteTitleOverride(titleId)` | `titledb.store.delete_override` |
 
@@ -494,9 +503,9 @@ that a search for the old path finds where the capability went:
 | `POST /api/titledb/custom` | `setTitleOverride` |
 | `DELETE /api/titledb/custom/<id>` | `deleteTitleOverride` |
 | `GET /api/titledb/custom` | **nothing** — listing overrides has no GraphQL equivalent |
-| `DELETE /api/tasks/failed` | **nothing** — purging failed tasks has no GraphQL equivalent |
+| `DELETE /api/tasks/failed` | `purgeFailedTasks` |
 
-The last two were dropped rather than ported: neither had a caller. Recoverable from
+Listing overrides was dropped rather than ported: it had no caller. Recoverable from
 git if a use turns up.
 
 `GET /api/get_game/<id>` stays REST — it streams a file to shop clients
