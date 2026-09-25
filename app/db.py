@@ -2,7 +2,6 @@ from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import create_engine
 from sqlalchemy import event
 from sqlalchemy.engine import Engine
-from sqlalchemy.orm import joinedload
 from sqlalchemy.orm.exc import NoResultFound
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.dialects.sqlite import insert
@@ -117,9 +116,6 @@ def is_migration_needed():
     else:
         logger.info(f"Database version is up to date ({current_revision})")
         return False
-
-def to_dict(db_results):
-    return {c.name: getattr(db_results, c.name) for c in db_results.__table__.columns}
 
 class Libraries(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -614,10 +610,6 @@ def add_title_id_in_db(title_id):
             # Another worker inserted the same title concurrently
             db.session.rollback()
 
-def get_all_title_apps(title_id):
-    title = Titles.query.options(joinedload(Titles.apps)).filter_by(title_id=title_id).first()
-    return[to_dict(a)  for a in title.apps]
-
 def get_app_by_id_and_version(app_id, app_version):
     """Get app entry for a specific app_id and version (unique due to constraint)"""
     return Apps.query.filter_by(app_id=app_id, app_version=app_version).first()
@@ -675,6 +667,15 @@ def file_rank(file, prefer_multicontent=False):
         not file.organized,
         file.added_at is None, file.added_at or '',
         int(file.id))
+
+# What each position of file_rank compares, in order.
+RANK_KEYS = ('broken', 'bundle', 'identification', 'verification', 'compressed', 'organized',
+             'added', 'added', 'order')
+
+def rank_reason(best, other, prefer_multicontent=False):
+    """The file_rank key on which `best` beat `other`."""
+    pairs = zip(file_rank(best, prefer_multicontent), file_rank(other, prefer_multicontent))
+    return next(key for key, (a, b) in zip(RANK_KEYS, pairs) if a != b)
 
 def best_file(files, prefer_multicontent=False):
     """The copy to serve or keep among files carrying the same app, None if there are none."""

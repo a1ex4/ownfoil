@@ -154,6 +154,26 @@ def test_a_nested_file_list_filters_the_same_way(library, status):
     assert sorted(names) == expected_files(status)
 
 
+# Pairs chosen so that one rule overlaps the other: the OR must not let CORRUPT's
+# catch-all or MODIFIED's exclusion leak into the union.
+STATUS_SETS = [["MODIFIED", "CORRUPT"], ["VALID", "UNVERIFIED"], ["REPACK", "SIGNATURE_FAILED"]]
+
+
+@pytest.mark.parametrize("statuses", STATUS_SETS, ids=["+".join(s) for s in STATUS_SETS])
+def test_several_statuses_select_their_union(library, statuses):
+    wanted = "[%s]" % ", ".join(statuses)
+    top = query(library, """
+        query { files(page: 1, pageSize: 50, filter: {verificationStatus: %s}) {
+            items { filename } } }""" % wanted)
+    nested = query(library, """
+        query { apps(page: 1, pageSize: 10) {
+            items { files(filter: {verificationStatus: %s}) { filename } } } }""" % wanted)
+    expected = sorted(n for s in statuses for n in expected_files(s))
+
+    assert sorted(f["filename"] for f in top["files"]["items"]) == expected
+    assert sorted(f["filename"] for a in nested["apps"]["items"] for f in a["files"]) == expected
+
+
 def test_a_failed_hash_splits_into_two_statuses(library):
     """The whole point of hash_modified: `hashValid: false` is three files, and calling
     all three CORRUPT is what this change exists to stop."""

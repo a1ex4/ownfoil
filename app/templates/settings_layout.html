@@ -17,6 +17,11 @@
                     </a>
                 </li>
                 <li class="nav-item">
+                    <a class="nav-link{% if request.path.startswith('/admin/files') %} active{% endif %}" href="/admin/files">
+                        Files
+                    </a>
+                </li>
+                <li class="nav-item">
                     <a class="nav-link{% if request.path.startswith('/admin/tasks') %} active{% endif %}" href="/admin/tasks">
                         Tasks
                     </a>
