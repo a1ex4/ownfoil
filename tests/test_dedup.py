@@ -8,7 +8,8 @@ import pytest
 
 import library
 import tasks
-from db import db, Apps, Files, IgnoredEvent, Libraries, Task, TempFile, Titles
+from db import (db, Apps, Files, IgnoredEvent, Libraries, RANK_KEYS, Task, TempFile, Titles,
+                best_file, file_rank, rank_reason)
 from library import (duplicate_files, duplicate_groups, files_with_free_base_name,
                      outdated_update_groups, remove_duplicate_files, remove_outdated_update_files)
 
@@ -171,6 +172,45 @@ def test_duplicate_groups(env, case, files, prefer_multicontent, expected):
               for app_pk, kept, removed in duplicate_groups(prefer_multicontent, lambda f: False)}
 
     assert groups == expected
+
+
+VALID = {"signature_valid": True, "hash_valid": True, "hash_modified": False}
+
+# (case, kept copy's overrides, deleted copy's overrides, prefer_multicontent, reason)
+REASON_CASES = [
+    ("a broken copy loses", {}, CORRUPT, False, "broken"),
+    ("a bundle loses when not preferred", {}, {"multicontent": True}, False, "bundle"),
+    ("a bundle wins when preferred", {"multicontent": True}, {}, True, "bundle"),
+    ("a copy identified from its filename loses", {}, {"identification_type": "filename"}, False,
+     "identification"),
+    ("the better verification status wins", VALID, {}, False, "verification"),
+    ("the compressed copy wins", {"compressed": True}, {}, False, "compressed"),
+    ("the organized copy wins", {"organized": True}, {}, False, "organized"),
+    ("the copy added first wins", {}, {"added_at": "2026-02-01"}, False, "added"),
+    ("a copy with no added date loses", {}, {"added_at": None}, False, "added"),
+    ("identical copies go by id", {}, {}, False, "order"),
+    ("the first criterion that differs decides", {"compressed": True}, CORRUPT, False, "broken"),
+]
+
+
+def rank_row(id, overrides):
+    return types.SimpleNamespace(**{
+        "id": id, "signature_valid": None, "hash_valid": None, "hash_modified": None,
+        "multicontent": False, "identification_type": "cnmt", "compressed": False,
+        "organized": False, "added_at": "2026-01-01", **overrides})
+
+
+@pytest.mark.parametrize("case,kept,deleted,prefer_multicontent,expected",
+                         REASON_CASES, ids=[c[0] for c in REASON_CASES])
+def test_rank_reason(case, kept, deleted, prefer_multicontent, expected):
+    best, other = rank_row(1, kept), rank_row(2, deleted)
+
+    assert best_file([other, best], prefer_multicontent) is best
+    assert rank_reason(best, other, prefer_multicontent) == expected
+
+
+def test_rank_keys_name_every_position_of_the_rank():
+    assert len(RANK_KEYS) == len(file_rank(rank_row(1, {})))
 
 
 @pytest.fixture
