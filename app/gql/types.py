@@ -265,6 +265,15 @@ class LibraryStats:
         "closed, and `CORRUPT: 0` says something a missing bucket does not. Note "
         "`SIGNATURE_OK` and `SIGNATURE_FAILED` can only be non-zero while verification "
         "runs at `signature` depth. Admin only; null for any other role.", default=None)
+    duplicates: Optional["CleanupSummary"] = desc(
+        "What the `duplicates` query lists, counted. As costly as that query: it ranks "
+        "every copy. Admin only; null for any other role.", default=None)
+    outdated_updates: Optional["CleanupSummary"] = desc(
+        "What the `outdatedUpdates` query lists, counted. Admin only; null for any other "
+        "role.", default=None)
+    pending_files: int = desc(
+        "Files with pipeline work still due, as `pendingFiles.total`. Checks every file "
+        "against the current settings. Admin only.", default=0)
 
 
 @described(strawberry.type)
@@ -698,6 +707,42 @@ class FileConnection:
     items: List[File] = desc("The files on the requested page.")
 
 
+@described(strawberry.enum)
+class CleanupReason(Enum):
+    """Why a cleanup pass deletes a file rather than the one it keeps. For a duplicate,
+    the first criterion of the copy ranking on which the kept copy won, in ranking
+    order."""
+    BROKEN = strawberry.enum_value(
+        "broken", description="This copy failed verification and the kept one did not.")
+    BUNDLE = strawberry.enum_value(
+        "bundle", description="The kept copy matches the multi-content preference and "
+                              "this one does not.")
+    IDENTIFICATION = strawberry.enum_value(
+        "identification", description="The kept copy was identified from its CNMT, this "
+                                      "one from its filename.")
+    VERIFICATION = strawberry.enum_value(
+        "verification", description="The kept copy has the better verification status.")
+    COMPRESSED = strawberry.enum_value(
+        "compressed", description="The kept copy is compressed and this one is not.")
+    ORGANIZED = strawberry.enum_value(
+        "organized", description="The kept copy is organized and this one is not.")
+    ADDED = strawberry.enum_value(
+        "added", description="The kept copy was added to the library first.")
+    ORDER = strawberry.enum_value(
+        "order", description="The copies tie on every criterion; the kept copy was "
+                             "tracked first.")
+    OLDER_VERSION = strawberry.enum_value(
+        "older_version", description="An outdated update: the kept files carry a newer "
+                                     "version of it.")
+
+
+@described(strawberry.type)
+class CleanupRemoval:
+    """A file a cleanup pass would delete, and why."""
+    file: File = desc("The file to delete.")
+    reason: CleanupReason = desc("Why it goes rather than the file kept.")
+
+
 @described(strawberry.type)
 class CleanupGroup:
     """What a cleanup pass would do to one app's copies: the files it keeps and the files
@@ -707,9 +752,17 @@ class CleanupGroup:
                     "for `duplicates`, the newest owned update for `outdatedUpdates`.")
     keep: List[File] = desc("Files the pass keeps: the best copy of the app for "
                             "`duplicates`, the newest update's files for `outdatedUpdates`.")
-    remove: List[File] = desc(
+    remove: List[CleanupRemoval] = desc(
         "Files the pass would delete. A bundle deleted as a duplicate appears in the "
-        "group of each app it carries.")
+        "group of each app it carries, with the reason that group's comparison gives.")
+
+
+@described(strawberry.type)
+class CleanupSummary:
+    """The size of a cleanup pass, without its groups."""
+    files: int = desc("Distinct files the pass would delete; a bundle in several groups "
+                      "counts once.")
+    size: BigInt = desc("Bytes those files take, which the pass would free.", default=0)
 
 
 @described(strawberry.type)

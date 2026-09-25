@@ -601,6 +601,10 @@ class OrderField(Enum):
         "`mtime`, the closest thing a file has."))
     DOWNLOAD_COUNT = strawberry.enum_value("download_count", description=(
         "How often shop clients fetched the file. `files` only."))
+    TITLE = strawberry.enum_value("title", description=(
+        "The name of the title a file carries - the first alphabetically, for a bundle "
+        "of several. Case-insensitive, with unidentified and unnamed files last. "
+        "`files` only."))
     ADDED_AT = strawberry.enum_value("added_at", description=(
         "When ownfoil first saw the file - the 'recently added' view, paired with "
         "`direction: DESC`. On `apps` it is the newest file carrying the app, since "
@@ -651,12 +655,16 @@ APP_ORDER = {
 # `added_at` stays bare: a second min/max aggregate would break the bare-column row pick.
 APP_ORDER_GROUPED = {**APP_ORDER, "version": "MAX(CAST(a.app_version AS INTEGER))"}
 
+# The first title name among a file's apps. No commas: order_sql splits on them.
+_FILE_TITLE = f"(SELECT MIN(td.name COLLATE NOCASE) {FILE_CONTENTS_FROM} WHERE af.file_id = f.id)"
+
 FILE_ORDER = {
     "name": "f.filename COLLATE NOCASE",
     "size": "f.size IS NULL, f.size",
     "download_count": "f.download_count",
     "added_at": "f.added_at IS NULL, f.added_at",
     "release_date": "f.mtime IS NULL, f.mtime",
+    "title": f"{_FILE_TITLE} IS NULL, {_FILE_TITLE}",
 }
 
 
