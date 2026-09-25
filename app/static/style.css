@@ -389,37 +389,304 @@ p.game-description {
     overflow-wrap: anywhere;
 }
 
-/* Admin Files page. */
-.files-tabs .nav-link {
-    color: var(--bs-secondary-color);
+/* Admin Files page. Its own soft palette, one tone per state: `--files-<tone>` for text and
+   icons, `-bg` for the tint behind them. Named after Bootstrap's tones so a tone reads the
+   same in the template and the script. */
+.files-page {
+    --files-success: #1a7f4b;
+    --files-success-bg: #e1f3e8;
+    --files-info: #0b6f91;
+    --files-info-bg: #dff1f7;
+    --files-warning: #9a6512;
+    --files-warning-bg: #fcf0d6;
+    --files-danger: #b83434;
+    --files-danger-bg: #fae4e4;
+    --files-primary: #0d6efd;
+    --files-primary-bg: #e6effe;
+    --files-secondary: #68707a;
+    --files-secondary-bg: #eceef1;
+    --files-off: #c3c8ce;
+    --files-surface: #f1f3f5;
+    --files-surface-hover: #e7eaee;
 }
 
-.files-tabs .nav-link.active,
-.files-tabs .nav-link:hover {
+[data-bs-theme=dark] .files-page {
+    --files-success: #75b798;
+    --files-success-bg: #16301f;
+    --files-info: #6edff6;
+    --files-info-bg: #0f2c34;
+    --files-warning: #f2c95c;
+    --files-warning-bg: #362b0e;
+    --files-danger: #ea868f;
+    --files-danger-bg: #3a1a1d;
+    --files-primary: #6ea8fe;
+    --files-primary-bg: #1b2b45;
+    --files-secondary: #9aa3ad;
+    --files-secondary-bg: #2f343a;
+    --files-off: #525a63;
+    --files-surface: #2b3035;
+    --files-surface-hover: #2f343a;
+}
+
+.files-fg-success { color: var(--files-success); }
+.files-fg-info { color: var(--files-info); }
+.files-fg-warning { color: var(--files-warning); }
+.files-fg-danger { color: var(--files-danger); }
+.files-fg-primary { color: var(--files-primary); }
+
+/* A soft tint with its tone's text, no border: states read by colour, not by chrome. */
+.files-pill {
+    --tone: var(--files-secondary);
+    --tone-bg: var(--files-secondary-bg);
+    display: inline-block;
+    padding: .12em .6em;
+    border-radius: 999px;
+    background: var(--tone-bg);
+    color: var(--tone);
+    font-size: .72rem;
+    font-weight: 500;
+    line-height: 1.5;
+    white-space: nowrap;
+    vertical-align: middle;
+}
+
+.files-pill[data-tone=success] { --tone: var(--files-success); --tone-bg: var(--files-success-bg); }
+.files-pill[data-tone=info] { --tone: var(--files-info); --tone-bg: var(--files-info-bg); }
+.files-pill[data-tone=warning] { --tone: var(--files-warning); --tone-bg: var(--files-warning-bg); }
+.files-pill[data-tone=danger] { --tone: var(--files-danger); --tone-bg: var(--files-danger-bg); }
+.files-pill[data-tone=primary] { --tone: var(--files-primary); --tone-bg: var(--files-primary-bg); }
+
+.files-page .form-check-input:checked {
+    background-color: var(--files-primary);
+    border-color: var(--files-primary);
+}
+
+.files-btn-danger {
+    border: 0;
+    background: var(--files-danger);
+    color: var(--bs-body-bg);
+    font-weight: 500;
+}
+
+.files-btn-danger:hover:not(:disabled) {
+    background: var(--files-danger);
+    color: var(--bs-body-bg);
+    filter: brightness(1.08);
+}
+
+.files-btn-danger:disabled {
+    background: var(--files-danger);
+    color: var(--bs-body-bg);
+    opacity: .4;
+}
+
+/* The tiles are the page's tabs: each is a preset view with its count. */
+.files-tiles {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(10.5rem, 1fr));
+    gap: .75rem;
+    margin-bottom: 1.25rem;
+}
+
+/* Label at the top, subtitle at the bottom, the count between them. */
+.files-tile {
+    position: relative;
+    display: grid;
+    grid-template-rows: auto 1fr auto;
+    align-items: center;
+    min-height: 8.5rem;
+    padding: .9rem 1rem;
+    border-radius: .75rem;
+    background: var(--files-surface);
     color: var(--bs-body-color);
+    text-decoration: none;
+}
+
+.files-tile:hover {
+    background: var(--files-surface-hover);
+}
+
+.files-tile.active {
+    background: var(--files-primary-bg);
+}
+
+.files-tile.active {
+    box-shadow: inset 0 0 0 1.5px var(--files-primary);
+}
+
+/* Nothing to report: a check mark takes the tile's free side. */
+.files-tile-ok {
+    display: none;
+    position: absolute;
+    top: 50%;
+    right: 1rem;
+    transform: translateY(-50%);
+    font-size: 4rem;
+    line-height: 1;
+    color: var(--files-success);
+}
+
+.files-tile.ok .files-tile-ok {
+    display: block;
+}
+
+.files-tile-label,
+.files-tile-sub {
+    font-size: .8rem;
+    color: var(--bs-secondary-color);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.files-tile-count {
+    font-size: 2rem;
+    font-weight: 600;
+    line-height: 1.1;
+    font-variant-numeric: tabular-nums;
+}
+
+.files-tile-dot {
+    position: absolute;
+    top: .8rem;
+    right: .8rem;
+    width: .5rem;
+    height: .5rem;
+    border-radius: 50%;
+}
+
+/* What the view lists, beside the settings it depends on. */
+.files-status {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: .5rem 1.5rem;
+    margin-bottom: 1rem;
 }
 
 .files-status p {
-    margin-bottom: .5rem;
+    flex: 1 1 24rem;
+    margin: 0;
+    font-size: .875rem;
+    color: var(--bs-secondary-color);
 }
 
-.files-pill {
-    display: inline-block;
-    padding: .15em .65em;
+.files-settings {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .5rem;
+}
+
+/* A setting as a chip: its state as a dot and a value, the gear saying it opens the setting. */
+.files-setting {
+    display: inline-flex;
+    align-items: center;
+    gap: .45rem;
+    padding: .3rem .75rem;
     border-radius: 999px;
-    font-size: .75rem;
-    font-weight: 500;
+    background: var(--files-surface);
+    color: var(--bs-body-color);
+    font-size: .8rem;
+    text-decoration: none;
     white-space: nowrap;
+}
+
+.files-setting:hover {
+    background: var(--files-surface-hover);
+    color: var(--bs-body-color);
+}
+
+.files-setting b {
+    font-weight: 500;
+    color: var(--files-secondary);
+}
+
+.files-setting .bi {
+    font-size: .75rem;
+    color: var(--files-secondary);
+}
+
+.files-setting-dot {
+    width: .45rem;
+    height: .45rem;
+    border-radius: 50%;
+    background: var(--files-off);
+}
+
+.files-setting-dot[data-tone=success] { background: var(--files-success); }
+.files-setting-dot[data-tone=warning] { background: var(--files-warning); }
+
+.files-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: .5rem;
+    margin-bottom: .75rem;
+}
+
+.files-search {
+    position: relative;
+    flex: 1 1 16rem;
+    max-width: 24rem;
+}
+
+.files-search > .bi {
+    position: absolute;
+    left: .6rem;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--bs-secondary-color);
+    pointer-events: none;
+}
+
+.files-search input {
+    padding-left: 1.9rem;
+}
+
+.files-chips {
+    display: contents;
+}
+
+.files-filter-chip {
+    display: inline-flex;
+    align-items: center;
+    border-radius: 999px;
+    background: var(--files-surface);
+    font-size: .8rem;
+}
+
+.files-filter-chip > button {
+    border: 0;
+    background: none;
+    color: inherit;
+}
+
+.files-filter-chip > button:first-child {
+    padding: .2rem .15rem .2rem .7rem;
+}
+
+.files-filter-chip > button:last-child {
+    padding: .2rem .5rem .2rem .15rem;
+    color: var(--bs-secondary-color);
+}
+
+.files-filter-chip .dropdown-item,
+.files-toolbar .dropdown-menu {
+    font-size: .8rem;
+    cursor: pointer;
 }
 
 .files-chip {
     display: inline-block;
-    padding: .05em .45em;
-    border-radius: .3rem;
-    background: var(--bs-tertiary-bg);
-    color: var(--bs-secondary-color);
+    padding: 0 .4em;
+    border-radius: .25rem;
+    background: var(--files-surface);
+    color: var(--files-secondary);
     font-family: var(--bs-font-monospace);
-    font-size: .72rem;
+    font-size: .66rem;
+    font-weight: 600;
+    line-height: 1.6;
+    letter-spacing: .02em;
     text-transform: uppercase;
 }
 
@@ -428,7 +695,7 @@ p.game-description {
    what it cannot wrap. */
 .files-table {
     --bs-table-bg: var(--bs-body-bg);
-    --bs-table-hover-bg: var(--bs-tertiary-bg);
+    --bs-table-hover-bg: var(--files-surface);
     --bs-table-hover-color: var(--bs-body-color);
     --bs-border-color: var(--bs-border-color-translucent);
     font-size: .875rem;
@@ -453,95 +720,15 @@ p.game-description {
     white-space: nowrap;
 }
 
-.files-table .files-filters th {
-    padding-top: 0;
-    border-bottom: var(--bs-border-width) solid var(--bs-border-color);
-    text-transform: none;
-    letter-spacing: normal;
-}
-
-.files-filters .form-control,
-.files-filters .form-select {
-    width: 100%;
-    border-color: transparent;
-    background-color: var(--bs-tertiary-bg);
-    font-size: .8rem;
-    padding-left: .45rem;
-}
-
-/* A narrow caret gutter, so a 4rem column still shows what is ticked. */
-.files-filters .form-select {
-    padding-right: 1.3rem;
-    background-position: right .35rem center;
-    background-size: 10px 8px;
-}
-
-.files-filters .form-control:focus,
-.files-filters .form-select:focus {
-    border-color: var(--bs-primary-border-subtle);
-    box-shadow: none;
-}
-
-/* A header carrying a filter beside its label, e.g. File with the extension filter. */
-.files-head {
-    display: flex;
-    align-items: center;
-    gap: .5rem;
-}
-
-.files-head > span {
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
-.files-head-filter {
-    flex: 0 0 5rem;
-    margin-left: auto;
-    font-weight: normal;
-    letter-spacing: normal;
-    text-transform: none;
-}
-
-.files-head-filter .form-select {
-    width: 100%;
-    border-color: transparent;
-    background-color: var(--bs-tertiary-bg);
-    font-size: .8rem;
-    padding: .15rem 1.3rem .15rem .45rem;
-    background-position: right .35rem center;
-    background-size: 10px 8px;
-}
-
-.files-bool {
-    padding-left: 0;
-    padding-right: 0;
-    text-align: center;
-}
-
-.files-multi-toggle {
-    overflow: hidden;
-    text-align: left;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.files-multi-menu,
-.files-suggest {
-    font-size: .8rem;
-}
-
 .files-suggest {
     position: fixed;
     max-width: 28rem;
+    font-size: .8rem;
 }
 
 .files-suggest .dropdown-item {
     overflow: hidden;
     text-overflow: ellipsis;
-}
-
-.files-multi-menu .dropdown-item {
-    cursor: pointer;
 }
 
 .files-sortable {
@@ -553,67 +740,302 @@ p.game-description {
     color: var(--bs-body-color) !important;
 }
 
-.files-name,
-.files-title {
-    overflow-wrap: anywhere;
-}
-
-.files-name {
-    font-weight: 500;
-}
-
-.files-title + .files-title {
-    margin-top: .2rem;
-}
-
 .files-num {
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
 }
 
-.files-app {
+.files-table tbody tr {
+    cursor: pointer;
+}
+
+@media (max-width: 575.98px) {
+    .files-table .files-wide {
+        display: none;
+    }
+
+    .files-table col.files-wide {
+        width: 0 !important;
+    }
+}
+
+.files-table tbody tr.files-selected > td {
+    --bs-table-bg-state: var(--files-primary-bg);
+}
+
+.files-busy {
+    opacity: .5;
+}
+
+/* A row leads with the title's art, then three lines fading in weight: the title, what the
+   file carries, and the file name - or what the view is about. */
+.files-row {
     display: flex;
     align-items: center;
-    gap: .4rem;
+    gap: .9rem;
+    min-width: 0;
+}
+
+.files-row-lines {
+    display: grid;
+    gap: .05rem;
+    min-width: 0;
+}
+
+.files-row-lines > div {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
     white-space: nowrap;
 }
 
-.files-app + .files-app {
-    margin-top: .2rem;
+.files-row-title {
+    font-weight: 500;
 }
 
-/* The row actions come forward on hover. */
-.files-table tbody tr .icon-btn {
-    opacity: .5;
-    transition: opacity .15s;
-}
-
-.files-table tbody tr:hover .icon-btn {
-    opacity: 1;
-}
-
-.files-group td {
-    padding-top: 1.5rem !important;
-    border-bottom-color: var(--bs-border-color) !important;
-    font-weight: 600;
-}
-
-.files-group:hover > td {
-    --bs-table-bg-state: transparent !important;
-}
-
-.files-error {
+.files-row-content {
     font-size: .8rem;
+    color: var(--files-secondary);
+}
+
+.files-row-sub {
+    font-size: .75rem;
+    color: var(--bs-tertiary-color);
+}
+
+.files-avatar {
+    flex: none;
+    width: 4rem;
+    height: 4rem;
+    border-radius: .65rem;
+    object-fit: cover;
+    background: var(--files-surface);
+    font-size: 1.5rem;
+}
+
+.files-avatar.sm {
+    width: 1.6rem;
+    height: 1.6rem;
+    border-radius: .35rem;
+    font-size: .8rem;
+}
+
+.files-avatar.lg {
+    width: 6rem;
+    height: 6rem;
+    border-radius: 1rem;
+    font-size: 2.25rem;
+}
+
+/* The title needs the width more than the art does on a phone. */
+@media (max-width: 575.98px) {
+    .files-avatar:not(.sm):not(.lg) {
+        width: 3rem;
+        height: 3rem;
+        font-size: 1.1rem;
+    }
+}
+
+.files-avatar-none {
+    display: grid;
+    place-items: center;
+    color: var(--files-secondary);
+}
+
+/* Identified, verification, compressed, organized: always in that order, so a column
+   of them scans for the one that stands out. */
+.files-state {
+    display: inline-flex;
+    gap: .6rem;
+}
+
+.files-off {
+    color: var(--files-off);
+}
+
+.files-body {
+    display: flex;
+    align-items: flex-start;
+    gap: 1.5rem;
+}
+
+.files-main {
+    flex: 1;
+    min-width: 0;
+}
+
+.files-drawer {
+    flex: none;
+    position: sticky;
+    top: 1rem;
+    width: 24rem;
+    max-height: calc(100vh - 2rem);
+    overflow-y: auto;
+    padding-left: 1.25rem;
+    border-left: 1px solid var(--bs-border-color-translucent);
+    display: grid;
+    gap: 1.25rem;
+    font-size: .85rem;
+}
+
+@media (max-width: 991.98px) {
+    .files-drawer {
+        position: fixed;
+        z-index: 1045;
+        top: 0;
+        right: 0;
+        bottom: 0;
+        width: min(24rem, 100vw);
+        max-height: none;
+        padding: 1rem;
+        background: var(--bs-body-bg);
+        box-shadow: var(--bs-box-shadow-lg);
+    }
+}
+
+.files-drawer h6 {
+    font-size: .7rem;
+    font-weight: 600;
+    letter-spacing: .05em;
+    text-transform: uppercase;
+    color: var(--bs-secondary-color);
+    margin-bottom: .5rem !important;
+}
+
+.files-drawer-head {
+    display: flex;
+    align-items: center;
+    gap: .75rem;
+}
+
+.files-drawer-head > div {
+    min-width: 0;
     overflow-wrap: anywhere;
 }
 
-.files-run {
-    color: var(--bs-danger);
-    margin-bottom: 1rem;
+.files-drawer-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .4rem;
 }
 
-.files-run:hover:not(:disabled) {
-    color: var(--bs-danger-text-emphasis);
+.files-verdicts {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: .4rem;
+    margin: .5rem 0;
+}
+
+.files-verdicts > div {
+    display: grid;
+    padding: .35rem .5rem;
+    border-radius: .4rem;
+    background: var(--files-surface);
+    font-size: .75rem;
+}
+
+.files-title-link {
+    color: inherit;
+    text-decoration: none;
+}
+
+.files-title-link:hover {
+    text-decoration: underline;
+}
+
+.files-title-link:hover .files-avatar {
+    filter: brightness(1.12);
+}
+
+.files-error-lines {
+    white-space: pre-line;
+}
+
+.files-app-id {
+    font-family: var(--bs-font-monospace);
+    font-size: .8em;
+    color: var(--bs-secondary-color);
+}
+
+.files-kv {
+    display: grid;
+    grid-template-columns: 6rem 1fr;
+    gap: .3rem .75rem;
+    margin: 0;
+}
+
+.files-kv dt {
+    font-weight: normal;
+    color: var(--bs-secondary-color);
+}
+
+.files-kv dd {
+    margin: 0;
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+/* Duplicates and outdated updates: each group's copies side by side, only the
+   attributes that tell them apart. */
+.files-groups {
+    display: grid;
+    gap: 1.75rem;
+}
+
+.files-cmp-head {
+    display: flex;
+    align-items: center;
+    gap: .6rem;
+    margin-bottom: .4rem;
+}
+
+.files-cmp-free {
+    margin-left: auto;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.files-cmp {
+    width: 100%;
+    table-layout: fixed;
+    border-collapse: collapse;
+    font-size: .85rem;
+}
+
+.files-cmp th,
+.files-cmp td {
+    padding: .4rem .6rem;
+    border-top: 1px solid var(--bs-border-color-translucent);
+    vertical-align: top;
+    overflow-wrap: anywhere;
+}
+
+.files-cmp thead th {
+    border-top: 0;
+    font-weight: normal;
+}
+
+.files-cmp th[scope=row] {
+    width: 8rem;
+    font-weight: normal;
+    color: var(--bs-secondary-color);
+}
+
+.files-cmp-name {
+    cursor: pointer;
+}
+
+.files-cmp-name:hover {
+    text-decoration: underline;
+}
+
+.files-decides {
+    background: var(--files-warning-bg);
+}
+
+.files-cmp-off .files-cmp,
+.files-cmp-off .files-cmp-free {
+    opacity: .45;
 }
 
 .files-pager {
@@ -623,6 +1045,28 @@ p.game-description {
     gap: .75rem;
     color: var(--bs-secondary-color);
     font-size: .8rem;
+}
+
+/* Beside a settings toggle: what it acts on in the library now, opening the Files page on it. */
+.setting-stat {
+    display: inline-block;
+    margin-left: .5rem;
+    padding: .05rem .6rem;
+    border-radius: 999px;
+    background: var(--bs-tertiary-bg);
+    color: var(--bs-body-color);
+    font-size: .75rem;
+    text-decoration: none;
+    vertical-align: middle;
+}
+
+.setting-stat:hover {
+    background: var(--bs-secondary-bg);
+    color: var(--bs-body-color);
+}
+
+.setting-stat-none {
+    color: var(--bs-secondary-color);
 }
 
 /* The library grid's one-line summary above the cards. */

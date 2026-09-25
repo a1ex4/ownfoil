@@ -217,20 +217,22 @@
 
                 <h3 id="management" class="pt-4 pb-2">Management</h3>
                 <p>Configure automated library management.</p>
-                <div class="mb-3 form-check">
+                <div class="mb-3 form-check form-switch">
                     <input type="checkbox" class="form-check-input" id="deleteOlderUpdatesCheck">
                     <label class="form-check-label" for="deleteOlderUpdatesCheck">Delete older updates</label>
+                    <a class="setting-stat d-none" id="outdatedStat" href="/admin/files#outdated"></a>
                     <div class="form-text">Deletes older update files when a newer version is available in the library.</div>
                 </div>
-                <div class="mb-3 form-check">
+                <div class="mb-3 form-check form-switch">
                     <input type="checkbox" class="form-check-input" id="deleteDuplicatesCheck">
                     <label class="form-check-label" for="deleteDuplicatesCheck">Delete duplicate files</label>
+                    <a class="setting-stat d-none" id="duplicatesStat" href="/admin/files#duplicates"></a>
                     <div class="form-text">When several files carry the same content, keeps the best copy and deletes
                         the others, once they have all been verified and compressed. Intact files are preferred, then
                         compressed and organized ones. Requires keys: files identified from their filename are
                         never deleted.</div>
                 </div>
-                <div class="mb-3 form-check">
+                <div class="mb-3 form-check form-switch">
                     <input type="checkbox" class="form-check-input" id="preferMulticontentCheck">
                     <label class="form-check-label" for="preferMulticontentCheck">Prefer multi-content files</label>
                     <div class="form-text">Prefer files bundling several contents over single-content copies of them,
@@ -309,6 +311,7 @@
                         <div class="mb-3 form-check form-switch">
                             <input type="checkbox" class="form-check-input" id="verifyFilesCheck">
                             <label class="form-check-label" for="verifyFilesCheck">Verify files</label>
+                            <a class="setting-stat d-none" id="verificationStat" href="/admin/files#verification"></a>
                             <div class="form-text">Enable file verification: use <code>signature</code>
                                 verification to check origin, and <code>hash</code> verification to check integrity.</div>
                         </div>
@@ -660,6 +663,59 @@
         mutation Scan($path: String) {
             scanLibrary(path: $path) { id status }
         }`;
+
+    /** Bring the setting the URL names into view and focus its control - a label's input, or
+     *  the control itself. The fields fill in from several requests, each moving the layout,
+     *  so it is kept centred while they land. */
+    function focusHashTarget() {
+        const target = location.hash.length > 1 && document.getElementById(location.hash.slice(1));
+        if (!target) return;
+        const control = target.matches('input, select, textarea, button') ? target
+            : target.htmlFor ? document.getElementById(target.htmlFor) : null;
+        const block = (control || target).closest('.form-check, .mb-3') || target;
+        const centre = () => block.scrollIntoView({block: 'center'});
+        centre();
+        if (control) control.focus({preventScroll: true});
+        const settling = new ResizeObserver(centre);
+        settling.observe(document.body);
+        setTimeout(() => settling.disconnect(), 1500);
+    }
+
+    window.addEventListener('hashchange', focusHashTarget);
+
+    const VERIFICATION_ISSUES = ['SIGNATURE_FAILED', 'MODIFIED', 'CORRUPT', 'UNVERIFIED'];
+
+    /** Beside each toggle that acts on library files, what it would act on now, linking to
+     *  the Files page view listing it. The same figures as that page's tiles, fetched on
+     *  their own since ranking every copy is not free. */
+    async function loadFileStats() {
+        let stats;
+        try {
+            const query = `{ stats { duplicates { files size } outdatedUpdates { files size }
+                                     filesByVerificationStatus { status count } } }`;
+            const r = await fetch('/api/graphql?' + new URLSearchParams({query: query}),
+                                  {headers: {'Accept': 'application/json'}, credentials: 'same-origin'});
+            stats = (await r.json()).data.stats;
+        } catch (e) { return; }
+        const show = (id, count, text, none) => $(id).text(count ? text : none).toggleClass('setting-stat-none', !count)
+                                                     .removeClass('d-none');
+        const plural = (n, word) => `${n.toLocaleString()} ${word}${n === 1 ? '' : 's'}`;
+        if (stats.outdatedUpdates) {
+            const {files, size} = stats.outdatedUpdates;
+            show('#outdatedStat', files, `${plural(files, 'outdated update')} · ${formatBytes(size)}`, 'No outdated updates');
+        }
+        if (stats.duplicates) {
+            const {files, size} = stats.duplicates;
+            show('#duplicatesStat', files, `${plural(files, 'duplicate')} · ${formatBytes(size)}`, 'No duplicates');
+        }
+        if (stats.filesByVerificationStatus) {
+            const issues = stats.filesByVerificationStatus.filter(b => VERIFICATION_ISSUES.includes(b.status))
+                                                          .reduce((n, b) => n + b.count, 0);
+            show('#verificationStat', issues, plural(issues, 'verification issue'), 'No verification issues');
+        }
+    }
+
+    loadFileStats();
 
     async function scanLibrary(path = null) {
         $('.scanBtn').prop('disabled', true);
@@ -1607,6 +1663,7 @@
                     $("#cyberfoilEnabledCheck").prop("checked", cyberfoilSettings['enabled']);
                 }
             }
+            focusHashTarget();
         });
 
     });

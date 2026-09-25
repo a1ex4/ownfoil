@@ -48,18 +48,16 @@ The [legacy clients](#legacy-clients) are in a collapsed section below. Its `Loc
 
 ## Files page
 
-Admin only, for reviewing the files in your libraries. Each tab lists files in one state, with a filter under each column heading, and says whether the related setting is enabled, with a link to it:
+Admin only, to manage library files; actions run as [tasks](#tasks-page). The tiles at the top count the files in each state, so the page shows at a glance whether anything needs attention. Clicking a tile lists its files, and says whether the related setting is enabled, with a link to it:
 
-- `All files`: every file in every library.
-- `Unidentified`: files Ownfoil could not match to any content. Identification is not attempted again on its own, so once you have added [console keys](#console-keys) or renamed a file, retry it from its row.
-- `Verification`: the [verification](#file-verification) status of every file that can be verified.
-- `Duplicates`: for each content with several copies, the copy [deduplication](#management) keeps and those it deletes.
-- `Outdated updates`: update files older than the newest one you own for the same title.
-- `Pending processing`: files that still need to be read, organized, verified or compressed under your current settings.
+- `All files`: every file in all libraries.
+- `Unidentified`: files Ownfoil could not match to any known content in the metadata database.
+- `Verification issues`: files whose signature or content hash [check](#file-verification) failed, and files not verified yet.
+- `Duplicates`: for each content with several copies, the copy kept and why it wins over the others.
+- `Outdated updates`: update files older than the newest update owned for the same title. Bundles are never deleted.
+- `Pending`: files with processing still due given the current settings.
 
-The `Duplicates` and `Outdated updates` tabs work whether or not the automatic deletion is enabled, and their `Delete` button removes the files shown, narrowed by your filters. The list is checked again when the deletion runs, so a file is deleted only if it is still a duplicate or still outdated by then.
-
-Each row can identify its file again, verify it, compress or decompress it, and delete it, whether or not the matching automatic setting is enabled. Verifying needs [console keys](#console-keys). Deleting asks for confirmation, naming the contents the file is the only copy of.
+The search box matches a title's name or id, or a file name. `Filter` adds filters on the content type, the format, the verification status, how the file was identified, whether it is compressed or organized, and its library when you have several. Each filter shows as a chip: click it to change what it matches, or its cross to remove it.
 
 ## Tasks page
 
@@ -210,6 +208,8 @@ Automated library management. Everything in this section shares the `Submit` but
 | `Delete older updates` | disabled | Deletes older update files when a newer version of the same update is in your library. |
 | `Delete duplicate files` | disabled | When several files carry the same content, keeps the best copy and deletes the others. |
 | `Prefer multi-content files` | disabled | Keep files bundling several contents over single-content copies of them. Also applies to downloads. |
+
+Beside `Delete older updates` and `Delete duplicate files`, and beside `Verify files` under [File verification](#file-verification), the settings page shows how many files each would act on now. Clicking the count opens the [Files page](#files-page) on the matching list.
 
 The best copy is an intact file over a [corrupt or modified](#file-verification) one, then a single-content file over a multi-content one unless you prefer them, then a [compressed](#file-compression) and organized file, and finally the oldest. A multi-content file is only deleted once every content it holds has a better copy elsewhere, and nothing is judged until every copy of it has been through the pipeline.
 
