@@ -77,12 +77,12 @@ The rest of this document leans on the following terms.
 | `app(id:)` | one `App` by primary key | shop |
 | `files(filter:, page:)` | `FileConnection` | admin |
 | `file(id:)` | one `File` by primary key | admin |
-| `duplicates` / `outdatedUpdates` | `[CleanupGroup]`: per app, the files a cleanup pass keeps and would delete | admin |
+| `duplicates` / `outdatedUpdates` | `[CleanupGroup]`: per app, the files a cleanup pass keeps and would delete, each with a `CleanupReason` | admin |
 | `pendingFiles(limit:)` | files with pipeline stages still due, and which | admin |
 | `libraries` | the configured library roots | admin |
 | `tasks(status: TaskStatus, taskName:, includeChildren:, limit:)` | background jobs, newest first | admin |
 | `task(id:)` | one `Task` with its children | admin |
-| `stats` | library-wide aggregates for dashboards | shop (file figures admin) |
+| `stats` | library-wide aggregates for dashboards; `duplicates`, `outdatedUpdates` and `pendingFiles` count the review queries, at their cost | shop (file figures admin) |
 
 `app(id:)` and `file(id:)` delegate to the list resolvers with a primary-key
 filter, so every nested field hydrates exactly as it does under `apps` / `files`.
@@ -90,6 +90,8 @@ They pass `pks`, which also tells the resolver its selection set is the
 item's own fields rather than a connection's `{total, items}`. The review queries
 (`duplicates`, `outdatedUpdates`, `pendingFiles`) pass their computed keys the same
 way, with the nested selection, so a file there hydrates as it does under `files`.
+A removal's `reason` is `db.rank_reason`: the first `file_rank` key on which the kept
+copy won, named by `RANK_KEYS`, so it can't disagree with the ranking itself.
 
 ## Data sources
 
@@ -393,6 +395,8 @@ client reads and the value the SQL filters cannot disagree.
   `APP_ORDER_GROUPED` swaps the expression for `MAX(CAST(...))` under
   `groupByAppId: true`, because there the item is the group's highest version
   and that is what the caller means to sort by.
+- **`TITLE` on `files` is a correlated subquery**: the smallest name among the
+  titles a file's apps belong to, so a bundle sorts under its first title.
 - **Every ordering appends the query's default as a tie-break.** Sorting on a
   non-unique column without one lets equal rows swap between pages, so a client
   paging through sees one row twice and another never.

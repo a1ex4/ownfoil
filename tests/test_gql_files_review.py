@@ -16,7 +16,9 @@ from gql import graphql_dispatch
 
 ALPHA = "0100000000AAA000"
 ALPHA_UPD = "0100000000AAA800"
-TITLEDB_JSON = {ALPHA: {"id": ALPHA, "name": "Alpha Game"}}
+BETA = "0100000000BBB000"
+NAMELESS = "0100000000CCC000"  # owned, but unknown to titledb
+TITLEDB_JSON = {ALPHA: {"id": ALPHA, "name": "Alpha Game"}, BETA: {"id": BETA, "name": "beta Game"}}
 
 # (filename, app id, app type, version, overrides)
 FILES = [
@@ -104,8 +106,8 @@ def queued(library, name):
         return [json.loads(t.input_json) for t in Task.query.filter_by(task_name=name).all()]
 
 
-GROUP = """{ app { appType appVersion title { name } }
-             keep { filename library { path } } remove { filename apps { appVersion } } }"""
+GROUP = """{ app { appType appVersion title { name } } keep { filename library { path } }
+             remove { reason file { filename apps { appVersion } } } }"""
 
 
 def test_duplicates_groups_each_app_with_its_kept_and_deleted_copies(library):
@@ -114,7 +116,7 @@ def test_duplicates_groups_each_app_with_its_kept_and_deleted_copies(library):
     assert groups == [{
         "app": {"appType": "BASE", "appVersion": 0, "title": {"name": "Alpha Game"}},
         "keep": [{"filename": "a.nsz", "library": {"path": str(library.games)}}],
-        "remove": [{"filename": "a.nsp", "apps": [{"appVersion": 0}]}],
+        "remove": [{"reason": "COMPRESSED", "file": {"filename": "a.nsp", "apps": [{"appVersion": 0}]}}],
     }]
 
 
@@ -124,8 +126,76 @@ def test_outdated_updates_keep_the_newest_update(library):
     assert groups == [{
         "app": {"appType": "UPDATE", "appVersion": 131072, "title": {"name": "Alpha Game"}},
         "keep": [{"filename": "u2.nsp", "library": {"path": str(library.games)}}],
-        "remove": [{"filename": "u1.nsp", "apps": [{"appVersion": 65536}]}],
+        "remove": [{"reason": "OLDER_VERSION", "file": {"filename": "u1.nsp", "apps": [{"appVersion": 65536}]}}],
     }]
+
+
+def add_file(library, name, apps=(), size=1, **overrides):
+    """A file on disk carrying the fixture's apps keyed (app id, version)."""
+    (library.games / name).write_bytes(b"x")
+    with library.app.app_context():
+        f = Files(library_id=Libraries.query.one().id, filename=name, extension=name[-3:],
+                  filepath=str(library.games / name), size=size,
+                  **{"identified": True, "identification_type": "cnmt", **overrides})
+        db.session.add(f)
+        carried = [Apps.query.filter_by(app_id=app_id, app_version=version).one()
+                   for app_id, version in apps]
+        for app in carried:
+            app.files.append(f)
+        db.session.commit()
+
+
+SUMMARY = "{ files size }"
+
+
+def test_cleanup_summaries_count_what_the_previews_list(library):
+    # Deleted in the group of both apps it carries, counted once.
+    add_file(library, "bundle.nsp", [(ALPHA, "0"), (ALPHA_UPD, "131072")], size=10, multicontent=True)
+
+    data = query(library, "{ stats { duplicates %s outdatedUpdates %s } duplicates %s outdatedUpdates %s }"
+                 % (SUMMARY, SUMMARY, GROUP, GROUP))
+
+    for field in ("duplicates", "outdatedUpdates"):
+        listed = {r["file"]["filename"]: r for g in data[field] for r in g["remove"]}
+        sizes = {"a.nsp": 1, "u1.nsp": 1, "bundle.nsp": 10}
+        assert data["stats"][field] == {"files": len(listed), "size": sum(sizes[n] for n in listed)}
+    assert data["stats"]["duplicates"] == {"files": 2, "size": 11}
+
+
+def test_pending_files_stat_is_the_pending_total(library, monkeypatch):
+    monkeypatch.setattr(tasks_mod, "STAGES", [
+        tasks_mod.Stage("compress", lambda f, mgmt: f.filename in ("u1.nsp", "u2.nsp"), None, None)])
+
+    data = query(library, "{ stats { pendingFiles } pendingFiles { total } }")
+
+    assert data["stats"]["pendingFiles"] == data["pendingFiles"]["total"] == 2
+
+
+# (direction, files in order): named titles alphabetically, then files with no title name
+# (unidentified, or a title titledb does not know) by id, whichever the direction.
+TITLE_ORDER_CASES = [
+    ("ASC", ["a.nsp", "a.nsz", "u1.nsp", "u2.nsp", "beta.nsp", "unknown.nsp", "nameless.nsp"]),
+    ("DESC", ["beta.nsp", "a.nsp", "a.nsz", "u1.nsp", "u2.nsp", "unknown.nsp", "nameless.nsp"]),
+]
+
+
+@pytest.mark.parametrize("direction,expected", TITLE_ORDER_CASES)
+def test_files_order_by_title(library, direction, expected):
+    with library.app.app_context():
+        for title_id, name in ((BETA, "beta.nsp"), (NAMELESS, "nameless.nsp")):
+            title = Titles(title_id=title_id, have_base=True)
+            db.session.add(title)
+            db.session.flush()
+            db.session.add(Apps(title_id=title.id, app_id=title_id, app_version="0",
+                                app_type=APP_TYPE_BASE, owned=True))
+        db.session.commit()
+    add_file(library, "beta.nsp", [(BETA, "0")])
+    add_file(library, "nameless.nsp", [(NAMELESS, "0")])
+
+    data = query(library, "{ files(orderBy: {field: TITLE, direction: %s}) { items { filename } } }"
+                 % direction)
+
+    assert [f["filename"] for f in data["files"]["items"]] == expected
 
 
 def test_pending_files_lists_the_stages_due(library, monkeypatch):
@@ -308,6 +378,10 @@ def test_review_is_admin_only(shop_app):
         { duplicates { app { id } } outdatedUpdates { app { id } } pendingFiles { total } }"""}).json
 
     assert body["data"] == {"duplicates": [], "outdatedUpdates": [], "pendingFiles": {"total": 0}}
+
+    body = client.get("/api/graphql", headers=basic("shopper"), query_string={"query": """
+        { stats { duplicates { files } outdatedUpdates { files } pendingFiles } }"""}).json
+    assert body["data"] == {"stats": {"duplicates": None, "outdatedUpdates": None, "pendingFiles": 0}}
 
     body = client.post("/api/graphql", headers=basic("shopper"), json={
         "query": 'mutation { deleteFile(file: {id: "1", filepath: "/x"}) { id } }'}).json

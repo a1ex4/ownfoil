@@ -7,7 +7,7 @@ from sqlalchemy import text
 
 from constants import APP_TYPE_BASE, APP_TYPE_DLC, APP_TYPE_UPD
 from containers.verification import status_of
-from db import best_file, db
+from db import best_file, db, rank_reason
 from settings import get_settings
 
 from .context import GraphQLContext
@@ -19,7 +19,8 @@ from .filters import (
 )
 from .selection import Selection
 from .types import (
-    App, AppConnection, AppTypeCount, AppVersion, CleanupGroup, File, FileConnection, Library,
+    App, AppConnection, AppTypeCount, AppVersion, CleanupGroup, CleanupReason, CleanupRemoval,
+    CleanupSummary, File, FileConnection, Library,
     LibraryStats, Ownership, PendingFile, PendingFileList, SizedCountByKey, Task, TaskStatus,
     Title, TitleConnection,
     TitledbDlc, TitledbVersion, VerificationStatusCount, Worker, decode_json_list,
@@ -1341,6 +1342,13 @@ def resolve_stats(*, ctx: GraphQLContext, info) -> LibraryStats:
             VerificationStatusCount(status=status, count=count, size=size)
             for status, (count, size) in buckets.items()]
 
+    if ctx.can_admin and sel.has("duplicates"):
+        stats.duplicates = _cleanup_summary(_duplicate_groups())
+    if ctx.can_admin and sel.has("outdatedUpdates"):
+        stats.outdated_updates = _cleanup_summary(_outdated_update_groups())
+    if ctx.can_admin and sel.has("pendingFiles"):
+        stats.pending_files = len(_pending_files())
+
     return stats
 
 
@@ -1380,40 +1388,55 @@ def _files_by_pk(pks, sel: Selection, ctx: GraphQLContext, info) -> Dict[int, Fi
 
 
 def _cleanup_groups(groups, ctx: GraphQLContext, info) -> List[CleanupGroup]:
-    """Hydrate (Apps.id, kept files, deleted files) groups as the `apps`/`files` queries would."""
+    """Hydrate (Apps.id, kept files, [(deleted file, reason)]) groups as the `apps`/`files` queries would."""
     sel = Selection.from_info(info)
-    files = _files_by_pk({f.id for _, keep, remove in groups for f in keep + remove},
-                         sel.child("keep", "remove"), ctx, info)
+    files = _files_by_pk({f.id for _, keep, remove in groups for f in keep + [f for f, _ in remove]},
+                         sel.child("keep") | sel.child("remove").child("file"), ctx, info)
     apps = {int(a.id): a for a in resolve_apps(
         owned=None, app_type=None, filter=None, page=1, page_size=1, ctx=ctx, info=info,
         pks=[app_pk for app_pk, _, _ in groups], sel=sel.child("app")).items}
     return [CleanupGroup(app=apps[app_pk], keep=[files[f.id] for f in keep],
-                         remove=[files[f.id] for f in remove])
+                         remove=[CleanupRemoval(file=files[f.id], reason=CleanupReason(reason))
+                                 for f, reason in remove])
             for app_pk, keep, remove in groups]
+
+
+def _duplicate_groups():
+    """Duplicate groups as (Apps.id, [kept file], [(deleted file, reason)]), under the current settings."""
+    import tasks
+    from library import duplicate_groups
+    mgmt = get_settings()['library']['management']
+    prefer = mgmt['deduplication']['prefer_multicontent']
+    groups = duplicate_groups(prefer, lambda f: tasks._has_pending_stage(f, mgmt))
+    return [(app_pk, [best], [(f, rank_reason(best, f, prefer)) for f in remove])
+            for app_pk, best, remove in groups]
+
+
+def _outdated_update_groups():
+    from library import outdated_update_groups
+    return [(app_pk, keep, [(f, 'older_version') for f in remove])
+            for app_pk, keep, remove in outdated_update_groups()]
+
+
+def _cleanup_summary(groups) -> CleanupSummary:
+    files = {f.id: f for _, _, remove in groups for f, _ in remove}
+    return CleanupSummary(files=len(files), size=sum(f.size or 0 for f in files.values()))
 
 
 def resolve_duplicates(*, ctx: GraphQLContext, info) -> List[CleanupGroup]:
     if not ctx.can_admin:
         return []
-    import tasks
-    from library import duplicate_groups
-    mgmt = get_settings()['library']['management']
-    groups = duplicate_groups(mgmt['deduplication']['prefer_multicontent'],
-                              lambda f: tasks._has_pending_stage(f, mgmt))
-    return _cleanup_groups([(app_pk, [best], remove) for app_pk, best, remove in groups],
-                           ctx, info)
+    return _cleanup_groups(_duplicate_groups(), ctx, info)
 
 
 def resolve_outdated_updates(*, ctx: GraphQLContext, info) -> List[CleanupGroup]:
     if not ctx.can_admin:
         return []
-    from library import outdated_update_groups
-    return _cleanup_groups(outdated_update_groups(), ctx, info)
+    return _cleanup_groups(_outdated_update_groups(), ctx, info)
 
 
-def resolve_pending_files(*, limit: int, ctx: GraphQLContext, info) -> PendingFileList:
-    if not ctx.can_admin:
-        return PendingFileList(total=0, items=[])
+def _pending_files():
+    """(Files.id, stages due) of every file with pipeline work left, by id."""
     import tasks
     from db import Files
     mgmt = get_settings()['library']['management']
@@ -1422,6 +1445,13 @@ def resolve_pending_files(*, limit: int, ctx: GraphQLContext, info) -> PendingFi
         stages = [s.name for s in tasks.STAGES if s.applies(f, mgmt)]
         if stages:
             pending.append((f.id, stages))
+    return pending
+
+
+def resolve_pending_files(*, limit: int, ctx: GraphQLContext, info) -> PendingFileList:
+    if not ctx.can_admin:
+        return PendingFileList(total=0, items=[])
+    pending = _pending_files()
     shown = pending[:max(1, min(limit, 1000))]
     files = _files_by_pk([pk for pk, _ in shown],
                          Selection.from_info(info).child("items").child("file"), ctx, info)
