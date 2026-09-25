@@ -11,7 +11,7 @@ import tasks
 from db import (db, Apps, Files, IgnoredEvent, Libraries, RANK_KEYS, Task, TempFile, Titles,
                 best_file, file_rank, rank_reason)
 from library import (duplicate_files, duplicate_groups, files_with_free_base_name,
-                     outdated_update_groups, remove_duplicate_files, remove_outdated_update_files)
+                     outdated_update_files, outdated_update_groups)
 
 from app import create_app
 
@@ -105,12 +105,12 @@ def test_duplicate_files(env, case, files, prefer_multicontent, expected):
     assert sorted(f.filename for f in deleted) == expected
 
 
-def test_remove_duplicate_files_deletes_the_file_and_its_row(env):
+def test_deleting_a_duplicate_removes_the_file_and_its_row(env):
     loser = env.seed("a.nsp", "A", {})
     env.seed("a.nsz", "A", {"compressed": True})
     path = loser.filepath
 
-    remove_duplicate_files(False, lambda f: False)
+    tasks._delete_files(duplicate_files(False, lambda f: False), 'duplicate')
 
     assert not os.path.exists(path)
     assert Files.query.filter_by(filepath=path).first() is None
@@ -130,10 +130,10 @@ def seed_updates(env):
     return old
 
 
-def test_remove_outdated_update_files_deletes_the_file_and_its_row(env):
+def test_deleting_an_outdated_update_removes_the_file_and_its_row(env):
     path = seed_updates(env).filepath
 
-    remove_outdated_update_files()
+    tasks._delete_files(outdated_update_files(), 'outdated update')
 
     assert not os.path.exists(path)
     assert Files.query.filter_by(filepath=path).first() is None
@@ -261,6 +261,36 @@ def test_remove_duplicates_deletes_only_previewed_duplicates(env, manual, case, 
     assert manual == ["maintenance"]
 
 
+# (cleanup step on, how the file it would delete is busy, names left): the automatic pass
+# leaves a file a running task is using, as the manual tasks do.
+AUTO_BUSY_CASES = [
+    ("deduplication", None, ["a.nsz"]),
+    ("deduplication", "task", ["a.nsp", "a.nsz"]),
+    ("deduplication", "claim", ["a.nsp", "a.nsz"]),
+    ("delete_older_updates", None, ["new.nsp"]),
+    ("delete_older_updates", "task", ["new.nsp", "old.nsp"]),
+    ("delete_older_updates", "claim", ["new.nsp", "old.nsp"]),
+]
+
+
+@pytest.mark.parametrize("step,busy,expected", AUTO_BUSY_CASES)
+def test_maintenance_leaves_a_file_in_use(env, manual, monkeypatch, step, busy, expected):
+    mgmt = {"delete_older_updates": step == "delete_older_updates",
+            "deduplication": {"enabled": step == "deduplication", "prefer_multicontent": False},
+            "organizer": {"enabled": False}}
+    monkeypatch.setattr(tasks, "get_settings", lambda: {"library": {"management": mgmt}})
+    if step == "deduplication":
+        loser = env.seed("a.nsp", "A", {})
+        env.seed("a.nsz", "A", {"compressed": True})
+    else:
+        loser = seed_updates(env)
+    make_busy({"id": loser.id, "filepath": loser.filepath}, busy)
+
+    tasks.library_maintenance_task()
+
+    assert sorted(f.filename for f in Files.query.all()) == expected
+
+
 def test_remove_outdated_updates_deletes_the_previewed_update(env, manual):
     old = seed_updates(env)
 
@@ -365,8 +395,9 @@ def test_library_maintenance_runs_enabled_steps_in_order(monkeypatch, older, ded
             "organizer": {"enabled": organizer, "remove_empty_folders": folders}}
     monkeypatch.setattr(tasks, "get_settings", lambda: {"library": {"management": mgmt}})
     monkeypatch.setattr(tasks, "enqueue_task", lambda *a, **k: None)
-    monkeypatch.setattr(tasks, "remove_outdated_update_files", lambda: steps.append("outdated"))
-    monkeypatch.setattr(tasks, "remove_duplicate_files", lambda *a: steps.append("duplicates"))
+    monkeypatch.setattr(tasks, "outdated_update_files", lambda: "outdated")
+    monkeypatch.setattr(tasks, "duplicate_files", lambda *a: "duplicates")
+    monkeypatch.setattr(tasks, "_delete_files", lambda candidates, what, shown=None: steps.append(candidates))
     monkeypatch.setattr(tasks, "_release_suffixed_files", lambda mgmt: steps.append("release"))
     monkeypatch.setattr(tasks, "delete_empty_folders", lambda path: steps.append("folders"))
 
