@@ -289,16 +289,6 @@ def outdated_update_groups():
 def outdated_update_files():
     return [f for _, _, outdated in outdated_update_groups() for f in outdated]
 
-def remove_outdated_update_files():
-    logger.info("Starting removal of outdated update files...")
-    try:
-        for file_obj in outdated_update_files():
-            logger.info(f"Removing outdated update file: {file_obj.filepath} - Greater owned version available.")
-            delete_library_file(file_obj)
-        logger.info(f"Finished removal of outdated update files.")
-    except Exception as e:
-        logger.error(f"Error during removal of outdated update files: {e}")
-
 def delete_library_file(file_obj):
     """Delete a library file from disk and the database, unseen by the watcher."""
     if not os.path.exists(file_obj.filepath):
@@ -340,11 +330,6 @@ def duplicate_files(prefer_multicontent, is_pending):
     """Files whose every app has a better copy elsewhere."""
     deleted = {f for _, _, files in duplicate_groups(prefer_multicontent, is_pending) for f in files}
     return sorted(deleted, key=lambda f: f.id)
-
-def remove_duplicate_files(prefer_multicontent, is_pending):
-    for file_obj in duplicate_files(prefer_multicontent, is_pending):
-        logger.info(f"Removing duplicate file: {file_obj.filepath}")
-        delete_library_file(file_obj)
 
 def update_title_flags(title_id):
     """Recompute have_base / up_to_date / complete for a single title.

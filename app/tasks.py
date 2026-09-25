@@ -30,8 +30,7 @@ from utils import interval_string_to_timedelta, delete_empty_folders, human_size
 from library import (
     add_missing_apps_for_title, update_title_flags,
     add_missing_apps_to_db, update_titles, organize_file,
-    remove_outdated_update_files, remove_duplicate_files, files_with_free_base_name,
-    delete_library_file, duplicate_files, outdated_update_files,
+    files_with_free_base_name, delete_library_file, duplicate_files, outdated_update_files,
 )
 
 logger = logging.getLogger('main')
@@ -954,11 +953,11 @@ def library_maintenance_task(library_path=None, **kwargs):
     """
     mgmt = get_settings()['library']['management']
     if mgmt['delete_older_updates']:
-        remove_outdated_update_files()
+        _delete_files(outdated_update_files(), 'outdated update')
         enqueue_task('update_titles')
     if mgmt['deduplication']['enabled']:
-        remove_duplicate_files(mgmt['deduplication']['prefer_multicontent'],
-                               lambda f: _has_pending_stage(f, mgmt))
+        _delete_files(duplicate_files(mgmt['deduplication']['prefer_multicontent'],
+                                      lambda f: _has_pending_stage(f, mgmt)), 'duplicate')
     organizer = mgmt['organizer']
     if organizer.get('enabled'):
         _release_suffixed_files(mgmt)
@@ -982,9 +981,9 @@ def _release_suffixed_files(mgmt):
             enqueue_task('process_file', {'file_id': f.id})
 
 
-# --- Manual deletion ---
-# In the maintenance group, so a deletion never runs alongside another deletion or an automatic
-# pass judging the same files. Manual one-offs: no settings toggle to re-check.
+# --- Deletion ---
+# Every deletion, automatic or manual, runs in the maintenance group, so it never runs alongside
+# another one judging the same files. The manual tasks are one-offs: no settings toggle to re-check.
 FILE_TASKS = ('process_file', 'verify_file', 'compress_file', 'decompress_file')
 
 
@@ -994,17 +993,19 @@ def _file_busy(file_id):
     return any(json.loads(t.input_json or '{}').get('file_id') == file_id for t in running)
 
 
-def _delete_selected(candidates, files):
-    """Delete the candidates the caller saw: same id at the same path, and not busy."""
-    wanted = {(f['id'], f['filepath']) for f in files}
+def _delete_files(candidates, what, shown=None):
+    """Delete library files no task is using. With `shown`, only those the caller saw: the
+    same id at the same path."""
+    wanted = None if shown is None else {(f['id'], f['filepath']) for f in shown}
     for f in candidates:
         path = f.filepath
-        if (f.id, path) not in wanted:
+        if wanted is not None and (f.id, path) not in wanted:
             continue
         if _file_busy(f.id) or not claim_temp_file(path):
-            logger.info(f'Skipping busy file: {path}')
+            logger.info(f'Skipping busy {what}: {path}')
             continue
         try:
+            logger.info(f'Removing {what}: {path}')
             delete_library_file(f)
         finally:
             remove_temp_file(path)
@@ -1034,15 +1035,15 @@ def delete_file_task(file_id, filepath, **kwargs):
 def remove_duplicates_task(files, **kwargs):
     """Delete the previewed duplicates that are still duplicates."""
     mgmt = get_settings()['library']['management']
-    _delete_selected(duplicate_files(mgmt['deduplication']['prefer_multicontent'],
-                                     lambda f: _has_pending_stage(f, mgmt)), files)
+    _delete_files(duplicate_files(mgmt['deduplication']['prefer_multicontent'],
+                                  lambda f: _has_pending_stage(f, mgmt)), 'duplicate', files)
     request_maintenance()
 
 
 @register_task('remove_outdated_updates', group='maintenance')
 def remove_outdated_updates_task(files, **kwargs):
     """Delete the previewed outdated update files that are still outdated."""
-    _delete_selected(outdated_update_files(), files)
+    _delete_files(outdated_update_files(), 'outdated update', files)
     enqueue_task('update_titles')
     request_maintenance()
 
