@@ -341,6 +341,18 @@ def tasks_page():
                            max_tasks=task_events.MAX_TASKS,
                            admin_account_created=admin_account_created())
 
+@app.route('/admin/files')
+@access_required('admin')
+def files_page():
+    from constants import COMPRESS_EXT
+    from containers.verification import VERIFY_EXT
+    return render_template('files.html', title='Files',
+                           keys_valid=bool(load_keys()[0]),
+                           verify_ext=sorted(VERIFY_EXT),
+                           compress_ext=sorted(COMPRESS_EXT),
+                           management=get_settings()['library']['management'],
+                           admin_account_created=admin_account_created())
+
 @app.route('/admin/stats')
 @access_required('admin')
 def stats_page():

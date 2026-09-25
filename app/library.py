@@ -270,51 +270,24 @@ def add_missing_apps_to_db():
             logger.info(f'Processed {n + 1}/{len(titles)} titles, upserted {total} apps so far')
     logger.info(f'Finished adding missing apps to database. Total apps upserted: {total}')
 
-def remove_outdated_update_files():
-    logger.info("Starting removal of outdated update files...")
-    try:
-        titles = get_all_titles()
-        
-        for title in titles:
-            title_apps = get_all_title_apps(title.title_id)
-            
-            # Filter for owned update apps
-            owned_update_apps = [app for app in title_apps if app.get('app_type') == APP_TYPE_UPD and app.get('owned')]
-            
-            # If there's only one or no owned update apps, there's no "greater version available" to compare against.
-            if len(owned_update_apps) <= 1:
-                continue
-            
-            # Group owned update apps by their version for easy lookup
-            owned_versions = {int(app['app_version']) for app in owned_update_apps}
-            
-            # Iterate through all update apps (owned or not) for this title
-            for app_data in title_apps:
-                if app_data.get('app_type') == APP_TYPE_UPD:
-                    current_app_version = int(app_data['app_version'])
-                    
-                    # Check if there's a greater owned version available for this title
-                    has_greater_owned_version = any(
-                        owned_v > current_app_version for owned_v in owned_versions
-                    )
-                    
-                    if has_greater_owned_version:
-                        # Get the actual App object from the database
-                        app_obj = get_app_by_id_and_version(app_data['app_id'], app_data['app_version'])
-                        
-                        if app_obj:
-                            # Get files associated with this specific app version
-                            # Create a list to iterate over as the original collection might change during deletion
-                            files_to_process = list(app_obj.files) 
-                            for file_obj in files_to_process:
-                                # Check if file meets criteria: identified, not multicontent
-                                if file_obj.identified and not file_obj.multicontent:
-                                    logger.info(f"Removing outdated update file: {file_obj.filepath} (App ID: {app_obj.app_id}, Version: {app_obj.app_version}) - Greater owned version available.")
-                                    delete_library_file(file_obj)
+def outdated_update_groups():
+    """Per title with several owned updates: its newest update's Apps.id and files, and the
+    single-content files of its older updates."""
+    groups = []
+    for title in get_all_titles():
+        updates = [a for a in title.apps if a.app_type == APP_TYPE_UPD]
+        owned = [a for a in updates if a.owned]
+        if len(owned) <= 1:
+            continue
+        latest = max(owned, key=lambda a: int(a.app_version))
+        outdated = [f for a in updates if int(a.app_version) < int(latest.app_version)
+                    for f in a.files if f.identified and not f.multicontent]
+        if outdated:
+            groups.append((latest.id, list(latest.files), sorted(outdated, key=lambda f: f.id)))
+    return groups
 
-        logger.info(f"Finished removal of outdated update files.")
-    except Exception as e:
-        logger.error(f"Error during removal of outdated update files: {e}")
+def outdated_update_files():
+    return [f for _, _, outdated in outdated_update_groups() for f in outdated]
 
 def delete_library_file(file_obj):
     """Delete a library file from disk and the database, unseen by the watcher."""
@@ -330,8 +303,9 @@ def delete_library_file(file_obj):
         return
     delete_file_by_filepath(file_obj.filepath)
 
-def duplicate_files(prefer_multicontent, is_pending):
-    """Files whose every app has a better copy elsewhere.
+def duplicate_groups(prefer_multicontent, is_pending):
+    """Per app losing a copy: its Apps.id, the copy kept, and its copies deleted - files whose
+    every app has a better copy elsewhere.
 
     Skips apps with a copy still pending or identified from its filename only: such a file
     may carry more than the database knows, and deleting it would lose that.
@@ -339,21 +313,23 @@ def duplicate_files(prefer_multicontent, is_pending):
     copies = {}
     for app_id, file in db.session.query(app_files.c.app_id, Files).join(Files, Files.id == app_files.c.file_id):
         copies.setdefault(app_id, []).append(file)
-    keep, candidates = set(), set()
-    for files in copies.values():
+    keep, judged = set(), {}
+    for app_id, files in copies.items():
         best = best_file(files, prefer_multicontent)
         if (len(files) > 1 and all(f.identification_type == 'cnmt' and not is_pending(f) for f in files)
                 and os.path.exists(best.filepath)):
             keep.add(best)
-            candidates.update(files)
+            judged[app_id] = best
         else:
             keep.update(files)
-    return sorted(candidates - keep, key=lambda f: f.id)
+    groups = [(app_id, best, sorted(set(copies[app_id]) - keep, key=lambda f: f.id))
+              for app_id, best in judged.items()]
+    return [g for g in groups if g[2]]
 
-def remove_duplicate_files(prefer_multicontent, is_pending):
-    for file_obj in duplicate_files(prefer_multicontent, is_pending):
-        logger.info(f"Removing duplicate file: {file_obj.filepath}")
-        delete_library_file(file_obj)
+def duplicate_files(prefer_multicontent, is_pending):
+    """Files whose every app has a better copy elsewhere."""
+    deleted = {f for _, _, files in duplicate_groups(prefer_multicontent, is_pending) for f in files}
+    return sorted(deleted, key=lambda f: f.id)
 
 def update_title_flags(title_id):
     """Recompute have_base / up_to_date / complete for a single title.

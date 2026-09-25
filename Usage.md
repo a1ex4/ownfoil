@@ -30,7 +30,7 @@ These features need valid keys and are unavailable without them:
 
 # The Web UI
 
-There are three main pages: the library view, the setup guide, and under `Admin` the settings, the services, the task list and the stats.
+There are three main pages: the library view, the setup guide, and under `Admin` the settings, the services, the library files, the task list and the stats.
 
 ## Library view
 
@@ -45,6 +45,19 @@ This is the page to use when configuring a client on your Nintendo Switch, with 
 It leads with [Sphaira](#sphaira). Opened from your local network, it also tells you whether [discovery](#discovery) is enabled and, if so, how to let Sphaira find your server by itself. The server's local and remote addresses are given to add it manually otherwise.
 
 The [legacy clients](#legacy-clients) are in a collapsed section below. Its `Local Access` tab uses your server's LAN IP, and its `Remote Access` tab the `Shop URL` configured in the [Shop](#shop) settings.
+
+## Files page
+
+Admin only, to manage library files; actions run as [tasks](#tasks-page). The tiles at the top count the files in each state, so the page shows at a glance whether anything needs attention. Clicking a tile lists its files, and says whether the related setting is enabled, with a link to it:
+
+- `All files`: every file in all libraries.
+- `Unidentified`: files Ownfoil could not match to any known content in the metadata database.
+- `Verification issues`: files whose signature or content hash [check](#file-verification) failed, and files not verified yet.
+- `Duplicates`: for each content with several copies, the copy kept and why it wins over the others.
+- `Outdated updates`: update files older than the newest update owned for the same title. Bundles are never deleted.
+- `Pending`: files with processing still due given the current settings.
+
+The search box matches a title's name or id, or a file name. `Filter` adds filters on the content type, the format, the verification status, how the file was identified, whether it is compressed or organized, and its library when you have several. Each filter shows as a chip: click it to change what it matches, or its cross to remove it.
 
 ## Tasks page
 
@@ -195,6 +208,8 @@ Automated library management. Everything in this section shares the `Submit` but
 | `Delete older updates` | disabled | Deletes older update files when a newer version of the same update is in your library. |
 | `Delete duplicate files` | disabled | When several files carry the same content, keeps the best copy and deletes the others. |
 | `Prefer multi-content files` | disabled | Keep files bundling several contents over single-content copies of them. Also applies to downloads. |
+
+Beside `Delete older updates` and `Delete duplicate files`, and beside `Verify files` under [File verification](#file-verification), the settings page shows how many files each would act on now. Clicking the count opens the [Files page](#files-page) on the matching list.
 
 The best copy is an intact file over a [corrupt or modified](#file-verification) one, then a single-content file over a multi-content one unless you prefer them, then a [compressed](#file-compression) and organized file, and finally the oldest. A multi-content file is only deleted once every content it holds has a better copy elsewhere, and nothing is judged until every copy of it has been through the pipeline.
 

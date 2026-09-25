@@ -1,10 +1,11 @@
 """Filter input types and SQL clause builders.
 
-Implicit AND across all populated fields. v1 omits OR/NOT combinators.
+Implicit AND across all populated fields. `FileFilter.anyOf` is the one OR; there is no NOT.
 
 Booleans are bare `Boolean`, not operator objects: equality is the only predicate a
 bool has, so a wrapper would only ever spell `{eq: ...}`. Strings and ints keep theirs.
 """
+import re
 from enum import Enum
 
 import strawberry
@@ -287,9 +288,26 @@ class FileFilter:
     hash_modified: Optional[bool] = desc(
         "Whether a failed hash test was a repack rather than damage. Neither value "
         "matches a file whose contents were never hashed.", default=None)
-    verification_status: Optional[VerificationStatus] = desc(
-        "The verdicts as one label. Every status is a fixed combination of "
-        "`signatureValid`, `hashValid` and `hashModified`.", default=None)
+    verification_status: Optional[List[VerificationStatus]] = desc(
+        "Any of these verdicts, each a fixed combination of `signatureValid`, "
+        "`hashValid` and `hashModified`. A bare value is coerced to a one-element list; "
+        "an empty list is no constraint.", default=None)
+    title: Optional[str] = desc(
+        "A title the file carries: a case-insensitive substring of its name, or, for "
+        "text of at least four hex digits, of its id. Shorter text is never read as an "
+        "id, whose hex digits would match it almost anywhere. A bundle matches on any of "
+        "its titles; an unidentified file matches nothing.",
+        default=None)
+    app_type: Optional[List[AppType]] = desc(
+        "Carries at least one app of any of these kinds: `DLC` finds every file holding "
+        "DLC, bundles included. A bare value is coerced to a one-element list; an empty "
+        "list is no constraint. `multicontent` is the way to ask for bundles themselves.",
+        default=None)
+    any_of: Optional[List["FileFilter"]] = desc(
+        "Matches when any of these filters does - the one way to OR predicates, which "
+        "every other field ANDs. e.g. `[{appType: DLC}, {multicontent: true}]` is DLC "
+        "or bundles. ANDs with the other fields; an empty list is no constraint.",
+        default=None)
     library_id: Optional[IntFilter] = desc(
         "Which library root the file sits under.", default=None)
     size: Optional[BigIntFilter] = desc(
@@ -328,6 +346,43 @@ def string_clauses(column_sql: str, f: Optional[StringFilter], params: dict, key
             keys.append(f":{pk}")
         out.append(f"{column_sql} NOT IN ({','.join(keys)})")
     return out
+
+
+# What a file carries: its apps, their titles, and the titles' titledb names.
+FILE_CONTENTS_FROM = """
+FROM app_files af JOIN apps a ON a.id = af.app_id
+JOIN main.titles ot ON ot.id = a.title_id
+LEFT JOIN titledb.titles td ON td.id = ot.title_id"""
+
+
+# Below this many hex digits, text is not taken for part of an id: a single letter would
+# otherwise match nearly every title, ids being hex.
+MIN_ID_FRAGMENT = 4
+
+
+def id_fragment(value: str) -> Optional[str]:
+    """The uppercase id fragment `value` can stand for, if it can stand for one."""
+    return value.upper() if re.fullmatch(f"[0-9a-fA-F]{{{MIN_ID_FRAGMENT},}}", value) else None
+
+
+def title_clauses(alias: str, value: str, params: dict, key: str) -> List[str]:
+    params[f"{key}_ct"] = f"%{value}%"
+    tests = [f"td.name LIKE :{key}_ct COLLATE NOCASE"]
+    fragment = id_fragment(value)
+    if fragment:
+        params[f"{key}_id"] = f"%{fragment}%"
+        tests.append(f"ot.title_id LIKE :{key}_id")
+    return [f"""EXISTS (SELECT 1 {FILE_CONTENTS_FROM}
+        WHERE af.file_id = {alias}.id AND ({' OR '.join(tests)}))"""]
+
+
+def app_type_clauses(alias: str, values, params: dict, key: str) -> List[str]:
+    if not values:
+        return []
+    params.update({f"{key}_{i}": t.value for i, t in enumerate(values)})
+    wanted = ",".join(f":{key}_{i}" for i in range(len(values)))
+    return [f"""EXISTS (SELECT 1 FROM app_files af JOIN apps a ON a.id = af.app_id
+        WHERE af.file_id = {alias}.id AND a.app_type IN ({wanted}))"""]
 
 
 def enum_clauses(column_sql: str, value, params: dict, key: str) -> List[str]:
@@ -405,8 +460,8 @@ def _rules_can_overlap(wanted, other) -> bool:
     return all(a is STATUS_ANY or b is STATUS_ANY or a is b for a, b in zip(wanted, other))
 
 
-def verification_status_clauses(alias: str, status) -> List[str]:
-    """Translate a VerificationStatus into a test on the verdict columns.
+def _status_sql(alias: str, status) -> str:
+    """Translate one VerificationStatus into a test on the verdict columns.
 
     Reads the same table the projection reads, so the filter and the value it filters on
     cannot drift apart. STATUS_RULES is first-match, so a rule claims only the rows no
@@ -414,8 +469,6 @@ def verification_status_clauses(alias: str, status) -> List[str]:
     also return every MODIFIED file. Nothing is bound: the operands come from that table,
     never from anything a caller sent.
     """
-    if status is None:
-        return []
     earlier = []
     for name, *wanted in STATUS_RULES:
         if name != status.value:
@@ -424,8 +477,14 @@ def verification_status_clauses(alias: str, status) -> List[str]:
         tests = [_rule_sql(alias, wanted)]
         tests += [f"NOT {_rule_sql(alias, e)}" for e in earlier
                   if _rules_can_overlap(wanted, e)]
-        return [f"({' AND '.join(tests)})"]
-    return []
+        return f"({' AND '.join(tests)})"
+
+
+def verification_status_clauses(alias: str, statuses) -> List[str]:
+    """Any of the given statuses. An empty list is no constraint."""
+    if not statuses:
+        return []
+    return [f"({' OR '.join(_status_sql(alias, s) for s in statuses)})"]
 
 
 def int_clauses(column_sql: str, f: Optional[IntFilter], params: dict, key: str) -> List[str]:
@@ -507,6 +566,9 @@ FILE_FIELDS = [
     ("hash_valid",          "f.hash_valid",          "bool"),
     ("hash_modified",       "f.hash_modified",       "bool"),
     ("verification_status", "f",                     "vstatus"),
+    ("title",               "f",                     "title"),
+    ("app_type",            "f",                     "apptype"),
+    ("any_of",              "f",                     "anyof"),
     ("library_id",          "f.library_id",          "int"),
     ("size",                "f.size",                "int"),
     ("download_count",      "f.download_count",      "int"),
@@ -539,6 +601,10 @@ class OrderField(Enum):
         "`mtime`, the closest thing a file has."))
     DOWNLOAD_COUNT = strawberry.enum_value("download_count", description=(
         "How often shop clients fetched the file. `files` only."))
+    TITLE = strawberry.enum_value("title", description=(
+        "The name of the title a file carries - the first alphabetically, for a bundle "
+        "of several. Case-insensitive, with unidentified and unnamed files last. "
+        "`files` only."))
     ADDED_AT = strawberry.enum_value("added_at", description=(
         "When ownfoil first saw the file - the 'recently added' view, paired with "
         "`direction: DESC`. On `apps` it is the newest file carrying the app, since "
@@ -589,12 +655,16 @@ APP_ORDER = {
 # `added_at` stays bare: a second min/max aggregate would break the bare-column row pick.
 APP_ORDER_GROUPED = {**APP_ORDER, "version": "MAX(CAST(a.app_version AS INTEGER))"}
 
+# The first title name among a file's apps. No commas: order_sql splits on them.
+_FILE_TITLE = f"(SELECT MIN(td.name COLLATE NOCASE) {FILE_CONTENTS_FROM} WHERE af.file_id = f.id)"
+
 FILE_ORDER = {
     "name": "f.filename COLLATE NOCASE",
     "size": "f.size IS NULL, f.size",
     "download_count": "f.download_count",
     "added_at": "f.added_at IS NULL, f.added_at",
     "release_date": "f.mtime IS NULL, f.mtime",
+    "title": f"{_FILE_TITLE} IS NULL, {_FILE_TITLE}",
 }
 
 
@@ -616,8 +686,9 @@ def order_sql(order_by: Optional[OrderBy], allowed: dict, default: str) -> str:
     return f"{ordered}, {default}"
 
 
-def build_clauses(filter_obj, fields, params: dict) -> List[str]:
-    """Translate a filter input object into a list of SQL clauses (AND-combined by caller)."""
+def build_clauses(filter_obj, fields, params: dict, prefix: str = "") -> List[str]:
+    """Translate a filter input object into a list of SQL clauses (AND-combined by caller).
+    `prefix` keeps the bound parameter names of nested `anyOf` filters apart."""
     if filter_obj is None:
         return []
     clauses: List[str] = []
@@ -625,18 +696,27 @@ def build_clauses(filter_obj, fields, params: dict) -> List[str]:
         f = getattr(filter_obj, attr, None)
         if f is None:
             continue
+        key = prefix + attr
         if kind == "string":
-            clauses += string_clauses(col, f, params, attr)
+            clauses += string_clauses(col, f, params, key)
         elif kind == "bool":
-            clauses += bool_clauses(col, f, params, attr)
+            clauses += bool_clauses(col, f, params, key)
         elif kind == "enum":
-            clauses += enum_clauses(col, f, params, attr)
+            clauses += enum_clauses(col, f, params, key)
         elif kind == "int":
-            clauses += int_clauses(col, f, params, attr)
+            clauses += int_clauses(col, f, params, key)
         elif kind == "strlist":
-            clauses += string_list_clauses(col, f, params, attr)
+            clauses += string_list_clauses(col, f, params, key)
         elif kind == "vstatus":
             clauses += verification_status_clauses(col, f)
+        elif kind == "title":
+            clauses += title_clauses(col, f, params, key)
+        elif kind == "apptype":
+            clauses += app_type_clauses(col, f, params, key)
+        elif kind == "anyof" and f:
+            branches = [" AND ".join(build_clauses(sub, fields, params, f"{key}{i}_")) or "1 = 1"
+                        for i, sub in enumerate(f)]
+            clauses.append("(" + " OR ".join(f"({b})" for b in branches) + ")")
     return clauses
 
 
@@ -659,6 +739,22 @@ def match_string(value, f: Optional[StringFilter]) -> bool:
     return True
 
 
+def match_title(contents, value: Optional[str]) -> bool:
+    """`contents` holds a (title id, title name, app type) triple per app a file carries."""
+    if value is None:
+        return True
+    fragment = id_fragment(value)
+    return any(value.lower() in (name or "").lower() or (fragment and fragment in title_id)
+               for title_id, name, _ in contents or [])
+
+
+def match_app_type(contents, expected) -> bool:
+    if not expected:
+        return True
+    wanted = {t.value for t in expected}
+    return any(c[2] in wanted for c in contents or [])
+
+
 def match_enum(value, expected) -> bool:
     """The hydrated row holds the stored string, the filter an enum member."""
     return expected is None or value == expected.value
@@ -677,9 +773,9 @@ def match_tristate(value, expected: Optional[bool]) -> bool:
 def match_verification_status(file_, expected) -> bool:
     """Derives the status the same way the field does, rather than testing the columns
     a second time - two spellings of one rule is how they come to disagree."""
-    if expected is None:
+    if not expected:
         return True
-    return verification_status(file_) == expected.value
+    return verification_status(file_) in {s.value for s in expected}
 
 
 def match_int(value, f) -> bool:
@@ -733,6 +829,9 @@ def match_file(file_, f: Optional[FileFilter]) -> bool:
         and match_tristate(file_.hash_valid,        f.hash_valid)
         and match_tristate(file_.hash_modified,     f.hash_modified)
         and match_verification_status(file_,        f.verification_status)
+        and match_title(file_.contents_loaded,      f.title)
+        and match_app_type(file_.contents_loaded,   f.app_type)
+        and (not f.any_of or any(match_file(file_, sub) for sub in f.any_of))
         and match_int(file_.library_id,             f.library_id)
         and match_int(file_.size,                   f.size)
         and match_int(file_.download_count,         f.download_count)

@@ -39,3 +39,7 @@ class Selection:
     def child(self, name: str) -> "Selection":
         # A field aliased more than once asks for its own sub-selections under each alias.
         return Selection(s for f in self._fields if f.name == name for s in _expand(f.selections))
+
+    def __or__(self, other: "Selection") -> "Selection":
+        """Both selections, for objects of one type reached along different paths."""
+        return Selection(self._fields + other._fields)
