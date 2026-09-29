@@ -11,6 +11,7 @@ CONFIG_DIR = os.environ.get('OWNFOIL_CONFIG_DIR') or os.path.join(APP_DIR, 'conf
 DB_FILE = os.path.join(CONFIG_DIR, 'ownfoil.db')
 CONFIG_FILE = os.path.join(CONFIG_DIR, 'settings.yaml')
 KEYS_FILE = os.path.join(CONFIG_DIR, 'keys.txt')
+SECRET_KEY_FILE = os.path.join(CONFIG_DIR, 'secret_key')
 ALEMBIC_DIR = os.path.join(APP_DIR, 'migrations')
 ALEMBIC_CONF = os.path.join(ALEMBIC_DIR, 'alembic.ini')
 TITLEDB_DIR = os.path.join(DATA_DIR, 'titledb')
