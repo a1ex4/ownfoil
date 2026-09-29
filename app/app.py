@@ -686,28 +686,11 @@ def serve_media(title_id, kind, position, size, name):
         response.headers['Vary'] = 'Authorization, Cookie'
     return response
 
-@app.route('/api/get_game/<int:id>')
-@file_access
-def serve_game(id):
-    """Serve a game file to authenticated clients."""
-    filepath = db.session.query(Files.filepath).filter_by(id=id).scalar()
-    if not filepath:
-        return jsonify({'error': f'No file with id {id}.'}), 404
-    filedir, filename = os.path.split(filepath)
-    # Count only once the response exists: clients probe files with a Range before taking
-    # them, and a range past the end of the file raises out of here without transferring.
-    response = send_from_directory(filedir, filename)
-    increment_download_count_throttled(filepath, client_address(request))
-    return response
-
 @app.route('/api/download/<token>')
 @file_access
 def download_file(token):
-    """Serve a game file by the opaque token the GraphQL catalogue hands out."""
+    """Serve a game file by the opaque token the shop listings and the catalogue hand out."""
     filepath = db.session.query(Files.filepath).filter_by(download_token=token).scalar()
     if not filepath:
         return jsonify({'error': 'No file with that token.'}), 404
-    filedir, filename = os.path.split(filepath)
-    response = send_from_directory(filedir, filename)
-    increment_download_count_throttled(filepath, client_address(request))
-    return response
+    return send_library_file(filepath)

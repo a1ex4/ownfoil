@@ -32,7 +32,7 @@ CAPTURES = os.path.join(os.path.dirname(__file__), "captures")
 #   readable   the capture whose shop is not encrypted - what content assertions replay
 #   root       the url its shop lives at
 #   hauth      whether it verifies the host over HTTPS
-#   file_route whether it downloads through /api/get_game/<id> or from its own handler
+#   file_route whether it downloads through /api/download/<token> or from its own handler
 #   directories whether its shop is a directory tree rather than a flat list of files
 Client = namedtuple("Client", "cls readable root hauth file_route directories")
 
@@ -49,6 +49,27 @@ FILE_ROUTE = [name for name in RECORDED if CLIENTS[name].file_route]
 pytestmark = pytest.mark.skipif(
     not RECORDED,
     reason="no captures: record them with tests/capture/run_capture.py --client <client>")
+
+
+# TODO: delete translate() and restore the exact encrypted lengths once tinfoil and
+# cyberfoil are re-recorded. Their captures predate /api/download: the listings they were
+# served, and the downloads they sent, address files as /api/get_game/<id>. The fixture seeds
+# its files in LIBRARY order, so id n is the n-th entry, and translating to that file's token
+# is what the client would have sent had the listing named it that way.
+def translate(text):
+    """A recorded /api/get_game/<id> url, as the /api/download/<token> url it is now."""
+    return re.sub(r"/api/get_game/(\d+)",
+                  lambda m: f"/api/download/{fixture.LIBRARY[int(m.group(1)) - 1]['token']}",
+                  text)
+
+
+def sealed(data):
+    """Whether data is a whole Tinfoil container: magic, RSA-sealed key, size, padded body.
+
+    Stands in for the recorded length while the recording carries the old, shorter urls.
+    """
+    size = int.from_bytes(data[264:272], "little")
+    return data[:8] == b"TINFOIL\xfd" and len(data) == 272 + size + 16 - size % 16
 
 
 def load(client, name):
@@ -100,7 +121,7 @@ def play(shop, client, name, index=0, headers=None, path=None, settings=None):
     exchange = capture["exchanges"][index]
     request = exchange["request"]
     shop.client.environ_base = {"REMOTE_ADDR": request["remote_addr"]}
-    response = shop.client.open(path or request["path"], method=request["method"],
+    response = shop.client.open(translate(path or request["path"]), method=request["method"],
                                 query_string=request["query"],
                                 headers=headers or headers_of(client, name, index))
     return exchange, response
@@ -137,8 +158,8 @@ def body_matches(exchange, response):
     """Whether a response is the one that was recorded, json shop or html listing."""
     body = exchange["response"]["body"]
     if body["kind"] == "json":
-        return response.get_json() == body["json"]
-    return response.get_data(as_text=True) == body["text"]
+        return response.get_json() == json.loads(translate(json.dumps(body["json"])))
+    return response.get_data(as_text=True) == translate(body["text"])
 
 
 def count(shop, filename):
@@ -212,9 +233,9 @@ def every_recorded_exchange(match):
 
 
 SHOP_REQUESTS = every_recorded_exchange(
-    lambda e: "/api/get_game/" not in e["request"]["path"])
+    lambda e: "/api/download/" not in translate(e["request"]["path"]))
 TRANSFER_REQUESTS = every_recorded_exchange(
-    lambda e: "/api/get_game/" in e["request"]["path"])
+    lambda e: "/api/download/" in translate(e["request"]["path"]))
 
 
 def test_every_recorded_client_is_replayed():
@@ -238,14 +259,14 @@ def test_a_captured_download_is_served_by_the_file_route(shop, client, name, ind
 
     Tinfoil downloads through a stack that sends no shop headers at all, but CyberFoil sends
     the lot and is identified all the same. What keeps both out of the shop handlers is the
-    route: /api/get_game/<id> is concrete, so it wins over the shop's catch-all.
+    route: /api/download/<token> is concrete, so it wins over the shop's catch-all.
     """
     exchange = load(client, name)["exchanges"][index]
-    with shop.app.test_request_context(exchange["request"]["path"],
+    with shop.app.test_request_context(translate(exchange["request"]["path"]),
                                        headers=exchange["request"]["headers"]):
         from flask import request
 
-        assert request.endpoint == "serve_game"
+        assert request.endpoint == "download_file"
 
 
 # ==================== Browsing the shop ====================
@@ -255,8 +276,8 @@ def test_a_public_shop_serves_the_listing_without_credentials(shop, client, ):
     for index in browsing(client, "public-browse"):
         exchange, response = play(shop, client, "public-browse", index=index)
         assert response.status_code == 200
-        assert len(response.data) == exchange["response"]["body"].get(
-            "length", len(response.data))
+        if exchange["response"]["body"]["kind"] == "binary":
+            assert sealed(response.data)
 
 
 @pytest.mark.parametrize("client", RECORDED)
@@ -346,12 +367,11 @@ def test_an_unidentified_file_is_listed_only_without_a_filter(shop, client):
     assert not hidden & set(listed(browse(shop, client, "base/")))
 
 
-def test_the_encrypted_listing_is_the_size_it_was(shop):
-    """Tinfoil's container is nondeterministic - a random AES key - but its length is not."""
+def test_the_encrypted_listing_is_a_whole_container(shop):
+    """Tinfoil's container is nondeterministic - a random AES key - but its layout is not."""
     for name in ("public-browse", "content-filter"):
-        exchange, response = play(shop, "tinfoil", name)
-        assert response.data[:8] == b"TINFOIL\xfd"
-        assert len(response.data) == exchange["response"]["body"]["length"]
+        _, response = play(shop, "tinfoil", name)
+        assert sealed(response.data)
 
 
 # ==================== Downloading ====================
@@ -450,15 +470,26 @@ def test_a_download_needs_shop_access_too(shop, client):
     assert error_of(response) == 'User "noshop" does not have access to the shop.'
 
 
-def test_sphaira_serves_a_file_by_name_whatever_the_directory(shop):
-    """Sphaira's directories are virtual, rebuilt from the library paths, and the file lookup
-    behind them is by filename alone - so the directory in front of it is decoration.
+def test_sphaira_finds_a_file_by_its_path_not_its_name(shop):
+    """Sphaira's directories are virtual, rebuilt from the library paths, and a file is looked
+    up by the path the listing linked it at - the same name elsewhere is another file.
     """
     index = one_transfer("sphaira", method="GET")
     exchange = load("sphaira", "download")["exchanges"][index]
     filename = served_filename(exchange)
     _, response = play(shop, "sphaira", "download", index=index,
                        path=f"/Nowhere In The Library/{filename}")
+    response.close()
+    assert error_of(response) == "File not found"
+    assert count(shop, filename) == 0
+
+
+def test_sphaira_serves_a_file_under_a_content_filter(shop):
+    """A filtered listing links its files under the filter, which the lookup sees past."""
+    index = one_transfer("sphaira", method="GET")
+    exchange = load("sphaira", "download")["exchanges"][index]
+    _, response = play(shop, "sphaira", "download", index=index,
+                       path=f"/base{exchange['request']['path']}")
     response.close()
     assert response.headers["Content-Disposition"] == \
         dict(exchange["response"]["headers"])["Content-Disposition"]
@@ -495,20 +526,20 @@ def test_a_public_shop_serves_downloads_to_anyone(shop, client):
 
 
 @pytest.mark.parametrize("client", FILE_ROUTE)
-def test_an_unknown_file_id_is_not_found(shop, client):
+def test_an_unknown_token_is_not_found(shop, client):
     """A stale url from an old listing is a 404, not a crash."""
     _, response = play(shop, client, "download", index=one_transfer(client),
-                       path="/api/get_game/9999", settings={"public": True})
+                       path="/api/download/not-a-real-token", settings={"public": True})
     response.close()
     assert response.status_code == 404
-    assert error_of(response) == "No file with id 9999."
+    assert error_of(response) == "No file with that token."
 
 
 @pytest.mark.parametrize("client", FILE_ROUTE)
 def test_a_download_under_a_content_filter_serves_no_file(shop, client):
-    """`/base/api/get_game/<id>` is not a route, so nothing is served and nothing is counted.
+    """`/base/api/download/<token>` is not a route, so nothing is served and nothing is counted.
 
-    CyberFoil resolves the listing's `/api/get_game/<id>` against the shop url it was given,
+    CyberFoil resolves the listing's `/api/download/<token>` against the shop url it was given,
     which is how a client configured with a filtered url asks for this and downloads nothing.
     Tinfoil resolves the same url against the host, and is unaffected.
     """

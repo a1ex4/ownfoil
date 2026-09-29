@@ -17,7 +17,8 @@ import shutil
 import logging
 import datetime
 from constants import *
-from utils import throttle
+from flask import request, send_from_directory
+from utils import throttle, client_address
 import titledb
 
 # Retrieve main logger
@@ -546,15 +547,6 @@ def get_filtered_files(content_filter=None) -> list:
     # Execute query and return files
     return query.all()
 
-def get_shop_files():
-    results = Files.query.all()
-    shop_files = [{
-        "id": file.id,
-        "filename": file.filename,
-        "size": file.size
-    } for file in results]
-    return shop_files
-
 def get_libraries():
     return Libraries.query.all()
 
@@ -801,6 +793,16 @@ def increment_download_count(filepath):
 def increment_download_count_throttled(filepath, host):
     """Throttled wrapper around increment_download_count per (filepath, host) pair."""
     increment_download_count(filepath)
+
+
+def send_library_file(filepath):
+    """Serve a library file to the requesting client and count the download."""
+    filedir, filename = os.path.split(filepath)
+    # Count only once the response exists: clients probe files with a Range before taking
+    # them, and a range past the end of the file raises out of here without transferring.
+    response = send_from_directory(filedir, filename)
+    increment_download_count_throttled(filepath, client_address(request))
+    return response
 
 
 def reset_files_organized():

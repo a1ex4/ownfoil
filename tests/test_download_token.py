@@ -1,8 +1,7 @@
 """Token downloads: /api/download/<token>, the URL the catalogue hands out.
 
-The point of the token is that it is not the primary key: /api/get_game/<id> can be
-walked from 1 upwards, and on a public shop that needs no credentials at all. Everything
-else - the bytes, the gate, the counting - has to stay identical to the old route.
+The point of the token is that it is not the primary key: an id can be walked from 1
+upwards, and on a public shop that needs no credentials at all.
 """
 import pytest
 
@@ -45,12 +44,12 @@ def test_a_token_is_not_derived_from_the_row(shop):
     assert file_row(shop)[1] != token
 
 
-def test_the_token_route_serves_the_same_bytes(shop):
-    id_, token, _ = file_row(shop)
-    by_token = shop.client.get(f"/api/download/{token}")
-    by_id = shop.client.get(f"/api/get_game/{id_}")
-    assert by_token.status_code == 200
-    assert by_token.data == by_id.data
+def test_the_token_route_serves_the_file(shop):
+    _, token, filepath = file_row(shop)
+    response = shop.client.get(f"/api/download/{token}")
+    assert response.status_code == 200
+    with open(filepath, "rb") as f:
+        assert response.data == f.read()
 
 
 def test_an_unknown_token_is_404(shop):
@@ -58,7 +57,7 @@ def test_an_unknown_token_is_404(shop):
 
 
 def test_a_range_request_is_served(shop):
-    """send_from_directory carries Range support over from the id route."""
+    """Clients resume and probe files with a Range, which send_from_directory honours."""
     _, token, _ = file_row(shop)
     response = shop.client.get(f"/api/download/{token}", headers={"Range": "bytes=0-3"})
     assert response.status_code == 206

@@ -154,7 +154,7 @@ class TinfoilClient(BaseClient):
     def _generate_shop_files(self, content_filter: Optional[str] = None) -> list:
         """Generate the files list for the shop with optional content type filtering."""
         files = self.get_filtered_files(content_filter)
-        return [{'url': f'/api/get_game/{f.id}#{f.filename}', 'size': f.size} for f in files]
+        return [{'url': f'/api/download/{f.download_token}#{f.filename}', 'size': f.size} for f in files]
 
     def _encrypt_shop(self, shop: dict) -> bytes:
         """Encrypt shop data for Tinfoil using RSA + AES encryption."""
