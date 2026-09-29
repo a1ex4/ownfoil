@@ -1,8 +1,8 @@
 """Fixture accounts and library shared by the capture server and the replay tests.
 
 Both sides have to build the exact same shop, otherwise a capture recorded against one
-library can't be replayed against another: file ids end up in Tinfoil's urls and filenames
-end up in Sphaira's listings.
+library can't be replayed against another: download tokens end up in Tinfoil's urls and
+paths end up in Sphaira's listings. Tokens are fixed here for that reason.
 """
 import os
 
@@ -31,7 +31,7 @@ DUMMY_SIZE = 4096
 # a download exercises is the transfer and the counting, and the clients take a short file
 # as readily as a real one.
 DOWNLOAD_TARGET = {
-    "relpath": "Test Game/Test Game [0100000000010000][v0].nsp",
+    "relpath": "Test Game/Test Game [0100000000010000][v0].nsp", "token": "YYQZst1B-xOjdDO8FleY8w",
     "title": "0100000000010000", "app_id": "0100000000010000", "version": "0",
     "app_type": APP_TYPE_BASE,
 }
@@ -40,16 +40,16 @@ DOWNLOAD_TARGET = {
 # of each filterable kind so /base, /update, /dlc and /multi all return something distinct.
 LIBRARY = [
     DOWNLOAD_TARGET,
-    {"relpath": "Test Game/Test Game [0100000000010800][v65536].nsp",
+    {"relpath": "Test Game/Test Game [0100000000010800][v65536].nsp", "token": "30a65SqNI9UP3_acKvLGGg",
      "title": "0100000000010000", "app_id": "0100000000010800", "version": "65536",
      "app_type": APP_TYPE_UPD},
-    {"relpath": "Test Game/Test Game Extra [0100000000011001][v0].nsp",
+    {"relpath": "Test Game/Test Game Extra [0100000000011001][v0].nsp", "token": "O1mRmDjIiR_J_lr7XjKcfw",
      "title": "0100000000010000", "app_id": "0100000000011001", "version": "0",
      "app_type": APP_TYPE_DLC},
-    {"relpath": "Bundles/Multi Pack [0100000000012000].xci",
+    {"relpath": "Bundles/Multi Pack [0100000000012000].xci", "token": "VQ25SnJAhCpvHskmXAN_yw",
      "multicontent": True, "nb_content": 3},
     # Unidentified files are served unfiltered but disappear under every content filter.
-    {"relpath": "Unsorted/Mystery File.nsp", "identified": False},
+    {"relpath": "Unsorted/Mystery File.nsp", "token": "phCXrUns36581hI8mkDZEQ", "identified": False},
 ]
 
 
@@ -78,7 +78,7 @@ def seed_library(root):
             extension=filename.rsplit(".", 1)[-1], size=os.path.getsize(path),
             identified=entry.get("identified", True),
             multicontent=entry.get("multicontent", False),
-            nb_content=entry.get("nb_content", 1),
+            nb_content=entry.get("nb_content", 1), download_token=entry["token"],
         )
         db.session.add(file_row)
         db.session.flush()

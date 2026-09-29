@@ -512,9 +512,8 @@ that a search for the old path finds where the capability went:
 Listing overrides was dropped rather than ported: it had no caller. Recoverable from
 git if a use turns up.
 
-`GET /api/get_game/<id>` stays REST — it streams a file to shop clients
-(`shop.py`, `clients/tinfoil.py`, `clients/cyberfoil.py`), and `File.url` is deferred
-with the console-client work.
+`GET /api/download/<token>` stays REST — it streams a file, to the GraphQL catalogue's
+`App.downloadUrl` and to the Tinfoil and CyberFoil listings alike.
 
 ## Query depth
 

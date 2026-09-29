@@ -3,12 +3,11 @@ Sphaira client implementation.
 """
 import os
 
-from flask import Request, Response, request, send_from_directory
+from flask import Request, Response
 
 from .client import BaseClient
-from db import Files, Libraries, increment_download_count_throttled
+from db import db, Files, Libraries, send_library_file
 from constants import APP_TYPE_FILTERS, ALLOWED_EXTENSIONS
-from utils import client_address
 
 # Sphaira announces itself as `Sphaira/<version>` since version 1.0.6.
 SPHAIRA_USER_AGENT = 'Sphaira/'
@@ -53,8 +52,8 @@ class SphairaClient(BaseClient):
         paths = subpath.split('/')
         # Check if requesting a specific file
         if paths and any([paths[-1].endswith(ext) for ext in ALLOWED_EXTENSIONS]):
-            return self._serve_file(paths[-1])
-        
+            return self._serve_file(subpath)
+
         # Otherwise, show directory listing
         content_filter = paths[0] if paths and paths[0] in APP_TYPE_FILTERS else None
         return self._serve_virtual_directory(subpath, content_filter)
@@ -67,9 +66,9 @@ class SphairaClient(BaseClient):
         Handle HEAD requests for file lookups.
         Sphaira sends HEAD requests to filenames to get file headers before downloading.
         """
-        filename = request.path.split('/')[-1] if request.path else ''
-        if filename and any([filename.endswith(ext) for ext in ALLOWED_EXTENSIONS]):
-            return self._serve_file(filename)
+        subpath = request.path.strip('/')
+        if any([subpath.endswith(ext) for ext in ALLOWED_EXTENSIONS]):
+            return self._serve_file(subpath)
         return self.error_response("File not found")
 
     # ==================== Private/Helper Methods ====================
@@ -135,20 +134,20 @@ class SphairaClient(BaseClient):
         html = SPHAIRA_HTML_TEMPLATE.format(content)
         return Response(html)
 
-    def _serve_file(self, filename: str) -> Response: 
-        """Serve a file from the given filename."""
-        # Look up the file in the database by filename
-        file = Files.query.filter_by(filename=filename).first()
+    def _serve_file(self, path: str) -> Response:
+        """Serve the file at a virtual path, the one the directory listing links to."""
+        paths = path.split('/')
+        if paths[0] in APP_TYPE_FILTERS:
+            paths = paths[1:]
+        # The listing merges every library into one tree, so the path may lie under any of them.
+        candidates = [os.path.join(library.path, *paths) for library in Libraries.query.all()]
+        filepath = db.session.query(Files.filepath).filter(
+            Files.filepath.in_(candidates)).order_by(Files.id).limit(1).scalar()
 
-        if not file:
-            self.log_warning(f"File not found: {filename}")
+        if not filepath:
+            self.log_warning(f"File not found: {path}")
             # Throws NspBadMagic for HEAD requests anyway
             return self.error_response("File not found")
 
-        self.log_info(f"Serving file: {file.folder}/{filename}")
-        # Count only once the response exists: a range past the end of the file raises out
-        # of here, and a transfer that never happened is not a download.
-        response = send_from_directory(file.folder, filename)
-        increment_download_count_throttled(file.filepath, client_address(request))
-
-        return response
+        self.log_info(f"Serving file: {filepath}")
+        return send_library_file(filepath)

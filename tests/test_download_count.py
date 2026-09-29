@@ -43,21 +43,21 @@ def count(shop):
         return Files.query.filter_by(filename=FILENAME).first().download_count
 
 
-def file_id(shop):
+def file_token(shop):
     with shop.app.app_context():
-        return Files.query.filter_by(filename=FILENAME).first().id
+        return Files.query.filter_by(filename=FILENAME).first().download_token
 
 
 def sphaira_download(shop, headers=None):
     return shop.client.get(SPHAIRA_PATH, headers={**SPHAIRA_HEADERS, **(headers or {})})
 
 
-def get_game_download(shop, headers=None):
-    return shop.client.get(f"/api/get_game/{file_id(shop)}", headers=headers or {})
+def token_download(shop, headers=None):
+    return shop.client.get(f"/api/download/{file_token(shop)}", headers=headers or {})
 
 
 # Both routes serve files, so both have to count them the same way.
-ROUTES = {"sphaira": sphaira_download, "get_game": get_game_download}
+ROUTES = {"sphaira": sphaira_download, "token": token_download}
 
 
 @pytest.fixture(params=sorted(ROUTES))
