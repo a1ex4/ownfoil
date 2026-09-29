@@ -21,6 +21,7 @@ import tasks as tasks_mod
 import realtime
 import titledb
 import os
+import secrets
 from clients import CyberFoilClient, TinfoilClient, SphairaClient
 
 def init():
@@ -135,12 +136,27 @@ def on_library_change(events):
                 # A folder was moved out/removed; its files are gone, delete them by path prefix.
                 tasks_mod.enqueue_task('handle_dir_deleted', {'dirpath': event.src_path})
 
+def load_secret_key(path=SECRET_KEY_FILE):
+    """Read this instance's session signing key, generating it on first start."""
+    try:
+        with open(path) as f:
+            key = f.read().strip()
+        if len(key) == 64:
+            return key
+        os.remove(path)  # Empty or truncated by an interrupted write
+    except FileNotFoundError:
+        pass
+    key = secrets.token_hex(32)
+    fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+    with os.fdopen(fd, 'w') as f:
+        f.write(key)
+    return key
+
 def create_app(db_uri=None):
     app = Flask(__name__)
     app.url_map.strict_slashes = False  # Disable automatic trailing slash redirects globally, needed for Sphaira
     app.config["SQLALCHEMY_DATABASE_URI"] = db_uri or OWNFOIL_DB
-    # TODO: generate random secret_key
-    app.config['SECRET_KEY'] = '8accb915665f11dfa15c2db1a4e8026905f57716'
+    app.config['SECRET_KEY'] = load_secret_key()
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
     db.init_app(app)
