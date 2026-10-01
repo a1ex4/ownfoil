@@ -15,5 +15,12 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
           ISSUE: ${{ github.event.issue.number }}
+          MILESTONE: ${{ github.event.issue.milestone.title }}
         run: |
-          gh issue comment "$ISSUE" --body 'This issue is fixed in the `develop` branch/image, you can try it following the [installation instructions](https://github.com/a1ex4/ownfoil/blob/develop/Install.md#available-versions). The issue will be closed when the next release is published.'
+          # Patch milestones (X.Y.Z, Z > 0) are fixed on their release line, everything else on develop
+          if [[ "$MILESTONE" =~ ^([0-9]+\.[0-9]+)\.[1-9][0-9]*$ ]]; then
+            branch="release/${BASH_REMATCH[1]}" image="release-${BASH_REMATCH[1]}"
+          else
+            branch=develop image=develop
+          fi
+          gh issue comment "$ISSUE" --body "This issue is fixed in the \`${branch}\` branch, you can try it with the \`${image}\` image following the [installation instructions](https://github.com/a1ex4/ownfoil/blob/develop/Install.md#available-versions). The issue will be closed when the next release is published."

@@ -35,20 +35,27 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
+      # A patch of an older release line must not take latest or the major tag back
+      - name: Check if the tag is the newest release
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          newest=$(git ls-remote --tags --refs origin | sed 's#.*refs/tags/##' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1)
+          echo "IS_NEWEST=$([ "$GITHUB_REF_NAME" = "$newest" ] && echo true || echo false)" >> $GITHUB_ENV
+
       - name: Extract metadata (tags, labels) for Docker
         id: meta
         uses: docker/metadata-action@v6
         with:
           images: a1ex4/ownfoil
           flavor: |
-            latest=auto
+            latest=false
           tags: |
             type=ref,event=tag
-            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/') }}
+            type=raw,value=latest,enable=${{ env.IS_NEWEST == 'true' }}
             type=ref,event=branch,enable=${{ github.ref != 'refs/heads/master' }}
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern={{major}}
+            type=semver,pattern={{major}},enable=${{ env.IS_NEWEST == 'true' }}
 
       - name: Set platforms based on branch or tag
         run: |

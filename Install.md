@@ -182,6 +182,7 @@ Whichever way you install it, you run one of these:
 | --- | --- |
 | `latest` | The most recent release, default when you don't select a version in particular. |
 | `develop` | The development branch - the next release as it is being written, with new features first and you contribute to testing the next version. |
+| `release-X.Y` | The fixes for the `X.Y` release line, before its next patch release is published. |
 | A version number | That exact release, and the way to stay on a known version. |
 
 Versions are `major.minor.patch`, and each part can be used on its own to pin a specific "release channel" when upgrading:

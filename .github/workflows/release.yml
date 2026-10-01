@@ -1,0 +1,99 @@
+name: 'Release'
+on:
+  release:
+    types: [released]
+
+jobs:
+  issues:
+    if: '!github.event.release.prerelease'
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - name: Close fixed issues and the milestone of the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.event.release.tag_name }}
+          URL: ${{ github.event.release.html_url }}
+        run: |
+          set -euo pipefail
+          milestone=$(gh api "repos/${GH_REPO}/milestones?state=open&per_page=100" --jq ".[] | select(.title == \"${TAG}\") | .number")
+          if [ -z "$milestone" ]; then
+            echo "No open milestone ${TAG}, nothing to close"
+            exit 0
+          fi
+          body="This issue has been fixed and released in [Ownfoil ${TAG}](${URL}), closing as completed. Feel free to re-open if needed."
+          for issue in $(gh issue list --label fixed --milestone "$TAG" --state open --limit 200 --json number --jq '.[].number'); do
+            gh issue edit "$issue" --remove-label fixed
+            gh issue close "$issue" --reason completed --comment "$body"
+          done
+          gh api -X PATCH "repos/${GH_REPO}/milestones/${milestone}" -f state=closed >/dev/null
+
+  # Every release opens release/X.Y for its patches if missing and moves it to the next patch.
+  # A minor release (X.Y.0) comes from develop, which moves on to the next minor.
+  branches:
+    if: '!github.event.release.prerelease'
+    runs-on: ubuntu-latest
+    concurrency: release-branches
+    steps:
+      # A PAT with the workflows permission: GITHUB_TOKEN cannot create or move a branch onto
+      # commits whose workflow files differ from the ones it held
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.RELEASE_TOKEN }}
+
+      - name: Update release branches and versions
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$TAG" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+            echo "${TAG} is not a X.Y.Z release, nothing to do"
+            exit 0
+          fi
+          major=${BASH_REMATCH[1]} minor=${BASH_REMATCH[2]} patch=${BASH_REMATCH[3]}
+          release_branch="release/${major}.${minor}"
+          commit=$(git rev-parse "${TAG}^{commit}")
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+
+          # Sets the version to a X.Y.Z.dev0 on a branch, never moving it backwards. It is APP_VERSION
+          # since 2.5, a static pyproject version before.
+          bump() {
+            local branch=$1 version=$2 current
+            git checkout -q -B "$branch" "origin/${branch}"
+            current=$(sed -nE 's/^(APP_VERSION|version) = "(.+)"$/\2/p' app/constants.py pyproject.toml)
+            if [ -z "$current" ]; then
+              echo "::error::No version found on ${branch}"
+              exit 1
+            fi
+            if [ "$(printf '%s\n' "${current%%.dev*}" "${version%.dev0}" | sort -V | tail -1)" = "${current%%.dev*}" ]; then
+              echo "${branch} is already at ${current}, not bumping to ${version}"
+              return
+            fi
+            sed -i -E "s/^(APP_VERSION|version) = \".+\"$/\1 = \"${version}\"/" app/constants.py pyproject.toml
+            git commit -qam "ci: bump version to ${version}"
+            git push origin "$branch"
+          }
+
+          if ! git rev-parse -q --verify "origin/${release_branch}" >/dev/null; then
+            git push origin "${commit}:refs/heads/${release_branch}"
+            git fetch -q origin "$release_branch"
+          fi
+          bump "$release_branch" "${major}.${minor}.$((patch + 1)).dev0"
+          if [ "$patch" = 0 ]; then
+            bump develop "${major}.$((minor + 1)).0.dev0"
+          fi
+
+          # master follows the newest release, never an older line's patch
+          latest=$(git tag -l | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1)
+          if [ "$TAG" != "$latest" ]; then
+            echo "${TAG} is older than ${latest}, master stays"
+          elif ! git tag --points-at origin/master | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::warning::master holds unreleased commits, not moving it to ${TAG}"
+          else
+            git push --force-with-lease="master:$(git rev-parse origin/master)" origin "${commit}:refs/heads/master"
+          fi
