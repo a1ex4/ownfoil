@@ -56,7 +56,7 @@ LIBRARY = [
 def build_library(root):
     """Create the fixture tree under root: realistic names, dummy bytes."""
     for entry in LIBRARY:
-        path = os.path.join(root, entry["relpath"])
+        path = os.path.join(root, *entry["relpath"].split("/"))
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "wb") as f:
             f.write(os.urandom(DUMMY_SIZE))
@@ -71,7 +71,8 @@ def seed_library(root):
 
     titles = {}
     for entry in LIBRARY:
-        path = os.path.join(root, entry["relpath"])
+        # In the filesystem's separator, as a scan would record it.
+        path = os.path.join(root, *entry["relpath"].split("/"))
         folder, filename = os.path.split(path)
         file_row = Files(
             library_id=library.id, filepath=path, folder=folder, filename=filename,
