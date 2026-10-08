@@ -1,7 +1,7 @@
 import os
 
 # Read by pyproject.toml at build time.
-APP_VERSION = "2.5.0.dev0"
+APP_VERSION = "2.5.0"
 # Ownfoil API contract version.
 API_PROTOCOL_VERSION = 1
 
