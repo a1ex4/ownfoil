@@ -1,42 +1,318 @@
 {% extends "base.html" %}
 
 {% block content %}
-<div class="title-page">
-    {% with transparent_nav=True %}{% include 'nav.html' %}{% endwith %}
+<link rel="stylesheet" href="{{ url_for('static', filename='vendor/archivo/archivo.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='store.css') }}">
 
-    <div class="title-banner" id="titleBanner"></div>
-    <div class="title-scrim"></div>
-    <div class="title-hero"></div>
+<style>
+    .sx-backdrop {
+        position: fixed;
+        inset: 0;
+        z-index: -1;
+        pointer-events: none;
+    }
+    .sx-backdrop img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        opacity: 0;
+        transition: opacity .6s ease;
+        -webkit-mask-image: linear-gradient(180deg, #000 40%, transparent 100%);
+        mask-image: linear-gradient(180deg, #000 40%, transparent 100%);
+    }
+    .sx-backdrop img.is-on { opacity: .42; }
+    .sx-backdrop::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background:
+            linear-gradient(180deg, rgba(28, 29, 33, .75) 0, rgba(28, 29, 33, 0) 140px),
+            linear-gradient(90deg, rgba(28, 29, 33, .92) 0%, rgba(28, 29, 33, .7) 42%, rgba(28, 29, 33, .35) 100%);
+    }
 
-    <div class="title-panel">
-        <div class="title-body" id="titleBody">
-            <p class="text-secondary">Loading…</p>
-        </div>
+    .sx-title {
+        display: grid;
+        grid-template-columns: minmax(400px, .85fr) minmax(0, 1.25fr);
+        gap: 40px clamp(32px, 4vw, 72px);
+        padding: 96px var(--sx-gutter) 48px;
+    }
+
+    /* Info column */
+    .sx-info { display: flex; flex-direction: column; min-width: 0; }
+    .sx-head { display: flex; align-items: center; gap: 18px; }
+    .sx-icon {
+        width: 84px;
+        height: 84px;
+        flex-shrink: 0;
+        border-radius: 14px;
+        object-fit: cover;
+        box-shadow: 0 10px 28px -12px rgba(0, 0, 0, .8);
+    }
+    .sx-by { margin: 0; color: var(--sx-graphite); font-size: 15px; font-weight: 500; line-height: 1.45; }
+    .sx-by strong { display: block; color: var(--sx-paper); font-weight: 600; }
+    .sx-name {
+        margin: 22px 0 0;
+        font-size: clamp(32px, 3.4vw, 60px);
+        font-weight: 800;
+        line-height: 1;
+        letter-spacing: -.01em;
+        text-wrap: balance;
+    }
+    .sx-intro { margin: 16px 0 0; max-width: 54ch; font-size: 17px; line-height: 1.45; color: rgba(241, 241, 238, .88); }
+    .sx-facts { display: flex; flex-wrap: wrap; gap: 8px; margin: 18px 0 0; padding: 0; list-style: none; }
+    .sx-facts li {
+        padding: 5px 12px;
+        border: 1px solid rgba(241, 241, 238, .2);
+        border-radius: 999px;
+        font-size: 13px;
+        font-weight: 500;
+    }
+
+    .sx-desc-wrap { margin-top: 22px; min-height: 0; }
+    .sx-desc {
+        margin: 0;
+        max-width: 64ch;
+        color: rgba(241, 241, 238, .72);
+        font-size: 15px;
+        line-height: 1.6;
+        white-space: pre-line;
+    }
+    .sx-link {
+        margin-top: 8px;
+        padding: 0;
+        border: 0;
+        background: none;
+        color: var(--sx-blue);
+        font: 600 14px var(--sx-font);
+        cursor: pointer;
+        align-self: flex-start;
+    }
+    .sx-link:hover { text-decoration: underline; }
+    .sx-link:focus-visible { outline: 2px solid var(--sx-blue); outline-offset: 3px; border-radius: 2px; }
+
+    .sx-own {
+        margin: 26px 0 0;
+        padding: 6px 20px;
+        border-radius: 16px;
+        background: rgba(39, 40, 46, .78);
+        backdrop-filter: blur(10px);
+    }
+    .sx-own-row {
+        display: grid;
+        grid-template-columns: 110px 1fr;
+        gap: 16px;
+        padding: 12px 0;
+        border-top: 1px solid var(--sx-line);
+    }
+    .sx-own-row:first-child { border-top: 0; }
+    .sx-own dt { color: var(--sx-graphite); font-size: 14px; font-weight: 500; }
+    .sx-own dd { margin: 0; font-size: 14px; }
+    .sx-own dd strong { font-weight: 600; }
+    .sx-own dd span { display: block; margin-top: 2px; color: var(--sx-graphite); }
+    .sx-own .is-due { color: var(--sx-red); }
+    .sx-own .is-good { color: var(--sx-blue); }
+
+    /* Media column */
+    .sx-media { min-width: 0; display: flex; flex-direction: column; gap: 14px; }
+    .sx-stage {
+        position: relative;
+        width: 100%;
+        aspect-ratio: 16 / 9;
+        padding: 0;
+        border: 0;
+        border-radius: 18px;
+        overflow: hidden;
+        background: var(--sx-dock);
+        cursor: zoom-in;
+        box-shadow: 0 30px 60px -30px rgba(0, 0, 0, .9);
+    }
+    .sx-stage img {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        opacity: 0;
+        transition: opacity .35s ease;
+    }
+    .sx-stage img.is-on { opacity: 1; }
+    .sx-stage:focus-visible { outline: 3px solid var(--sx-blue); outline-offset: 3px; }
+    .sx-thumbs { display: flex; gap: 12px; padding: 6px; margin: -6px; overflow-x: auto; scrollbar-width: none; }
+    .sx-thumb {
+        flex: 1 0 0;
+        min-width: 96px;
+        aspect-ratio: 16 / 9;
+        padding: 0;
+        border: 0;
+        border-radius: 10px;
+        overflow: hidden;
+        background: var(--sx-dock);
+        opacity: .55;
+        cursor: pointer;
+        transition: opacity .2s ease;
+    }
+    .sx-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .sx-thumb:hover, .sx-thumb[aria-current="true"] { opacity: 1; }
+    .sx-thumb:focus-visible { outline: 3px solid var(--sx-blue); outline-offset: 3px; }
+
+    .sx-missing { grid-column: 1 / -1; padding-top: 12vh; }
+    .sx-missing h1 { font-size: 40px; font-weight: 800; }
+    .sx-missing p { color: var(--sx-graphite); margin: 12px 0 24px; }
+
+    /* Dialogs */
+    .sx-dialog {
+        width: min(760px, calc(100vw - 32px));
+        max-height: min(80vh, 760px);
+        padding: 0;
+        border: 0;
+        border-radius: 20px;
+        background: var(--sx-dock);
+        color: var(--sx-paper);
+        box-shadow: 0 40px 80px -20px rgba(0, 0, 0, .8);
+    }
+    .sx-dialog::backdrop { background: rgba(10, 10, 12, .7); backdrop-filter: blur(4px); }
+    .sx-dialog-head {
+        position: sticky;
+        top: 0;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        padding: 22px 26px 16px;
+        background: var(--sx-dock);
+    }
+    .sx-dialog-head h2 { margin: 0; font-size: 20px; font-weight: 700; }
+    .sx-dialog-head small { display: block; margin-top: 4px; color: var(--sx-graphite); font-size: 13px; }
+    .sx-close {
+        width: 38px;
+        height: 38px;
+        flex-shrink: 0;
+        border: 0;
+        border-radius: 50%;
+        background: rgba(241, 241, 238, .1);
+        color: var(--sx-paper);
+        font-size: 18px;
+    }
+    .sx-close:hover { background: rgba(241, 241, 238, .18); }
+    .sx-close:focus-visible { outline: 2px solid var(--sx-blue); outline-offset: 2px; }
+    .sx-dialog-body { padding: 4px 26px 26px; }
+    .sx-dialog-body .sx-desc { max-width: none; color: rgba(241, 241, 238, .85); }
+    .sx-dialog-body h3 { margin: 18px 0 6px; font-size: 15px; font-weight: 700; color: var(--sx-graphite); }
+    .sx-list { margin: 0; padding: 0; list-style: none; }
+    .sx-list li {
+        display: grid;
+        grid-template-columns: 1fr 104px 76px 64px;
+        gap: 16px;
+        align-items: baseline;
+        padding: 10px 0;
+        border-top: 1px solid var(--sx-line);
+        font-size: 14px;
+    }
+    .sx-list .sx-meta { color: var(--sx-graphite); font-variant-numeric: tabular-nums; }
+    .sx-list .sx-size { text-align: right; }
+    .sx-list .is-owned { color: var(--sx-blue); font-weight: 600; }
+    .sx-list .is-missing { color: var(--sx-graphite); }
+
+    .sx-shot-dialog {
+        width: min(1600px, calc(100vw - 48px));
+        max-height: none;
+        background: transparent;
+        box-shadow: none;
+        overflow: visible;
+    }
+    .sx-shot-dialog img { display: block; width: 100%; border-radius: 16px; }
+    .sx-shot-bar { display: flex; align-items: center; justify-content: center; gap: 16px; margin-top: 16px; }
+    .sx-shot-bar span { min-width: 64px; text-align: center; color: var(--sx-graphite); font-variant-numeric: tabular-nums; }
+
+    /* On a laptop-sized screen or bigger the page is exactly one screen tall: the
+       description gives up whatever room the rest needs, and opens in full on request. */
+    @media (min-width: 1100px) and (min-height: 680px) {
+        .sx-title { height: 100dvh; grid-template-rows: minmax(0, 1fr); align-items: center; }
+        .sx-info { min-height: 0; max-height: 100%; }
+        .sx-info > * { flex-shrink: 0; }
+        .sx-desc-wrap { flex: 0 1 auto; overflow: hidden; }
+        .sx-desc-wrap.is-cut {
+            -webkit-mask-image: linear-gradient(180deg, #000 72%, transparent);
+            mask-image: linear-gradient(180deg, #000 72%, transparent);
+        }
+        .sx-stage { width: min(100%, calc((100dvh - 260px) * 16 / 9)); }
+        .sx-thumbs { width: min(100%, calc((100dvh - 260px) * 16 / 9)); }
+    }
+
+    @media (max-width: 1099px) {
+        .sx-title { grid-template-columns: 1fr; }
+        .sx-media { order: -1; }
+    }
+    @media (max-width: 600px) {
+        .sx-title { padding-top: 84px; }
+        .sx-own-row { grid-template-columns: 90px 1fr; }
+        .sx-list li { grid-template-columns: 1fr auto; }
+        .sx-list li .sx-meta { display: none; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+        .sx-backdrop img, .sx-stage img, .sx-thumb { transition: none; }
+    }
+</style>
+
+<div class="sx-ambient" aria-hidden="true"><img alt=""></div>
+<div class="sx-backdrop" aria-hidden="true"><img id="backdrop" alt=""></div>
+
+{% with transparent_nav=True %}{% include 'nav.html' %}{% endwith %}
+
+<main class="sx-title" id="page">
+    <section class="sx-info" id="info" aria-live="polite">
+        <p class="sx-by">Loading…</p>
+    </section>
+    <section class="sx-media" id="media" aria-label="Screenshots"></section>
+</main>
+
+<dialog class="sx-dialog" id="descDialog" aria-labelledby="descDialogTitle">
+    <div class="sx-dialog-head">
+        <h2 id="descDialogTitle">About this game</h2>
+        <button class="sx-close" type="button" data-close aria-label="Close"><i class="bi bi-x-lg"></i></button>
     </div>
-</div>
+    <div class="sx-dialog-body"><p class="sx-desc" id="descFull"></p></div>
+</dialog>
+
+<dialog class="sx-dialog" id="contentDialog" aria-labelledby="contentDialogTitle">
+    <div class="sx-dialog-head">
+        <div>
+            <h2 id="contentDialogTitle">Updates and DLC</h2>
+            <small id="contentDialogId"></small>
+        </div>
+        <button class="sx-close" type="button" data-close aria-label="Close"><i class="bi bi-x-lg"></i></button>
+    </div>
+    <div class="sx-dialog-body" id="contentDialogBody"></div>
+</dialog>
+
+<dialog class="sx-dialog sx-shot-dialog" id="shotDialog" aria-label="Screenshot">
+    <img id="shotFull" alt="">
+    <div class="sx-shot-bar">
+        <button class="sx-close" type="button" data-step="-1" aria-label="Previous screenshot"><i class="bi bi-chevron-left"></i></button>
+        <span id="shotCount"></span>
+        <button class="sx-close" type="button" data-step="1" aria-label="Next screenshot"><i class="bi bi-chevron-right"></i></button>
+        <button class="sx-close" type="button" data-close aria-label="Close"><i class="bi bi-x-lg"></i></button>
+    </div>
+</dialog>
 
 <script src="{{ url_for('static', filename='js/format.js') }}"></script>
 <script>
-    // The whole page is one GraphQL call: the title's metadata, and every app ownfoil
-    // knows for it - owned or missing, since add_missing_apps_for_title expands the
-    // catalogue into app rows, which is what makes the list answer "what am I missing".
-    // `files` is admin only and carries the sizes; a shopper gets null and no size badge.
-    // The icon and the slideshow take the CLIENT rendition, whose 256px and 640px are
-    // exactly the boxes they render into; the full-bleed banner and the lightbox, which
-    // both scale past that, take the original.
     const TITLE_ID = {{ title_id|tojson }};
     const SHOP_NAME = {{ shop_name|tojson }};
 
+    // One call for the whole page. `files` is admin only and carries the sizes, so a
+    // shop user simply sees no size column.
     const TITLE_QUERY = `
         query TitleDetails($titleId: ID!) {
             title(titleId: $titleId) {
-                titleId name intro description
-                developer publisher releaseDate category numberOfPlayers
-                rating ratingContent size nsuId
-                icon(size: ORIGINAL) { url }
+                titleId name intro description developer publisher releaseDate
+                category numberOfPlayers rating size
+                icon(size: CLIENT) { url }
                 banner(size: ORIGINAL) { url }
-                screenshots { url }
-                screenshotsFull: screenshots(size: ORIGINAL) { url }
+                bannerThumb: banner(size: THUMB) { url }
+                shots: screenshots(size: SCREEN) { url }
+                thumbs: screenshots(size: THUMB) { url }
+                full: screenshots(size: ORIGINAL) { url }
                 apps {
                     appId appType appVersion owned releaseDate displayVersion
                     titledb { name releaseDate }
@@ -45,411 +321,287 @@
             }
         }`;
 
+    const $ = id => document.getElementById(id);
     let title = null;
-    let shotIndex = 0;
-    let slideTimer = null;
-    let descExpanded = false;
-    let slideToken = 0;
+    let shot = 0;
 
     async function gqlFetch(query, variables) {
-        // GET, like the library grid: the endpoint ETags its responses, so a reload that
-        // changes nothing costs a 304.
-        const params = new URLSearchParams({query});
-        if (variables && Object.keys(variables).length) {
-            params.set('variables', JSON.stringify(variables));
-        }
-        const r = await fetch('/api/graphql?' + params.toString(), {
+        const params = new URLSearchParams({query, variables: JSON.stringify(variables)});
+        const r = await fetch('/api/graphql?' + params, {
             headers: {'Accept': 'application/json'},
             credentials: 'same-origin',
         });
         if (!r.ok) throw new Error(`GraphQL HTTP ${r.status}`);
         const body = await r.json();
-        if (body.errors && body.errors.length) {
-            throw new Error('GraphQL errors: ' + JSON.stringify(body.errors));
-        }
+        if (body.errors && body.errors.length) throw new Error(JSON.stringify(body.errors));
         return body.data;
     }
 
-    /** Titledb spells a title's date `20231020` and a version's `2023-10-20`. */
+    // Everything shown comes from titledb or the filesystem, so it all goes in as text.
+    function el(tag, attrs = {}, ...children) {
+        const node = document.createElement(tag);
+        for (const [key, value] of Object.entries(attrs)) {
+            if (key === 'class') node.className = value;
+            else node.setAttribute(key, value);
+        }
+        node.append(...children.filter(c => c !== null && c !== undefined && c !== ''));
+        return node;
+    }
+
+    const LATIN = /^[\p{Script=Latin}\p{N}\p{P}\p{Zs}\p{S}]+$/u;
+    const cleanName = name => (name || 'Unrecognized title').replace(/[™®]/g, '').replace(/\s{2,}/g, ' ').trim();
+
     function formatDate(value) {
-        if (!value) return '';
-        const s = String(value);
-        if (/^\d{8}$/.test(s)) return `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6)}`;
-        return s.slice(0, 10);
+        const s = String(value || '');
+        const iso = /^\d{8}$/.test(s) ? `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6)}` : s.slice(0, 10);
+        const d = new Date(iso);
+        return isNaN(d) ? '' : d.toLocaleDateString('en-GB', {day: 'numeric', month: 'short', year: 'numeric'});
     }
 
-    // Names, descriptions, filenames and paths all come from titledb or the filesystem,
-    // so every interpolation below goes through this.
-    const esc = s => String(s === null || s === undefined ? '' : s)
-        .replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
-
-    /** Label/value pairs for the rail, in titledb's own vocabulary. Anything the
-     *  catalogue leaves empty is dropped rather than shown as a blank row. */
-    function facts(t) {
-        const rows = [
-            ['Publisher', t.publisher, ''],
-            ['Developer', t.developer, ''],
-            ['Released', formatDate(t.releaseDate), ''],
-            ['Size', t.size ? formatBytes(t.size) : '', ''],
-            ['Players', t.numberOfPlayers, ''],
-            ['Category', (t.category || []).join(', '), ''],
-            ['Rating', t.rating, ''],
-            ['Content', (t.ratingContent || []).join(', '), ''],
-            ['Title ID', t.titleId, 'title-mono'],
-            ['NSU ID', t.nsuId, 'title-mono'],
-        ];
-        return rows.filter(([, value]) => value);
+    /** Nintendo numbers updates in steps of 65536: 196608 is the third one. */
+    function updateNumber(appVersion) {
+        return appVersion % 65536 === 0 ? appVersion / 65536 : appVersion;
     }
 
-    function headFragment(t) {
-        const byline = [formatDate(t.releaseDate), t.publisher].filter(Boolean).map(esc);
-        const icon = t.icon
-            ? `<img class="title-icon" src="${esc(t.icon.url)}" alt="">`
-            : `<div class="title-icon title-icon--empty"><i class="bi bi-controller"></i></div>`;
-        return `<div class="title-head">
-            ${icon}
-            <div class="title-head-text">
-                <h1 class="title-name">${esc(t.name || 'Unrecognized title')}</h1>
-                <p class="title-byline">${byline.join(' &middot; ')}${byline.length ? ' &middot; ' : ''}
-                    <span class="title-mono">${esc(t.titleId)}</span></p>
-            </div>
-        </div>`;
+    function playersLabel(p) {
+        if (!p) return '';
+        return p === '1' ? '1 player' : `${p.replace(/\s*[-~]\s*/, '–')} players`;
     }
 
-    function factsFragment(t) {
-        return `<aside class="title-facts">${facts(t).map(([key, value, cls]) =>
-            `<div class="title-fact"><span class="title-fact-key">${key}</span>
-                <span class="title-fact-value ${cls}">${esc(value)}</span></div>`).join('')}</aside>`;
-    }
+    const totalSize = files => (files || []).reduce((sum, f) => sum + Number(f.size || 0), 0);
 
-    function aboutFragment(t) {
-        return `<div class="title-about">
-            ${t.intro ? `<p class="title-intro">${esc(t.intro)}</p>` : ''}
-            ${t.description ? `<p class="title-desc is-clamped">${esc(t.description)}</p>
-                <button type="button" class="title-more" id="descToggle">Show more</button>` : ''}
-        </div>`;
-    }
-
-    /** A column of the page grid rather than a box inside the text, so its width is set
-     *  once, next to the panel's - and not by whatever the description happens to leave. */
-    function shotsFragment(t) {
-        // Indices, not urls: the slideshow, the dots and the viewer all step the same
-        // shared position through the list.
-        const shots = t.screenshots || [];
-        if (!shots.length) return '';
-        const dots = shots.map((shot, index) =>
-            `<button type="button" class="title-slide-dot" data-dot="${index}"
-                     aria-label="Screenshot ${index + 1}"></button>`).join('');
-        return `<div class="title-shots">
-            <div class="title-slideshow" data-open>
-                <img class="title-slide" alt="Screenshot">
-                <img class="title-slide" alt="Screenshot">
-                <button type="button" class="title-slide-nav title-slide-nav--prev" data-step="-1"
-                        aria-label="Previous screenshot"><i class="bi bi-chevron-left"></i></button>
-                <button type="button" class="title-slide-nav title-slide-nav--next" data-step="1"
-                        aria-label="Next screenshot"><i class="bi bi-chevron-right"></i></button>
-            </div>
-            <div class="title-slide-dots">${dots}</div>
-        </div>`;
-    }
-
-    /** Move the slideshow and the viewer to a screenshot, wrapping at either end. */
-    function showShot(index) {
-        const shots = (title && title.screenshots) || [];
-        if (!shots.length) return;
-        shotIndex = (index + shots.length) % shots.length;
-
-        crossfade(shots[shotIndex].url);
-        document.querySelectorAll('[data-dot]').forEach(dot => {
-            dot.classList.toggle('is-current', Number(dot.dataset.dot) === shotIndex);
+    /** What the library holds for this title, read the way a player asks it. */
+    function ownership(apps) {
+        const base = apps.filter(a => a.appType === 'BASE').sort((a, b) => b.appVersion - a.appVersion);
+        const updates = apps.filter(a => a.appType === 'UPDATE').sort((a, b) => b.appVersion - a.appVersion);
+        const dlcById = new Map();
+        apps.filter(a => a.appType === 'DLC').forEach(a => {
+            const seen = dlcById.get(a.appId);
+            if (!seen || a.appVersion > seen.appVersion || (a.owned && !seen.owned)) dlcById.set(a.appId, a);
         });
-        // Loading it into the viewer as we go doubles as the preload for opening it.
-        const full = title.screenshotsFull || shots;
-        document.getElementById('shotImage').src = full[shotIndex].url;
-        document.getElementById('shotCount').textContent = `${shotIndex + 1} / ${shots.length}`;
-        document.querySelectorAll('.title-shot-nav, .title-slide-nav').forEach(button => {
-            button.hidden = shots.length < 2;
-        });
-    }
-
-    /** Crop the description to the room its row actually has - the facts panel and the
-     *  screenshots set that height, so a five-line clamp either cut text off with empty
-     *  space beside it or left the column short. Whole lines only, and no toggle at all
-     *  when the whole description already fits. */
-    function fitDescription() {
-        const desc = document.querySelector('.title-desc');
-        if (!desc) return;
-        const toggle = document.getElementById('descToggle');
-        const column = desc.parentElement;
-        const grid = column.parentElement;
-
-        // Called only while the text is collapsed, so start from the clamped state: a
-        // previous fit may have taken the class off when the column was wider.
-        desc.classList.add('is-clamped');
-        desc.style.webkitLineClamp = '';
-        toggle.hidden = false;
-        // Stacked on a narrow screen the column stands alone, so there is no neighbour
-        // height to match and the stylesheet's clamp is the answer. Only what shares the
-        // row counts: at middle widths the screenshots sit on their own row below.
-        const siblings = Array.from(grid.children).filter(child =>
-            child !== column && Math.abs(child.offsetTop - column.offsetTop) < 4);
-        const stacked = column.offsetWidth > grid.offsetWidth - 1;
-        const lineHeight = parseFloat(getComputedStyle(desc).lineHeight);
-        if (!stacked) {
-            // Everything but the text itself - intro, gaps, the toggle - is what the row
-            // owes the column, so the rest is the text's and the column ends level.
-            const spare = Math.max(...siblings.map(child => child.offsetHeight))
-                - (column.offsetHeight - desc.offsetHeight);
-            desc.style.webkitLineClamp = Math.max(3, Math.floor(spare / lineHeight));
-        }
-        // scrollHeight ignores the clamp, so it says what the text really needs.
-        const lines = parseInt(getComputedStyle(desc).webkitLineClamp, 10);
-        toggle.hidden = desc.scrollHeight <= lines * lineHeight + 1;
-        if (toggle.hidden) desc.classList.remove('is-clamped');
-    }
-
-    /** Bring the next screenshot up over the one on screen. Two stacked layers rather
-     *  than one image fading in: swapping the src of a single one shows a blank frame
-     *  while the new file decodes, which is the pop. Only the layer that has finished
-     *  decoding is ever brought forward. */
-    function crossfade(url) {
-        const layers = document.querySelectorAll('.title-slide');
-        if (!layers.length) return;
-        const front = document.querySelector('.title-slide.is-current');
-        const back = layers[0] === front ? layers[1] : layers[0];
-        // A stored image's url is page-relative, and `src` reads back absolute.
-        if (front && front.src === new URL(url, location.href).href) return;
-
-        const token = ++slideToken;
-        const bringForward = () => {
-            // A quick run through the dots leaves earlier loads in flight; they must not
-            // pull their layer back up once a later one has won.
-            if (token !== slideToken) return;
-            back.classList.add('is-current');
-            if (front) front.classList.remove('is-current');
+        const dlc = [...dlcById.values()].sort((a, b) =>
+            ((a.titledb || {}).name || a.appId).localeCompare((b.titledb || {}).name || b.appId));
+        return {
+            base: base.find(a => a.owned) || base[0] || null,
+            updates,
+            latestUpdate: updates[0] || null,
+            ownedUpdate: updates.find(a => a.owned) || null,
+            dlc,
         };
-        back.src = url;
-        if (back.complete) bringForward();
-        else back.addEventListener('load', bringForward, {once: true});
     }
 
-    /** The slideshow advances on its own, but never under the pointer or behind the viewer. */
-    function startSlideshow() {
-        clearInterval(slideTimer);
-        if (((title && title.screenshots) || []).length < 2) return;
-        slideTimer = setInterval(() => {
-            if (document.getElementById('shotModal').classList.contains('show')) return;
-            if (document.querySelector('.title-slideshow:hover')) return;
-            showShot(shotIndex + 1);
-        }, 5000);
+    function ownRow(label, value, note, tone) {
+        return el('div', {class: 'sx-own-row'},
+            el('dt', {}, label),
+            el('dd', {}, el('strong', tone ? {class: tone} : {}, value), note ? el('span', {}, note) : null));
     }
 
-    /** One entry per app id, not per version: a title carries every update under a
-     *  single update app id, and a flat list would be dozens of rows of history. */
-    function groupApps(apps) {
-        const byId = new Map();
-        for (const app of apps) {
-            if (!byId.has(app.appId)) byId.set(app.appId, []);
-            byId.get(app.appId).push(app);
-        }
-        return [...byId.values()].map(versions => {
-            versions.sort((a, b) => b.appVersion - a.appVersion);
-            const latest = versions[0];
-            return {
-                appId: latest.appId,
-                appType: latest.appType,
-                name: (latest.titledb && latest.titledb.name) || null,
-                displayVersion: latest.displayVersion,
-                // BASE and DLC carry no release date of their own - theirs lives on the
-                // titledb row keyed by the app id. Only UPDATE rows date themselves.
-                releaseDate: (latest.titledb && latest.titledb.releaseDate)
-                    || latest.releaseDate,
-                versions,
-                owned: versions.some(v => v.owned),
-                // Null for anyone but an admin, so the size column stays empty.
-                files: versions.flatMap(v => v.files || []),
-            };
-        });
-    }
+    function ownershipPanel(own) {
+        const rows = [];
+        rows.push(own.base && own.base.owned
+            ? ownRow('Base game', 'In your library', own.base.displayVersion ? `Version ${own.base.displayVersion}` : '')
+            : ownRow('Base game', 'Not in your library', 'Only updates or DLC are here', 'is-due'));
 
-    // One template drives the header and every row, so the columns line up across the
-    // base row and both groups even though they sit in different containers.
-    const CONTENT_COLUMNS = [
-        ['name', 'Content'], ['version', 'Version'], ['released', 'Released'],
-        ['status', 'Status'], ['size', 'Size'],
-    ];
-
-    function contentHeader() {
-        return `<div class="title-row title-row--head">${CONTENT_COLUMNS.map(
-            ([key, label]) => `<span class="title-col--${key}">${label}</span>`).join('')}</div>`;
-    }
-
-    /** `displayVersion` is the string the game shows about itself, read out of an owned
-     *  file's Control NCA - so a missing version has none, and no DLC ever does. An
-     *  empty cell is the honest answer rather than a dash. */
-    function contentRow({name, version, released, owned, files}) {
-        const size = (files || []).reduce((sum, f) => sum + Number(f.size || 0), 0);
-        return `<div class="title-row">
-            <span class="title-col--name">${name}</span>
-            <span class="title-col--version">${esc(version || '')}</span>
-            <span class="title-col--released">${formatDate(released)}</span>
-            <span class="title-col--status">${owned
-                ? '<span class="badge text-bg-success">Owned</span>'
-                : '<span class="badge border text-secondary">Missing</span>'}</span>
-            <span class="title-col--size">${size ? formatBytes(size) : ''}</span>
-        </div>`;
-    }
-
-    /** A counted group that opens. No `data-bs-parent`, so updates and DLC are
-     *  independent - opening one must not shut the other. */
-    function contentGroup(id, label, count, rowsHtml) {
-        if (!count) return '';
-        return `<div class="accordion-item">
-            <h2 class="accordion-header">
-                <button class="accordion-button collapsed" type="button"
-                        data-bs-toggle="collapse" data-bs-target="#${id}">
-                    ${label}
-                    <span class="badge text-bg-secondary ms-auto me-2">${count}</span>
-                </button>
-            </h2>
-            <div id="${id}" class="accordion-collapse collapse">
-                <div class="accordion-body">${rowsHtml}</div>
-            </div>
-        </div>`;
-    }
-
-    /** The base game as one row, then updates and DLC as groups - the split the page
-     *  is actually read in, rather than a sortable table of every app row. */
-    function contentFragment(t) {
-        const groups = groupApps(t.apps || []);
-        const base = groups.find(group => group.appType === 'BASE');
-        const updates = groups.filter(group => group.appType === 'UPDATE')
-            .flatMap(group => group.versions)
-            .sort((a, b) => b.appVersion - a.appVersion);
-        const dlc = groups.filter(group => group.appType === 'DLC')
-            .sort((a, b) => (a.name || a.appId).localeCompare(b.name || b.appId));
-
-        const updateRows = updates.map(version => contentRow({
-            name: `v${version.appVersion}`, version: version.displayVersion,
-            released: version.releaseDate, owned: version.owned, files: version.files,
-        })).join('');
-        const dlcRows = dlc.map(group => contentRow({
-            name: esc(group.name || group.appId), version: group.displayVersion,
-            released: group.releaseDate, owned: group.owned, files: group.files,
-        })).join('');
-
-        return `<section class="title-content">
-            ${contentHeader()}
-            ${base ? contentRow({
-                name: 'Base Game', version: base.displayVersion,
-                released: base.releaseDate || t.releaseDate,
-                owned: base.owned, files: base.files,
-            }) : ''}
-            <div class="accordion accordion-flush">
-                ${contentGroup('contentUpdates', 'Updates', updates.length, updateRows)}
-                ${contentGroup('contentDlc', 'DLC', dlc.length, dlcRows)}
-            </div>
-        </section>`;
-    }
-
-    function render() {
-        const body = document.getElementById('titleBody');
-        if (!title) {
-            document.querySelector('.title-page').classList.add('title-page--nobanner');
-            body.innerHTML = `<div class="title-missing">
-                <h1>Title not found</h1>
-                <p class="text-secondary">Nothing in the library or the catalogue carries the id
-                    <span class="title-mono">${esc(TITLE_ID)}</span>.</p>
-                <a href="/" class="btn btn-primary">Back to the library</a>
-            </div>`;
-            return;
-        }
-
-        document.title = `${SHOP_NAME} | ${title.name || title.titleId}`;
-        if (title.banner) {
-            document.getElementById('titleBanner').style.backgroundImage = `url('${title.banner.url}')`;
+        if (!own.latestUpdate) {
+            rows.push(ownRow('Updates', 'None released'));
+        } else if (own.ownedUpdate === own.latestUpdate) {
+            rows.push(ownRow('Updates', 'Up to date', describeUpdate(own.latestUpdate), 'is-good'));
         } else {
-            document.querySelector('.title-page').classList.add('title-page--nobanner');
+            rows.push(ownRow('Updates', `Update ${updateNumber(own.latestUpdate.appVersion)} available`,
+                own.ownedUpdate ? `You have ${describeUpdate(own.ownedUpdate).toLowerCase()}` : 'No update in your library',
+                'is-due'));
         }
 
-        descExpanded = false;
-        const hasShots = (title.screenshots || []).length > 0;
-        body.innerHTML = headFragment(title)
-            + `<div class="title-grid${hasShots ? ' has-shots' : ''}">${factsFragment(title)}
-                ${aboutFragment(title)}${shotsFragment(title)}</div>`
-            + contentFragment(title);
-        showShot(0);
-        startSlideshow();
+        const ownedDlc = own.dlc.filter(a => a.owned).length;
+        rows.push(own.dlc.length
+            ? ownRow('DLC', `${ownedDlc} of ${own.dlc.length} owned`, '', ownedDlc === own.dlc.length ? 'is-good' : '')
+            : ownRow('DLC', 'None released'));
+
+        return el('dl', {class: 'sx-own'}, ...rows);
+    }
+
+    function describeUpdate(app) {
+        const n = `Update ${updateNumber(app.appVersion)}`;
+        return app.displayVersion ? `${n}, version ${app.displayVersion}` : n;
+    }
+
+    function listItem(name, date, owned, size) {
+        return el('li', {},
+            el('span', {}, name),
+            el('span', {class: 'sx-meta'}, formatDate(date)),
+            el('span', {class: 'sx-meta sx-size'}, size ? formatBytes(size) : ''),
+            el('span', {class: owned ? 'is-owned' : 'is-missing'}, owned ? 'Owned' : 'Missing'));
+    }
+
+    function fillContentDialog(own) {
+        const body = $('contentDialogBody');
+        body.replaceChildren();
+        if (own.updates.length) {
+            body.append(el('h3', {}, 'Updates'), el('ul', {class: 'sx-list'}, ...own.updates.map(a =>
+                listItem(describeUpdate(a), a.releaseDate, a.owned, totalSize(a.files)))));
+        }
+        if (own.dlc.length) {
+            body.append(el('h3', {}, 'DLC'), el('ul', {class: 'sx-list'}, ...own.dlc.map(a =>
+                listItem(cleanName((a.titledb || {}).name || a.appId), (a.titledb || {}).releaseDate, a.owned,
+                         totalSize(a.files)))));
+        }
+        $('contentDialogId').textContent = `Title ID ${title.titleId}`;
+    }
+
+    function renderInfo() {
+        const t = title;
+        const own = ownership(t.apps || []);
+        const year = /^\d{8}$/.test(t.releaseDate || '') ? t.releaseDate.slice(0, 4) : '';
+        const studio = t.developer && t.developer !== t.publisher ? `Developed by ${t.developer}` : '';
+        const intro = t.intro && LATIN.test(t.intro) ? t.intro.trim() : '';
+        const facts = [...(t.category || []).filter(c => LATIN.test(c)).slice(0, 3),
+                       playersLabel(t.numberOfPlayers),
+                       t.rating ? `Ages ${t.rating}+` : '',
+                       t.size ? formatBytes(t.size) : '',
+                       formatDate(t.releaseDate)].filter(Boolean);
+
+        const info = $('info');
+        info.replaceChildren(
+            el('div', {class: 'sx-head'},
+                t.icon ? el('img', {class: 'sx-icon', src: t.icon.url, alt: ''}) : null,
+                el('p', {class: 'sx-by'},
+                    el('strong', {}, [t.publisher, year].filter(Boolean).join(', ')),
+                    studio)),
+            el('h1', {class: 'sx-name sx-wide'}, cleanName(t.name)),
+            intro ? el('p', {class: 'sx-intro'}, intro) : null,
+            facts.length ? el('ul', {class: 'sx-facts'}, ...facts.map(f => el('li', {}, f))) : null,
+        );
+
+        const description = (t.description || '').trim();
+        if (description) {
+            const wrap = el('div', {class: 'sx-desc-wrap'}, el('p', {class: 'sx-desc'}, description));
+            const more = el('button', {class: 'sx-link', type: 'button'}, 'Read full description');
+            more.addEventListener('click', () => $('descDialog').showModal());
+            $('descFull').textContent = description;
+            info.append(wrap, more);
+        }
+
+        info.append(ownershipPanel(own));
+        if (own.updates.length || own.dlc.length) {
+            fillContentDialog(own);
+            const all = el('button', {class: 'sx-link', type: 'button'}, 'See every update and DLC');
+            all.addEventListener('click', () => $('contentDialog').showModal());
+            info.append(all);
+        }
         fitDescription();
     }
 
-    async function loadTitle() {
+    /** Whether the description had to give up lines, which decides the fade and whether
+     *  "Read full description" is worth showing. */
+    function fitDescription() {
+        const wrap = document.querySelector('.sx-desc-wrap');
+        if (!wrap) return;
+        const cut = wrap.scrollHeight > wrap.clientHeight + 2;
+        wrap.classList.toggle('is-cut', cut);
+        wrap.nextElementSibling.hidden = !cut && wrap.clientHeight > 0;
+    }
+
+    function renderMedia() {
+        const shots = title.shots || [];
+        const media = $('media');
+        if (!shots.length) {
+            media.hidden = true;
+            document.querySelector('.sx-title').style.gridTemplateColumns = 'minmax(0, 720px)';
+            return;
+        }
+        const stage = el('button', {class: 'sx-stage', type: 'button', 'aria-label': 'Open screenshot full size'},
+            el('img', {alt: ''}), el('img', {alt: ''}));
+        stage.addEventListener('click', () => { showFull(); $('shotDialog').showModal(); });
+
+        const thumbs = el('div', {class: 'sx-thumbs'}, ...(title.thumbs || shots).map((s, i) => {
+            const b = el('button', {class: 'sx-thumb', type: 'button', 'aria-label': `Screenshot ${i + 1}`},
+                el('img', {src: s.url, alt: '', loading: 'lazy'}));
+            b.addEventListener('click', () => showShot(i));
+            return b;
+        }));
+        media.replaceChildren(stage, shots.length > 1 ? thumbs : '');
+        showShot(0);
+    }
+
+    /** Two stacked layers, so the next screenshot fades in over the current one
+     *  instead of the stage flashing empty while it decodes. */
+    let stageToken = 0;
+    function showShot(index) {
+        const shots = title.shots || [];
+        if (!shots.length) return;
+        shot = (index + shots.length) % shots.length;
+        const layers = document.querySelectorAll('.sx-stage img');
+        const front = document.querySelector('.sx-stage img.is-on');
+        const back = layers[0] === front ? layers[1] : layers[0];
+        const token = ++stageToken;
+        back.onload = () => {
+            if (token !== stageToken) return;
+            back.classList.add('is-on');
+            if (front) front.classList.remove('is-on');
+        };
+        back.src = shots[shot].url;
+        document.querySelectorAll('.sx-thumb').forEach((b, i) => {
+            b.setAttribute('aria-current', String(i === shot));
+            b.classList.toggle('sx-ring', i === shot);
+        });
+        if ($('shotDialog').open) showFull();
+    }
+
+    function showFull() {
+        const full = title.full || title.shots;
+        $('shotFull').src = full[shot].url;
+        $('shotCount').textContent = `${shot + 1} of ${full.length}`;
+    }
+
+    function renderMissing() {
+        $('media').hidden = true;
+        $('info').replaceChildren(el('div', {class: 'sx-missing'},
+            el('h1', {class: 'sx-wide'}, 'Game not found'),
+            el('p', {}, `Nothing in your library or the catalogue has the ID ${TITLE_ID}.`),
+            el('a', {class: 'sx-btn sx-btn--quiet', href: '/'}, 'Back to the library')));
+    }
+
+    function setLayer(img, src) {
+        if (!src) return;
+        img.onload = () => img.classList.add('is-on');
+        img.src = src;
+    }
+
+    async function load() {
         try {
             title = (await gqlFetch(TITLE_QUERY, {titleId: TITLE_ID})).title;
         } catch (e) {
             console.error(e);
-            document.getElementById('titleBody').innerHTML =
-                '<p class="text-danger">Could not load this title.</p>';
+            $('info').replaceChildren(el('p', {class: 'sx-by'}, 'This game could not be loaded. Reload the page to try again.'));
             return;
         }
-        render();
+        if (!title) return renderMissing();
+
+        document.title = `${SHOP_NAME} | ${cleanName(title.name)}`;
+        setLayer($('backdrop'), (title.banner || {}).url);
+        setLayer(document.querySelector('.sx-ambient img'), (title.bannerThumb || {}).url);
+        renderInfo();
+        renderMedia();
     }
 
     document.addEventListener('click', event => {
         const step = event.target.closest('[data-step]');
-        if (step) {
-            showShot(shotIndex + Number(step.dataset.step));
-            return;
-        }
-
-        const dot = event.target.closest('[data-dot]');
-        if (dot) {
-            showShot(Number(dot.dataset.dot));
-            return;
-        }
-
-        if (event.target.closest('[data-open]')) {
-            bootstrap.Modal.getOrCreateInstance(document.getElementById('shotModal')).show();
-            return;
-        }
-
-        const toggle = event.target.closest('#descToggle');
-        if (toggle) {
-            const clamped = document.querySelector('.title-desc').classList.toggle('is-clamped');
-            toggle.textContent = clamped ? 'Show more' : 'Show less';
-            descExpanded = !clamped;
-            if (clamped) fitDescription();
-        }
+        if (step) showShot(shot + Number(step.dataset.step));
+        const close = event.target.closest('[data-close]');
+        if (close) close.closest('dialog').close();
+        // A click on the dimmed area outside a dialog closes it.
+        if (event.target instanceof HTMLDialogElement) event.target.close();
     });
 
-    // Bootstrap closes the viewer on Escape itself; the arrow keys are ours.
     document.addEventListener('keydown', event => {
-        if (!document.getElementById('shotModal').classList.contains('show')) return;
-        if (event.key === 'ArrowRight') showShot(shotIndex + 1);
-        if (event.key === 'ArrowLeft') showShot(shotIndex - 1);
+        if (!title || event.target.closest('input, textarea, select')) return;
+        const otherDialog = document.querySelector('dialog[open]:not(#shotDialog)');
+        if (otherDialog) return;
+        if (event.key === 'ArrowRight') showShot(shot + 1);
+        if (event.key === 'ArrowLeft') showShot(shot - 1);
     });
 
-    // The row the text has to match is a function of the width - but a reader who asked
-    // for the whole description keeps it.
-    window.addEventListener('resize', () => {
-        if (!descExpanded) fitDescription();
-    });
-
-    loadTitle();
+    window.addEventListener('resize', fitDescription);
+    load();
 </script>
-
-<div class="modal fade" id="shotModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-xl modal-dialog-centered">
-        <div class="modal-content bg-transparent border-0">
-            <div class="title-lightbox">
-                <button type="button" class="title-shot-nav" data-step="-1"
-                        aria-label="Previous screenshot"><i class="bi bi-chevron-left"></i></button>
-                <img id="shotImage" class="img-fluid rounded" alt="Screenshot">
-                <button type="button" class="title-shot-nav" data-step="1"
-                        aria-label="Next screenshot"><i class="bi bi-chevron-right"></i></button>
-            </div>
-            <p class="title-shot-count" id="shotCount"></p>
-        </div>
-    </div>
-</div>
 {% endblock %}

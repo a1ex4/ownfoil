@@ -1,0 +1,92 @@
+/* Shared by the store-style library and title pages. */
+:root {
+    --sx-console: #1C1D21;
+    --sx-dock: #27282E;
+    --sx-paper: #F1F1EE;
+    --sx-graphite: #9C9DA6;
+    --sx-blue: #00C3E3;
+    --sx-red: #FF4554;
+    --sx-line: rgba(241, 241, 238, .09);
+    --sx-font: "Archivo", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --sx-gutter: clamp(20px, 5vw, 72px);
+}
+
+body {
+    background: var(--sx-console);
+    color: var(--sx-paper);
+    font-family: var(--sx-font);
+}
+
+.sx-wide { font-stretch: 125%; font-variation-settings: "wdth" 125; }
+
+/* The page takes on the colours of the game in focus. */
+.sx-ambient {
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    overflow: hidden;
+    pointer-events: none;
+}
+.sx-ambient img {
+    position: absolute;
+    inset: -10%;
+    width: 120%;
+    height: 120%;
+    object-fit: cover;
+    filter: blur(70px) saturate(1.5);
+    opacity: 0;
+    transition: opacity .7s ease;
+}
+.sx-ambient img.is-on { opacity: .30; }
+
+.sx-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    padding: 13px 26px;
+    border-radius: 999px;
+    border: 0;
+    font: 700 15px/1 var(--sx-font);
+    text-decoration: none;
+    cursor: pointer;
+}
+.sx-btn--primary { background: var(--sx-blue); color: #04252B; }
+.sx-btn--primary:hover { background: #33D2EC; color: #04252B; }
+.sx-btn--quiet { background: rgba(241, 241, 238, .12); color: var(--sx-paper); }
+.sx-btn--quiet:hover { background: rgba(241, 241, 238, .2); color: var(--sx-paper); }
+.sx-btn:focus-visible { outline: 2px solid var(--sx-blue); outline-offset: 3px; }
+
+/* The Switch home menu's selection ring. */
+.sx-ring {
+    outline: 3px solid var(--sx-blue);
+    outline-offset: 3px;
+    animation: sx-ring 1.6s ease-in-out infinite;
+}
+@keyframes sx-ring {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(0, 195, 227, 0); }
+    50% { box-shadow: 0 0 22px 2px rgba(0, 195, 227, .45); }
+}
+
+.sx-dot {
+    display: inline-block;
+    width: 7px;
+    height: 7px;
+    margin-right: 7px;
+    border-radius: 50%;
+    vertical-align: 1px;
+    background: var(--sx-red);
+}
+
+.sx-visually-hidden {
+    position: absolute !important;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .sx-ambient img { transition: none; }
+    .sx-ring { animation: none; }
+}

@@ -1,727 +1,692 @@
 {% extends "base.html" %}
 
-
 {% block content %}
-{% include 'nav.html' %}
-<div id="content" class="container-fluid mt-3">
+<link rel="stylesheet" href="{{ url_for('static', filename='vendor/archivo/archivo.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='store.css') }}">
 
-    <div class="row gy-2 gx-3 align-items-center justify-content-md-center">
+<style>
+    /* Hero */
+    .sx-hero {
+        position: relative;
+        height: clamp(460px, 76vh, 760px);
+        display: flex;
+        align-items: flex-end;
+        isolation: isolate;
+    }
+    .sx-hero-art {
+        position: absolute;
+        inset: 0;
+        z-index: -2;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        object-position: center 30%;
+        opacity: 0;
+        transition: opacity .5s ease;
+    }
+    .sx-hero-art.is-on { opacity: 1; }
+    .sx-hero::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        z-index: -1;
+        background:
+            linear-gradient(180deg, rgba(28, 29, 33, .7) 0, rgba(28, 29, 33, 0) 120px),
+            linear-gradient(90deg, rgba(28, 29, 33, .94) 0%, rgba(28, 29, 33, .62) 38%, rgba(28, 29, 33, 0) 70%);
+    }
+    /* Art and scrim dissolve into the ambient backdrop instead of ending on a hard edge. */
+    .sx-hero-art, .sx-hero::after {
+        -webkit-mask-image: linear-gradient(180deg, #000 62%, transparent 100%);
+        mask-image: linear-gradient(180deg, #000 62%, transparent 100%);
+    }
+    .sx-hero-inner {
+        width: 100%;
+        padding: 0 var(--sx-gutter) clamp(28px, 6vh, 64px);
+        display: flex;
+        align-items: flex-end;
+        justify-content: space-between;
+        gap: 40px;
+    }
+    .sx-hero-copy { max-width: 600px; }
+    .sx-hero-by {
+        margin: 0 0 12px;
+        color: var(--sx-graphite);
+        font-size: 15px;
+        font-weight: 500;
+    }
+    .sx-hero-title {
+        margin: 0;
+        font-size: clamp(34px, 5.2vw, 68px);
+        font-weight: 800;
+        line-height: .98;
+        letter-spacing: -.01em;
+        text-wrap: balance;
+    }
+    .sx-hero-intro {
+        margin: 18px 0 0;
+        max-width: 52ch;
+        font-size: 18px;
+        line-height: 1.45;
+        color: rgba(241, 241, 238, .86);
+    }
+    .sx-hero-facts {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin: 22px 0 0;
+        padding: 0;
+        list-style: none;
+    }
+    .sx-hero-facts li {
+        padding: 5px 12px;
+        border: 1px solid rgba(241, 241, 238, .22);
+        border-radius: 999px;
+        font-size: 13px;
+        font-weight: 500;
+        color: rgba(241, 241, 238, .9);
+        backdrop-filter: blur(6px);
+    }
+    .sx-hero-actions { margin-top: 28px; display: flex; gap: 12px; flex-wrap: wrap; }
 
-        <div class="col-auto">
-            <div class="btn-group dropdown-center" role="group">
-                <div class="btn-group" role="group">
-                    <button id="filterDropdownBtn" type="button" class="btn btn-primary dropdown-toggle"
-                        data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
-                        <i class="bi bi-funnel-fill"></i>
-                    </button>
-                    <ul class="dropdown-menu">
-                        <li>
-                            <div class="dropdown-item">
-                                <div class="btn-group w-100" role="group" aria-label="Type filter">
-                                    <input type="radio" class="btn-check type-toggle" name="typeFilter" id="typeAll" autocomplete="off" checked>
-                                    <label class="btn btn-outline-primary" for="typeAll">All</label>
+    /* Picks: swap the hero between a handful of games */
+    .sx-picks {
+        display: flex;
+        gap: 12px;
+        flex-shrink: 0;
+        padding: 6px;
+        margin: -6px;
+    }
+    .sx-pick {
+        width: 76px;
+        height: 76px;
+        padding: 0;
+        border: 0;
+        border-radius: 14px;
+        background: var(--sx-dock);
+        overflow: hidden;
+        cursor: pointer;
+        opacity: .62;
+        transition: opacity .2s ease;
+    }
+    .sx-pick img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .sx-pick:hover, .sx-pick[aria-pressed="true"] { opacity: 1; }
 
-                                    <input type="radio" class="btn-check type-toggle" name="typeFilter" id="typeBase" autocomplete="off">
-                                    <label class="btn btn-outline-primary" for="typeBase">Base</label>
+    /* The Switch home menu's selection ring, on everything you can pick */
+    .sx-pick[aria-pressed="true"],
+    .sx-pick:focus-visible,
+    .sx-tile:hover .sx-art,
+    .sx-tile:focus-visible .sx-art {
+        outline: 3px solid var(--sx-blue);
+        outline-offset: 3px;
+        animation: sx-ring 1.6s ease-in-out infinite;
+    }
+    .sx-tile:focus-visible { outline: none; }
 
-                                    <input type="radio" class="btn-check type-toggle" name="typeFilter" id="typeDlc" autocomplete="off">
-                                    <label class="btn btn-outline-primary" for="typeDlc">DLC</label>
-                                </div>
-                            </div>
-                        </li>
-                        <li>
-                            <hr class="dropdown-divider">
-                        </li>
-                        <li>
-                            <div class="dropdown-item">
-                                <div class="btn-group w-100" role="group" aria-label="Ownership filter">
-                                    <input type="radio" class="btn-check ownership-toggle" name="ownershipFilter" id="ownershipAll" autocomplete="off" checked>
-                                    <label class="btn btn-outline-primary" for="ownershipAll">All</label>
+    /* Library */
+    .sx-library { padding: 8px var(--sx-gutter) 96px; }
+    .sx-hero[hidden] + .sx-library { padding-top: 104px; }
+    .sx-library-head {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 8px 32px;
+        margin-bottom: 22px;
+    }
+    .sx-library-title { margin: 0; font-size: 34px; font-weight: 800; }
+    .sx-library-sum { margin: 0; color: var(--sx-graphite); font-size: 15px; }
 
-                                    <input type="radio" class="btn-check ownership-toggle" name="ownershipFilter" id="ownershipOwned" autocomplete="off">
-                                    <label class="btn btn-outline-primary" for="ownershipOwned">Owned</label>
+    .sx-tools {
+        display: grid;
+        grid-template-columns: minmax(220px, 340px) minmax(0, 1fr) auto;
+        grid-template-areas: "search chips sort";
+        gap: 14px 18px;
+        align-items: center;
+        padding-bottom: 22px;
+        margin-bottom: 30px;
+        border-bottom: 1px solid var(--sx-line);
+    }
+    .sx-search { position: relative; grid-area: search; }
+    .sx-sort { grid-area: sort; }
+    .sx-search i {
+        position: absolute;
+        left: 16px;
+        top: 50%;
+        transform: translateY(-50%);
+        color: var(--sx-graphite);
+        pointer-events: none;
+    }
+    .sx-search input {
+        width: 100%;
+        padding: 12px 16px 12px 44px;
+        border-radius: 999px;
+        border: 1px solid transparent;
+        background: var(--sx-dock);
+        color: var(--sx-paper);
+        font: 500 15px var(--sx-font);
+    }
+    .sx-search input::placeholder { color: var(--sx-graphite); }
+    .sx-search input:focus { outline: 2px solid var(--sx-blue); outline-offset: 2px; }
 
-                                    <input type="radio" class="btn-check ownership-toggle" name="ownershipFilter" id="ownershipMissing" autocomplete="off">
-                                    <label class="btn btn-outline-primary" for="ownershipMissing">Missing</label>
-                                </div>
-                            </div>
-                        </li>
-                        <li>
-                            <hr class="dropdown-divider">
-                        </li>
-                        <li>
-                            <div class="dropdown-item">
-                                <div class="btn-group w-100" role="group" aria-label="Update filter">
-                                    <input type="radio" class="btn-check update-toggle" name="updateFilter" id="updateAll" autocomplete="off" checked>
-                                    <label class="btn btn-outline-primary" for="updateAll">All</label>
+    .sx-chips {
+        grid-area: chips;
+        min-width: 0;
+        display: flex;
+        gap: 8px;
+        overflow-x: auto;
+        scrollbar-width: none;
+        padding: 4px;
+        margin: -4px;
+    }
+    .sx-chips::-webkit-scrollbar { display: none; }
+    .sx-chip {
+        flex-shrink: 0;
+        padding: 8px 15px;
+        border-radius: 999px;
+        border: 1px solid var(--sx-line);
+        background: transparent;
+        color: var(--sx-paper);
+        font: 500 14px var(--sx-font);
+        cursor: pointer;
+        white-space: nowrap;
+    }
+    .sx-chip:hover { border-color: rgba(241, 241, 238, .3); }
+    .sx-chip[aria-pressed="true"] { background: var(--sx-paper); border-color: var(--sx-paper); color: var(--sx-console); }
+    .sx-chip:focus-visible, .sx-sort:focus-visible { outline: 2px solid var(--sx-blue); outline-offset: 2px; }
+    .sx-chip .sx-count { margin-left: 6px; color: var(--sx-graphite); }
+    .sx-chip[aria-pressed="true"] .sx-count { color: #5C5D66; }
 
-                                    <input type="radio" class="btn-check update-toggle" name="updateFilter" id="updateUpToDate" autocomplete="off">
-                                    <label class="btn btn-outline-primary" for="updateUpToDate">Up to date</label>
+    .sx-sort {
+        padding: 9px 36px 9px 15px;
+        border-radius: 999px;
+        border: 1px solid var(--sx-line);
+        background: var(--sx-console) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5l5 5 5-5' fill='none' stroke='%239C9DA6' stroke-width='1.6'/%3E%3C/svg%3E") no-repeat right 14px center;
+        color: var(--sx-paper);
+        font: 500 14px var(--sx-font);
+        appearance: none;
+        cursor: pointer;
+    }
 
-                                    <input type="radio" class="btn-check update-toggle" name="updateFilter" id="updateMissingUpdate" autocomplete="off">
-                                    <label class="btn btn-outline-primary" for="updateMissingUpdate">Missing Update</label>
-                                </div>
-                            </div>
-                        </li>
-                        <li>
-                            <hr class="dropdown-divider">
-                        </li>
-                        <li>
-                            <div class="dropdown-item">
-                                <div class="btn-group w-100" role="group" aria-label="Completion filter">
-                                    <input type="radio" class="btn-check completion-toggle" name="completionFilter" id="completionAll" autocomplete="off" checked>
-                                    <label class="btn btn-outline-primary" for="completionAll">All</label>
+    .sx-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(164px, 1fr));
+        gap: 34px 26px;
+    }
+    .sx-tile {
+        display: block;
+        color: inherit;
+        text-decoration: none;
+        min-width: 0;
+    }
+    .sx-tile:hover { color: inherit; }
+    .sx-art {
+        display: block;
+        aspect-ratio: 1;
+        border-radius: 14px;
+        overflow: hidden;
+        background: var(--sx-dock);
+        box-shadow: 0 10px 28px -14px rgba(0, 0, 0, .7);
+    }
+    .sx-art img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .sx-art--empty {
+        display: grid;
+        place-items: center;
+        padding: 14px;
+        color: var(--sx-graphite);
+        font-size: 13px;
+        text-align: center;
+    }
+    .sx-name {
+        display: -webkit-box;
+        margin-top: 14px;
+        font-size: 15px;
+        font-weight: 600;
+        line-height: 1.3;
+        font-stretch: 92%;
+        font-variation-settings: "wdth" 92;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+    }
+    .sx-sub {
+        display: block;
+        margin-top: 4px;
+        color: var(--sx-graphite);
+        font-size: 13px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    .sx-flag {
+        display: block;
+        margin-top: 6px;
+        font-size: 12.5px;
+        font-weight: 600;
+    }
+    .sx-flag--update { color: var(--sx-red); }
+    .sx-flag--note { color: var(--sx-graphite); font-weight: 500; }
 
-                                    <input type="radio" class="btn-check completion-toggle" name="completionFilter" id="completionComplete" autocomplete="off">
-                                    <label class="btn btn-outline-primary" for="completionComplete">Complete</label>
+    .sx-empty {
+        padding: 72px 0;
+        text-align: center;
+        color: var(--sx-graphite);
+        font-size: 16px;
+    }
+    .sx-empty .sx-btn { margin-top: 18px; }
 
-                                    <input type="radio" class="btn-check completion-toggle" name="completionFilter" id="completionMissingDlc" autocomplete="off">
-                                    <label class="btn btn-outline-primary" for="completionMissingDlc">Missing DLC</label>
-                                </div>
-                            </div>
-                        </li>
-                        <!-- <div class="text-center m-2">
-                            <button id="btnApplyFilters" type="button" class="btn btn-primary" style="width: 85%;">Apply
-                                filters</button>
-                        </div> -->
-                    </ul>
+
+    @media (max-width: 900px) {
+        .sx-hero { height: auto; min-height: 560px; padding-top: 96px; }
+        .sx-hero-inner { flex-direction: column; align-items: flex-start; gap: 28px; }
+        .sx-hero::after {
+            background: linear-gradient(0deg, var(--sx-console) 8%, rgba(28, 29, 33, .78) 55%, rgba(28, 29, 33, .25) 100%);
+        }
+        .sx-picks { overflow-x: auto; max-width: 100%; scrollbar-width: none; }
+        .sx-pick { width: 60px; height: 60px; flex-shrink: 0; }
+        .sx-hero-intro { font-size: 16px; }
+        .sx-tools { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "search sort" "chips chips"; }
+        .sx-hero-copy { max-width: 100%; }
+        .sx-grid { grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 26px 16px; }
+        .sx-library-title { font-size: 28px; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        .sx-ambient img, .sx-hero-art, .sx-pick { transition: none; }
+        .sx-pick[aria-pressed="true"], .sx-pick:focus-visible,
+        .sx-tile:hover .sx-art, .sx-tile:focus-visible .sx-art { animation: none; }
+    }
+</style>
+
+<div class="sx-ambient" aria-hidden="true"><img alt=""><img alt=""></div>
+
+{% with transparent_nav=True %}{% include 'nav.html' %}{% endwith %}
+
+<main>
+    <section class="sx-hero" id="hero" hidden>
+        <img class="sx-hero-art" alt="">
+        <img class="sx-hero-art" alt="">
+        <div class="sx-hero-inner">
+            <div class="sx-hero-copy">
+                <p class="sx-hero-by" id="heroBy"></p>
+                <h1 class="sx-hero-title sx-wide" id="heroTitle"></h1>
+                <p class="sx-hero-intro" id="heroIntro"></p>
+                <ul class="sx-hero-facts" id="heroFacts"></ul>
+                <div class="sx-hero-actions">
+                    <a class="sx-btn sx-btn--primary" id="heroLink" href="#">View game</a>
+                    <button class="sx-btn sx-btn--quiet" id="heroShuffle" type="button">Show me another</button>
                 </div>
             </div>
+            <div class="sx-picks" id="picks" role="group" aria-label="Featured games"></div>
+        </div>
+    </section>
+
+    <section class="sx-library" aria-labelledby="libraryTitle">
+        <div class="sx-library-head">
+            <h2 class="sx-library-title sx-wide" id="libraryTitle">Library</h2>
+            <p class="sx-library-sum" id="librarySum"></p>
         </div>
 
-        <div class="col-auto">
-            <input type="text" id="textFilter" class="form-control" placeholder="Search titles...">
-        </div>
-        <div class="col-auto">
-            <div class="btn-group" role="group">
-                <button id="view-toggle-btn-card" type="button" class="btn btn-primary view-toggle-btn active" data-view="card"><i
-                        class="bi bi-card-heading"></i></button>
-                <button id="view-toggle-btn-icon" type="button" class="btn btn-primary view-toggle-btn" data-view="icon"><i
-                        class="bi bi-grid-fill"></i></button>
-                <button id="view-toggle-btn-list" type="button" class="btn btn-primary view-toggle-btn" data-view="list" disabled=""><i
-                        class="bi bi-list-ul"></i></button>
+        <div class="sx-tools">
+            <div class="sx-search">
+                <label class="sx-visually-hidden" for="search">Search your games</label>
+                <i class="bi bi-search" aria-hidden="true"></i>
+                <input id="search" type="search" placeholder="Search your games" autocomplete="off">
             </div>
+            <div class="sx-chips" id="chips" role="group" aria-label="Filter games"></div>
+            <label class="sx-visually-hidden" for="sort">Sort games</label>
+            <select class="sx-sort" id="sort">
+                <option value="name">A to Z</option>
+                <option value="release">Newest releases</option>
+                <option value="size">Largest first</option>
+            </select>
         </div>
-        <div class="col-auto">
-            <div class="btn-group dropdown-center" role="group">
-                <button id="itemsPerPageDropdownBtn" type="button" class="btn btn-primary dropdown-toggle"
-                    data-bs-toggle="dropdown" aria-expanded="false">
-                    Items per page
-                </button>
-                <ul class="dropdown-menu" aria-labelledby="itemsPerPageDropdownBtn">
-                    <li><button class="dropdown-item items-per-page" data-value="9">9</button></li>
-                    <li><button class="dropdown-item items-per-page" data-value="12">12</button></li>
-                    <li><button class="dropdown-item items-per-page" data-value="18">18</button></li>
-                    <li><button class="dropdown-item items-per-page" data-value="27">27</button></li>
-                    <li>
-                        <div class="dropdown-item">
-                            <input type="number" id="customItemsPerPage" class="form-control" placeholder="Custom">
-                            <button id="applyCustomItemsPerPage" class="btn btn-primary mt-2">Apply</button>
-                        </div>
-                    </li>
-                </ul>
-            </div>
-        </div>
-        <!-- Card size slider -->
-        <div class="col-auto">
-            <!-- <label for="cardSizeRange" class="form-label">Card Size</label> -->
-            <input type="range" class="form-range" min="1" max="5" step="1" id="cardSizeRange">
-        </div>
-    </div>
-    <p id="libraryStats" class="library-stats mt-3 mb-0 d-none"></p>
-    <div class="grid-container" id="gridContainer">
-        <div class="row g-3" id="gameGrid"></div>
-        <!-- <div class="row row-cols-1 row-cols-md-3 g-4" id="gameGrid"></div> -->
-    </div>
 
-    <!-- Pagination controls -->
-    <nav aria-label="Page navigation" class="mt-3">
-        <ul class="pagination justify-content-center" id="paginationControls"></ul>
-    </nav>
-</div>
+        <div class="sx-grid" id="grid"></div>
+        <div class="sx-empty" id="empty" hidden></div>
+    </section>
+</main>
 
 <script src="{{ url_for('static', filename='js/format.js') }}"></script>
 <script>
-    // The grid is served page by page: every render is one GraphQL call for exactly the
-    // items on screen. Filters, search and ordering are query arguments, so a page of
-    // N is always N items, whatever the filters.
-    let itemsPerPage = 12;
-    let currentPage = 1;
-    let totalItems = 0;
-    let cardSize = 3; // Default card size
-    let currentView = 'card'; // Default view is 'card'
-    let fetchSeq = 0;    // guards against an older request answering after a newer one
-    let searchDebounce;
+    // One GraphQL call loads every owned game; search, filters and sorting run in the
+    // browser. shortcut: whole library client-side, fine to a few hundred titles; page
+    // through `titles` server-side if a library grows past the 500-row page.
+    const LIBRARY_QUERY = `
+        query Store {
+            titles(owned: true, appType: [BASE], orderBy: {field: NAME}, pageSize: 500) {
+                total
+                items {
+                    titleId name intro description publisher developer releaseDate
+                    category numberOfPlayers rating size
+                    ownership { haveBase upToDate complete }
+                    icon(size: CLIENT) { url }
+                    thumb: banner(size: THUMB) { url }
+                    hero: banner(size: ORIGINAL) { url }
+                }
+            }
+        }`;
 
-    // Active filters
-    let activeTypeFilter = "";
-    let activeOwnershipFilter = "";
-    let activeUpdateFilter = "";
-    let activeCompletionFilter = "";
+    const PICK_COUNT = 5;
+    const STATUS_FILTERS = [
+        {key: 'update', label: 'Update available', test: g => g.haveBase && !g.upToDate},
+        {key: 'dlc', label: 'Missing DLC', test: g => !g.complete},
+    ];
 
-    async function gqlFetch(query, variables) {
-        // GET (not POST) so the browser's HTTP cache automatically revalidates
-        // via If-None-Match against the ETag the server sets on every response.
-        const params = new URLSearchParams({query});
-        if (variables && Object.keys(variables).length) {
-            params.set('variables', JSON.stringify(variables));
-        }
-        const r = await fetch('/api/graphql?' + params.toString(), {
-            method: 'GET',
+    const state = {games: [], query: '', filter: null, sort: 'name', hero: null, picks: []};
+    let featureDelay;
+    const $ = id => document.getElementById(id);
+
+    async function gqlFetch(query) {
+        const r = await fetch('/api/graphql?' + new URLSearchParams({query}), {
             headers: {'Accept': 'application/json'},
             credentials: 'same-origin',
         });
         if (!r.ok) throw new Error(`GraphQL HTTP ${r.status}`);
         const body = await r.json();
-        if (body.errors && body.errors.length) {
-            throw new Error('GraphQL errors: ' + JSON.stringify(body.errors));
-        }
+        if (body.errors && body.errors.length) throw new Error(JSON.stringify(body.errors));
         return body.data;
     }
 
-    // groupByAppId: one item per app id rather than per (app id, version), so a card
-    // is an item and `pageSize` really is the number of cards on the page.
-    const CARDS_QUERY = `
-        query Cards($page: Int!, $pageSize: Int!, $appType: [AppType!], $search: String,
-                    $owned: Boolean, $upToDate: Boolean, $complete: Boolean) {
-            apps(groupByAppId: true, orderBy: {field: NAME}, page: $page, pageSize: $pageSize,
-                 appType: $appType, search: $search, owned: $owned,
-                 upToDate: $upToDate, complete: $complete) {
-                total
-                items {
-                    appId
-                    appType
-                    owned
-                    titledb { name banner(size: ORIGINAL) { url } icon(size: ORIGINAL) { url } }
-                    title { titleId name ownership { haveBase upToDate complete } }
-                    versions { version owned releaseDate }
-                }
-            }
-        }`;
+    const LATIN = /^[\p{Script=Latin}\p{N}\p{P}\p{Zs}\p{S}]+$/u;
 
-    const ICONS_QUERY = `
-        query Icons($page: Int!, $pageSize: Int!, $appType: [AppType!], $search: String,
-                    $owned: Boolean, $upToDate: Boolean, $complete: Boolean) {
-            apps(groupByAppId: true, orderBy: {field: NAME}, page: $page, pageSize: $pageSize,
-                 appType: $appType, search: $search, owned: $owned,
-                 upToDate: $upToDate, complete: $complete) {
-                total
-                items { appId titledb { icon(size: ORIGINAL) { url } } title { titleId } }
-            }
-        }`;
+    function cleanName(name) {
+        return (name || 'Unrecognized title').replace(/[™®]/g, '').replace(/\s{2,}/g, ' ').trim();
+    }
 
-    function queryVariables() {
-        let appType = null;
-        if (activeTypeFilter) {
-            appType = [activeTypeFilter];
-        } else if (currentView === 'icon') {
-            appType = ['BASE'];  // the icon wall is one icon per game, as it has always been
-        } else {
-            appType = ['BASE', 'DLC'];
-        }
-        const search = ($('#textFilter').val() || '').trim();
+    /** The store's tagline, or the description's opening sentence when the tagline is
+     *  missing or in another region's script. */
+    function blurb(t) {
+        if (t.intro && LATIN.test(t.intro) && t.intro.length > 20) return t.intro.trim();
+        const first = (t.description || '').trim().split(/(?<=[.!?])\s|\n/)[0] || '';
+        return first.length > 180 ? first.slice(0, 177).trimEnd() + '…' : first;
+    }
+
+    function model(t) {
+        const own = t.ownership || {};
+        const year = /^\d{8}$/.test(t.releaseDate || '') ? t.releaseDate.slice(0, 4) : '';
         return {
-            page: currentPage,
-            pageSize: itemsPerPage,
-            appType: appType,
-            search: search || null,
-            owned: activeOwnershipFilter ? activeOwnershipFilter === 'Owned' : null,
-            upToDate: activeUpdateFilter ? activeUpdateFilter === 'Up to date' : null,
-            complete: activeCompletionFilter ? activeCompletionFilter === 'Complete' : null,
+            id: t.titleId,
+            name: cleanName(t.name),
+            by: t.publisher || t.developer || '',
+            year,
+            release: t.releaseDate || '',
+            genres: (t.category || []).filter(c => LATIN.test(c)),
+            players: t.numberOfPlayers || '',
+            rating: t.rating || '',
+            size: Number(t.size) || 0,
+            blurb: blurb(t),
+            icon: (t.icon || {}).url || '',
+            thumb: (t.thumb || {}).url || '',
+            hero: (t.hero || {}).url || '',
+            haveBase: !!own.haveBase,
+            upToDate: !!own.upToDate,
+            complete: !!own.complete,
         };
     }
 
-    async function loadPage() {
-        const seq = ++fetchSeq;
-        const isIcon = currentView === 'icon';
+    // --- ambient backdrop: two layers, so one fades in over the other ---
+    const ambient = [...document.querySelectorAll('.sx-ambient img')];
+    let ambientFront = 0, ambientSrc = '';
+    function setAmbient(src) {
+        if (!src || src === ambientSrc) return;
+        ambientSrc = src;
+        const next = ambient[1 - ambientFront];
+        next.onload = () => {
+            if (ambientSrc !== src) return;
+            next.classList.add('is-on');
+            ambient[ambientFront].classList.remove('is-on');
+            ambientFront = 1 - ambientFront;
+        };
+        next.src = src;
+    }
+
+    // --- hero ---
+    const heroArt = [...document.querySelectorAll('.sx-hero-art')];
+    let heroFront = 0;
+
+    function playersLabel(p) {
+        if (!p) return '';
+        return p === '1' ? '1 player' : `${p.replace(/\s*[-~]\s*/, '–')} players`;
+    }
+
+    function setHero(game) {
+        state.hero = game;
+        const next = heroArt[1 - heroFront];
+        next.onload = () => {
+            if (state.hero !== game) return;
+            next.classList.add('is-on');
+            heroArt[heroFront].classList.remove('is-on');
+            heroFront = 1 - heroFront;
+        };
+        next.src = game.hero;
+
+        $('heroBy').textContent = [game.by, game.year].filter(Boolean).join(', ');
+        $('heroTitle').textContent = game.name;
+        $('heroIntro').textContent = game.blurb;
+        $('heroLink').href = `/title/${game.id}`;
+        $('heroLink').setAttribute('aria-label', `View ${game.name}`);
+
+        const facts = [...game.genres.slice(0, 3), playersLabel(game.players),
+                       game.rating ? `Ages ${game.rating}+` : '',
+                       game.size ? formatBytes(game.size) : ''].filter(Boolean);
+        $('heroFacts').replaceChildren(...facts.map(text => {
+            const li = document.createElement('li');
+            li.textContent = text;
+            return li;
+        }));
+
+        document.querySelectorAll('.sx-pick').forEach(b =>
+            b.setAttribute('aria-pressed', String(b.dataset.id === game.id)));
+        setAmbient(game.thumb);
+    }
+
+    function shuffled(list) {
+        const a = list.slice();
+        for (let i = a.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [a[i], a[j]] = [a[j], a[i]];
+        }
+        return a;
+    }
+
+    function dealPicks() {
+        const candidates = state.games.filter(g => g.hero && g.icon && g.haveBase);
+        if (!candidates.length) return;
+        state.picks = shuffled(candidates).slice(0, PICK_COUNT);
+        $('picks').replaceChildren(...state.picks.map(game => {
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.className = 'sx-pick';
+            b.dataset.id = game.id;
+            b.setAttribute('aria-label', game.name);
+            const img = document.createElement('img');
+            img.src = game.icon;
+            img.alt = '';
+            b.append(img);
+            b.addEventListener('click', () => setHero(game));
+            return b;
+        }));
+        $('hero').hidden = false;
+        setHero(state.picks[0]);
+    }
+
+    // --- library ---
+    function visibleGames() {
+        const q = state.query.toLowerCase();
+        const status = STATUS_FILTERS.find(f => f.key === state.filter);
+        const games = state.games.filter(g =>
+            (!q || g.name.toLowerCase().includes(q) || g.by.toLowerCase().includes(q)) &&
+            (!state.filter || (status ? status.test(g) : g.genres.includes(state.filter))));
+        const by = {
+            name: (a, b) => a.name.localeCompare(b.name, undefined, {sensitivity: 'base'}),
+            release: (a, b) => b.release.localeCompare(a.release),
+            size: (a, b) => b.size - a.size,
+        }[state.sort];
+        return games.sort(by);
+    }
+
+    function tile(game) {
+        const a = document.createElement('a');
+        a.className = 'sx-tile';
+        a.href = `/title/${game.id}`;
+
+        const art = document.createElement('span');
+        art.className = 'sx-art';
+        if (game.icon) {
+            const img = document.createElement('img');
+            img.src = game.icon;
+            img.alt = '';
+            img.loading = 'lazy';
+            art.append(img);
+        } else {
+            art.classList.add('sx-art--empty');
+            art.textContent = 'No artwork';
+        }
+
+        const name = document.createElement('span');
+        name.className = 'sx-name';
+        name.textContent = game.name;
+
+        const sub = document.createElement('span');
+        sub.className = 'sx-sub';
+        sub.textContent = [game.by, game.year].filter(Boolean).join(', ');
+
+        a.append(art, name, sub);
+
+        const flag = document.createElement('span');
+        if (!game.haveBase) {
+            flag.className = 'sx-flag sx-flag--note';
+            flag.textContent = 'Updates or DLC only';
+        } else if (!game.upToDate) {
+            flag.className = 'sx-flag sx-flag--update';
+            flag.innerHTML = '<span class="sx-dot"></span>';
+            flag.append('Update available');
+        } else if (!game.complete) {
+            flag.className = 'sx-flag sx-flag--note';
+            flag.textContent = 'Missing DLC';
+        }
+        if (flag.className) a.append(flag);
+
+        // Pointing at a game features it in the hero; the short delay keeps a pointer
+        // sweeping across the grid from flicking through every banner on the way.
+        const feature = () => {
+            clearTimeout(featureDelay);
+            if (game.hero) featureDelay = setTimeout(() => setHero(game), 140);
+        };
+        a.addEventListener('pointerenter', feature);
+        a.addEventListener('pointerleave', () => clearTimeout(featureDelay));
+        a.addEventListener('focus', feature);
+        return a;
+    }
+
+    function renderGrid() {
+        const games = visibleGames();
+        $('grid').replaceChildren(...games.map(tile));
+
+        const empty = $('empty');
+        empty.hidden = games.length > 0;
+        if (!games.length) {
+            empty.replaceChildren();
+            const p = document.createElement('p');
+            p.textContent = state.query
+                ? `Nothing in your library matches “${state.query}”.`
+                : 'No games match this filter.';
+            const clear = document.createElement('button');
+            clear.type = 'button';
+            clear.className = 'sx-btn sx-btn--quiet';
+            clear.textContent = 'Clear search and filters';
+            clear.addEventListener('click', () => {
+                state.query = '';
+                state.filter = null;
+                $('search').value = '';
+                renderChips();
+                renderGrid();
+            });
+            empty.append(p, clear);
+        }
+    }
+
+    function renderChips() {
+        const counts = new Map();
+        state.games.forEach(g => g.genres.forEach(c => counts.set(c, (counts.get(c) || 0) + 1)));
+        const genres = [...counts].filter(([, n]) => n >= 3).sort((a, b) => b[1] - a[1]).slice(0, 8);
+
+        const chip = (key, label, count, extraClass) => {
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.className = 'sx-chip' + (extraClass ? ' ' + extraClass : '');
+            b.setAttribute('aria-pressed', String(state.filter === key));
+            if (extraClass === 'sx-chip--update') b.innerHTML = '<span class="sx-dot"></span>';
+            b.append(label);
+            if (count !== null) {
+                const n = document.createElement('span');
+                n.className = 'sx-count';
+                n.textContent = count;
+                b.append(n);
+            }
+            b.addEventListener('click', () => {
+                state.filter = state.filter === key ? null : key;
+                renderChips();
+                renderGrid();
+            });
+            return b;
+        };
+
+        const chips = [chip(null, 'All games', null)];
+        STATUS_FILTERS.forEach(f => {
+            const n = state.games.filter(f.test).length;
+            if (n) chips.push(chip(f.key, f.label, n, f.key === 'update' ? 'sx-chip--update' : ''));
+        });
+        genres.forEach(([genre, n]) => chips.push(chip(genre, genre, n)));
+        $('chips').replaceChildren(...chips);
+    }
+
+    function renderSummary() {
+        const total = state.games.length;
+        const updates = state.games.filter(STATUS_FILTERS[0].test).length;
+        const parts = [`${total} ${total === 1 ? 'game' : 'games'}`];
+        parts.push(updates ? `${updates} with an update waiting` : 'all up to date');
+        $('librarySum').textContent = parts.join(', ') + '.';
+    }
+
+    async function init() {
         let data;
         try {
-            data = await gqlFetch(isIcon ? ICONS_QUERY : CARDS_QUERY, queryVariables());
+            data = await gqlFetch(LIBRARY_QUERY);
         } catch (e) {
             console.error(e);
+            const empty = $('empty');
+            empty.hidden = false;
+            empty.textContent = 'The library could not be loaded. Reload the page, and if it keeps failing, check the Tasks page under Admin.';
             return;
         }
-        if (seq !== fetchSeq) return; // a newer request is already on its way back
+        state.games = data.titles.items.map(model);
 
-        totalItems = data.apps.total;
-        const totalPages = Math.max(1, Math.ceil(totalItems / itemsPerPage));
-        if (currentPage > totalPages) { // filters shrank the result under our feet
-            currentPage = totalPages;
-            return loadPage();
-        }
-
-        $('#cardSizeRange').val(cardSize);
-        if (isIcon) {
-            renderIconView(data.apps.items);
-        } else {
-            renderCardView(data.apps.items.map(cardModel));
-        }
-        updatePaginationControls(totalPages);
-
-        // init version tooltips
-        const tooltipTriggerList = document.querySelectorAll('[data-bs-toggle="tooltip"]')
-        const tooltipList = [...tooltipTriggerList].map(tooltipTriggerEl => new bootstrap.Tooltip(tooltipTriggerEl))
-
-        // init version popovers
-        const popoverTriggerList = document.querySelectorAll('[data-bs-toggle="popover"]')
-        const popoverList = [...popoverTriggerList].map(popoverTriggerEl => new bootstrap.Popover(popoverTriggerEl))
-    }
-
-    // Library-wide, so the line stays put while filters and search move the grid.
-    const LIBRARY_STATS_QUERY = `
-        query LibraryStats {
-            stats {
-                ownedTitles completeTitles upToDateTitles totalFiles totalSize
-            }
-        }`;
-
-    async function loadLibraryStats() {
-        let stats;
-        try {
-            stats = (await gqlFetch(LIBRARY_STATS_QUERY)).stats;
-        } catch (e) {
-            console.error(e);
+        if (!state.games.length) {
+            const empty = $('empty');
+            empty.hidden = false;
+            empty.innerHTML = '<p>Your library is empty.</p>' +
+                '<a class="sx-btn sx-btn--quiet" href="/admin/settings">Add a game folder</a>';
             return;
         }
-        // An empty install, or a visitor without shop access reading zeros: either way
-        // the line has nothing to say and stays hidden.
-        if (!stats.ownedTitles) return;
 
-        const parts = [
-            `${stats.ownedTitles.toLocaleString()} titles`,
-            `${stats.completeTitles.toLocaleString()} complete`,
-            `${stats.upToDateTitles.toLocaleString()} up to date`,
-        ];
-        // File figures are admin only and read zero for every other role, which is what
-        // keeps the library's storage footprint off a shop user's screen.
-        if (stats.totalFiles) {
-            parts.push(`${stats.totalFiles.toLocaleString()} files`,
-                       formatBytes(stats.totalSize));
-        }
-
-        const line = document.getElementById('libraryStats');
-        line.innerHTML = '';
-        parts.forEach(text => {
-            const span = document.createElement('span');
-            span.textContent = text;
-            line.appendChild(span);
-        });
-        line.classList.remove('d-none');
+        renderSummary();
+        renderChips();
+        renderGrid();
+        dealPicks();
     }
 
-    function goToPage(page) {
-        currentPage = page;
-        loadPage();
-    }
-
-    function resetToFirstPage() {
-        currentPage = 1;
-        loadPage();
-    }
-
-    /**
-     * One card from one app. A BASE app speaks for its title: ownership and the update
-     * history come from the title, since a Switch update ships under its own app id.
-     * A DLC app speaks for itself, and is up to date when its highest known version is
-     * the one owned.
-     */
-    function cardModel(app) {
-        const meta = app.titledb || {};
-        const title = app.title || {};
-        const ownership = title.ownership || {haveBase: false, upToDate: false, complete: false};
-        const versions = (app.versions || []).map(v => ({
-            version: v.version,
-            owned: v.owned,
-            release_date: v.releaseDate || 'Unknown',
-        }));
-        const isBase = app.appType === 'BASE';
-        const recognized = isBase ? !!title.name : !!meta.name;
-
-        if (isBase) {
-            return {
-                id: recognized ? title.titleId : title.titleId + ' not found in titledb',
-                title_id: title.titleId,
-                title_id_name: title.name || 'Unrecognized',
-                name: title.name || 'Unrecognized',
-                bannerUrl: (meta.banner || {}).url || '',
-                iconUrl: (meta.icon || {}).url || '',
-                app_type: 'BASE',
-                owned: ownership.haveBase,
-                has_latest_version: ownership.haveBase && ownership.upToDate,
-                has_all_dlcs: ownership.complete,
-                version: versions,
-            };
-        }
-
-        const ownedVersions = versions.filter(v => v.owned).map(v => v.version);
-        const highest = versions.length ? Math.max(...versions.map(v => v.version)) : 0;
-        return {
-            id: recognized ? app.appId : app.appId + ' not found in titledb',
-            title_id: title.titleId,
-            title_id_name: title.name || 'Unrecognized',
-            name: meta.name || 'Unrecognized',
-            bannerUrl: (meta.banner || {}).url || '',
-            iconUrl: (meta.icon || {}).url || '',
-            app_type: app.appType,
-            owned: app.owned,
-            has_latest_version: ownedVersions.length > 0 && Math.max(...ownedVersions) >= highest,
-            version: versions,
-        };
-    }
-
-    /** No banner falls back to the icon, then to a label - both in a box holding the
-     *  banner's aspect ratio, so a card without artwork is the size of one with it. */
-    function cardArtwork(game) {
-        if (game.bannerUrl) {
-            return $('<img class="card-img"></img>').attr('src', game.bannerUrl);
-        }
-        const box = $('<div class="card-img card-art-fallback"></div>');
-        return game.iconUrl
-            ? box.append($('<img class="card-art-icon">').attr('src', game.iconUrl))
-            : box.append($('<span class="art-missing">Missing artwork</span>'));
-    }
-
-    function renderCardView(games) {
-        const gameGrid = $('#gameGrid');
-        gameGrid.empty(); // Clear existing games
-
-        games.forEach(function (game) {
-            const gameCol = $('<div class="col game-col"></div>').addClass(cardColumnClasses());
-
-            const link = $('<a class="game-link"></a>').attr('href', `/title/${game.title_id}`);
-            const card = $('<div class="card text-bg-dark game-card"></div>');
-
-            card.append(cardArtwork(game));
-
-            const cardOverlay = $('<div class="card-img-overlay game-info"></div>');
-
-            const title = $('<h5 class="card-title game-title"></h5>').text(game.title_id_name || game.name);
-            cardOverlay.append(title);
-
-            const description = $('<p class="card-text game-description"></p>');
-            if (game.app_type === 'DLC') {
-                const small = $('<small></small>').text(`${game.name} | `);
-                description.append(small);
-            }
-            const small = $('<small></small>').text(game.id);
-            description.append(small);
-            cardOverlay.append(description);
-
-            const tagsContainer = $('<div class="tags-container"></div>');
-
-            const typeBadgeClass = (game.owned === false) ? 'text-bg-warning' : 'text-bg-info';
-            const typeBadge = $(`<span class="badge rounded-pill ${typeBadgeClass} game-tag"></span>`).text(game.app_type);
-            tagsContainer.append(typeBadge);
-
-            if (game.has_latest_version !== undefined) {
-                const versionBadge = $(`<span class="badge rounded-pill game-tag version-tag" title="${game.name} Updates"></span>`)
-                    .addClass(`text-bg-${game.has_latest_version ? 'success' : 'warning'}`)
-                    .html(`<i class="bi ${game.has_latest_version ? 'bi-check-circle-fill' : 'bi-arrow-down-circle'}"></i>`);
-                if (game.version !== undefined && game.version.length && Array.isArray(game.version)) {
-                    const popoverContent = game.version.map(version =>
-                        `${version.release_date}: v${version.version} ${version.owned ? 'Owned' : 'Missing'}`
-                    ).join('\n');
-                    versionBadge.popover({
-                        content: popoverContent,
-                        trigger: 'click',
-                        placement: 'top',
-                    });
-                    versionBadge.css('cursor', 'pointer');
-                    versionBadge.on('click', e => e.preventDefault());
-                } else {
-                    // version tooltip on hover
-                    versionBadge.attr("data-bs-toggle", "tooltip")
-                    versionBadge.attr("data-bs-placement", "top")
-                    versionBadge.attr("data-bs-title", "Version v0")
-                }
-                tagsContainer.append(versionBadge);
-            }
-
-            if (game.has_all_dlcs !== undefined) {
-                const dlcBadge = $('<span class="badge rounded-pill game-tag"></span>').addClass(`text-bg-${game.has_all_dlcs ? 'success' : 'warning'}`).html('<i class="bi bi-box-seam-fill"></i>');
-                tagsContainer.append(dlcBadge);
-            }
-
-            cardOverlay.append(tagsContainer);
-            card.append(cardOverlay);
-            link.append(card);
-            gameCol.append(link);
-            gameGrid.append(gameCol);
-        });
-    }
-
-    function renderIconView(apps) {
-        const gameGrid = $('#gameGrid');
-        gameGrid.empty(); // Clear existing games
-
-        apps.forEach(app => {
-            const iconUrl = ((app.titledb || {}).icon || {}).url || '';
-            const icon = iconUrl
-                ? $('<img class="game-icon">').attr('src', iconUrl)
-                : $('<div class="game-icon game-icon--missing"><span class="art-missing">Missing artwork</span></div>');
-            const link = $('<a class="game-icon-link"></a>')
-                .attr('href', `/title/${(app.title || {}).titleId}`).append(icon);
-            gameGrid.append(link);
-        });
-
-        // Adjust icon sizes based on the slider value
-        adjustIconSizes(cardSize);
-    }
-
-    /** The slider sets how many cards a row holds, but only from `md` up: below that
-     *  the screen cannot carry six of them, and a card too narrow to fit its own title
-     *  grows an overlay taller than the banner it sits on. */
-    function cardColumnClasses() {
-        const columns = getColumnsForCardSize(cardSize);
-        return `col-${12 / Math.min(columns, 2)} col-md-${12 / columns}`;
-    }
-
-    function getColumnsForCardSize(size) {
-        switch (size) {
-            case 1: return 1; // 2 columns
-            case 2: return 2; // 3 columns
-            case 3: return 3; // 4 columns
-            case 4: return 4; // 6 columns
-            case 5: return 6; // 8 columns
-            default: return 4; // default to 3 columns
-        }
-    }
-
-    /** Page numbers around the current one: the totals are server-side now, and a
-     *  library of a few thousand apps would otherwise render a few hundred buttons. */
-    function pageWindow(totalPages) {
-        const pages = new Set([1, totalPages]);
-        for (let i = currentPage - 2; i <= currentPage + 2; i++) {
-            if (i >= 1 && i <= totalPages) pages.add(i);
-        }
-        const sorted = [...pages].sort((a, b) => a - b);
-        const out = [];
-        let previous = 0;
-        for (const p of sorted) {
-            if (previous && p - previous > 1) out.push('...');
-            out.push(p);
-            previous = p;
-        }
-        return out;
-    }
-
-    function updatePaginationControls(totalPages) {
-        const paginationControls = $('#paginationControls');
-        paginationControls.empty(); // Clear existing pagination
-
-        // Previous button
-        const prevButton = $('<li class="page-item"></li>').addClass(`page-item ${currentPage === 1 ? 'disabled' : ''}`).html(`
-                <a class="page-link" href="#" aria-label="Previous">
-                    <span aria-hidden="true">&laquo;</span>
-                </a>`);
-        prevButton.click(function (e) {
-            e.preventDefault();
-            if (currentPage > 1) {
-                goToPage(currentPage - 1);
-            }
-        });
-        paginationControls.append(prevButton);
-
-        // Page numbers
-        for (const entry of pageWindow(totalPages)) {
-            if (entry === '...') {
-                paginationControls.append($('<li class="page-item disabled"></li>').html('<span class="page-link">&hellip;</span>'));
-                continue;
-            }
-            const pageButton = $('<li class="page-item"></li>').addClass(`page-item ${entry === currentPage ? 'active' : ''}`).html(`<a class="page-link" href="#">${entry}</a>`);
-            pageButton.click(function (e) {
-                e.preventDefault();
-                goToPage(entry);
-            });
-            paginationControls.append(pageButton);
-        }
-
-        // Next button
-        const nextButton = $('<li class="page-item"></li>').addClass(`page-item ${currentPage === totalPages ? 'disabled' : ''}`).html(`
-                <a class="page-link" href="#" aria-label="Next">
-                    <span aria-hidden="true">&raquo;</span>
-                </a>`);
-        nextButton.click(function (e) {
-            e.preventDefault();
-            if (currentPage < totalPages) {
-                goToPage(currentPage + 1);
-            }
-        });
-        paginationControls.append(nextButton);
-    }
-
-    function adjustCardSizes() {
-        const gameGrid = $('#gameGrid');
-        const gameCols = gameGrid.find('.game-col');
-        gameCols.each(function () {
-            $(this).removeClass().addClass(`col game-col ${cardColumnClasses()}`);
-        });
-    }
-
-    function adjustIconSizes() {
-        // Calculate the size of the icons based on the slider value
-        const iconSize = 100 / (cardSize + 3); // Assuming 100 is the maximum size
-
-        // Update the CSS of the game icons - the link is what carries the width now,
-        // since the icon fills it.
-        $('.game-icon-link').css('width', `${iconSize}%`);
-    }
-
-    function saveFiltersToStorage() {
-        localStorage.setItem('activeFilters', JSON.stringify({
-            type: activeTypeFilter,
-            ownership: activeOwnershipFilter,
-            update: activeUpdateFilter,
-            completion: activeCompletionFilter,
-        }));
-    }
-
-    function loadFiltersFromStorage() {
-        const savedFilters = localStorage.getItem('activeFilters');
-        if (savedFilters) {
-            const filters = JSON.parse(savedFilters);
-
-            $('#typeBase').prop('checked', filters.type === 'BASE');
-            $('#typeDlc').prop('checked', filters.type === 'DLC');
-
-            $('#ownershipOwned').prop('checked', filters.ownership === 'Owned');
-            $('#ownershipMissing').prop('checked', filters.ownership === 'Missing');
-
-            $('#updateUpToDate').prop('checked', filters.update === 'Up to date');
-            $('#updateMissingUpdate').prop('checked', filters.update === 'Outdated');
-
-            $('#completionComplete').prop('checked', filters.completion === 'Complete');
-            $('#completionMissingDlc').prop('checked', filters.completion === 'Missing DLC');
-
-            updateFilter();
-        }
-
-        const savedSearch = localStorage.getItem('searchTerm');
-        if (savedSearch) {
-            $('#textFilter').val(savedSearch);
-        }
-    }
-
-    /** Read the filter controls into the active* variables the query is built from. */
-    function updateFilter() {
-        if ($('#typeBase').is(":checked")) {
-            activeTypeFilter = 'BASE';
-        } else if ($('#typeDlc').is(":checked")) {
-            activeTypeFilter = 'DLC';
-        } else {
-            activeTypeFilter = '';
-        }
-        if ($('#ownershipOwned').is(":checked")) {
-            activeOwnershipFilter = 'Owned';
-        } else if ($('#ownershipMissing').is(":checked")) {
-            activeOwnershipFilter = 'Missing';
-        } else {
-            activeOwnershipFilter = '';
-        }
-        if ($('#updateUpToDate').is(":checked")) {
-            activeUpdateFilter = 'Up to date';
-        } else if ($('#updateMissingUpdate').is(":checked")) {
-            activeUpdateFilter = 'Outdated';
-        } else {
-            activeUpdateFilter = '';
-        }
-        if ($('#completionComplete').is(":checked")) {
-            activeCompletionFilter = 'Complete';
-        } else if ($('#completionMissingDlc').is(":checked")) {
-            activeCompletionFilter = 'Missing DLC';
-        } else {
-            activeCompletionFilter = '';
-        }
-    }
-
-    function onFilterChange() {
-        updateFilter();
-        saveFiltersToStorage();
-        resetToFirstPage();
-    }
-
-    $(document).ready(function () {
-        const savedItemsPerPage = localStorage.getItem('itemsPerPage');
-        if (savedItemsPerPage) {
-            itemsPerPage = parseInt(savedItemsPerPage);
-        }
-
-        const savedCurrentView = localStorage.getItem('currentView');
-        if (savedCurrentView) {
-            currentView = savedCurrentView;
-            $('.view-toggle-btn').removeClass("active");
-            $(`.view-toggle-btn[data-view="${currentView}"]`).addClass("active");
-        }
-
-        const savedCardSize = localStorage.getItem('cardSize');
-        if (savedCardSize){
-            cardSize = parseInt(savedCardSize);
-        }
-
-        loadFiltersFromStorage();
-        loadPage();
-        loadLibraryStats();
-
-        // Event listeners for items per page dropdown
-        $('.items-per-page').click(function () {
-            itemsPerPage = $(this).data('value');
-            localStorage.setItem('itemsPerPage', itemsPerPage);
-            resetToFirstPage();
-        });
-
-        $('#applyCustomItemsPerPage').click(function () {
-            const customValue = $('#customItemsPerPage').val();
-            if (customValue && customValue > 0) {
-                itemsPerPage = parseInt(customValue);
-                localStorage.setItem('itemsPerPage', itemsPerPage);
-                resetToFirstPage();
-            }
-        });
-
-        // Event listener for card size slider
-        $('#cardSizeRange').on('input', function () {
-            cardSize = parseInt($(this).val());
-            localStorage.setItem('cardSize', cardSize);
-            if (currentView === 'icon') {
-                adjustIconSizes(cardSize);
-            } else {
-                adjustCardSizes(cardSize);
-            }
-        });
-
-        // Event listener for view buttons
-        $('.view-toggle-btn').click(function () {
-            $('.view-toggle-btn').removeClass("active");
-            $(this).addClass("active");
-            currentView = $(this).data('view');
-            localStorage.setItem('currentView', currentView);
-            // The views page different things (every card vs one icon per game), so the
-            // page number from the previous view means nothing here.
-            resetToFirstPage();
-        });
-
-        $('.type-toggle, .ownership-toggle, .update-toggle, .completion-toggle').change(onFilterChange);
-
-        // Listen to input changes in the text filter input
-        $("#textFilter").on("input", function () {
-            const attributeText = $(this).val();
-            localStorage.setItem('searchTerm', attributeText);
-            // Debounced: every keystroke would otherwise be its own query.
-            clearTimeout(searchDebounce);
-            searchDebounce = setTimeout(resetToFirstPage, 250);
-        });
-
-        // Close popovers
-        $(document).on('click', function (e) {
-            $('.popover').removeClass('show');
-            $('.popover').remove();
-        });
-
-        // Add click event on the popover to stop propagation
-        $(document).on('click', '.popover', function (e) {
-            e.stopPropagation(); // Prevent the click event from bubbling up
-        });
-
+    let searchDebounce;
+    $('search').addEventListener('input', e => {
+        clearTimeout(searchDebounce);
+        searchDebounce = setTimeout(() => { state.query = e.target.value.trim(); renderGrid(); }, 120);
     });
+    $('sort').addEventListener('change', e => { state.sort = e.target.value; renderGrid(); });
+    $('heroShuffle').addEventListener('click', () => {
+        const others = state.games.filter(g => g.hero && g.haveBase && g !== state.hero);
+        if (others.length) setHero(others[Math.floor(Math.random() * others.length)]);
+    });
+
+    init();
 </script>
 {% endblock %}
