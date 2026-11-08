@@ -157,9 +157,14 @@ def _version_int(value) -> int:
 def _iso(value) -> Optional[str]:
     """Datetime columns read through raw text() come back as strings, not
     datetimes - SQLAlchemy only applies type coercion to typed selectables."""
-    if value is None:
-        return None
-    return value.isoformat() if hasattr(value, 'isoformat') else str(value)
+    # The common case: a plain string needs no conversion (str() would return it as-is).
+    if value is None or type(value) is str:
+        return value
+    try:
+        isoformat = value.isoformat
+    except AttributeError:
+        return str(value)
+    return isoformat()
 
 def _build_title(row, *, with_apps: bool, with_files: bool) -> Title:
     # `m.get(col)` returns None for columns the resolver didn't project,
@@ -208,30 +213,37 @@ def _build_title(row, *, with_apps: bool, with_files: bool) -> Title:
 
 
 def _build_file(row, *, include_filepath: bool) -> File:
+    # Every caller selects _FILE_COLS last (the app-files query adds a leading `pk`),
+    # so unpack the trailing 23 columns once rather than one Row attribute read each.
+    # Slicing yields a plain tuple, avoiding the list a starred target would build.
+    (id_, library_id, filepath, folder, filename, extension, size, compressed,
+     multicontent, nb_content, download_count, identified, identification_type,
+     identification_error, identification_attempts, organized, signature_valid,
+     hash_valid, hash_modified, verification_error, verified_at, mtime, added_at) = row[-23:]
     return File(
-        id=strawberry.ID(str(row.id)),
-        library_id=row.library_id,
-        filepath=row.filepath if include_filepath else None,
-        folder=row.folder,
-        filename=row.filename,
-        extension=row.extension,
-        size=row.size,
-        compressed=bool(row.compressed),
-        multicontent=bool(row.multicontent),
-        nb_content=row.nb_content or 0,
-        download_count=row.download_count or 0,
-        identified=bool(row.identified),
-        identification_type=row.identification_type,
-        identification_error=row.identification_error,
-        identification_attempts=row.identification_attempts or 0,
-        organized=bool(row.organized),
-        signature_valid=None if row.signature_valid is None else bool(row.signature_valid),
-        hash_valid=None if row.hash_valid is None else bool(row.hash_valid),
-        hash_modified=None if row.hash_modified is None else bool(row.hash_modified),
-        verification_error=row.verification_error,
-        verified_at=_iso(row.verified_at),
-        mtime=row.mtime,
-        added_at=_iso(row.added_at),
+        id=strawberry.ID(str(id_)),
+        library_id=library_id,
+        filepath=filepath if include_filepath else None,
+        folder=folder,
+        filename=filename,
+        extension=extension,
+        size=size,
+        compressed=bool(compressed),
+        multicontent=bool(multicontent),
+        nb_content=nb_content or 0,
+        download_count=download_count or 0,
+        identified=bool(identified),
+        identification_type=identification_type,
+        identification_error=identification_error,
+        identification_attempts=identification_attempts or 0,
+        organized=bool(organized),
+        signature_valid=None if signature_valid is None else bool(signature_valid),
+        hash_valid=None if hash_valid is None else bool(hash_valid),
+        hash_modified=None if hash_modified is None else bool(hash_modified),
+        verification_error=verification_error,
+        verified_at=_iso(verified_at),
+        mtime=mtime,
+        added_at=_iso(added_at),
     )
 
 
