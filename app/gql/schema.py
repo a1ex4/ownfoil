@@ -3,12 +3,14 @@ from typing import List, Optional
 
 import strawberry
 from strawberry.extensions import ParserCache, QueryDepthLimiter, ValidationCache
+from strawberry.schema.config import StrawberryConfig
 from strawberry.types import Info
 from typing_extensions import Annotated
 
 from .docs import arg as _arg, described, described_field
 from .filters import AppFilter, AppType, FileFilter, OrderBy, TitleFilter
 from .mutations import Mutation
+from .scalars import SCALAR_MAP
 from .resolvers import (
     resolve_app, resolve_apps, resolve_duplicates, resolve_file, resolve_files,
     resolve_libraries, resolve_outdated_updates, resolve_pending_files,
@@ -261,4 +263,5 @@ schema = strawberry.Schema(
     extensions=[lambda: QueryDepthLimiter(max_depth=MAX_QUERY_DEPTH),
                 lambda: ParserCache(maxsize=QUERY_CACHE_SIZE),
                 lambda: ValidationCache(maxsize=QUERY_CACHE_SIZE)],
+    config=StrawberryConfig(scalar_map=SCALAR_MAP),
 )
