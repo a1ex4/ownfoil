@@ -421,6 +421,21 @@ def test_a_container_holding_several_contents_picks_the_newest_of_them(install, 
     assert stored == expected
 
 
+def test_an_icon_that_cannot_be_stored_keeps_the_name_and_publisher(install):
+    from db import Files, list_title_overrides
+    from titledb.schema import SOURCE_EXTRACT
+
+    buffer = io.BytesIO()
+    Image.new("RGB", (256, 256), "blue").save(buffer, format="PNG")
+    _extract(install, {**BASE, "icon": buffer.getvalue()})
+
+    with install.app_context():
+        row = next(r for r in list_title_overrides(SOURCE_EXTRACT) if r["id"] == TITLE_ID)
+        assert (row["name"], row["publisher"], row["icon_url"]) == (
+            BASE["name"], BASE["publisher"], None)
+        assert Files.query.one().metadata_extracted
+
+
 def test_a_dlc_stores_nothing(install):
     """A DLC ships no Control NCA, so there is no record - but the file is still done."""
     from db import Files, list_title_overrides

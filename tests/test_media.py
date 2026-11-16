@@ -151,6 +151,19 @@ def test_store_bytes_refuses_a_filename_that_would_escape_the_store(store):
         media.store_bytes(media.ICON, jpeg(64, 64), "../escaped.jpg")
 
 
+# Pillow decodes all of these; only JPEG may reach a decoder from a downloaded byte.
+REFUSED_FORMATS = ["PNG", "WEBP", "GIF", "TIFF", "BMP"]
+
+
+@pytest.mark.parametrize("image_format", REFUSED_FORMATS)
+def test_store_bytes_refuses_anything_but_jpeg_and_writes_nothing(store, image_format):
+    buffer = io.BytesIO()
+    Image.new("RGB", (64, 64), "red").save(buffer, format=image_format)
+    with pytest.raises(Image.UnidentifiedImageError):
+        media.store_bytes(media.ICON, buffer.getvalue(), "art.jpg")
+    assert not store.exists()
+
+
 def test_an_unknown_kind_or_size_has_no_directory():
     for args in ((("nope", media.CLIENT)), ((media.ICON, "nope"))):
         with pytest.raises(ValueError):

@@ -51,6 +51,10 @@ RENDITIONS = {
     SCREEN: ((720, 720), (1280, 720), 85),
 }
 
+# titledb and extracted icons are all JPEG; refusing the rest keeps remote bytes away from
+# Pillow's other decoders.
+_FORMATS = ('JPEG',)
+
 # Full chroma: Pillow's default 4:2:0 smears the saturated edges of store art.
 _JPEG_OPTIONS = {'subsampling': 0, 'optimize': True}
 
@@ -134,7 +138,7 @@ def have(kind, filename):
 
 def dimensions(kind, filename):
     """Size of the stored original, as (w, h). Every rendition's size follows from it."""
-    with Image.open(media_path(kind, ORIGINAL, filename)) as image:
+    with Image.open(media_path(kind, ORIGINAL, filename), formats=_FORMATS) as image:
         return image.size
 
 
@@ -198,11 +202,10 @@ def fetch(url):
 
 
 def _render(image, kind, size):
-    """One rendition of an opened image, encoded in the format its source came in."""
+    """One rendition of an opened image, as JPEG."""
     fitted = image.resize(fit(image.size, box(kind, size)), Image.LANCZOS)
-    options = {'quality': RENDITIONS[size][2], **_JPEG_OPTIONS} if image.format == 'JPEG' else {}
     buffer = io.BytesIO()
-    fitted.save(buffer, format=image.format, **options)
+    fitted.save(buffer, format='JPEG', quality=RENDITIONS[size][2], **_JPEG_OPTIONS)
     return buffer.getvalue()
 
 
@@ -213,7 +216,7 @@ def store_bytes(kind, data, filename=None):
     if not _SAFE_FILENAME.match(filename):
         raise ValueError(f'Unsafe media filename: {filename}')
 
-    with Image.open(io.BytesIO(data)) as image:
+    with Image.open(io.BytesIO(data), formats=_FORMATS) as image:
         image.load()
         size = image.size
         renditions = {rendition: _render(image, kind, rendition) for rendition in RENDITIONS}
@@ -233,7 +236,7 @@ def build(kind, size, filename):
         return True
     if not have(kind, filename):
         return False
-    with Image.open(media_path(kind, ORIGINAL, filename)) as image:
+    with Image.open(media_path(kind, ORIGINAL, filename), formats=_FORMATS) as image:
         image.load()
         rendered = _render(image, kind, size)
     _write(kind, size, filename, rendered)

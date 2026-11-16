@@ -332,7 +332,7 @@ This means homebrew ports and games missing from the uptream `titledb` will alwa
 
 For your shop to be fully self-hosted and not rely on external sources, Ownfoil can download all artworks locally and serve them to clients. Instead of providing direct eShop links, your Switch will retrieve them from your server and never connect to Nintendo's servers.
 
-This covers the icon, banner and screenshots of every game in your library and of its DLCs, owned or not. Each image is also resized to the dimensions clients display it at, so your Switch downloads a lighter image than the original. Artwork is fetched again after each titledb update, and changing the library language or region downloads the matching artwork.
+This covers the icon, banner and screenshots of every game in your library and of its DLCs, owned or not. Each image is also resized to the dimensions clients display it at, so your Switch downloads a lighter image than the original. Artwork is fetched again after each titledb update, and changing the library language or region downloads the matching artwork. Only JPEG images are stored; an image in any other format keeps its original link.
 
 `Disk usage` shows how much space the artwork takes, by type, for the originals and the resized copies. Turning the setting off stops new downloads, the artwork already stored is still served.
 

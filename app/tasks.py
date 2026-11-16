@@ -782,8 +782,12 @@ def _store_metadata(file, contents):
         record = {'id': content['title_id'], 'name': content['name'],
                   'publisher': content['publisher']}
         if content['icon']:
-            record['iconUrl'] = media.store_extracted(
-                content['title_id'], media.ICON, content['icon'])
+            try:
+                record['iconUrl'] = media.store_extracted(
+                    content['title_id'], media.ICON, content['icon'])
+            except Exception as e:
+                # The bytes won't decode any better next pass; the name and publisher still count.
+                logger.warning(f"Could not store the icon of {content['title_id']}: {e}")
         titledb.store.set_extract_override(content['title_id'], record, content['version'])
 
     # Set even when nothing came back: a DLC ships no Control NCA and never will, so
