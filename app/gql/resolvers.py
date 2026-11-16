@@ -90,19 +90,13 @@ def _title_cols(driver: str, sel: "Selection") -> str:
         cols.append("ot.complete AS complete")
     return ", ".join(cols)
 
-_FILE_COLS = """
-f.id AS id, f.library_id AS library_id, f.filepath AS filepath,
-f.folder AS folder, f.filename AS filename, f.extension AS extension,
-f.size AS size, f.compressed AS compressed, f.multicontent AS multicontent,
-f.nb_content AS nb_content, f.download_count AS download_count,
-f.identified AS identified, f.identification_type AS identification_type,
-f.identification_error AS identification_error,
-f.identification_attempts AS identification_attempts,
-f.organized AS organized, f.signature_valid AS signature_valid,
-f.hash_valid AS hash_valid, f.hash_modified AS hash_modified,
-f.verification_error AS verification_error,
-f.verified_at AS verified_at, f.mtime AS mtime, f.added_at AS added_at
-"""
+_FILE_FIELDS = (
+    'id', 'library_id', 'filepath', 'folder', 'filename', 'extension', 'size', 'compressed',
+    'multicontent', 'nb_content', 'download_count', 'identified', 'identification_type',
+    'identification_error', 'identification_attempts', 'organized', 'signature_valid',
+    'hash_valid', 'hash_modified', 'verification_error', 'verified_at', 'mtime', 'added_at',
+)
+_FILE_COLS = ", ".join(f"f.{c} AS {c}" for c in _FILE_FIELDS)
 
 # `titledb.titles` already holds one row per id, merged across the metadata sources by
 # titledb.store, so this join needs no dedup predicate. `td.source` is the
@@ -157,14 +151,9 @@ def _version_int(value) -> int:
 def _iso(value) -> Optional[str]:
     """Datetime columns read through raw text() come back as strings, not
     datetimes - SQLAlchemy only applies type coercion to typed selectables."""
-    # The common case: a plain string needs no conversion (str() would return it as-is).
-    if value is None or type(value) is str:
-        return value
-    try:
-        isoformat = value.isoformat
-    except AttributeError:
-        return str(value)
-    return isoformat()
+    if value is None:
+        return None
+    return value.isoformat() if hasattr(value, 'isoformat') else str(value)
 
 def _build_title(row, *, with_apps: bool, with_files: bool) -> Title:
     # `m.get(col)` returns None for columns the resolver didn't project,
@@ -212,18 +201,17 @@ def _build_title(row, *, with_apps: bool, with_files: bool) -> Title:
     )
 
 
-def _build_file(row, *, include_filepath: bool) -> File:
-    # Every caller selects _FILE_COLS last (the app-files query adds a leading `pk`),
-    # so unpack the trailing 23 columns once rather than one Row attribute read each.
-    # Slicing yields a plain tuple, avoiding the list a starred target would build.
+def _build_file(row) -> File:
+    # _FILE_COLS is selected last, so its values are the row's tail, in _FILE_FIELDS order.
     (id_, library_id, filepath, folder, filename, extension, size, compressed,
      multicontent, nb_content, download_count, identified, identification_type,
      identification_error, identification_attempts, organized, signature_valid,
-     hash_valid, hash_modified, verification_error, verified_at, mtime, added_at) = row[-23:]
+     hash_valid, hash_modified, verification_error, verified_at, mtime,
+     added_at) = row[-len(_FILE_FIELDS):]
     return File(
         id=strawberry.ID(str(id_)),
         library_id=library_id,
-        filepath=filepath if include_filepath else None,
+        filepath=filepath,
         folder=folder,
         filename=filename,
         extension=extension,
@@ -381,7 +369,7 @@ def _hydrate_app_files(
         app = apps_by_pk.get(int(r.pk))
         if app is None:
             continue
-        f = _build_file(r, include_filepath=True)
+        f = _build_file(r)
         f.apps_loaded = [] if with_apps else None
         f.contents_loaded = []
         app.files_loaded.append(f)
@@ -1101,7 +1089,7 @@ def resolve_files(*, filter: Optional[FileFilter], page: int, page_size: int,
     items: List[File] = []
     files_by_pk: Dict[int, File] = {}
     for r in rows:
-        f = _build_file(r, include_filepath=True)
+        f = _build_file(r)
         f.apps_loaded = [] if want_apps else None
         items.append(f)
         if want_apps:

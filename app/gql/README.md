@@ -569,10 +569,11 @@ For a column on an existing type:
 2. Add it to the Strawberry type in `gql/types.py`, with a `desc(...)`
    description — the docs test will fail without one.
 3. Project the column in the SQL — for `Title` fields, add an entry to
-   `_TITLE_COL_MAP`; for `App` / `File`, edit the `_FILE_COLS` constant or the
+   `_TITLE_COL_MAP`; for `File`, append it to `_FILE_FIELDS`; for `App`, edit the
    resolver SQL directly.
-4. Read it via `m.get(col)` in `_build_title` / `_build_file` so unselected
-   columns don't crash.
+4. Read it in the builder: via `m.get(col)` in `_build_title`, so unselected
+   columns don't crash; for `File`, add it to the unpack in `_build_file` at the
+   same position as in `_FILE_FIELDS`.
 
 For a brand-new nested batch-loaded field:
 
