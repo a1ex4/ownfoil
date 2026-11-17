@@ -1,6 +1,8 @@
 import os
 import re
 import shutil
+import unicodedata
+import uuid
 from constants import *
 from db import *
 from sqlalchemy.exc import IntegrityError
@@ -61,7 +63,59 @@ def organized_path(file_obj, library_path, organizer_settings):
     safe_parts = sanitized_path_parts(template.format(**format_data), windows_compatible)
     if sys.platform == 'win32' or windows_compatible:
         safe_parts = truncate_path_parts(safe_parts, len(library_path))
-    return os.path.join(library_path, os.path.join(*safe_parts))
+    return on_disk_dirs(library_path, os.path.join(library_path, *safe_parts))
+
+def _fold(name):
+    return unicodedata.normalize('NFC', name).casefold()
+
+def _aliased_entry(parent, name):
+    """The listed entry a case-insensitive filesystem resolves `name` to, None unless it folds it."""
+    path = os.path.join(parent, name)
+    if not os.path.exists(path):
+        return None
+    entries = os.listdir(parent)
+    if name in entries:
+        return None
+    return next((e for e in entries
+                 if _fold(e) == _fold(name) and os.path.samefile(os.path.join(parent, e), path)), None)
+
+def on_disk_dirs(library_path, path):
+    """`path` with its existing folders spelled as on disk, so it matches the paths the watcher reports."""
+    parts = os.path.relpath(path, library_path).split(os.sep)
+    resolved = library_path
+    for i, part in enumerate(parts[:-1]):
+        if not os.path.isdir(os.path.join(resolved, part)):
+            return os.path.join(resolved, *parts[i:])
+        resolved = os.path.join(resolved, _aliased_entry(resolved, part) or part)
+    return os.path.join(resolved, parts[-1])
+
+def _rename_case(src, dest):
+    """Rename src to dest, a name the filesystem folds onto it. Linux vfat/exFAT ignore a case-only
+    rename, so it goes through a temporary name there."""
+    try:
+        os.rename(src, dest)
+    except OSError:
+        pass
+    if os.path.basename(dest) in os.listdir(os.path.dirname(dest)):
+        return
+    pop_ignored_event(src_path=src, dest_path=dest)
+    tmp = os.path.join(os.path.dirname(dest), f'.{os.path.basename(dest)}.{uuid.uuid4().hex}.rename')
+    add_ignored_event(src, tmp)
+    try:
+        os.rename(src, tmp)
+    except OSError:
+        pop_ignored_event(src_path=src, dest_path=tmp)
+        raise
+    try:
+        if os.path.exists(dest):
+            raise FileExistsError(dest)
+        add_ignored_event(tmp, dest)
+        os.rename(tmp, dest)
+    except OSError:
+        pop_ignored_event(src_path=tmp, dest_path=dest)
+        add_ignored_event(tmp, src)
+        os.rename(tmp, src)
+        raise
 
 def organize_file(file_obj, library_path, organizer_settings):
     try:
@@ -105,9 +159,12 @@ def organize_file(file_obj, library_path, organizer_settings):
                 return True
             try:
                 add_ignored_event(src, candidate)
-                if os.path.exists(candidate):
+                if not os.path.exists(candidate):
+                    shutil.move(src, candidate)
+                elif _aliased_entry(new_dir, os.path.basename(candidate)) and os.path.samefile(src, candidate):
+                    _rename_case(src, candidate)  # the candidate is this file under another case
+                else:
                     raise FileExistsError(candidate)
-                shutil.move(src, candidate)
                 update_file_path(library_path_str, current_filepath, candidate)
                 rel = os.path.relpath(candidate, library_path_str)
                 logger.info(f'Organizing file: {original_filename} → {rel}')
