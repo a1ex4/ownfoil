@@ -546,7 +546,8 @@ def set_library_watcher_settings_api():
 @access_required('admin')
 def set_library_management_settings_api():
     data = request.json
-    set_library_management_settings(data)
+    if set_library_management_settings(data):
+        reset_files_organized()
     tasks_mod.enqueue_task('process_library')
     resp = {
         'success': True,

@@ -269,9 +269,17 @@ def add_library_path_to_settings(path):
         _dump_settings(settings)
     return success, errors
 
+def organizer_layout(organizer):
+    """The organizer settings that decide where a file goes."""
+    return organizer['templates'], organizer['windows_compatible']
+
 def set_library_management_settings(data):
+    """Save the management settings, returning whether the organizer layout changed."""
     with settings_transaction() as settings:
-        settings['library']['management'].update(data)
+        mgmt = settings['library']['management']
+        before = copy.deepcopy(organizer_layout(mgmt['organizer']))
+        mgmt.update(data)
+        return organizer_layout(mgmt['organizer']) != before
 
 def get_watcher_config():
     """Return the global file watcher config, merged over defaults."""

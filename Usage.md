@@ -275,6 +275,8 @@ Verification is disabled entirely, with the controls greyed out, when no valid [
 
 Once a file is identified, the organizer renders the matching template, and moves the file there if it isn't already. Paths are relative to the library path the file is in, and the extension is added automatically. If another file already has that name, a `(2)` is appended to it, and removed once the other file is gone. On a case-insensitive library (an SMB share, exFAT or FAT32 drive), an existing folder whose name differs from the template only in case is kept as it is, while a file name is renamed to the template's case.
 
+Changing a template or `Windows compatible filenames` moves every file already in the library to its new path. If you change them while the organizer is off, the files move once you turn it on.
+
 By default, file names are sanitized based on the system running Ownfoil, for compatible characters. If Ownfoil is running on a Linux server but you are accessing your library on Windows (with an SMB or NFS mount), you can force the organizer to comply with file names that will render correctly in Windows.
 
 ##### Templates
