@@ -6,6 +6,7 @@ case-only rename either applies (SMB, NTFS, APFS) or is silently ignored (Linux 
 """
 import os
 import shutil
+import sys
 import types
 
 import pytest
@@ -28,7 +29,8 @@ class CaseInsensitiveFS:
 
     def real(self, path):
         """The on-disk spelling of path; parts that don't exist yet are kept as given."""
-        if os.path.commonpath([self.root, path]) != self.root:
+        path = os.fspath(path)
+        if not path.startswith(self.root + os.sep):
             return path
         cur = self.root
         for part in os.path.relpath(path, self.root).split(os.sep):
@@ -74,6 +76,7 @@ def env(tmp_path, monkeypatch):
 
 
 def _seed(env, files):
+    files = [os.path.join(*rel.split('/')) for rel in files]
     for rel in files:
         path = os.path.join(env.lib_dir, rel)
         _makedirs(os.path.dirname(path), exist_ok=True)
@@ -90,7 +93,11 @@ def _seed(env, files):
 
 
 def _on_disk(root):
-    return sorted(os.path.relpath(os.path.join(d, n), root) for d, _, names in os.walk(root) for n in names)
+    return sorted(_rel(os.path.join(d, n), root) for d, _, names in os.walk(root) for n in names)
+
+
+def _rel(path, root):
+    return os.path.relpath(path, root).replace(os.sep, '/')
 
 
 # How each observer reports the renames: inotify one event per rename (a rename to a name the
@@ -127,6 +134,8 @@ CASES = [
 @pytest.mark.parametrize('case,fs,files,expected', CASES, ids=[c[0] for c in CASES])
 def test_organize_on_case_insensitive_library(env, case, fs, files, expected):
     fs_cls, case_rename, observers = fs
+    if fs_cls is CaseSensitiveFS and sys.platform == 'win32':
+        pytest.skip('NTFS folds case itself')
     file_obj = _seed(env, files)
     disk = fs_cls(env.lib_dir, case_rename)
     disk.install(env.monkeypatch)
@@ -135,7 +144,7 @@ def test_organize_on_case_insensitive_library(env, case, fs, files, expected):
 
     assert _on_disk(env.lib_dir) == expected
     organized = Files.query.one().filepath
-    assert os.path.relpath(organized, env.lib_dir) == expected[0]
+    assert _rel(organized, env.lib_dir) == expected[0]
     target = library.organized_path(file_obj, env.lib_dir, {'templates': {'base': '{titleName}/{titleName}'}})
     assert os.path.dirname(target) == os.path.dirname(organized)  # what maintenance compares with the DB
 
