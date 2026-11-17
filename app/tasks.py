@@ -25,7 +25,7 @@ from db import (
     verification_status,
     upsert_media, get_title_media, delete_media_slots, get_extract_version,
 )
-from settings import get_settings, local_media_enabled
+from settings import get_settings, local_media_enabled, organizer_layout
 from utils import interval_string_to_timedelta, delete_empty_folders, human_size
 from library import (
     add_missing_apps_for_title, update_title_flags,
@@ -855,12 +855,22 @@ def _organize(file, mgmt):
     if not claim_temp_file(claimed):
         return
     library_path = get_library_path(file.library_id)
+    stale = False
     try:
         if organize_file(file, library_path, mgmt['organizer']):
             file.organized = True
             db.session.commit()
+            # Committed before re-reading the layout: a save racing this move either sees the
+            # flag and resets it, or is seen here and the file is moved again.
+            current = get_settings()['library']['management']
+            if organizer_layout(current['organizer']) != organizer_layout(mgmt['organizer']):
+                file.organized = False
+                db.session.commit()
+                stale = True
     finally:
         remove_temp_file(claimed)
+    if stale:
+        return _organize(file, current)
     request_maintenance(library_path)
 
 

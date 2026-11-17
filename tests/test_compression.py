@@ -20,6 +20,7 @@ from db import (db, Files, Libraries, IgnoredEvent, TempFile, Task,
 from nsz.Decompressor import VerificationException
 
 from app import create_app
+from constants import DEFAULT_SETTINGS
 
 
 # --- Harness -----------------------------------------------------------------------------
@@ -37,7 +38,7 @@ def _settings(compress_files=True, organizer=False, group_limits=None,
         "verification": {"enabled": verify, "depth": depth},
         "delete_older_updates": False,
         "deduplication": {"enabled": False, "prefer_multicontent": False},
-        "organizer": {"enabled": organizer, "remove_empty_folders": False},
+        "organizer": {**DEFAULT_SETTINGS["library"]["management"]["organizer"], "enabled": organizer},
     }},
         "titles": {"language": "en", "region": "US"}}
     if group_limits is not None:
