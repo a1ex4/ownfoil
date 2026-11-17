@@ -18,7 +18,7 @@ import logging
 import datetime
 from constants import *
 from flask import request, send_from_directory
-from utils import throttle, client_address
+from utils import throttle, client_address, is_library_file
 import titledb
 
 # Retrieve main logger
@@ -397,6 +397,18 @@ def pop_ignored_event(src_path=None, dest_path=None):
         db.session.commit()
         return True
     return False
+
+
+def pop_ignored_move(src_path):
+    """True if a move away from src_path is ours. The mark stays while its destination is a library
+    file on disk: a move into a new folder is also reported as that file created, which consumes it."""
+    event = IgnoredEvent.query.filter_by(src_path=src_path).first()
+    if event is None:
+        return False
+    if not (is_library_file(event.dest_path) and os.path.exists(event.dest_path)):
+        db.session.delete(event)
+        db.session.commit()
+    return True
 
 
 class TempFile(db.Model):
