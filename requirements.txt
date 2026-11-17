@@ -3,7 +3,7 @@ Flask-Login==0.6.3
 Flask-Migrate==4.1.0
 flask-sock==0.7.0
 flask-sqlalchemy==3.1.1
-gunicorn==26.2.0
+gunicorn==27.0.1
 nstools==2.0.0b7
 nsz==5.0.0
 pillow==13.0.0
