@@ -1,5 +1,5 @@
 from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, func
 from sqlalchemy import event
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm.exc import NoResultFound
@@ -718,6 +718,12 @@ def remove_titles_without_owned_apps():
         db.session.commit()
     return titles_removed
 
+def _dir_prefix(dirpath):
+    """Prefix matching files directly or recursively under dirpath.
+    Uses the host separator: stored filepaths come from the filesystem, so they are
+    backslash-separated on Windows and a '/' pattern would match nothing there."""
+    return dirpath.rstrip('/' + os.sep) + os.sep
+
 def _dir_prefix_like(dirpath):
     """LIKE pattern matching files directly or recursively under dirpath, escaping wildcards.
     Uses the host separator: stored filepaths come from the filesystem, so they are
@@ -727,7 +733,16 @@ def _dir_prefix_like(dirpath):
 
 def delete_files_under_dir(dirpath):
     """Delete all library files under a directory (folder moved out/removed). Returns count."""
-    files = Files.query.filter(Files.filepath.like(_dir_prefix_like(dirpath), escape='\\')).all()
+    prefix = _dir_prefix(dirpath)
+    pattern = _dir_prefix_like(dirpath)
+    # Match using both the LIKE pattern and exact case-sensitive prefix.
+    # In SQLite, LIKE is case-insensitive for ASCII characters, so a folder deletion
+    # for 'Some Game' would otherwise delete files from 'SOME GAME'.
+    files = Files.query.filter(
+        Files.filepath.like(pattern, escape='\\'),
+        func.substr(Files.filepath, 1, len(prefix)) == prefix,
+    ).all()
+    files = [f for f in files if f.filepath.startswith(prefix)]
     for f in files:
         remove_file_from_apps(f.id)
         db.session.delete(f)
