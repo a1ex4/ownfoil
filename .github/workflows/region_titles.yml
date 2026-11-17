@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
     inputs:
       force:
-        description: 'Rebuild even if blawar/titledb has not moved'
+        description: 'Rebuild even if the titledb upstream has not moved'
         type: boolean
         default: false
 
@@ -25,21 +25,25 @@ jobs:
       contents: write
       actions: write
 
+    # Evaluated once per job, so the skip check and the tarball always read the same repo
+    env:
+      TITLEDB_REPO: ${{ vars.TITLEDB_REPO || 'borntohonk/titledb' }}
+
     # Steps represent a sequence of tasks that will be executed as part of the job
     steps:
       # A no-op run must not conclude as a success: nightly.link serves the latest *successful*
       # run's artifact to pre-release Ownfoil versions, so it has to keep pointing at a run that
       # actually uploaded one. Cancelling leaves that resolution untouched.
-      - name: Skip when blawar/titledb has not moved
+      - name: Skip when the titledb upstream has not moved
         env:
           GH_TOKEN: ${{ github.token }}
           # This step runs before the checkout, so gh has no local repo to infer from
           GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          remote=$(git ls-remote https://github.com/blawar/titledb.git HEAD | cut -f1)
+          remote=$(git ls-remote "https://github.com/${TITLEDB_REPO}.git" HEAD | cut -f1)
           published=$(curl -sfL "https://github.com/${{ github.repository }}/releases/download/titledb/latest" || true)
-          echo "upstream=${remote} published=${published:-<none>}"
+          echo "upstream=${TITLEDB_REPO}@${remote} published=${published:-<none>}"
           echo "titledb_sha=${remote}" >> "$GITHUB_ENV"
           if [ "$remote" = "$published" ] && [ "${{ inputs.force }}" != "true" ]; then
             echo "titledb unchanged, cancelling this run"
@@ -62,9 +66,11 @@ jobs:
           cd nut
           pip install -r requirements.txt
           mkdir build_artefacts titledb
-          curl -fsSL --retry 3 "https://github.com/blawar/titledb/archive/${titledb_sha}.tar.gz" \
+          curl -fsSL --retry 3 "https://github.com/${TITLEDB_REPO}/archive/${titledb_sha}.tar.gz" \
             | tar -xz --strip-components=1 -C titledb \
-                  --exclude=ncas.json --exclude=cheats.json
+                  --exclude=ncas.json --exclude=cheats.json --exclude=titles.json.zst
+          # nut reads plain JSON; upstream may ship its sources zstd-compressed
+          find titledb -maxdepth 1 -name '*.zst' -exec zstd -d -q --rm {} +
           echo "formatted_date=$(date +"%Y-%m-%d_%H%M%S")" >> $GITHUB_ENV
           # Short hash inside the artefact: consumed by Ownfoil < 2.4 through nightly.link.
           # Explicitly 7 chars, matching what --short gave on the old shallow clone.
@@ -120,7 +126,7 @@ jobs:
           set -euo pipefail
           gh release view titledb >/dev/null 2>&1 || \
             gh release create titledb --prerelease --latest=false --title 'titledb data' \
-              --notes 'Rolling titledb dataset consumed by Ownfoil. Assets are replaced in place; `latest` holds the blawar/titledb commit they were built from and is always written last.'
+              --notes 'Rolling titledb dataset consumed by Ownfoil. Assets are replaced in place; `latest` holds the upstream titledb commit they were built from and is always written last.'
           uploaded=false
           for attempt in 1 2 3; do
             if gh release upload titledb nut/build_artefacts/*.zst --clobber; then
