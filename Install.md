@@ -1,6 +1,6 @@
 # Installing Ownfoil
 
-Ownfoil is a web server listening on port `8465`, so anything that can run a Docker container or a Python environment will do - a NAS, a Raspberry Pi, an old laptop or your own desktop.
+Ownfoil is a web server listening on port `8465` by default, so anything that can run a Docker container or a Python environment will do - a NAS, a Raspberry Pi, an old laptop or your own desktop.
 
 - [Using Docker](#using-docker)
 - [Using uv (Windows users do this)](#using-uv)
@@ -45,6 +45,8 @@ services:
     container_name: ownfoil
     image: a1ex4/ownfoil
    # environment:
+   #   # To change the web server port
+   #   - OWNFOIL_PORT=8465
    #   # For write permission in config directory
    #   - PUID=1000
    #   - PGID=1000
@@ -86,6 +88,7 @@ This is usefull if you don't want to remember the `docker run` command and have 
 
 | Variable | Description |
 | --- | --- |
+| `OWNFOIL_PORT` | The port on which the web server should listen, `8465` by default. |
 | `PUID` / `PGID` | UID and GID of the user running the app in the container, `1000:1000` by default. |
 | `USER_ADMIN_NAME` / `USER_ADMIN_PASSWORD` | Creates (or updates) an admin user at every startup. |
 | `USER_GUEST_NAME` / `USER_GUEST_PASSWORD` | Creates (or updates) a regular user with shop access at every startup. |

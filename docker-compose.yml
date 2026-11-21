@@ -5,6 +5,8 @@ services:
     container_name: ownfoil
     image: a1ex4/ownfoil:latest
     environment:
+      # To change the web server port
+      # - OWNFOIL_PORT=8465
       # For write permission in config directory
       - PUID=1000
       - PGID=1000
