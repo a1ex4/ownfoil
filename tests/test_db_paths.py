@@ -1,31 +1,44 @@
-"""Tests for the LIKE pattern behind `delete_files_under_dir`. Stored filepaths carry the
-host's separator, so the pattern has to as well — a hardcoded '/' matches nothing on Windows,
-silently turning a folder removal into a no-op."""
+"""Which library files `delete_files_under_dir` removes when a folder disappears."""
 
 import os
 
 import pytest
 
-from db import _dir_prefix_like
+from app import create_app
+from db import db, Files, Libraries, delete_files_under_dir
+
+FILES = ['Zelda/a.nsp', 'Zelda/DLC/b.nsp', 'ZELDA/c.nsp', 'Zelda II/d.nsp', 'Zeldas/e.nsp',
+         '100%_Orange/f.nsp', '100XYOrange/g.nsp', 'under_score/h.nsp', 'underXscore/i.nsp']
+
+CASES = {
+    'direct and nested files': ('Zelda', ['Zelda/a.nsp', 'Zelda/DLC/b.nsp']),
+    'trailing host separator': ('Zelda' + os.sep, ['Zelda/a.nsp', 'Zelda/DLC/b.nsp']),
+    'trailing slash': ('Zelda/', ['Zelda/a.nsp', 'Zelda/DLC/b.nsp']),
+    'case-only sibling kept (#406)': ('ZELDA', ['ZELDA/c.nsp']),
+    'percent and underscore are literal': ('100%_Orange', ['100%_Orange/f.nsp']),
+    'underscore is literal': ('under_score', ['under_score/h.nsp']),
+}
 
 
-def test_prefix_uses_the_host_separator():
-    lib = os.path.join("lib", "Zelda")
-    pattern = _dir_prefix_like(lib)
+@pytest.fixture
+def lib_dir(tmp_path):
+    app = create_app(f"sqlite:///{tmp_path/'test.db'}")
+    with app.app_context():
+        db.create_all()
+        lib_dir = str(tmp_path / 'games')
+        lib = Libraries(path=lib_dir)
+        db.session.add(lib)
+        db.session.commit()
+        for rel in FILES:
+            path = os.path.join(lib_dir, *rel.split('/'))
+            db.session.add(Files(filepath=path, library_id=lib.id, folder=os.path.dirname(path),
+                                 filename=os.path.basename(path), extension='nsp'))
+        db.session.commit()
+        yield lib_dir
 
-    assert pattern.endswith(os.sep.replace("\\", "\\\\") + "%")
-    # A file under the directory must match the pattern once LIKE escaping is undone.
-    assert pattern.replace("\\\\", "\\")[:-1] == lib + os.sep
 
-
-def test_trailing_separator_is_not_doubled():
-    lib = os.path.join("lib", "Zelda")
-    assert _dir_prefix_like(lib + os.sep) == _dir_prefix_like(lib)
-    assert _dir_prefix_like(lib + "/") == _dir_prefix_like(lib)
-
-
-@pytest.mark.parametrize("wildcard", ["100%_Orange", "under_score"])
-def test_like_wildcards_are_escaped(wildcard):
-    """% and _ in a folder name are LIKE wildcards and must not widen the match."""
-    pattern = _dir_prefix_like(os.path.join("lib", wildcard))
-    assert "\\%" in pattern or "\\_" in pattern
+@pytest.mark.parametrize('folder,expected', CASES.values(), ids=CASES.keys())
+def test_delete_files_under_dir(lib_dir, folder, expected):
+    assert delete_files_under_dir(os.path.join(lib_dir, folder)) == len(expected)
+    remaining = {os.path.relpath(f.filepath, lib_dir).replace(os.sep, '/') for f in Files.query}
+    assert remaining == set(FILES) - set(expected)

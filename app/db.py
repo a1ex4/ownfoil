@@ -730,16 +730,12 @@ def remove_titles_without_owned_apps():
         db.session.commit()
     return titles_removed
 
-def _dir_prefix_like(dirpath):
-    """LIKE pattern matching files directly or recursively under dirpath, escaping wildcards.
-    Uses the host separator: stored filepaths come from the filesystem, so they are
-    backslash-separated on Windows and a '/' pattern would match nothing there."""
-    escaped = dirpath.rstrip('/' + os.sep).replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
-    return escaped + os.sep.replace('\\', '\\\\') + '%'
-
 def delete_files_under_dir(dirpath):
-    """Delete all library files under a directory (folder moved out/removed). Returns count."""
-    files = Files.query.filter(Files.filepath.like(_dir_prefix_like(dirpath), escape='\\')).all()
+    """Delete all library files under a directory (folder moved out/removed). Returns count.
+    Matches the prefix case-sensitively, unlike LIKE: a folder renamed by case only must not take the
+    moved files with it (#406). Stored filepaths carry the host separator, so the prefix does too."""
+    prefix = dirpath.rstrip('/' + os.sep) + os.sep
+    files = Files.query.filter(db.func.substr(Files.filepath, 1, len(prefix)) == prefix).all()
     for f in files:
         remove_file_from_apps(f.id)
         db.session.delete(f)
